@@ -1,0 +1,168 @@
+import React, { useState } from 'react';
+import { 
+  Search, 
+  TrendingUp, 
+  Target, 
+  BarChart2, 
+  ArrowUpRight, 
+  Package, 
+  Loader2
+} from 'lucide-react';
+import { GoogleGenAI } from "@google/genai";
+import { motion, AnimatePresence } from 'motion/react';
+import { useLanguage } from '../contexts/LanguageContext';
+
+const ProductResearch: React.FC = () => {
+    const { t, language } = useLanguage();
+    const [queryInput, setQueryInput] = useState(() => localStorage.getItem('research_query') || '');
+    const [isSearching, setIsSearching] = useState(false);
+    const [analysis, setAnalysis] = useState<string | null>(() => localStorage.getItem('research_analysis'));
+  
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
+  
+    const handleSearch = async () => {
+      if (!queryInput) return;
+      setIsSearching(true);
+      setAnalysis(null);
+      try {
+        const prompt = `You are an expert e-commerce product researcher. Analyze the following product or niche: "${queryInput}". 
+        Provide a comprehensive research report including:
+        1. Market Demand (Current trend status).
+        2. Competitor Analysis (Major players and their strategy).
+        3. Pricing Strategy (Recommended price point).
+        4. Target Audience (Demographics and behavior).
+        5. Winning Creative Angles (What kind of videos/ads would work).
+        
+        CRITICAL INSTRUCTION: 
+        - The current application language is set to: ${language === 'km' ? 'Khmer' : 'English'}.
+        - Detect the language of the input: "${queryInput}".
+        - If either the input is in Khmer OR the application language is Khmer, you MUST provide the entire research report in Khmer.
+        - Otherwise, provide it in English.
+        
+        Output in a structured, professional format with emojis.`;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: prompt
+      });
+      
+      const text = response.text || t('noDataGenerated');
+      setAnalysis(text);
+      localStorage.setItem('research_analysis', text);
+      localStorage.setItem('research_query', queryInput);
+    } catch (error) {
+      console.error(error);
+      setAnalysis(t('errorPerformingResearch'));
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const trendingProducts = [
+    { name: 'Ergonomic Standing Desk', growth: '+142%', category: 'Office' },
+    { name: 'Portable Blender Pro', growth: '+89%', category: 'Kitchen' },
+    { name: 'Smart Pet Feeder AI', growth: '+210%', category: 'Pets' },
+    { name: 'Linen Summer Set', growth: '+320%', category: 'Fashion' },
+  ];
+
+  return (
+    <div className="max-w-6xl mx-auto space-y-10 pb-20">
+      <header>
+        <h2 className="text-4xl font-display font-bold text-brand-700 tracking-tight flex items-center gap-3">
+          {t('productResearchTitle')}
+          <Search className="text-brand-500" size={32} />
+        </h2>
+        <p className="text-slate-500 mt-1 text-lg">{t('productResearchSubtitle')}</p>
+      </header>
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        <div className="lg:col-span-8 space-y-8">
+          <div className="glass p-10 rounded-[2.5rem] shadow-sm relative overflow-hidden">
+            <div className="relative z-10 space-y-6">
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">{t('researchNicheLabel')}</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={queryInput}
+                    onChange={(e) => setQueryInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                    placeholder={t('searchPlaceholder')}
+                    className="w-full pl-14 pr-6 py-5 bg-brand-50 border border-brand-200 rounded-3xl focus:ring-2 focus:ring-brand-500 focus:bg-white outline-none transition-all text-lg font-medium"
+                  />
+                  <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-brand-400" size={24} />
+                </div>
+              </div>
+
+              <button
+                onClick={handleSearch}
+                disabled={isSearching || !queryInput}
+                className="w-full bg-brand-700 hover:bg-brand-800 disabled:bg-brand-200 text-white font-bold py-5 rounded-2xl flex items-center justify-center gap-3 shadow-xl transition-all"
+              >
+                {isSearching ? <Loader2 className="animate-spin" /> : <Target size={20} />}
+                <span>{isSearching ? t('analyzingMarket') : t('runDeepResearch')}</span>
+              </button>
+            </div>
+          </div>
+
+          <AnimatePresence>
+            {analysis && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="glass p-10 rounded-[2.5rem] shadow-sm prose prose-brand max-w-none"
+              >
+                <div className="flex items-center gap-2 mb-6 text-brand-700">
+                  <BarChart2 size={24} />
+                  <h3 className="text-2xl font-bold m-0">{t('aiResearchInsights')}</h3>
+                </div>
+                <div className="whitespace-pre-wrap text-brand-600 leading-relaxed font-sans">
+                  {analysis}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        <div className="lg:col-span-4 space-y-8">
+          <div className="glass p-8 rounded-[2rem] border border-brand-100 shadow-sm relative overflow-hidden">
+            <h3 className="text-lg font-bold text-brand-700 mb-6 flex items-center gap-2">
+              <TrendingUp size={20} className="text-emerald-500" />
+              {t('tiktokTrendingNow')}
+            </h3>
+            <div className="space-y-4">
+              {trendingProducts.map((item, i) => (
+                <div key={i} className="flex items-center justify-between p-4 bg-brand-50/50 rounded-2xl border border-brand-100 hover:border-brand-300 transition-all cursor-pointer group">
+                  <div>
+                    <p className="font-bold text-brand-700 group-hover:text-brand-600 transition-colors">{item.name}</p>
+                    <p className="text-[10px] text-slate-500 uppercase tracking-widest">{item.category}</p>
+                  </div>
+                  <div className="text-emerald-600 font-bold flex items-center gap-1 bg-emerald-50 px-2 py-1 rounded-lg">
+                    {item.growth}
+                    <ArrowUpRight size={14} />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button className="w-full mt-6 py-4 bg-brand-50 text-brand-600 font-bold rounded-xl text-sm hover:bg-brand-100 transition-all border border-brand-100">
+              {t('explorerFullList')}
+            </button>
+          </div>
+
+          <div className="bg-gradient-to-br from-brand-600 to-crab-shell p-8 rounded-[2rem] text-white shadow-xl relative overflow-hidden group">
+            <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 transition-transform">
+              <Package size={80} />
+            </div>
+            <h4 className="text-xl font-bold mb-2">{t('competitorTracking')}</h4>
+            <p className="text-brand-100 text-sm mb-6 leading-relaxed">{t('competitorTrackingDesc')}</p>
+            <button className="w-full py-4 bg-white/20 hover:bg-white/30 backdrop-blur-md rounded-xl font-bold transition-all border border-white/20">
+              {t('setupAlerts')}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default ProductResearch;

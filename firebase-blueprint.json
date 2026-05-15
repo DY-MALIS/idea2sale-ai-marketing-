@@ -1,0 +1,93 @@
+{
+  "entities": {
+    "TikTokPost": {
+      "title": "TikTok Post",
+      "description": "Details of a video published to TikTok",
+      "type": "object",
+      "properties": {
+        "videoId": { "type": "string" },
+        "status": { "type": "string", "enum": ["PROCESSING", "PUBLISH_COMPLETE", "FAILED"] },
+        "title": { "type": "string" },
+        "videoUrl": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["videoId", "status", "timestamp"]
+    },
+    "SchedulePost": {
+      "title": "Scheduled Post",
+      "description": "A post queued for future publishing",
+      "type": "object",
+      "properties": {
+        "content": { "type": "string" },
+        "platform": { "type": "string", "enum": ["TIKTOK", "INSTAGRAM", "TWITTER"] },
+        "scheduledTime": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["PENDING", "PUBLISHED", "FAILED"] },
+        "userId": { "type": "string" },
+        "aiSuggested": { "type": "boolean" }
+      },
+      "required": ["content", "platform", "scheduledTime", "status", "userId"]
+    },
+    "AudienceActivity": {
+      "title": "Audience Activity Data",
+      "description": "Raw or aggregated activity data for training the AI",
+      "type": "object",
+      "properties": {
+        "dayOfWeek": { "type": "string" },
+        "hour": { "type": "integer" },
+        "intensity": { "type": "number" },
+        "userId": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["dayOfWeek", "hour", "intensity", "userId"]
+    },
+    "Campaign": {
+      "title": "Auto-Post Campaign",
+      "description": "A high-level campaign for automated social media posting",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "platform": { "type": "string", "enum": ["TikTok", "Facebook", "Instagram"] },
+        "frequency": { "type": "string", "enum": ["Daily", "Weekly", "Custom"] },
+        "status": { "type": "string", "enum": ["Active", "Paused"] },
+        "userId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "platform", "frequency", "status", "userId"]
+    },
+    "ReplyRule": {
+      "title": "Smart AI Reply Rule",
+      "description": "Auto-reply configuration for social media comments",
+      "type": "object",
+      "properties": {
+        "trigger": { "type": "string" },
+        "response": { "type": "string" },
+        "platform": { "type": "string", "enum": ["TikTok", "Facebook", "Instagram"] },
+        "userId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["trigger", "response", "platform", "userId"]
+    }
+  },
+  "firestore": {
+    "/tiktok_posts/{postId}": {
+      "schema": "TikTokPost",
+      "description": "Individual TikTok post tracking"
+    },
+    "/scheduled_posts/{postId}": {
+      "schema": "SchedulePost",
+      "description": "Queue of posts to be published"
+    },
+    "/audience_activity/{activityId}": {
+      "schema": "AudienceActivity",
+      "description": "Training data for best time prediction"
+    },
+    "/campaigns/{campaignId}": {
+      "schema": "Campaign",
+      "description": "Social media automation campaigns"
+    },
+    "/reply_rules/{ruleId}": {
+      "schema": "ReplyRule",
+      "description": "Automated response rules"
+    }
+  }
+}

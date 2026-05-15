@@ -1,0 +1,53 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=Kantumruy+Pro:wght@300;400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Outfit", sans-serif;
+  --font-khmer: "Kantumruy Pro", sans-serif;
+  
+  --color-brand-50: #fffbeb;
+  --color-brand-100: #fef3c7;
+  --color-brand-200: #fde68a;
+  --color-brand-500: #f59e0b;
+  --color-brand-600: #d97706;
+  --color-brand-700: #b45309;
+  
+  --color-crab-fat: #f59e0b;
+  --color-crab-shell: #991b1b;
+  --color-crab-ocean: #0f766e;
+  --color-crab-cream: #fffbeb;
+}
+
+@layer base {
+  body {
+    @apply bg-brand-50 text-slate-900 font-sans antialiased;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-display tracking-tight text-brand-700;
+  }
+}
+
+@layer utilities {
+  .glass {
+    @apply bg-white/80 backdrop-blur-md border border-brand-200/30 shadow-xl shadow-brand-500/10;
+  }
+  
+  .glass-dark {
+    @apply bg-brand-700/90 backdrop-blur-md border border-white/10 shadow-2xl;
+  }
+  
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-brand-600 to-crab-shell;
+  }
+  
+  .bg-mesh {
+    background-color: #fffbeb;
+    background-image: 
+      radial-gradient(at 0% 0%, rgba(245, 158, 11, 0.15) 0px, transparent 50%),
+      radial-gradient(at 100% 0%, rgba(153, 27, 27, 0.1) 0px, transparent 50%),
+      radial-gradient(at 100% 100%, rgba(245, 158, 11, 0.1) 0px, transparent 50%),
+      radial-gradient(at 0% 100%, rgba(153, 27, 27, 0.15) 0px, transparent 50%);
+  }
+}

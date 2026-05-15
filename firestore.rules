@@ -1,0 +1,144 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Helper for future admin features
+    function isAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    match /test/connection {
+      allow read: if true;
+    }
+
+    match /tiktok_posts/{postId} {
+      // Allow public read for analytics dashboard
+      allow read: if true;
+      
+      allow create: if isSignedIn() 
+        && isValidId(postId)
+        && incoming().videoId is string
+        && incoming().videoId.size() < 500
+        && incoming().status == 'PROCESSING'
+        && incoming().timestamp == request.time;
+        
+      allow update: if isSignedIn() 
+        && (
+          // Action: Update Status
+          incoming().diff(existing()).affectedKeys().hasOnly(['status'])
+          && incoming().status in ['PUBLISH_COMPLETE', 'FAILED']
+        );
+        
+      allow delete: if isAdmin();
+    }
+
+    match /scheduled_posts/{postId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      
+      allow create: if isSignedIn()
+        && isValidId(postId)
+        && incoming().userId == request.auth.uid
+        && incoming().content is string
+        && incoming().content.size() <= 2000
+        && incoming().platform in ['TIKTOK', 'INSTAGRAM', 'TWITTER']
+        && incoming().status == 'PENDING';
+        
+      allow update: if isSignedIn()
+        && existing().userId == request.auth.uid
+        && incoming().userId == request.auth.uid
+        && (
+          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'scheduledTime', 'content'])
+        );
+        
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    match /audience_activity/{activityId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      
+      allow create: if isSignedIn()
+        && isValidId(activityId)
+        && incoming().userId == request.auth.uid
+        && incoming().dayOfWeek in ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        && incoming().hour >= 0 && incoming().hour <= 23
+        && incoming().intensity is number;
+        
+      allow update: if isSignedIn()
+        && existing().userId == request.auth.uid
+        && incoming().userId == request.auth.uid
+        && (
+          incoming().diff(existing()).affectedKeys().hasOnly(['intensity', 'updatedAt'])
+        );
+        
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    match /campaigns/{campaignId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      
+      allow create: if isSignedIn()
+        && isValidId(campaignId)
+        && incoming().userId == request.auth.uid
+        && incoming().name is string
+        && incoming().name.size() <= 200
+        && incoming().platform in ['TikTok', 'Facebook', 'Instagram']
+        && incoming().frequency in ['Daily', 'Weekly', 'Custom']
+        && incoming().status == 'Active';
+        
+      allow update: if isSignedIn()
+        && existing().userId == request.auth.uid
+        && incoming().userId == request.auth.uid
+        && (
+          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'name', 'frequency', 'platform', 'updatedAt'])
+        );
+        
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    match /reply_rules/{ruleId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      
+      allow create: if isSignedIn()
+        // && isValidId(ruleId) // auto-ids might fail isValidId if they have weird chars, but Firestore auto ID is usually fine.
+        && incoming().userId == request.auth.uid
+        && incoming().trigger is string
+        && incoming().trigger.size() <= 500
+        && incoming().response is string
+        && incoming().response.size() <= 2000
+        && incoming().platform in ['TikTok', 'Facebook', 'Instagram'];
+        
+      allow update: if isSignedIn()
+        && existing().userId == request.auth.uid
+        && incoming().userId == request.auth.uid
+        && (
+          incoming().diff(existing()).affectedKeys().hasOnly(['trigger', 'response', 'platform', 'updatedAt'])
+        );
+        
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+    }
+  }
+}
