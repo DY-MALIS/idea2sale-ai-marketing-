@@ -18,12 +18,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged((u) => {
-      setUser(u);
-      if (u) setIsDemoMode(false);
+    const timeoutId = window.setTimeout(() => {
+      console.warn('Firebase auth state timed out. Showing the sign-in screen.');
       setLoading(false);
-    });
-    return () => unsubscribe();
+    }, 8000);
+
+    const unsubscribe = auth.onAuthStateChanged(
+      (u) => {
+        window.clearTimeout(timeoutId);
+        setUser(u);
+        if (u) setIsDemoMode(false);
+        setLoading(false);
+      },
+      (error) => {
+        window.clearTimeout(timeoutId);
+        console.error('Firebase auth state failed:', error);
+        setUser(null);
+        setLoading(false);
+      }
+    );
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      unsubscribe();
+    };
   }, []);
 
   const logout = () => {

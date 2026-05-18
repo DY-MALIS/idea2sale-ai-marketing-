@@ -44,6 +44,12 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
         : 'Your browser blocked the Google sign-in popup. Please allow popups or use Continue as Guest.';
     }
 
+    if (code === 'auth/unauthorized-domain') {
+      return language === 'km'
+        ? 'Firebase មិនទាន់អនុញ្ញាត domain នេះទេ។ សូមបន្ថែម localhost ក្នុង Authentication > Settings > Authorized domains។'
+        : 'Firebase has not authorized this domain yet. Add localhost in Authentication > Settings > Authorized domains.';
+    }
+
     return message || (language === 'km' ? 'Google login បរាជ័យ។' : 'Google login failed.');
   };
 

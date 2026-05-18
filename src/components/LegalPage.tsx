@@ -8,7 +8,7 @@ const legalContent = {
   terms: {
     title: 'Terms of Service',
     updated: 'Last updated: May 13, 2026',
-    intro: 'These Terms of Service govern your access to and use of AIME by Angkor Gate, including Idea2Sale marketing, scheduling, analytics, and AI-assisted content tools.',
+    intro: 'These Terms of Service govern your access to and use of Idea2Sale AI Marketing, including marketing, scheduling, analytics, and AI-assisted content tools.',
     sections: [
       {
         title: 'Use of the Service',
@@ -32,18 +32,18 @@ const legalContent = {
       },
       {
         title: 'Limitation of Liability',
-        body: 'The service is provided as-is. To the maximum extent allowed by law, Angkor Gate is not liable for indirect, incidental, special, consequential, or business-loss damages arising from use of the service.',
+        body: 'The service is provided as-is. To the maximum extent allowed by law, Idea2Sale AI Marketing is not liable for indirect, incidental, special, consequential, or business-loss damages arising from use of the service.',
       },
       {
         title: 'Contact',
-        body: 'For questions about these terms, contact Angkor Gate through the official AIME website or support channels.',
+        body: 'For questions about these terms, contact Idea2Sale AI Marketing through the official website or support channels.',
       },
     ],
   },
   privacy: {
     title: 'Privacy Policy',
     updated: 'Last updated: May 13, 2026',
-    intro: 'This Privacy Policy explains how AIME by Angkor Gate collects, uses, and protects information when you use Idea2Sale and related AI marketing tools.',
+    intro: 'This Privacy Policy explains how Idea2Sale AI Marketing collects, uses, and protects information when you use its AI marketing tools.',
     sections: [
       {
         title: 'Information We Collect',
@@ -71,7 +71,7 @@ const legalContent = {
       },
       {
         title: 'Contact',
-        body: 'For privacy questions or requests, contact Angkor Gate through the official AIME website or support channels.',
+        body: 'For privacy questions or requests, contact Idea2Sale AI Marketing through the official website or support channels.',
       },
     ],
   },
@@ -92,7 +92,7 @@ const LegalPage = ({ type }: LegalPageProps) => {
         </a>
 
         <article className="rounded-[2rem] border border-white/60 bg-white/90 p-8 shadow-xl md:p-12">
-          <p className="mb-3 text-xs font-black uppercase tracking-[0.2em] text-brand-500">AIME by Angkor Gate</p>
+          <p className="mb-3 text-xs font-black uppercase tracking-[0.2em] text-brand-500">Idea2Sale AI Marketing</p>
           <h1 className="font-display text-4xl font-bold tracking-tight text-brand-700 md:text-5xl">{content.title}</h1>
           <p className="mt-3 text-sm font-semibold text-slate-400">{content.updated}</p>
           <p className="mt-8 text-base leading-8 text-slate-600">{content.intro}</p>
