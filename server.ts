@@ -102,7 +102,7 @@ async function startServer() {
     }
 
     const state = "pulse_sync";
-    const scope = "user.info.basic,video.upload";
+    const scope = "user.info.basic";
     const authUrl = `https://www.tiktok.com/v2/auth/authorize/?client_key=${clientKey}&scope=${encodeURIComponent(scope)}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}`;
     
     console.log(" - Final Redirect Auth URL:", authUrl);
@@ -122,7 +122,7 @@ async function startServer() {
     }
 
     const state = "pulse_sync";
-    const scope = "user.info.basic,video.upload";
+    const scope = "user.info.basic";
     const authUrl = `https://www.tiktok.com/v2/auth/authorize/?client_key=${clientKey}&scope=${encodeURIComponent(scope)}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}`;
     
     console.log(" - Final JSON Auth URL:", authUrl);
