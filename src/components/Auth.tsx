@@ -91,7 +91,13 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
         animate={{ opacity: 1, y: 0 }}
         className="w-full max-w-lg"
       >
-        <div className="text-center mb-8">
+        <div className="mb-8 flex flex-col items-center text-center">
+          <img
+            src="/favicon.svg"
+            alt="Idea2Sale AI Marketing icon"
+            className="mb-4 h-16 w-16 rounded-2xl shadow-lg"
+          />
+          <h1 className="text-2xl font-black text-brand-700">Idea2Sale AI Marketing</h1>
           <p className="text-slate-700 mt-2 text-lg sm:text-xl font-semibold leading-snug">
             {isLogin ? t('signInToContinue') : t('joinAndGrow')}
           </p>

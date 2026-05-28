@@ -92,7 +92,10 @@ const LegalPage = ({ type }: LegalPageProps) => {
         </a>
 
         <article className="rounded-[2rem] border border-white/60 bg-white/90 p-8 shadow-xl md:p-12">
-          <p className="mb-3 text-xs font-black uppercase tracking-[0.2em] text-brand-500">Idea2Sale AI Marketing</p>
+          <div className="mb-6 flex items-center gap-3">
+            <img src="/favicon.svg" alt="Idea2Sale AI Marketing icon" className="h-12 w-12 rounded-xl shadow-sm" />
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-500">Idea2Sale AI Marketing</p>
+          </div>
           <h1 className="font-display text-4xl font-bold tracking-tight text-brand-700 md:text-5xl">{content.title}</h1>
           <p className="mt-3 text-sm font-semibold text-slate-400">{content.updated}</p>
           <p className="mt-8 text-base leading-8 text-slate-600">{content.intro}</p>
