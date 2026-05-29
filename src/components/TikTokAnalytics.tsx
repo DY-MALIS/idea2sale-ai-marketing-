@@ -205,7 +205,7 @@ const TikTokAnalytics: React.FC = () => {
             <RefreshCw size={20} className={cn(syncing && "animate-spin")} />
           </button>
           <button 
-            onClick={() => window.open('/api/auth/tiktok', '_blank')}
+            onClick={() => window.open('/api/auth/tiktok/redirect', '_blank')}
             className="px-6 py-3 bg-black text-white rounded-2xl font-bold flex items-center gap-2 hover:bg-neutral-800 transition-all shadow-lg"
           >
             <RefreshCw size={18} />
