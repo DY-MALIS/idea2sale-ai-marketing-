@@ -71,18 +71,24 @@ async function startServer() {
   const getRedirectUri = (req: express.Request) => {
     // Priority 1: Manual override from secrets
     const configUri = process.env.TIKTOK_REDIRECT_URI || process.env.VITE_TIKTOK_REDIRECT_URI;
+    const host = req.get('x-forwarded-host') || req.get('host') || 'localhost:3000';
+    const protocol = req.get('x-forwarded-proto') || (host.includes('localhost') ? 'http' : 'https');
+
     if (configUri && configUri.trim().startsWith('http')) {
-      return configUri.trim();
+      const configuredUri = configUri.trim();
+      const configuredIsLocal = configuredUri.includes('localhost') || configuredUri.includes('127.0.0.1');
+      const requestIsLocal = host.includes('localhost') || host.includes('127.0.0.1');
+      if (!configuredIsLocal || requestIsLocal) {
+        return configuredUri;
+      }
     }
-    
+
     // Priority 2: Use APP_URL from environment (best for containers)
     if (process.env.APP_URL) {
       return `${process.env.APP_URL.replace(/\/$/, '')}/api/tiktok/callback`;
     }
-
+  
     // Priority 3: Fallback to headers
-    const host = req.get('x-forwarded-host') || req.get('host') || 'localhost:3000';
-    const protocol = req.get('x-forwarded-proto') || (host.includes('localhost') ? 'http' : 'https');
     return `${protocol}://${host}/api/tiktok/callback`;
   };
 
