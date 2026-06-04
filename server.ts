@@ -14,7 +14,7 @@ let firestoreDb: admin.firestore.Firestore | null = null;
 console.log("Starting server process...");
 
 async function startServer() {
-  console.log("--- Starting Idea2Sale AI Hub Server ---");
+  console.log("--- Starting aime.angkorgate Server ---");
   const app = express();
   const PORT = 3000;
 

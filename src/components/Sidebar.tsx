@@ -64,7 +64,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onLogout }) 
           <div className="w-10 h-10 bg-gradient-to-br from-brand-500 to-crab-shell rounded-xl flex items-center justify-center text-white shadow-lg shadow-brand-500/20">
             <Sparkles size={20} />
           </div>
-          <span className="tracking-tight">Idea2Sale</span>
+          <span className="tracking-tight">aime.angkorgate</span>
         </h1>
       </div>
 

@@ -94,10 +94,10 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
         <div className="mb-8 flex flex-col items-center text-center">
           <img
             src="/favicon.svg"
-            alt="Idea2Sale AI Marketing icon"
+            alt="aime.angkorgate icon"
             className="mb-4 h-16 w-16 rounded-2xl shadow-lg"
           />
-          <h1 className="text-2xl font-black text-brand-700">Idea2Sale AI Marketing</h1>
+          <h1 className="text-2xl font-black text-brand-700">aime.angkorgate</h1>
           <p className="text-slate-700 mt-2 text-lg sm:text-xl font-semibold leading-snug">
             {isLogin ? t('signInToContinue') : t('joinAndGrow')}
           </p>

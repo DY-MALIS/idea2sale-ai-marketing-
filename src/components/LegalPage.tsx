@@ -8,7 +8,7 @@ const legalContent = {
   terms: {
     title: 'Terms of Service',
     updated: 'Last updated: May 13, 2026',
-    intro: 'These Terms of Service govern your access to and use of Idea2Sale AI Marketing, including marketing, scheduling, analytics, and AI-assisted content tools.',
+    intro: 'These Terms of Service govern your access to and use of aime.angkorgate, including marketing, scheduling, analytics, and AI-assisted content tools.',
     sections: [
       {
         title: 'Use of the Service',
@@ -32,18 +32,18 @@ const legalContent = {
       },
       {
         title: 'Limitation of Liability',
-        body: 'The service is provided as-is. To the maximum extent allowed by law, Idea2Sale AI Marketing is not liable for indirect, incidental, special, consequential, or business-loss damages arising from use of the service.',
+        body: 'The service is provided as-is. To the maximum extent allowed by law, aime.angkorgate is not liable for indirect, incidental, special, consequential, or business-loss damages arising from use of the service.',
       },
       {
         title: 'Contact',
-        body: 'For questions about these terms, contact Idea2Sale AI Marketing through the official website or support channels.',
+        body: 'For questions about these terms, contact aime.angkorgate through the official website or support channels.',
       },
     ],
   },
   privacy: {
     title: 'Privacy Policy',
     updated: 'Last updated: May 13, 2026',
-    intro: 'This Privacy Policy explains how Idea2Sale AI Marketing collects, uses, and protects information when you use its AI marketing tools.',
+    intro: 'This Privacy Policy explains how aime.angkorgate collects, uses, and protects information when you use its AI marketing tools.',
     sections: [
       {
         title: 'Information We Collect',
@@ -71,7 +71,7 @@ const legalContent = {
       },
       {
         title: 'Contact',
-        body: 'For privacy questions or requests, contact Idea2Sale AI Marketing through the official website or support channels.',
+        body: 'For privacy questions or requests, contact aime.angkorgate through the official website or support channels.',
       },
     ],
   },
@@ -88,13 +88,13 @@ const LegalPage = ({ type }: LegalPageProps) => {
           className="mb-8 inline-flex items-center gap-2 rounded-full bg-white/80 px-4 py-2 text-sm font-bold text-brand-700 shadow-sm transition-colors hover:bg-white"
         >
           <ArrowLeft size={16} />
-          Back to Idea2Sale
+          Back to aime.angkorgate
         </a>
 
         <article className="rounded-[2rem] border border-white/60 bg-white/90 p-8 shadow-xl md:p-12">
           <div className="mb-6 flex items-center gap-3">
-            <img src="/favicon.svg" alt="Idea2Sale AI Marketing icon" className="h-12 w-12 rounded-xl shadow-sm" />
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-500">Idea2Sale AI Marketing</p>
+            <img src="/favicon.svg" alt="aime.angkorgate icon" className="h-12 w-12 rounded-xl shadow-sm" />
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-500">aime.angkorgate</p>
           </div>
           <h1 className="font-display text-4xl font-bold tracking-tight text-brand-700 md:text-5xl">{content.title}</h1>
           <p className="mt-3 text-sm font-semibold text-slate-400">{content.updated}</p>

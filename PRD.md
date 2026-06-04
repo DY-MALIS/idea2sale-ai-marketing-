@@ -1,7 +1,7 @@
-# Idea2Sale: AI-Powered Marketing Hub PRD
+# aime.angkorgate: AI-Powered Marketing Hub PRD
 
 ## 1. Project Overview
-Idea2Sale is a comprehensive AI marketing automation platform designed for e-commerce sellers on TikTok, Facebook, and Instagram. It transforms raw product ideas into high-converting campaigns through automated content creation, strategic planning, and performance analysis.
+aime.angkorgate is a comprehensive AI marketing automation platform designed for e-commerce sellers on TikTok, Facebook, and Instagram. It transforms raw product ideas into high-converting campaigns through automated content creation, strategic planning, and performance analysis.
 
 ## 2. Target Audience
 *   **Social Commerce Sellers**: Individual entrepreneurs selling on TikTok Shop/FB Marketplace.

@@ -39,7 +39,7 @@ export default async function handler(req, res) {
       <html>
         <body>
           <h1>TikTok connected</h1>
-          <p>You can close this window and return to Idea2Sale AI Marketing.</p>
+          <p>You can close this window and return to aime.angkorgate.</p>
           <script>
             if (window.opener) {
               window.opener.postMessage({ type: 'TIKTOK_AUTH_SUCCESS' }, '*');
