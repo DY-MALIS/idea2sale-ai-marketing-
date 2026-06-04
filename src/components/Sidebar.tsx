@@ -57,7 +57,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onLogout }) 
         <h1 className="text-2xl font-display font-bold text-white flex items-center gap-3">
           <div className="h-12 w-12 shrink-0 overflow-hidden rounded-2xl bg-white shadow-lg shadow-brand-500/20 ring-1 ring-white/40">
             <img
-              src="/app-icon.png"
+              src="/favicon.svg"
               alt="aime.angkorgate icon"
               className="h-full w-full object-cover"
             />
