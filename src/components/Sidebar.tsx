@@ -55,11 +55,11 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onLogout }) 
     <div className="w-72 bg-brand-700 text-brand-100 h-screen flex flex-col fixed left-0 top-0 z-50 shadow-2xl overflow-y-auto custom-scrollbar">
       <div className="p-8">
         <h1 className="text-2xl font-display font-bold text-white flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-white/95 p-1.5 shadow-lg shadow-brand-500/20 ring-1 ring-white/30">
+          <div className="h-12 w-12 shrink-0 overflow-hidden rounded-2xl bg-white shadow-lg shadow-brand-500/20 ring-1 ring-white/40">
             <img
-              src="/favicon.svg"
+              src="/app-icon.png"
               alt="aime.angkorgate icon"
-              className="h-full w-full"
+              className="h-full w-full object-cover"
             />
           </div>
           <span className="tracking-tight">aime.angkorgate</span>
