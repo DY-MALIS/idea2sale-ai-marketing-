@@ -5,8 +5,9 @@ import AITrainer from './AITrainer';
 import Suggestions from './Suggestions';
 import Scheduler from './Scheduler';
 import ActivityPulse from './ActivityPulse';
-import { db, auth } from '../lib/firebase';
+import { db, storage } from '../lib/firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { useLanguage } from '../contexts/LanguageContext';
 
 import { useAuth } from '../contexts/AuthContext';
@@ -28,6 +29,7 @@ const SchedulerHub: React.FC = () => {
   // Form state
   const [content, setContent] = useState('');
   const [platform, setPlatform] = useState<'TIKTOK' | 'INSTAGRAM' | 'TWITTER'>('TIKTOK');
+  const [videoFile, setVideoFile] = useState<File | null>(null);
   const [scheduledTime, setScheduledTime] = useState(() => {
     const nextHour = new Date();
     nextHour.setHours(nextHour.getHours() + 1);
@@ -45,7 +47,7 @@ const SchedulerHub: React.FC = () => {
 
     const userToUse = user || (isDemoMode ? { uid: 'demo-user' } : null);
 
-    if (!content.trim() || !scheduledTime || !userToUse) {
+    if (!content.trim() || !scheduledTime || !userToUse || (platform === 'TIKTOK' && !videoFile)) {
       setFormError(t('fillAllFieldsErr'));
       return;
     }
@@ -69,6 +71,13 @@ const SchedulerHub: React.FC = () => {
     }
 
     try {
+      let videoUrl = '';
+      if (platform === 'TIKTOK' && videoFile) {
+        const safeName = videoFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const storageRef = ref(storage, `scheduled-videos/${userToUse.uid}/${Date.now()}-${safeName}`);
+        await uploadBytes(storageRef, videoFile, { contentType: videoFile.type });
+        videoUrl = await getDownloadURL(storageRef);
+      }
       await addDoc(collection(db, 'scheduled_posts'), {
         content: content.trim(),
         platform,
@@ -76,10 +85,14 @@ const SchedulerHub: React.FC = () => {
         status: 'PENDING',
         userId: userToUse.uid,
         aiSuggested: false,
+        videoUrl,
+        videoName: videoFile?.name || null,
+        publishMode: platform === 'TIKTOK' ? 'TIKTOK_DIRECT_POST' : 'PLANNED_ONLY',
         createdAt: serverTimestamp()
       });
       setIsModalOpen(false);
       setContent('');
+      setVideoFile(null);
       
       const nextHour = new Date();
       nextHour.setHours(nextHour.getHours() + 1);
@@ -235,6 +248,20 @@ const SchedulerHub: React.FC = () => {
                       />
                     </div>
                   </div>
+
+                  {platform === 'TIKTOK' && (
+                    <div>
+                      <label className="block text-[10px] font-bold text-[#4A4B4F] uppercase tracking-widest mb-2">TikTok video</label>
+                      <input
+                        required
+                        type="file"
+                        accept="video/mp4,video/quicktime,video/webm"
+                        onChange={(e) => setVideoFile(e.target.files?.[0] || null)}
+                        className="w-full p-3 bg-[#0A0A0B] border border-[#2A2B2F] rounded-xl text-white text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-purple-500 file:px-3 file:py-2 file:font-bold file:text-white"
+                      />
+                      <p className="mt-2 text-xs text-[#8E9299]">MP4, MOV, or WebM. Auto-post starts only after TikTok approves video.publish.</p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex gap-4 pt-4">

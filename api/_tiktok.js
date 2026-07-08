@@ -22,7 +22,7 @@ export function getTikTokAuthUrl(req) {
   }
 
   const redirectUri = getRedirectUri(req);
-  const scope = 'user.info.basic';
+  const scope = (process.env.TIKTOK_SCOPES || 'user.info.basic').trim();
   const state = 'idea2sale_login_kit';
 
   return `https://www.tiktok.com/v2/auth/authorize/?client_key=${encodeURIComponent(clientKey)}&scope=${encodeURIComponent(scope)}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`;

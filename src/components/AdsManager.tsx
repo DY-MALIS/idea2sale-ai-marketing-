@@ -14,7 +14,6 @@ import {
   ArrowRight,
   CheckCircle2
 } from 'lucide-react';
-import { GoogleGenAI } from "@google/genai";
 import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { cn } from '../lib/utils';
@@ -26,8 +25,6 @@ const AdsManager: React.FC = () => {
   const [strategy, setStrategy] = useState<string | null>(() => localStorage.getItem('ads_strategy'));
 
   const [isScalingActive, setIsScalingActive] = useState(() => localStorage.getItem('ads_scaling_active') === 'true');
-
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
   const handleActivateScaling = () => {
     const newState = !isScalingActive;
@@ -56,17 +53,19 @@ const AdsManager: React.FC = () => {
       ### 4. 💰 Estimated Budgeting
       Keep it concise, high-impact, and professional. Use emojis.`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: prompt
+      const response = await fetch('/api/ads-strategy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: targetQuery, language }),
       });
-      
-      const text = response.text || 'No strategy generated.';
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to generate strategy.');
+      const text = data.strategy || 'No strategy generated.';
       setStrategy(text);
       localStorage.setItem('ads_strategy', text);
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      setStrategy('Error generating strategy.');
+      setStrategy(error.message || 'Error generating strategy.');
     } finally {
       setIsGenerating(false);
     }

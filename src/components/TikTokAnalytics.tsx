@@ -30,30 +30,27 @@ const TikTokAnalytics: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [statsError, setStatsError] = useState<string | null>(null);
 
   const fetchPublicStats = async () => {
-    if (!handle) return;
     setSyncing(true);
+    setStatsError(null);
     try {
-      const response = await fetch(`/api/tiktok/public-stats?handle=${encodeURIComponent(handle)}&t=${Date.now()}`);
-      if (!response.ok) {
-        throw new Error(`Server returned ${response.status}`);
-      }
+      const response = await fetch(`/api/tiktok/stats?t=${Date.now()}`, { credentials: 'include' });
       const data = await response.json();
-      
-      // Only update if we got some actual data (not all zeros) to prevent data loss on scrape failure
-      const hasData = data.followers !== "0" || data.likes !== "0" || data.following !== "0";
-      
-      if (hasData) {
-        setPublicStats(data);
-        localStorage.setItem('tiktok_stats', JSON.stringify(data));
-        setLastUpdated(new Date().toLocaleTimeString());
-      } else if (!publicStats) {
-        // If we have nothing yet, take whatever we got
-        setPublicStats(data);
+      if (!response.ok) {
+        throw new Error(data.error || `Server returned ${response.status}`);
       }
-    } catch (err) {
+      setPublicStats(data);
+      if (data.handle) {
+        setHandle(data.handle);
+        localStorage.setItem('tiktok_handle', data.handle);
+      }
+      localStorage.setItem('tiktok_stats', JSON.stringify(data));
+      setLastUpdated(new Date().toLocaleTimeString());
+    } catch (err: any) {
       console.error("Fetch stats error:", err);
+      setStatsError(err.message || 'Unable to sync TikTok statistics.');
     } finally {
       setSyncing(false);
     }
@@ -259,6 +256,17 @@ const TikTokAnalytics: React.FC = () => {
           </div>
         )))}
       </div>
+
+      {statsError && (
+        <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <AlertCircle size={18} className="mt-0.5 shrink-0" />
+          <div>
+            <p className="font-bold">TikTok data is not connected yet</p>
+            <p>{statsError}</p>
+            <p className="mt-1">Approve <code>user.info.stats</code>, set <code>TIKTOK_SCOPES=user.info.basic,user.info.stats</code>, then reconnect.</p>
+          </div>
+        </div>
+      )}
 
       <div className="glass p-8 rounded-[2.5rem] border border-white/50 shadow-sm">
         <h3 className="text-xl font-bold text-brand-700 mb-6 flex items-center gap-2">
