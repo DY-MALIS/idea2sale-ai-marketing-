@@ -31,14 +31,17 @@ const TikTokAnalytics: React.FC = () => {
   const [syncing, setSyncing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [statsError, setStatsError] = useState<string | null>(null);
+  const [statsErrorCode, setStatsErrorCode] = useState<string | null>(null);
 
   const fetchPublicStats = async () => {
     setSyncing(true);
     setStatsError(null);
+    setStatsErrorCode(null);
     try {
       const response = await fetch(`/api/tiktok/stats?t=${Date.now()}`, { credentials: 'include' });
       const data = await response.json();
       if (!response.ok) {
+        setStatsErrorCode(data.code || 'sync_error');
         throw new Error(data.error || `Server returned ${response.status}`);
       }
       setPublicStats(data);
@@ -90,6 +93,13 @@ const TikTokAnalytics: React.FC = () => {
     
     // Auto-refresh stats every 1 minute
     const intervalId = setInterval(fetchPublicStats, 60000);
+
+    const handleAuthSuccess = (event: MessageEvent) => {
+      if (event.data?.type === 'TIKTOK_AUTH_SUCCESS') {
+        fetchPublicStats();
+      }
+    };
+    window.addEventListener('message', handleAuthSuccess);
     
     setLoading(true);
     const q = query(
@@ -105,10 +115,15 @@ const TikTokAnalytics: React.FC = () => {
       }));
       setPosts(postsData);
       setLoading(false);
+    }, (error) => {
+      console.error('TikTok posts listener error:', error);
+      setPosts([]);
+      setLoading(false);
     });
 
     return () => {
       clearInterval(intervalId);
+      window.removeEventListener('message', handleAuthSuccess);
       unsubscribe();
     };
   }, [handle]);
@@ -261,9 +276,15 @@ const TikTokAnalytics: React.FC = () => {
         <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
           <AlertCircle size={18} className="mt-0.5 shrink-0" />
           <div>
-            <p className="font-bold">TikTok data is not connected yet</p>
+            <p className="font-bold">
+              {statsErrorCode === 'not_connected' ? 'TikTok account is not connected yet' : 'TikTok statistics are not available yet'}
+            </p>
             <p>{statsError}</p>
-            <p className="mt-1">Approve <code>user.info.stats</code>, set <code>TIKTOK_SCOPES=user.info.basic,user.info.stats</code>, then reconnect.</p>
+            {statsErrorCode === 'not_connected' ? (
+              <p className="mt-1">Click <strong>Reconnect Account</strong> and authorize the TikTok account you want to connect.</p>
+            ) : (
+              <p className="mt-1">To show Followers, Likes, Following, and Video Posts, TikTok must approve <code>user.info.stats</code>. Login can still work with <code>user.info.basic</code>.</p>
+            )}
           </div>
         </div>
       )}
