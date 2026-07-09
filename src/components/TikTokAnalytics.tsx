@@ -230,28 +230,28 @@ const TikTokAnalytics: React.FC = () => {
         {[
           { 
             label: t('totalFollowers'), 
-            value: syncing ? '...' : publicStats?.followers || '0', 
+            value: syncing ? '...' : (publicStats?.canReadStats === false ? '-' : publicStats?.followers || '0'), 
             icon: Eye, 
             color: 'text-blue-500', 
             bg: 'bg-blue-50' 
           },
           { 
             label: t('totalLikes'), 
-            value: syncing ? '...' : publicStats?.likes || '0', 
+            value: syncing ? '...' : (publicStats?.canReadStats === false ? '-' : publicStats?.likes || '0'), 
             icon: Heart, 
             color: 'text-rose-500', 
             bg: 'bg-rose-50' 
           },
           { 
             label: t('following'), 
-            value: syncing ? '...' : publicStats?.following || '0', 
+            value: syncing ? '...' : (publicStats?.canReadStats === false ? '-' : publicStats?.following || '0'), 
             icon: BarChart3, 
             color: 'text-emerald-500', 
             bg: 'bg-emerald-50' 
           },
           { 
             label: t('videoPosts'), 
-            value: syncing ? '...' : publicStats?.videoCount || '0', 
+            value: syncing ? '...' : (publicStats?.canReadStats === false ? '-' : publicStats?.videoCount || '0'), 
             icon: Share2, 
             color: 'text-purple-500', 
             bg: 'bg-purple-50' 
@@ -272,14 +272,14 @@ const TikTokAnalytics: React.FC = () => {
         )))}
       </div>
 
-      {statsError && (
+      {(statsError || publicStats?.canReadStats === false) && (
         <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
           <AlertCircle size={18} className="mt-0.5 shrink-0" />
           <div>
             <p className="font-bold">
-              {statsErrorCode === 'not_connected' ? 'TikTok account is not connected yet' : 'TikTok statistics are not available yet'}
+              {statsErrorCode === 'not_connected' ? 'TikTok account is not connected yet' : publicStats?.canReadStats === false ? 'TikTok account connected. Statistics are waiting for approval.' : 'TikTok statistics are not available yet'}
             </p>
-            <p>{statsError}</p>
+            {statsError && <p>{statsError}</p>}
             {statsErrorCode === 'not_connected' ? (
               <p className="mt-1">Click <strong>Reconnect Account</strong> and authorize the TikTok account you want to connect.</p>
             ) : (

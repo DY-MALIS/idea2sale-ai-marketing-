@@ -500,7 +500,7 @@ const VideoVoice: React.FC = () => {
                       </button>
                     )}
                     <button 
-                      onClick={() => setActiveTool('planner' as any)} // Placeholder for coordination
+                      onClick={() => alert('Use Smart Scheduler to schedule this video for later. Direct TikTok auto-post requires TikTok Content Posting approval.')}
                       className="p-4 bg-brand-100 text-brand-700 rounded-2xl hover:bg-brand-200 transition-all border border-brand-200"
                       title="Schedule for later"
                     >
