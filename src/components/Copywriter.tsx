@@ -1,13 +1,11 @@
 import React, { useState } from 'react';
 import { 
   Sparkles, 
-  Type, 
   Copy, 
   Download,
   Loader2,
   RefreshCw,
 } from 'lucide-react';
-import { GoogleGenAI } from "@google/genai";
 import Markdown from 'react-markdown';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -23,46 +21,31 @@ const Copywriter: React.FC = () => {
     const [result, setResult] = useState<string | null>(() => localStorage.getItem('copy_result'));
     const [needsApiKey, setNeedsApiKey] = useState(false);
   
-    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
-  
     const handleGenerateCopy = async () => {
       if (!copyPrompt) return;
       setLoading(true);
       setResult(null);
+      setNeedsApiKey(false);
       try {
-        const promptMap = {
-          caption: `Create a compelling social media caption based on: ${copyPrompt}. Provide outputs in Khmer and English. Use emojis and trending hashtags.`,
-          salepage: `Write a high-converting long-form Sale Page copy for: ${copyPrompt}. Use the AIDA framework (Attention, Interest, Desire, Action). Support Khmer and English.`,
-          script: `Create an engaging 60-second TikTok/Reels video script for: ${copyPrompt}. Include visual scene descriptions and spoken dialogue in Khmer/English.`,
-          seo: `Generate a list of 20 high-ranking SEO keywords and a meta-description for: ${copyPrompt}. Target Google and social media search algorithms.`
-        };
-  
-        const prompt = `You are an expert marketing copywriter. 
-        ${promptMap[contentType]}
-        
-        CRITICAL INSTRUCTION: 
-        - The current application language is set to: ${language === 'km' ? 'Khmer' : 'English'}.
-        - Detect the language of the prompt: "${copyPrompt}".
-        - If either the prompt is in Khmer OR the application language is Khmer, you MUST prioritize high-quality Khmer copy and ensure the core response is available in Khmer.
-        - If the application language is Khmer, provide the response ENTIRELY or PRIMARILY in Khmer.
-        - Always include both English and Khmer versions if it helps the user's global reach, but lead with the application language.`;
-
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: prompt
+      const response = await fetch('/api/copywriter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: copyPrompt, contentType, language })
       });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Error generating content.');
       
-      const text = response.text || t('noResponseGenerated');
+      const text = data.text || t('noResponseGenerated');
       setResult(text);
       localStorage.setItem('copy_result', text);
       localStorage.setItem('copy_prompt', copyPrompt);
       localStorage.setItem('copy_content_type', contentType);
     } catch (error: any) {
       console.error(error);
-      if (error.message?.includes('permission denied')) {
+      if (/api key|GEMINI_API_KEY|invalid|expired/i.test(error.message || '')) {
         setNeedsApiKey(true);
       }
-      setResult(t('errorGeneratingContent'));
+      setResult(error.message || t('errorGeneratingContent'));
     } finally {
       setLoading(false);
     }
