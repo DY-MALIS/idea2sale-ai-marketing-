@@ -42,8 +42,6 @@ const VideoVoice: React.FC = () => {
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [tiktokUser, setTiktokUser] = useState<any>(null);
 
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
-
   React.useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === 'TIKTOK_AUTH_SUCCESS') {
@@ -71,19 +69,14 @@ const VideoVoice: React.FC = () => {
     if (!videoPrompt) return;
     setIsGeneratingCaption(true);
     try {
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: `You are a social media expert. Create a catchy TikTok caption and trending hashtags based on the described scene. 
-        
-        CRITICAL INSTRUCTION: 
-        - The current application language is set to: ${language === 'km' ? 'Khmer' : 'English'}.
-        - Detect the language of the 'scene description': "${videoPrompt}".
-        - If either the input is in Khmer OR the application language is Khmer, you MUST respond entirely in Khmer.
-        - Otherwise, provide it entirely in English.
-        
-        Scene description: ${videoPrompt}`,
+      const response = await fetch('/api/video-caption', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: videoPrompt, language }),
       });
-      setAiCaption(response.text || '');
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to generate caption.');
+      setAiCaption(data.text || '');
     } catch (error) {
       console.error("Caption error:", error);
       alert("Failed to generate caption.");

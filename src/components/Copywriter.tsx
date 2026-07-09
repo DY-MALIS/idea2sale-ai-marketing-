@@ -42,7 +42,7 @@ const Copywriter: React.FC = () => {
       localStorage.setItem('copy_content_type', contentType);
     } catch (error: any) {
       console.error(error);
-      if (/api key|GEMINI_API_KEY|invalid|expired/i.test(error.message || '')) {
+      if (/api key|OPEN_ROUTER_API_KEY|invalid|expired/i.test(error.message || '')) {
         setNeedsApiKey(true);
       }
       setResult(error.message || t('errorGeneratingContent'));

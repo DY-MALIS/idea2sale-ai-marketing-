@@ -128,7 +128,7 @@ const SchedulerHub: React.FC = () => {
              <p className="text-[10px] text-brand-300 font-bold uppercase tracking-widest">{t('activeModel')}</p>
              <p className="text-sm text-white font-mono flex items-center gap-2">
                <Bot size={14} className="text-purple-500" />
-               Gemini 1.5 Flash
+               OpenRouter
              </p>
           </div>
           <motion.button

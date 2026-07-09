@@ -1,4 +1,4 @@
-import { GoogleGenAI } from '@google/genai';
+import { generateOpenRouterText } from './_openrouter.js';
 
 const promptByType = {
   caption: (prompt) => `Create a compelling social media caption based on: ${prompt}. Use strong hooks, clear benefits, and relevant hashtags.`,
@@ -12,9 +12,6 @@ export default async function handler(req, res) {
     res.setHeader('Allow', 'POST');
     return res.status(405).json({ error: 'Method not allowed' });
   }
-
-  const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
-  if (!apiKey) return res.status(503).json({ error: 'Gemini API key is not configured in Vercel.' });
 
   const prompt = String(req.body?.prompt || '').trim();
   const contentType = String(req.body?.contentType || 'caption');
@@ -34,17 +31,16 @@ Language rules:
 - Use practical, ready-to-copy formatting.`;
 
   try {
-    const ai = new GoogleGenAI({ apiKey });
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: fullPrompt,
+    const text = await generateOpenRouterText({
+      prompt: fullPrompt,
+      system: 'You are an expert marketing copywriter.',
     });
-    return res.status(200).json({ text: response.text || 'No response generated.' });
+    return res.status(200).json({ text: text || 'No response generated.' });
   } catch (error) {
     const message = String(error?.message || '');
-    const keyError = /expired|API_KEY_INVALID|invalid api key|permission/i.test(message);
+    const keyError = /OPEN_ROUTER_API_KEY|unauthorized|invalid api key|permission/i.test(message);
     return res.status(keyError ? 503 : 500).json({
-      error: keyError ? 'Gemini API key is invalid or expired. Update GEMINI_API_KEY in Vercel.' : 'Error generating content. Please try again.',
+      error: keyError ? 'OpenRouter API key is missing or invalid. Update OPEN_ROUTER_API_KEY in Vercel.' : 'Error generating content. Please try again.',
     });
   }
 }

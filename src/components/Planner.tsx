@@ -21,7 +21,6 @@ import {
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, parseISO } from 'date-fns';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
-import { GoogleGenAI, Type } from "@google/genai";
 import { 
   collection, 
   query, 
@@ -234,36 +233,15 @@ const Planner: React.FC = () => {
 
     setIsAutoPlanning(true);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: `Generate a high-converting social media content strategy for the month of ${format(currentDate, 'MMMM yyyy')}. 
-        Create 8 diverse posts including educational content, product features, and engagement-driven posts.
-        Ensure dates are spread across the month.
-        
-        CRITICAL INSTRUCTION: 
-        - The current application language is set to: ${language === 'km' ? 'Khmer' : 'English'}.
-        - If the application language is Khmer, you MUST provide all titles and content descriptions ENTIRELY in Khmer.
-        - Otherwise, provide them in English.`,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                title: { type: Type.STRING },
-                platform: { type: Type.STRING, enum: ['Facebook', 'TikTok', 'Telegram'] },
-                date: { type: Type.STRING, description: "YYYY-MM-DD format" },
-                time: { type: Type.STRING, description: "HH:mm format" }
-              },
-              required: ['title', 'platform', 'date', 'time']
-            }
-          }
-        }
+      const response = await fetch('/api/planner-auto', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ month: format(currentDate, 'MMMM yyyy'), language }),
       });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to generate content strategy.');
 
-      const generatedData = JSON.parse(response.text);
+      const generatedData = data.posts || [];
       
       const newPostsData = generatedData.map((p: any) => {
         const [year, month, day] = p.date.split('-').map(Number);

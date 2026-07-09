@@ -1,4 +1,4 @@
-import { GoogleGenAI } from '@google/genai';
+import { generateOpenRouterText } from './_openrouter.js';
 
 const getPrompt = (query, language) => `You are an expert e-commerce product researcher. Analyze the following product, niche, or URL: "${query}".
 
@@ -24,29 +24,22 @@ export default async function handler(req, res) {
 
   const query = String(req.body?.query || '').trim();
   const language = String(req.body?.language || 'en');
-  const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
 
   if (!query) {
     return res.status(400).json({ error: 'Please enter a product, niche, or URL to research.' });
   }
 
-  if (!apiKey) {
-    return res.status(500).json({ error: 'Gemini API key is not configured.' });
-  }
-
   try {
-    const ai = new GoogleGenAI({ apiKey });
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: getPrompt(query, language),
+    const analysis = await generateOpenRouterText({
+      prompt: getPrompt(query, language),
+      system: 'You are an expert e-commerce product researcher.',
     });
-
-    return res.status(200).json({ analysis: response.text || '' });
+    return res.status(200).json({ analysis });
   } catch (error) {
     console.error('Product research failed:', error);
     const message = String(error?.message || '');
-    if (message.includes('API key expired') || message.includes('API_KEY_INVALID')) {
-      return res.status(500).json({ error: 'Gemini API key expired. Please renew the API key and update GEMINI_API_KEY.' });
+    if (/OPEN_ROUTER_API_KEY|unauthorized|invalid api key/i.test(message)) {
+      return res.status(500).json({ error: 'OpenRouter API key is missing or invalid. Please update OPEN_ROUTER_API_KEY.' });
     }
     return res.status(500).json({ error: 'Error performing research. Please try again.' });
   }
