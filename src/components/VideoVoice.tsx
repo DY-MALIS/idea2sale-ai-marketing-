@@ -11,7 +11,6 @@ import {
   Image as ImageIcon,
   Calendar
 } from 'lucide-react';
-import { GoogleGenAI, Modality } from "@google/genai";
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -33,7 +32,6 @@ const VideoVoice: React.FC = () => {
   const [needsApiKey, setNeedsApiKey] = useState(false);
   const [videoImage, setVideoImage] = useState<string | null>(null);
   const [videoImageMimeType, setVideoImageMimeType] = useState<string | null>(null);
-  const [videoUri, setVideoUri] = useState<string | null>(null);
 
   const [aiCaption, setAiCaption] = useState('');
   const [captionLanguage, setCaptionLanguage] = useState<'Khmer' | 'English'>('Khmer');
@@ -149,43 +147,6 @@ const VideoVoice: React.FC = () => {
     }
   };
 
-  const pcmToWav = (pcmBase64: string, sampleRate: number = 24000): string => {
-    const binaryString = atob(pcmBase64);
-    const len = binaryString.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
-    const wavHeader = new ArrayBuffer(44);
-    const view = new DataView(wavHeader);
-    view.setUint32(0, 0x52494646, false); // "RIFF"
-    view.setUint32(4, 36 + len, true);
-    view.setUint32(8, 0x57415645, false); // "WAVE"
-    view.setUint32(12, 0x666d7420, false); // "fmt "
-    view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true);
-    view.setUint16(22, 1, true);
-    view.setUint32(24, sampleRate, true);
-    view.setUint32(28, sampleRate * 2, true);
-    view.setUint16(32, 2, true);
-    view.setUint16(34, 16, true);
-    view.setUint32(36, 0x64617461, false); // "data"
-    view.setUint32(40, len, true);
-    const blob = new Blob([wavHeader, bytes], { type: 'audio/wav' });
-    return URL.createObjectURL(blob);
-  };
-
-  const checkApiKey = async () => {
-    if (typeof window !== 'undefined' && (window as any).aistudio) {
-      const hasKey = await (window as any).aistudio.hasSelectedApiKey();
-      if (!hasKey) {
-        setNeedsApiKey(true);
-        return false;
-      }
-    }
-    return true;
-  };
-
   const handleOpenKeySelector = async () => {
     if (typeof window !== 'undefined' && (window as any).aistudio) {
       await (window as any).aistudio.openSelectKey();
@@ -195,44 +156,43 @@ const VideoVoice: React.FC = () => {
 
   const handleGenerateVideo = async () => {
     if (!videoPrompt && !videoImage) return;
-    const hasKey = await checkApiKey();
-    if (!hasKey) return;
 
     setLoading(true);
     setGeneratedVideo(null);
     try {
-      const videoAi = new GoogleGenAI({ apiKey: process.env.API_KEY || process.env.GEMINI_API_KEY || '' });
-      const videoConfig: any = {
-        model: 'veo-3.1-lite-generate-preview',
-        prompt: `${videoLanguage === 'Khmer' ? 'In Khmer context: ' : ''}${videoPrompt}`,
-        config: {
-          numberOfVideos: 1,
-          resolution: '720p',
-          aspectRatio: '16:9'
-        }
-      };
-      if (videoImage && videoImageMimeType) {
-        videoConfig.image = { imageBytes: videoImage, mimeType: videoImageMimeType };
-      }
-      let operation = await videoAi.models.generateVideos(videoConfig);
-      while (!operation.done) {
+      const prompt = `${videoLanguage === 'Khmer' ? 'Khmer/Cambodian context. ' : ''}${videoPrompt || 'Create a short marketing video from the uploaded reference image.'}`;
+      const response = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'videoGenerate',
+          prompt,
+          imageBase64: videoImage,
+          imageMimeType: videoImageMimeType,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Video generation failed.');
+      let jobId = data.jobId;
+      for (let attempt = 0; attempt < 48 && jobId; attempt += 1) {
         await new Promise(resolve => setTimeout(resolve, 5000));
-        operation = await videoAi.operations.getVideosOperation({ operation: operation });
-      }
-      const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
-      if (downloadLink) {
-        setVideoUri(downloadLink);
-        const response = await fetch(downloadLink, {
-          method: 'GET',
-          headers: { 'x-goog-api-key': process.env.API_KEY || process.env.GEMINI_API_KEY || '' },
+        const statusResponse = await fetch('/api/ai', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'videoStatus', jobId }),
         });
-        const blob = await response.blob();
-        setGeneratedVideo(URL.createObjectURL(blob));
+        const statusData = await statusResponse.json();
+        if (!statusResponse.ok) throw new Error(statusData.error || 'Video generation failed.');
+        if (statusData.videoUrl) {
+          setGeneratedVideo(statusData.videoUrl);
+          return;
+        }
       }
+      throw new Error('Video is still processing. Please try again shortly.');
     } catch (error: any) {
       console.error(error);
-      if (error.message?.includes('permission denied')) setNeedsApiKey(true);
-      alert('Error generating video. Video generation requires a paid Gemini API key.');
+      if (/OPEN_ROUTER_API_KEY|api key/i.test(error.message || '')) setNeedsApiKey(true);
+      alert(error.message || 'Error generating video. Please check your OpenRouter API key and credits.');
     } finally {
       setLoading(false);
     }
@@ -240,35 +200,23 @@ const VideoVoice: React.FC = () => {
 
   const handleGenerateAudio = async () => {
     if (!ttsText) return;
-    const hasKey = await checkApiKey();
-    if (!hasKey) return;
 
     setAudioLoading(true);
     setGeneratedAudio(null);
     try {
-      const voiceAi = new GoogleGenAI({ apiKey: process.env.API_KEY || process.env.GEMINI_API_KEY || '' });
-      const timedPrompt = `Please read the following text in ${voiceLanguage}. 
-      Target: Aim for a total duration of approximately ${targetDuration} minute(s). 
-      Text to read: ${ttsText}`;
-
-      const response = await voiceAi.models.generateContent({
-        model: "gemini-2.5-flash-preview-tts",
-        contents: [{ parts: [{ text: timedPrompt }] }],
-        config: {
-          responseModalities: [Modality.AUDIO],
-          speechConfig: {
-            voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } },
-          },
-        },
+      const timedPrompt = `Read this text in ${voiceLanguage}. Aim for about ${targetDuration} minute(s): ${ttsText}`;
+      const response = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'ttsGenerate', input: timedPrompt }),
       });
-      const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-      if (base64Audio) {
-        setGeneratedAudio(pcmToWav(base64Audio, 24000));
-      }
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Audio generation failed.');
+      setGeneratedAudio(data.audioUrl);
     } catch (error: any) {
       console.error(error);
-      if (error.message?.includes('permission denied')) setNeedsApiKey(true);
-      alert('Error generating audio. Please check your API key.');
+      if (/OPEN_ROUTER_API_KEY|api key/i.test(error.message || '')) setNeedsApiKey(true);
+      alert(error.message || 'Error generating audio. Please check your OpenRouter API key and credits.');
     } finally {
       setAudioLoading(false);
     }
@@ -285,7 +233,7 @@ const VideoVoice: React.FC = () => {
     } else if (activeTool === 'voice' && generatedAudio) {
       const link = document.createElement('a');
       link.href = generatedAudio;
-      link.download = `idea2sale-audio-${Date.now()}.wav`;
+      link.download = `idea2sale-audio-${Date.now()}.mp3`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -467,7 +415,7 @@ const VideoVoice: React.FC = () => {
                   <div className="flex gap-4">
                     {tiktokUser ? (
                       <button 
-                        onClick={() => handlePostToTikTok(videoUri || generatedVideo!)}
+                        onClick={() => handlePostToTikTok(generatedVideo!)}
                         disabled={isPostingTikTok}
                         className="flex-1 bg-black text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-3 shadow-xl hover:bg-slate-900 transition-all disabled:opacity-50"
                       >

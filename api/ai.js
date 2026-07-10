@@ -1,4 +1,10 @@
-import { generateOpenRouterText } from './_openrouter.js';
+import {
+  generateOpenRouterImage,
+  generateOpenRouterSpeech,
+  generateOpenRouterText,
+  pollOpenRouterVideo,
+  startOpenRouterVideo,
+} from './_openrouter.js';
 
 const jsonFromText = (text, fallback) => {
   try {
@@ -108,6 +114,41 @@ export default async function handler(req, res) {
         prompt: `Create a catchy TikTok caption and trending hashtags for this scene: "${prompt}". Write entirely in ${language}. Keep it ready to post.`,
       });
       return res.status(200).json({ text });
+    }
+
+    if (action === 'imageGenerate') {
+      const prompt = String(req.body?.prompt || '').trim();
+      const aspectRatio = String(req.body?.aspectRatio || '1:1');
+      if (!prompt) return res.status(400).json({ error: 'Image prompt is required.' });
+      const image = await generateOpenRouterImage({ prompt, aspectRatio });
+      return res.status(200).json(image);
+    }
+
+    if (action === 'ttsGenerate') {
+      const input = String(req.body?.input || '').trim();
+      const voice = String(req.body?.voice || process.env.OPEN_ROUTER_TTS_VOICE || 'alloy');
+      const speed = Number(req.body?.speed || 1);
+      if (!input) return res.status(400).json({ error: 'Text is required.' });
+      const audio = await generateOpenRouterSpeech({ input, voice, speed });
+      return res.status(200).json(audio);
+    }
+
+    if (action === 'videoGenerate') {
+      const prompt = String(req.body?.prompt || '').trim();
+      if (!prompt) return res.status(400).json({ error: 'Video prompt is required.' });
+      const video = await startOpenRouterVideo({
+        prompt,
+        imageBase64: req.body?.imageBase64,
+        imageMimeType: req.body?.imageMimeType,
+      });
+      return res.status(200).json(video);
+    }
+
+    if (action === 'videoStatus') {
+      const jobId = String(req.body?.jobId || '').trim();
+      if (!jobId) return res.status(400).json({ error: 'Video job id is required.' });
+      const video = await pollOpenRouterVideo({ jobId });
+      return res.status(200).json(video);
     }
 
     return res.status(400).json({ error: 'Unknown AI action.' });

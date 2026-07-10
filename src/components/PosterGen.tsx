@@ -6,7 +6,6 @@ import {
   Loader2,
   RefreshCw
 } from 'lucide-react';
-import { GoogleGenAI } from "@google/genai";
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -29,8 +28,6 @@ const PosterGen: React.FC = () => {
   const [tiktokUser, setTiktokUser] = useState<any>(null);
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [needsApiKey, setNeedsApiKey] = useState(false);
-
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
   React.useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -110,27 +107,17 @@ const PosterGen: React.FC = () => {
       - If the UI language is Khmer, ensure the visual style reflects a Cambodian/Khmer aesthetic and any text on the poster is correctly rendered or inspired by Khmer culture.
       - If the brand/headline/visual description is in Khmer, prioritize the Khmer aesthetic.`;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image',
-        contents: {
-          parts: [{ text: fullPrompt }],
-        },
-        config: {
-          imageConfig: {
-            aspectRatio: "3:4"
-          }
-        }
+      const response = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'imageGenerate', prompt: fullPrompt, aspectRatio: '3:4' }),
       });
-      
-      for (const part of response.candidates?.[0]?.content?.parts || []) {
-        if (part.inlineData) {
-          setGeneratedImage(`data:image/png;base64,${part.inlineData.data}`);
-          break;
-        }
-      }
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Image generation failed.');
+      setGeneratedImage(data.imageUrl);
     } catch (error: any) {
       console.error(error);
-      if (error.message?.includes('permission denied')) {
+      if (/OPEN_ROUTER_API_KEY|api key/i.test(error.message || '')) {
         setNeedsApiKey(true);
       }
       alert(t('errorGeneratingPoster'));
@@ -144,27 +131,17 @@ const PosterGen: React.FC = () => {
     setLoading(true);
     setGeneratedImage(null);
     try {
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image',
-        contents: {
-          parts: [{ text: visualPrompt }],
-        },
-        config: {
-          imageConfig: {
-            aspectRatio: "1:1"
-          }
-        }
+      const response = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'imageGenerate', prompt: visualPrompt, aspectRatio: '1:1' }),
       });
-      
-      for (const part of response.candidates?.[0]?.content?.parts || []) {
-        if (part.inlineData) {
-          setGeneratedImage(`data:image/png;base64,${part.inlineData.data}`);
-          break;
-        }
-      }
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Image generation failed.');
+      setGeneratedImage(data.imageUrl);
     } catch (error: any) {
       console.error(error);
-      if (error.message?.includes('permission denied')) {
+      if (/OPEN_ROUTER_API_KEY|api key/i.test(error.message || '')) {
         setNeedsApiKey(true);
       }
       alert(t('errorGeneratingPoster'));
