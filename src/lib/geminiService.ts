@@ -14,10 +14,10 @@ export interface PostingSuggestion {
 export const geminiService = {
   suggestBestPostingTimes: async (activityLogs: ActivityData[], language: string = 'en'): Promise<PostingSuggestion[]> => {
     try {
-      const response = await fetch('/api/scheduler-ai', {
+      const response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'suggest', activityLogs, language }),
+        body: JSON.stringify({ action: 'schedulerSuggest', activityLogs, language }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to generate suggestions');
@@ -30,10 +30,10 @@ export const geminiService = {
 
   trainAIOnActivity: async (rawDescription: string): Promise<ActivityData[]> => {
     try {
-      const response = await fetch('/api/scheduler-ai', {
+      const response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'train', description: rawDescription }),
+        body: JSON.stringify({ action: 'schedulerTrain', description: rawDescription }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to train AI');
@@ -46,10 +46,10 @@ export const geminiService = {
 
   generateContentDraft: async (platform: string, reason: string, language: string = 'en'): Promise<string> => {
     try {
-      const response = await fetch('/api/scheduler-ai', {
+      const response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'draft', platform, reason, language }),
+        body: JSON.stringify({ action: 'schedulerDraft', platform, reason, language }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to generate draft');

@@ -27,10 +27,10 @@ const Copywriter: React.FC = () => {
       setResult(null);
       setNeedsApiKey(false);
       try {
-      const response = await fetch('/api/copywriter', {
+      const response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: copyPrompt, contentType, language })
+        body: JSON.stringify({ action: 'copywriter', prompt: copyPrompt, contentType, language })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Error generating content.');

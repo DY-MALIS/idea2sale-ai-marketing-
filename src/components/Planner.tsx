@@ -233,10 +233,10 @@ const Planner: React.FC = () => {
 
     setIsAutoPlanning(true);
     try {
-      const response = await fetch('/api/planner-auto', {
+      const response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ month: format(currentDate, 'MMMM yyyy'), language }),
+        body: JSON.stringify({ action: 'plannerAuto', month: format(currentDate, 'MMMM yyyy'), language }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to generate content strategy.');

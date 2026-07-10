@@ -53,10 +53,10 @@ const AdsManager: React.FC = () => {
       ### 4. 💰 Estimated Budgeting
       Keep it concise, high-impact, and professional. Use emojis.`;
 
-      const response = await fetch('/api/ads-strategy', {
+      const response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: targetQuery, language }),
+        body: JSON.stringify({ action: 'adsStrategy', query: targetQuery, language }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to generate strategy.');

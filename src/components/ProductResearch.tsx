@@ -23,10 +23,10 @@ const ProductResearch: React.FC = () => {
       setIsSearching(true);
       setAnalysis(null);
       try {
-      const response = await fetch('/api/product-research', {
+      const response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, language }),
+        body: JSON.stringify({ action: 'productResearch', query, language }),
       });
 
       const data = await response.json();

@@ -69,10 +69,10 @@ const VideoVoice: React.FC = () => {
     if (!videoPrompt) return;
     setIsGeneratingCaption(true);
     try {
-      const response = await fetch('/api/video-caption', {
+      const response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: videoPrompt, language }),
+        body: JSON.stringify({ action: 'videoCaption', prompt: videoPrompt, language }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to generate caption.');
