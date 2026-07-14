@@ -206,7 +206,12 @@ const VideoVoice: React.FC = () => {
     setGeneratedAudio(null);
     setVoiceFallbackMessage(null);
     try {
-      const timedPrompt = `Read this text in ${voiceLanguage}. Aim for about ${targetDuration} minute(s): ${ttsText}`;
+      const hasKhmerText = /[\u1780-\u17FF]/.test(ttsText);
+      const hasEnglishText = /[A-Za-z]/.test(ttsText);
+      const readingMode = hasKhmerText && hasEnglishText
+        ? 'Read this mixed Khmer and English text naturally, preserving each language pronunciation.'
+        : `Read this text in ${voiceLanguage}.`;
+      const timedPrompt = `${readingMode} Aim for about ${targetDuration} minute(s): ${ttsText}`;
       const response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -240,21 +245,47 @@ const VideoVoice: React.FC = () => {
   const speakWithBrowserVoice = () => {
     if (!('speechSynthesis' in window) || !ttsText.trim()) return;
     window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(ttsText);
-    const langCode = voiceLanguage === 'Khmer' ? 'km-KH' : 'en-US';
     const voices = window.speechSynthesis.getVoices();
-    const matchingVoice = voices.find((voice) => voice.lang === langCode)
-      || voices.find((voice) => voice.lang.toLowerCase().startsWith(langCode.slice(0, 2).toLowerCase()));
-    utterance.lang = langCode;
-    if (matchingVoice) utterance.voice = matchingVoice;
-    utterance.rate = 0.95;
-    window.speechSynthesis.speak(utterance);
+    const segments = splitTextForSpeech(ttsText);
+
+    segments.forEach((segment) => {
+      const utterance = new SpeechSynthesisUtterance(segment.text);
+      const matchingVoice = voices.find((voice) => voice.lang === segment.lang)
+        || voices.find((voice) => voice.lang.toLowerCase().startsWith(segment.lang.slice(0, 2).toLowerCase()));
+      utterance.lang = segment.lang;
+      if (matchingVoice) utterance.voice = matchingVoice;
+      utterance.rate = segment.lang === 'km-KH' ? 0.9 : 0.95;
+      window.speechSynthesis.speak(utterance);
+    });
   };
 
   const stopBrowserVoice = () => {
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }
+  };
+
+  const detectSpeechLanguage = (text: string): 'km-KH' | 'en-US' => (
+    /[\u1780-\u17FF]/.test(text) ? 'km-KH' : 'en-US'
+  );
+
+  const splitTextForSpeech = (text: string) => {
+    const tokens = text.match(/[\u1780-\u17FF]+|[A-Za-z0-9][A-Za-z0-9'._-]*|\s+|[^\sA-Za-z0-9\u1780-\u17FF]+/g) || [];
+    const segments: Array<{ text: string; lang: 'km-KH' | 'en-US' }> = [];
+
+    tokens.forEach((token) => {
+      const lang = detectSpeechLanguage(token);
+      const previous = segments[segments.length - 1];
+      if (previous && previous.lang === lang) {
+        previous.text += token;
+      } else if (/^\s+$/.test(token) && previous) {
+        previous.text += token;
+      } else {
+        segments.push({ text: token, lang });
+      }
+    });
+
+    return segments.filter((segment) => segment.text.trim());
   };
 
   const handleDownload = () => {
@@ -273,8 +304,9 @@ const VideoVoice: React.FC = () => {
       link.click();
       document.body.removeChild(link);
     } else if (activeTool === 'voice' && voiceFallbackMessage) {
+      const hasMixedLanguageText = /[\u1780-\u17FF]/.test(ttsText) && /[A-Za-z]/.test(ttsText);
       const scriptBlob = new Blob([
-        `Voice language: ${voiceLanguage}\n\n${ttsText.trim() || 'No script text was provided.'}\n`,
+        `Voice language: ${hasMixedLanguageText ? 'Auto Khmer + English' : voiceLanguage}\n\n${ttsText.trim() || 'No script text was provided.'}\n`,
       ], { type: 'text/plain;charset=utf-8' });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(scriptBlob);
