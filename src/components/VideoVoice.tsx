@@ -272,6 +272,17 @@ const VideoVoice: React.FC = () => {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+    } else if (activeTool === 'voice' && voiceFallbackMessage) {
+      const scriptBlob = new Blob([
+        `Voice language: ${voiceLanguage}\n\n${ttsText.trim() || 'No script text was provided.'}\n`,
+      ], { type: 'text/plain;charset=utf-8' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(scriptBlob);
+      link.download = `aime-browser-voice-script-${Date.now()}.txt`;
+      document.body.appendChild(link);
+      link.click();
+      URL.revokeObjectURL(link.href);
+      document.body.removeChild(link);
     }
   };
 
@@ -464,7 +475,7 @@ const VideoVoice: React.FC = () => {
                 <div className="w-2 h-6 bg-brand-500 rounded-full" />
                 {t('aiGenerationResult')}
               </h3>
-              {(generatedVideo || generatedAudio) && (
+              {(generatedVideo || generatedAudio || voiceFallbackMessage) && (
                 <button onClick={handleDownload} className="p-3 bg-brand-50 text-brand-500 hover:bg-brand-100 rounded-xl transition-all border border-brand-200">
                   <Download size={20} />
                 </button>
@@ -531,6 +542,14 @@ const VideoVoice: React.FC = () => {
                           className="rounded-xl bg-brand-700 px-4 py-2 text-white hover:bg-brand-800 transition-all"
                         >
                           {language === 'km' ? 'ចាក់សំឡេងម្ដងទៀត' : 'Play again'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleDownload}
+                          className="rounded-xl border border-brand-300 bg-white px-4 py-2 text-brand-700 hover:bg-brand-50 transition-all inline-flex items-center gap-2"
+                        >
+                          <Download size={16} />
+                          {language === 'km' ? 'ទាញយកអត្ថបទសំឡេង' : 'Download script'}
                         </button>
                         <button
                           type="button"
