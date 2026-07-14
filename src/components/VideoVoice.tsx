@@ -219,8 +219,8 @@ const VideoVoice: React.FC = () => {
       const rawMessage = error.message || '';
       const friendlyMessage = /model .*does not exist|no endpoints found|unsupported model/i.test(rawMessage)
         ? (language === 'km'
-          ? 'ម៉ូដែលបង្កើតសំឡេងដែលបានកំណត់ក្នុង Vercel មិនត្រឹមត្រូវទេ។ សូមដាក់ OPEN_ROUTER_TTS_MODEL=openai/tts-1 ហើយ redeploy។'
-          : 'The configured TTS model is not available. Set OPEN_ROUTER_TTS_MODEL=openai/tts-1 in Vercel and redeploy.')
+          ? 'ម៉ូដែលបង្កើតសំឡេងដែលបានកំណត់ក្នុង Vercel មិនត្រឹមត្រូវទេ។ សូមដាក់ OPEN_ROUTER_TTS_MODEL=openai/gpt-audio-mini ហើយ redeploy។'
+          : 'The configured TTS model is not available. Set OPEN_ROUTER_TTS_MODEL=openai/gpt-audio-mini in Vercel and redeploy.')
         : rawMessage;
       alert(friendlyMessage || 'Error generating audio. Please check your OpenRouter API key and credits.');
     } finally {

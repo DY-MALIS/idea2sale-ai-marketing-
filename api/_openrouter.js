@@ -81,40 +81,59 @@ const speechModelCandidates = (model) => {
   const configured = model || process.env.OPEN_ROUTER_TTS_MODEL;
   return [
     configured,
-    'openai/tts-1',
-    'openai/tts-1-hd',
+    'openai/gpt-audio-mini',
+    'openai/gpt-audio',
   ].filter(Boolean).filter((item, index, list) => list.indexOf(item) === index);
 };
 
 const isMissingModelError = (message) => /model .*does not exist|no endpoints found|not found|unsupported model/i.test(message || '');
+
+const audioFromChatCompletion = (data) => {
+  const message = data?.choices?.[0]?.message;
+  const audio = message?.audio || message?.content?.find?.((item) => item?.type === 'output_audio')?.audio;
+  const base64 = audio?.data || audio?.b64_json || audio?.base64;
+  if (!base64) return null;
+  const format = audio?.format || 'mp3';
+  return {
+    audioUrl: fileToDataUrl(base64, format === 'wav' ? 'audio/wav' : 'audio/mpeg'),
+    transcript: audio?.transcript || message?.content,
+  };
+};
 
 export async function generateOpenRouterSpeech({ input, voice = 'alloy', model, speed = 1 }) {
   let lastError;
 
   for (const speechModel of speechModelCandidates(model)) {
     try {
-      const response = await fetch(`${OPENROUTER_BASE_URL}/audio/speech`, {
+      const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
         method: 'POST',
         headers: headers(),
         body: JSON.stringify({
           model: speechModel,
-          input,
-          voice,
-          response_format: 'mp3',
-          speed,
+          modalities: ['text', 'audio'],
+          audio: {
+            voice,
+            format: 'mp3',
+          },
+          messages: [
+            {
+              role: 'system',
+              content: `You are a professional text-to-speech voice actor. Read naturally at ${speed}x speed. Return clear, clean audio only.`,
+            },
+            { role: 'user', content: input },
+          ],
         }),
       });
 
+      const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
         throw new Error(data?.error?.message || data?.message || 'OpenRouter speech request failed.');
       }
 
-      const audio = Buffer.from(await response.arrayBuffer()).toString('base64');
-      return {
-        audioUrl: fileToDataUrl(audio, response.headers.get('content-type') || 'audio/mpeg'),
-        model: speechModel,
-      };
+      const audio = audioFromChatCompletion(data);
+      if (!audio?.audioUrl) throw new Error('OpenRouter did not return audio.');
+
+      return { ...audio, model: speechModel };
     } catch (error) {
       lastError = error;
       if (!isMissingModelError(error?.message)) break;
