@@ -100,6 +100,46 @@ const audioFromChatCompletion = (data) => {
   };
 };
 
+const audioFromStreamingText = (streamText) => {
+  const audioChunks = [];
+  const transcriptChunks = [];
+
+  for (const line of String(streamText).split(/\r?\n/)) {
+    if (!line.startsWith('data:')) continue;
+
+    const payload = line.slice(5).trim();
+    if (!payload || payload === '[DONE]') continue;
+
+    try {
+      const event = JSON.parse(payload);
+      const choice = event?.choices?.[0];
+      const audio = choice?.delta?.audio || choice?.message?.audio;
+      const audioData = audio?.data || audio?.b64_json || audio?.base64;
+      const transcript = audio?.transcript || choice?.delta?.content || choice?.message?.content;
+
+      if (audioData) audioChunks.push(audioData);
+      if (typeof transcript === 'string') transcriptChunks.push(transcript);
+    } catch {
+      // Ignore keepalive or provider-specific stream lines that are not JSON.
+    }
+  }
+
+  if (!audioChunks.length) return null;
+
+  return {
+    audioUrl: fileToDataUrl(audioChunks.join(''), 'audio/mpeg'),
+    transcript: transcriptChunks.join(''),
+  };
+};
+
+const jsonFromMaybeText = (text) => {
+  try {
+    return JSON.parse(text || '{}');
+  } catch {
+    return {};
+  }
+};
+
 export async function generateOpenRouterSpeech({ input, voice = 'alloy', model, speed = 1 }) {
   let lastError;
 
@@ -115,6 +155,7 @@ export async function generateOpenRouterSpeech({ input, voice = 'alloy', model, 
             voice,
             format: 'mp3',
           },
+          stream: true,
           messages: [
             {
               role: 'system',
@@ -125,12 +166,15 @@ export async function generateOpenRouterSpeech({ input, voice = 'alloy', model, 
         }),
       });
 
-      const data = await response.json().catch(() => ({}));
+      const responseText = await response.text();
       if (!response.ok) {
+        const data = jsonFromMaybeText(responseText);
         throw new Error(data?.error?.message || data?.message || 'OpenRouter speech request failed.');
       }
 
-      const audio = audioFromChatCompletion(data);
+      const audio = responseText.trim().startsWith('data:')
+        ? audioFromStreamingText(responseText)
+        : audioFromChatCompletion(jsonFromMaybeText(responseText));
       if (!audio?.audioUrl) throw new Error('OpenRouter did not return audio.');
 
       return { ...audio, model: speechModel };
