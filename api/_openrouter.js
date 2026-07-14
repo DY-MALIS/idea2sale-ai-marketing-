@@ -77,26 +77,51 @@ export async function generateOpenRouterImage({ prompt, aspectRatio = '1:1', mod
   };
 }
 
-export async function generateOpenRouterSpeech({ input, voice = 'alloy', model, speed = 1 }) {
-  const response = await fetch(`${OPENROUTER_BASE_URL}/audio/speech`, {
-    method: 'POST',
-    headers: headers(),
-    body: JSON.stringify({
-      model: model || process.env.OPEN_ROUTER_TTS_MODEL || 'elevenlabs/eleven-turbo-v2',
-      input,
-      voice,
-      response_format: 'mp3',
-      speed,
-    }),
-  });
+const speechModelCandidates = (model) => {
+  const configured = model || process.env.OPEN_ROUTER_TTS_MODEL;
+  return [
+    configured,
+    'openai/tts-1',
+    'openai/tts-1-hd',
+  ].filter(Boolean).filter((item, index, list) => list.indexOf(item) === index);
+};
 
-  if (!response.ok) {
-    const data = await response.json().catch(() => ({}));
-    throw new Error(data?.error?.message || data?.message || 'OpenRouter speech request failed.');
+const isMissingModelError = (message) => /model .*does not exist|no endpoints found|not found|unsupported model/i.test(message || '');
+
+export async function generateOpenRouterSpeech({ input, voice = 'alloy', model, speed = 1 }) {
+  let lastError;
+
+  for (const speechModel of speechModelCandidates(model)) {
+    try {
+      const response = await fetch(`${OPENROUTER_BASE_URL}/audio/speech`, {
+        method: 'POST',
+        headers: headers(),
+        body: JSON.stringify({
+          model: speechModel,
+          input,
+          voice,
+          response_format: 'mp3',
+          speed,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data?.error?.message || data?.message || 'OpenRouter speech request failed.');
+      }
+
+      const audio = Buffer.from(await response.arrayBuffer()).toString('base64');
+      return {
+        audioUrl: fileToDataUrl(audio, response.headers.get('content-type') || 'audio/mpeg'),
+        model: speechModel,
+      };
+    } catch (error) {
+      lastError = error;
+      if (!isMissingModelError(error?.message)) break;
+    }
   }
 
-  const audio = Buffer.from(await response.arrayBuffer()).toString('base64');
-  return { audioUrl: fileToDataUrl(audio, response.headers.get('content-type') || 'audio/mpeg') };
+  throw lastError || new Error('OpenRouter speech request failed.');
 }
 
 export async function startOpenRouterVideo({ prompt, imageBase64, imageMimeType, model }) {
