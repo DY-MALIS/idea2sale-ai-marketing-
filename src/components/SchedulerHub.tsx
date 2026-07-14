@@ -62,10 +62,24 @@ const SchedulerHub: React.FC = () => {
 
     if (isDemoMode) {
       setTimeout(() => {
+        const post = {
+          id: Date.now().toString(),
+          content: content.trim(),
+          platform,
+          scheduledTime: scheduledDate.toISOString(),
+          status: 'PENDING',
+          userId: 'demo-user',
+          aiSuggested: false,
+          videoName: videoFile?.name || null,
+          createdAt: new Date().toISOString()
+        };
+        const savedPosts = JSON.parse(localStorage.getItem('demo_scheduled_posts') || '[]');
+        localStorage.setItem('demo_scheduled_posts', JSON.stringify([post, ...savedPosts]));
+        window.dispatchEvent(new Event('demo-scheduled-posts-updated'));
         setIsSubmitting(false);
         setIsModalOpen(false);
         setContent('');
-        // No need to actually save in demo mode for now
+        setVideoFile(null);
       }, 800);
       return;
     }

@@ -15,6 +15,34 @@ const Scheduler: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  const getDemoPosts = () => {
+    const savedPosts = JSON.parse(localStorage.getItem('demo_scheduled_posts') || '[]');
+    const now = new Date();
+    const defaultPosts = [
+      {
+        id: '1',
+        content: 'Excited to announce our new product launch! Stay tuned for more details at 5 PM today. #NewArrival #PulseSync',
+        platform: 'TIKTOK',
+        scheduledTime: addHours(now, 2).toISOString(),
+        status: 'PENDING',
+        userId: 'demo-user',
+        aiSuggested: true,
+        createdAt: now.toISOString()
+      },
+      {
+        id: '2',
+        content: 'How do you streamline your social media workflow? We have a new guide on automation coming up!',
+        platform: 'INSTAGRAM',
+        scheduledTime: subHours(now, 5).toISOString(),
+        status: 'PUBLISHED',
+        userId: 'demo-user',
+        aiSuggested: false,
+        createdAt: subHours(now, 24).toISOString()
+      }
+    ];
+    return [...savedPosts, ...defaultPosts].sort((a, b) => new Date(a.scheduledTime).getTime() - new Date(b.scheduledTime).getTime()) as SchedulePost[];
+  };
+
   useEffect(() => {
     let unsubscribe: () => void;
 
@@ -22,31 +50,11 @@ const Scheduler: React.FC = () => {
 
     if (userToUse) {
       if (isDemoMode) {
-        // Mock data for demo mode
-        const now = new Date();
-        setPosts([
-          { 
-            id: '1', 
-            content: 'Excited to announce our new product launch! Stay tuned for more details at 5 PM today. #NewArrival #PulseSync', 
-            platform: 'TIKTOK', 
-            scheduledTime: addHours(now, 2).toISOString(), 
-            status: 'PENDING', 
-            userId: 'demo-user', 
-            aiSuggested: true,
-            createdAt: now.toISOString()
-          },
-          { 
-            id: '2', 
-            content: 'How do you streamline your social media workflow? We have a new guide on automation coming up! 🚀', 
-            platform: 'INSTAGRAM', 
-            scheduledTime: subHours(now, 5).toISOString(), 
-            status: 'PUBLISHED', 
-            userId: 'demo-user', 
-            aiSuggested: false,
-            createdAt: subHours(now, 24).toISOString()
-          }
-        ]);
+        const refreshDemoPosts = () => setPosts(getDemoPosts());
+        refreshDemoPosts();
         setLoading(false);
+        window.addEventListener('demo-scheduled-posts-updated', refreshDemoPosts);
+        unsubscribe = () => window.removeEventListener('demo-scheduled-posts-updated', refreshDemoPosts);
       } else {
         const q = query(
           collection(db, 'scheduled_posts'),
@@ -85,7 +93,11 @@ const Scheduler: React.FC = () => {
   const handleDelete = async (id: string) => {
     try {
       if (isDemoMode) {
-        setPosts(prev => prev.filter(p => p.id !== id));
+        setPosts(prev => {
+          const next = prev.filter(p => p.id !== id);
+          localStorage.setItem('demo_scheduled_posts', JSON.stringify(next.filter(p => !['1', '2'].includes(p.id))));
+          return next;
+        });
         return;
       }
       await deleteDoc(doc(db, 'scheduled_posts', id));
@@ -97,10 +109,14 @@ const Scheduler: React.FC = () => {
   };
 
   const toggleStatus = async (post: SchedulePost) => {
-    const newStatus = post.status === 'PENDING' ? 'PUBLISHED' : 'PENDING';
+    const newStatus: SchedulePost['status'] = post.status === 'PENDING' ? 'PUBLISHED' : 'PENDING';
     try {
       if (isDemoMode) {
-        setPosts(prev => prev.map(p => p.id === post.id ? { ...p, status: newStatus } : p));
+        setPosts(prev => {
+          const next = prev.map(p => p.id === post.id ? { ...p, status: newStatus } : p);
+          localStorage.setItem('demo_scheduled_posts', JSON.stringify(next.filter(p => !['1', '2'].includes(p.id))));
+          return next;
+        });
         return;
       }
       await updateDoc(doc(db, 'scheduled_posts', post.id), {
