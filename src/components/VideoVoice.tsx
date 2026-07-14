@@ -241,7 +241,12 @@ const VideoVoice: React.FC = () => {
     if (!('speechSynthesis' in window) || !ttsText.trim()) return;
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(ttsText);
-    utterance.lang = voiceLanguage === 'Khmer' ? 'km-KH' : 'en-US';
+    const langCode = voiceLanguage === 'Khmer' ? 'km-KH' : 'en-US';
+    const voices = window.speechSynthesis.getVoices();
+    const matchingVoice = voices.find((voice) => voice.lang === langCode)
+      || voices.find((voice) => voice.lang.toLowerCase().startsWith(langCode.slice(0, 2).toLowerCase()));
+    utterance.lang = langCode;
+    if (matchingVoice) utterance.voice = matchingVoice;
     utterance.rate = 0.95;
     window.speechSynthesis.speak(utterance);
   };
@@ -409,13 +414,40 @@ const VideoVoice: React.FC = () => {
               <div className="space-y-6">
                 <div className="flex justify-between items-end">
                   <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">{t('scriptTextLabel')}</label>
-                  <div className="flex bg-brand-50 p-1 rounded-xl border border-brand-100">
-                    {['Khmer', 'English'].map(lang => (
-                      <button key={lang} onClick={() => setVoiceLanguage(lang as any)} className={cn("px-3 py-1 rounded-lg text-[10px] font-black", voiceLanguage === lang ? "bg-white text-brand-700 shadow-sm" : "text-brand-400")}>{lang}</button>
-                    ))}
+                  <div className="space-y-1 text-right">
+                    <p className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">
+                      {language === 'km' ? 'ភាសាអានសំឡេង' : 'Reading Language'}
+                    </p>
+                    <div className="flex bg-brand-50 p-1 rounded-xl border border-brand-100">
+                      {[
+                        { id: 'Khmer', label: language === 'km' ? 'ខ្មែរ' : 'Khmer' },
+                        { id: 'English', label: language === 'km' ? 'អង់គ្លេស' : 'English' },
+                      ].map(lang => (
+                        <button
+                          key={lang.id}
+                          type="button"
+                          onClick={() => setVoiceLanguage(lang.id as 'Khmer' | 'English')}
+                          className={cn(
+                            "px-4 py-1.5 rounded-lg text-[10px] font-black transition-all",
+                            voiceLanguage === lang.id ? "bg-white text-brand-700 shadow-sm" : "text-brand-400 hover:text-brand-700"
+                          )}
+                        >
+                          {lang.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
                 <textarea value={ttsText} onChange={(e) => setTtsText(e.target.value)} className="w-full h-48 p-4 rounded-2xl bg-brand-50 border border-brand-200 outline-none transition-all resize-none" />
+                <p className="text-xs text-brand-400 font-medium">
+                  {voiceLanguage === 'Khmer'
+                    ? (language === 'km'
+                      ? 'ប្រព័ន្ធនឹងអានអត្ថបទនេះជាភាសាខ្មែរ ប្រសិនបើ browser របស់អ្នកមានសំឡេងខ្មែរ។'
+                      : 'The app will read this text in Khmer if your browser has a Khmer voice installed.')
+                    : (language === 'km'
+                      ? 'ប្រព័ន្ធនឹងអានអត្ថបទនេះជាភាសាអង់គ្លេស។'
+                      : 'The app will read this text in English.')}
+                </p>
               </div>
             )}
             <button onClick={activeTool === 'video' ? handleGenerateVideo : handleGenerateAudio} className="w-full bg-gradient-to-r from-brand-600 to-crab-shell text-white font-bold py-5 rounded-2xl flex items-center justify-center gap-3 shadow-xl">
