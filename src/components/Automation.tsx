@@ -693,7 +693,7 @@ const Automation: React.FC = () => {
                     value={campaignName}
                     onChange={(e) => setCampaignName(e.target.value)}
                     placeholder={t('campaignNamePlaceholder')} 
-                    className="w-full px-4 py-3 bg-brand-50 border border-brand-100 rounded-xl focus:outline-none focus:ring-2 ring-brand-500/20" 
+                    className="w-full px-4 py-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 ring-brand-500/20" 
                   />
                 </div>
                 
@@ -703,7 +703,7 @@ const Automation: React.FC = () => {
                     <select 
                       value={platform}
                       onChange={(e) => setPlatform(e.target.value)}
-                      className="w-full px-4 py-3 bg-brand-50 border border-brand-100 rounded-xl focus:outline-none font-medium"
+                      className="w-full px-4 py-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-800 focus:outline-none font-medium"
                     >
                       <option>TikTok</option>
                       <option>Facebook</option>
@@ -715,7 +715,7 @@ const Automation: React.FC = () => {
                     <select 
                       value={frequency}
                       onChange={(e) => setFrequency(e.target.value)}
-                      className="w-full px-4 py-3 bg-brand-50 border border-brand-100 rounded-xl focus:outline-none font-medium"
+                      className="w-full px-4 py-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-800 focus:outline-none font-medium"
                     >
                       <option value="Daily">{t('daily')}</option>
                       <option value="Weekly">{t('weekly')}</option>
@@ -793,7 +793,7 @@ const Automation: React.FC = () => {
                     value={ruleTrigger}
                     onChange={(e) => setRuleTrigger(e.target.value)}
                     placeholder={language === 'km' ? 'ឧទាហរណ៍៖ តម្លៃ, ប៉ុន្មាន...' : 'e.g. price, how much...'} 
-                    className="w-full px-4 py-3 bg-brand-50 border border-brand-100 rounded-xl focus:outline-none focus:ring-2 ring-brand-500/20" 
+                    className="w-full px-4 py-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 ring-brand-500/20" 
                   />
                 </div>
 
@@ -803,7 +803,7 @@ const Automation: React.FC = () => {
                     value={ruleResponse}
                     onChange={(e) => setRuleResponse(e.target.value)}
                     placeholder={language === 'km' ? 'បញ្ចូលការឆ្លើយតបរបស់អ្នក...' : 'Enter your automated response...'} 
-                    className="w-full px-4 py-3 bg-brand-50 border border-brand-100 rounded-xl focus:outline-none focus:ring-2 ring-brand-500/20 h-24 resize-none" 
+                    className="w-full px-4 py-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 ring-brand-500/20 h-24 resize-none" 
                   />
                 </div>
                 
@@ -812,7 +812,7 @@ const Automation: React.FC = () => {
                   <select 
                     value={rulePlatform}
                     onChange={(e) => setRulePlatform(e.target.value)}
-                    className="w-full px-4 py-3 bg-brand-50 border border-brand-100 rounded-xl focus:outline-none font-medium"
+                    className="w-full px-4 py-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-800 focus:outline-none font-medium"
                   >
                     <option>TikTok</option>
                     <option>Facebook</option>

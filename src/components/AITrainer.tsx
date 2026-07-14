@@ -99,7 +99,7 @@ const AITrainer: React.FC<AITrainerProps> = ({ onTrainingComplete }) => {
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder={t('trainerPlaceholder')}
-            className="w-full h-32 bg-[#0A0A0B] border border-[#2A2B2F] rounded-lg p-4 text-white text-sm focus:ring-1 focus:ring-purple-500 focus:outline-none transition-all resize-none placeholder:text-[#4A4B4F]"
+            className="w-full h-32 bg-[#0A0A0B] border border-[#2A2B2F] rounded-lg p-4 text-white text-sm focus:ring-1 focus:ring-purple-500 focus:outline-none transition-all resize-none placeholder:text-[#9CA3AF]"
           />
           <div className="absolute bottom-3 right-3 flex items-center gap-2">
             <motion.button
