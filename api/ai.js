@@ -27,6 +27,26 @@ const productResearchPrompt = (query, language) => `Analyze the following produc
 Provide a concise but useful research report including market demand, competitors, pricing, target audience, and TikTok/video ad hooks.
 Write in ${language === 'km' ? 'Khmer' : 'English'} when appropriate. Use clear headings and practical bullet points.`;
 
+const photorealImagePrompt = (prompt) => `${prompt}
+
+Photorealistic commercial image requirements:
+- Make it look like a real camera photo, not an illustration, cartoon, 3D render, or plastic-looking AI image.
+- Use natural realistic lighting, detailed shadows, accurate reflections, real material texture, sharp product edges, and believable depth of field.
+- Use a premium product photography style with a real environment, realistic scale, natural imperfections, and lifelike color grading.
+- If people appear, faces, hands, eyes, and skin must look anatomically correct and natural.
+- Avoid distorted text, extra logos, malformed objects, duplicated limbs, fake watermarks, blurry details, oversaturated colors, and fantasy styling.
+- Output should be high-detail, clean, professional, TikTok/e-commerce ready, and visually convincing.`;
+
+const photorealVideoPrompt = (prompt) => `${prompt}
+
+Photorealistic cinematic video requirements:
+- Make the scene look filmed with a real camera, not animation, cartoon, or 3D render.
+- Use realistic movement, natural camera motion, lifelike lighting, real shadows, accurate reflections, and believable object physics.
+- Add subtle handheld or dolly movement, cinematic depth of field, natural motion blur, and smooth subject tracking.
+- Product, people, hands, faces, and environment must stay consistent between frames with no warping or sudden identity changes.
+- Avoid distorted text, melted objects, duplicated limbs, flickering, excessive saturation, impossible motion, and fantasy effects.
+- Create a premium short-form ad style video suitable for TikTok, with a realistic product-demo feeling.`;
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
@@ -120,7 +140,7 @@ export default async function handler(req, res) {
       const prompt = String(req.body?.prompt || '').trim();
       const aspectRatio = String(req.body?.aspectRatio || '1:1');
       if (!prompt) return res.status(400).json({ error: 'Image prompt is required.' });
-      const image = await generateOpenRouterImage({ prompt, aspectRatio });
+      const image = await generateOpenRouterImage({ prompt: photorealImagePrompt(prompt), aspectRatio });
       return res.status(200).json(image);
     }
 
@@ -137,7 +157,7 @@ export default async function handler(req, res) {
       const prompt = String(req.body?.prompt || '').trim();
       if (!prompt) return res.status(400).json({ error: 'Video prompt is required.' });
       const video = await startOpenRouterVideo({
-        prompt,
+        prompt: photorealVideoPrompt(prompt),
         imageBase64: req.body?.imageBase64,
         imageMimeType: req.body?.imageMimeType,
       });

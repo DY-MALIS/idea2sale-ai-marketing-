@@ -20,7 +20,7 @@ type ToolType = 'video' | 'voice';
 const VideoVoice: React.FC = () => {
   const { t, language } = useLanguage();
   const [activeTool, setActiveTool] = useState<ToolType>('video');
-  const [videoPrompt, setVideoPrompt] = useState('');
+  const [videoPrompt, setVideoPrompt] = useState('A realistic 8-second TikTok product ad: close-up product reveal on a real table, warm natural light, slow camera push-in, hand places the product naturally, detailed texture, cinematic depth of field, clean premium brand feeling');
   const [videoLanguage, setVideoLanguage] = useState<'Khmer' | 'English'>('Khmer');
   const [voiceLanguage, setVoiceLanguage] = useState<'Khmer' | 'English'>('Khmer');
   const [loading, setLoading] = useState(false);
@@ -160,7 +160,7 @@ const VideoVoice: React.FC = () => {
     setLoading(true);
     setGeneratedVideo(null);
     try {
-      const prompt = `${videoLanguage === 'Khmer' ? 'Khmer/Cambodian context. ' : ''}${videoPrompt || 'Create a short marketing video from the uploaded reference image.'}`;
+      const prompt = `${videoLanguage === 'Khmer' ? 'Khmer/Cambodian context. ' : ''}${videoPrompt || 'Create a realistic short marketing video from the uploaded reference image.'}`;
       const response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -335,7 +335,12 @@ const VideoVoice: React.FC = () => {
                       ))}
                     </div>
                   </div>
-                  <textarea value={videoPrompt} onChange={(e) => setVideoPrompt(e.target.value)} className="w-full h-32 p-5 rounded-2xl bg-brand-50 border border-brand-200 outline-none transition-all resize-none shadow-inner" />
+                  <textarea
+                    value={videoPrompt}
+                    onChange={(e) => setVideoPrompt(e.target.value)}
+                    placeholder="Describe a realistic TikTok ad: product, location, camera movement, action, lighting, mood..."
+                    className="w-full h-32 p-5 rounded-2xl bg-brand-50 border border-brand-200 outline-none transition-all resize-none shadow-inner"
+                  />
                 </div>
 
                 {/* AI Caption Generator Section */}

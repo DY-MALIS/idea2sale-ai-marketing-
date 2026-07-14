@@ -15,12 +15,12 @@ type ToolType = 'poster' | 'visual';
 const PosterGen: React.FC = () => {
   const { t, language } = useLanguage();
   const [activeTool, setActiveTool] = useState<ToolType>('poster');
-  const [posterPrompt, setPosterPrompt] = useState('');
-  const [visualPrompt, setVisualPrompt] = useState('');
+  const [posterPrompt, setPosterPrompt] = useState('A real product photo in a Cambodian cafe setting, warm sunlight, premium commercial photography, natural shadows, realistic texture, lifestyle background');
+  const [visualPrompt, setVisualPrompt] = useState('A photorealistic product advertisement scene, real camera photo, premium lighting, natural shadows, detailed texture, cinematic depth of field, TikTok-ready composition');
   const [posterDetails, setPosterDetails] = useState({
-    brand: '',
-    headline: '',
-    cta: '',
+    brand: 'aime.angkorgate',
+    headline: 'Premium AI Marketing',
+    cta: 'Try Now',
     style: 'Modern'
   });
   const [loading, setLoading] = useState(false);
@@ -101,6 +101,7 @@ const PosterGen: React.FC = () => {
       Style: ${posterDetails.style}. 
       Visual description: ${posterPrompt}. 
       The poster should have clear, readable text for the brand and headline.
+      Make the scene look like a real commercial photoshoot with a physical product, real environment, real light, realistic surfaces, and premium camera quality.
       
       CRITICAL INSTRUCTION:
       - The current UI language is: ${language === 'km' ? 'Khmer' : 'English'}.
@@ -268,7 +269,7 @@ const PosterGen: React.FC = () => {
                   <textarea
                     value={posterPrompt}
                     onChange={(e) => setPosterPrompt(e.target.value)}
-                    placeholder={t('promptPlaceholder')}
+                    placeholder="Describe the real product, location, lighting, camera angle, and mood..."
                     className="w-full h-28 p-4 rounded-2xl bg-brand-50 border border-brand-200 text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all resize-none"
                   />
                 </div>
@@ -279,7 +280,7 @@ const PosterGen: React.FC = () => {
                 <textarea
                   value={visualPrompt}
                   onChange={(e) => setVisualPrompt(e.target.value)}
-                  placeholder={t('promptPlaceholder')}
+                  placeholder="Describe a realistic product photo: subject, setting, camera angle, lighting, background..."
                   className="w-full h-56 p-5 rounded-2xl bg-brand-50 border border-brand-200 focus:ring-2 focus:ring-brand-500 outline-none transition-all resize-none"
                 />
               </div>
