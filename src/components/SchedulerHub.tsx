@@ -152,10 +152,19 @@ const SchedulerHub: React.FC = () => {
             className="px-6 py-3 bg-white text-brand-700 rounded-2xl font-bold text-sm shadow-xl flex items-center gap-2 transition-transform"
           >
             <Plus size={18} />
-            {t('newCampaignBtn')}
+            {t('scheduleBtn')}
           </motion.button>
         </div>
       </header>
+
+      <div className="rounded-2xl border border-purple-500/20 bg-purple-500/10 px-5 py-4 text-sm text-brand-200">
+        <strong className="text-white">
+          {t('smartScheduler')}
+        </strong>
+        <span className="ml-2">
+          {t('schedulerRoleDesc')}
+        </span>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* Left: Training & Suggestions */}

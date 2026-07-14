@@ -439,6 +439,11 @@ const Automation: React.FC = () => {
         </motion.div>
       )}
 
+      <div className="rounded-2xl border border-brand-200 bg-brand-50 px-5 py-4 text-sm text-brand-700">
+        <strong>{t('socialAutomation')}</strong>
+        <span className="ml-2">{t('automationRoleDesc')}</span>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         <div className="lg:col-span-8 space-y-8">
           {activeTab === 'posting' ? (
