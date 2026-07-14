@@ -86,7 +86,7 @@ const speechModelCandidates = (model) => {
   ].filter(Boolean).filter((item, index, list) => list.indexOf(item) === index);
 };
 
-const isMissingModelError = (message) => /model .*does not exist|no endpoints found|not found|unsupported model/i.test(message || '');
+const isMissingModelError = (message) => /model .*does not exist|not a valid model id|no endpoints found|not found|unsupported model/i.test(message || '');
 
 const audioFromChatCompletion = (data) => {
   const message = data?.choices?.[0]?.message;
