@@ -225,19 +225,30 @@ const VideoVoice: React.FC = () => {
           : 'The configured TTS model is not available. Set OPEN_ROUTER_TTS_MODEL=openai/gpt-audio-mini in Vercel and redeploy.')
         : rawMessage;
       if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(ttsText);
-        utterance.lang = voiceLanguage === 'Khmer' ? 'km-KH' : 'en-US';
-        utterance.rate = 0.95;
-        window.speechSynthesis.speak(utterance);
+        speakWithBrowserVoice();
         setVoiceFallbackMessage(language === 'km'
-          ? 'OpenRouter មិនអាចបង្កើតឯកសារសំឡេងបាននៅពេលនេះ។ App បានអានសំឡេងដោយ browser ជាបណ្តោះអាសន្ន។'
-          : 'OpenRouter could not generate an audio file right now. The app is reading it with browser speech as a fallback.');
+          ? 'សំឡេង Browser កំពុងដំណើរការ។ OpenRouter audio provider មិនអាចបង្កើតឯកសារ MP3 បាននៅពេលនេះ។'
+          : 'Browser voice is active. The OpenRouter audio provider could not create an MP3 file right now.');
       } else {
         alert(friendlyMessage || 'Error generating audio. Please check your OpenRouter API key and credits.');
       }
     } finally {
       setAudioLoading(false);
+    }
+  };
+
+  const speakWithBrowserVoice = () => {
+    if (!('speechSynthesis' in window) || !ttsText.trim()) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(ttsText);
+    utterance.lang = voiceLanguage === 'Khmer' ? 'km-KH' : 'en-US';
+    utterance.rate = 0.95;
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const stopBrowserVoice = () => {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
     }
   };
 
@@ -479,8 +490,24 @@ const VideoVoice: React.FC = () => {
                   {generatedAudio ? (
                     <audio src={generatedAudio} controls className="w-full" />
                   ) : (
-                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm font-semibold text-amber-800">
-                      {voiceFallbackMessage}
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm font-semibold text-amber-800 space-y-4">
+                      <p>{voiceFallbackMessage}</p>
+                      <div className="flex flex-wrap justify-center gap-3">
+                        <button
+                          type="button"
+                          onClick={speakWithBrowserVoice}
+                          className="rounded-xl bg-brand-700 px-4 py-2 text-white hover:bg-brand-800 transition-all"
+                        >
+                          {language === 'km' ? 'ចាក់សំឡេងម្ដងទៀត' : 'Play again'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={stopBrowserVoice}
+                          className="rounded-xl border border-amber-300 bg-white px-4 py-2 text-amber-800 hover:bg-amber-100 transition-all"
+                        >
+                          {language === 'km' ? 'បញ្ឈប់សំឡេង' : 'Stop voice'}
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
