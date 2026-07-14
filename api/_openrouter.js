@@ -87,6 +87,7 @@ const speechModelCandidates = (model) => {
 };
 
 const isMissingModelError = (message) => /model .*does not exist|not a valid model id|no endpoints found|not found|unsupported model/i.test(message || '');
+const isRetryableSpeechError = (message) => /provider returned error|did not return audio|temporarily unavailable|overloaded|rate limit/i.test(message || '');
 
 const audioFromChatCompletion = (data) => {
   const message = data?.choices?.[0]?.message;
@@ -103,6 +104,7 @@ const audioFromChatCompletion = (data) => {
 const audioFromStreamingText = (streamText) => {
   const audioChunks = [];
   const transcriptChunks = [];
+  const errors = [];
 
   for (const line of String(streamText).split(/\r?\n/)) {
     if (!line.startsWith('data:')) continue;
@@ -116,15 +118,19 @@ const audioFromStreamingText = (streamText) => {
       const audio = choice?.delta?.audio || choice?.message?.audio;
       const audioData = audio?.data || audio?.b64_json || audio?.base64;
       const transcript = audio?.transcript || choice?.delta?.content || choice?.message?.content;
+      const errorMessage = event?.error?.message || event?.error || choice?.finish_reason;
 
       if (audioData) audioChunks.push(audioData);
       if (typeof transcript === 'string') transcriptChunks.push(transcript);
+      if (typeof errorMessage === 'string' && errorMessage && errorMessage !== 'stop') errors.push(errorMessage);
     } catch {
       // Ignore keepalive or provider-specific stream lines that are not JSON.
     }
   }
 
-  if (!audioChunks.length) return null;
+  if (!audioChunks.length) {
+    return errors.length ? { error: errors.join(' ') } : null;
+  }
 
   return {
     audioUrl: fileToDataUrl(audioChunks.join(''), 'audio/mpeg'),
@@ -175,12 +181,13 @@ export async function generateOpenRouterSpeech({ input, voice = 'alloy', model, 
       const audio = responseText.trim().startsWith('data:')
         ? audioFromStreamingText(responseText)
         : audioFromChatCompletion(jsonFromMaybeText(responseText));
+      if (audio?.error) throw new Error(audio.error);
       if (!audio?.audioUrl) throw new Error('OpenRouter did not return audio.');
 
       return { ...audio, model: speechModel };
     } catch (error) {
       lastError = error;
-      if (!isMissingModelError(error?.message)) break;
+      if (!isMissingModelError(error?.message) && !isRetryableSpeechError(error?.message)) break;
     }
   }
 

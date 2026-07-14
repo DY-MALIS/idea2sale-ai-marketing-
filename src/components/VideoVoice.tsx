@@ -28,6 +28,7 @@ const VideoVoice: React.FC = () => {
   const [ttsText, setTtsText] = useState('');
   const [targetDuration, setTargetDuration] = useState<number>(1);
   const [generatedAudio, setGeneratedAudio] = useState<string | null>(null);
+  const [voiceFallbackMessage, setVoiceFallbackMessage] = useState<string | null>(null);
   const [audioLoading, setAudioLoading] = useState(false);
   const [needsApiKey, setNeedsApiKey] = useState(false);
   const [videoImage, setVideoImage] = useState<string | null>(null);
@@ -203,6 +204,7 @@ const VideoVoice: React.FC = () => {
 
     setAudioLoading(true);
     setGeneratedAudio(null);
+    setVoiceFallbackMessage(null);
     try {
       const timedPrompt = `Read this text in ${voiceLanguage}. Aim for about ${targetDuration} minute(s): ${ttsText}`;
       const response = await fetch('/api/ai', {
@@ -222,7 +224,18 @@ const VideoVoice: React.FC = () => {
           ? 'ម៉ូដែលបង្កើតសំឡេងដែលបានកំណត់ក្នុង Vercel មិនត្រឹមត្រូវទេ។ សូមដាក់ OPEN_ROUTER_TTS_MODEL=openai/gpt-audio-mini ហើយ redeploy។'
           : 'The configured TTS model is not available. Set OPEN_ROUTER_TTS_MODEL=openai/gpt-audio-mini in Vercel and redeploy.')
         : rawMessage;
-      alert(friendlyMessage || 'Error generating audio. Please check your OpenRouter API key and credits.');
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(ttsText);
+        utterance.lang = voiceLanguage === 'Khmer' ? 'km-KH' : 'en-US';
+        utterance.rate = 0.95;
+        window.speechSynthesis.speak(utterance);
+        setVoiceFallbackMessage(language === 'km'
+          ? 'OpenRouter មិនអាចបង្កើតឯកសារសំឡេងបាននៅពេលនេះ។ App បានអានសំឡេងដោយ browser ជាបណ្តោះអាសន្ន។'
+          : 'OpenRouter could not generate an audio file right now. The app is reading it with browser speech as a fallback.');
+      } else {
+        alert(friendlyMessage || 'Error generating audio. Please check your OpenRouter API key and credits.');
+      }
     } finally {
       setAudioLoading(false);
     }
@@ -460,10 +473,16 @@ const VideoVoice: React.FC = () => {
                     </button>
                   </div>
                 </div>
-              ) : activeTool === 'voice' && generatedAudio ? (
+              ) : activeTool === 'voice' && (generatedAudio || voiceFallbackMessage) ? (
                 <div className="text-center space-y-6">
                   <Volume2 size={64} className="text-brand-600 mx-auto" />
-                  <audio src={generatedAudio} controls className="w-full" />
+                  {generatedAudio ? (
+                    <audio src={generatedAudio} controls className="w-full" />
+                  ) : (
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm font-semibold text-amber-800">
+                      {voiceFallbackMessage}
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="text-center text-brand-300 space-y-4">
