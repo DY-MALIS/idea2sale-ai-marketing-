@@ -229,7 +229,7 @@ export async function generateTranslateSpeech({ input }) {
       ie: 'UTF-8',
       client: 'tw-ob',
       tl: segment.lang,
-      ttsspeed: '1.18',
+      ttsspeed: '1.28',
       q: segment.text,
     });
     const response = await fetch(`https://translate.google.com/translate_tts?${params.toString()}`, {
@@ -280,11 +280,12 @@ export async function generateOpenRouterSpeech({
             {
               role: 'system',
               content: [
-                `You are a real person speaking naturally at ${speed}x speed with a lively conversational tempo.`,
+                `You are a real person speaking naturally at about ${speed}x speed with a quick, lively conversational tempo.`,
                 `The language mode is ${languageHint}.`,
                 `Performance style: ${performanceStyle}.`,
                 'Sound like a real human recorded in one take, with tiny imperfections, natural breath-like phrasing, and believable emotion.',
-                'Use casual human rhythm, clear words, short natural pauses, and emphasis only where a person would naturally emphasize.',
+                'Speak faster than normal narration, with casual human rhythm, clear words, short natural pauses, and emphasis only where a person would naturally emphasize.',
+                'Do not drag vowels, do not pause after every word, and do not use a slow audiobook or announcer cadence.',
                 'Do not sound like AI narration, a robot, a formal announcer, a newsreader, a language learner, or someone reading letter by letter.',
                 'For marketing copy, speak warmly and directly to one person, like a helpful creator explaining something in real life.',
                 'If the text contains Khmer, pronounce the Khmer text as Khmer, not as English transliteration.',

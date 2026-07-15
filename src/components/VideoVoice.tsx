@@ -58,9 +58,9 @@ const VideoVoice: React.FC = () => {
         ? 'សំឡេងស្រីកក់ក្ដៅ ស្និទ្ធស្នាល លឿនសមរម្យ សម្រាប់លក់ផលិតផល និងបកស្រាយ។'
         : 'Warm, friendly female voice with natural marketing energy.',
       openRouterVoice: 'nova',
-      browserRate: 1.08,
+      browserRate: 1.2,
       browserPitch: 1.08,
-      style: 'Sreymom persona: real Cambodian female creator voice, warm, friendly, confident, expressive, clear Khmer pronunciation, quick natural conversational tempo, tiny breaths and natural pauses, like a real person explaining a product to a customer.',
+      style: 'Sreymom persona: real Cambodian female creator voice, warm, friendly, confident, expressive, clear Khmer pronunciation, fast natural conversational tempo, short pauses, lively intonation, like a real person talking directly to a customer.',
     },
     piseth: {
       id: 'piseth' as VoicePersona,
@@ -71,9 +71,9 @@ const VideoVoice: React.FC = () => {
         ? 'សំឡេងប្រុសជឿជាក់ ស្ងប់ និងច្បាស់ សម្រាប់ពន្យល់ ឬប្រកាសមាតិកា។'
         : 'Confident, calm male voice with clear creator-style delivery.',
       openRouterVoice: 'onyx',
-      browserRate: 1.04,
+      browserRate: 1.16,
       browserPitch: 0.9,
-      style: 'Piseth persona: real Cambodian male creator voice, confident, calm, clear, emotionally grounded, natural Khmer pronunciation, conversational tempo, not announcer style, like a real person presenting useful advice.',
+      style: 'Piseth persona: real Cambodian male creator voice, confident, calm, clear, emotionally grounded, natural Khmer pronunciation, quick conversational tempo, short pauses, natural emphasis, not announcer style, like a real person presenting useful advice.',
     },
   };
 
@@ -277,8 +277,8 @@ const VideoVoice: React.FC = () => {
           input: ttsText,
           voice: selectedPersona.openRouterVoice,
           languageHint,
-          performanceStyle: `${selectedPersona.style} Read the exact provided text. Keep Khmer words Khmer and English words English. Use human emotion, natural rhythm, clear consonants, and a lively pace. Avoid robotic or AI narration.`,
-          speed: targetDuration > 1 ? 1.16 : 1.24,
+          performanceStyle: `${selectedPersona.style} Read the exact provided text like you are speaking in a real conversation, not reading a script. Keep Khmer words Khmer and English words English. Use human emotion, natural rhythm, clear consonants, lively pace, short pauses, and real creator-style intonation. Avoid robotic or AI narration.`,
+          speed: targetDuration > 1 ? 1.28 : 1.34,
         }),
       });
       const data = await response.json();
@@ -329,8 +329,8 @@ const VideoVoice: React.FC = () => {
       utterance.lang = segment.lang;
       if (matchingVoice) utterance.voice = matchingVoice;
       utterance.rate = segment.lang === 'km-KH'
-        ? Math.min(selectedPersona.browserRate + 0.04, 1.16)
-        : Math.min(selectedPersona.browserRate + 0.08, 1.22);
+        ? Math.min(selectedPersona.browserRate + 0.08, 1.3)
+        : Math.min(selectedPersona.browserRate + 0.12, 1.35);
       utterance.pitch = selectedPersona.browserPitch;
       window.speechSynthesis.speak(utterance);
     });
