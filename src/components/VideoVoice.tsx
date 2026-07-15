@@ -16,6 +16,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage } from '../contexts/LanguageContext';
 
 type ToolType = 'video' | 'voice';
+type VoiceGender = 'Female' | 'Male';
 
 const VideoVoice: React.FC = () => {
   const { t, language } = useLanguage();
@@ -23,6 +24,8 @@ const VideoVoice: React.FC = () => {
   const [videoPrompt, setVideoPrompt] = useState('A realistic 8-second TikTok product ad: close-up product reveal on a real table, warm natural light, slow camera push-in, hand places the product naturally, detailed texture, cinematic depth of field, clean premium brand feeling');
   const [videoLanguage, setVideoLanguage] = useState<'Khmer' | 'English'>('Khmer');
   const [voiceLanguage, setVoiceLanguage] = useState<'Khmer' | 'English'>('Khmer');
+  const [voiceGender, setVoiceGender] = useState<VoiceGender>('Female');
+  const [browserVoices, setBrowserVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [loading, setLoading] = useState(false);
   const [generatedVideo, setGeneratedVideo] = useState<string | null>(null);
   const [ttsText, setTtsText] = useState('');
@@ -40,6 +43,21 @@ const VideoVoice: React.FC = () => {
   const [isPostingTikTok, setIsPostingTikTok] = useState(false);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [tiktokUser, setTiktokUser] = useState<any>(null);
+
+  React.useEffect(() => {
+    if (!('speechSynthesis' in window)) return;
+
+    const loadBrowserVoices = () => {
+      setBrowserVoices(window.speechSynthesis.getVoices());
+    };
+
+    loadBrowserVoices();
+    window.speechSynthesis.onvoiceschanged = loadBrowserVoices;
+
+    return () => {
+      window.speechSynthesis.onvoiceschanged = null;
+    };
+  }, []);
 
   React.useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -209,8 +227,8 @@ const VideoVoice: React.FC = () => {
       const hasKhmerText = /[\u1780-\u17FF]/.test(ttsText);
       const hasEnglishText = /[A-Za-z]/.test(ttsText);
       const readingMode = hasKhmerText && hasEnglishText
-        ? 'Read this mixed Khmer and English text naturally, preserving each language pronunciation.'
-        : `Read this text in ${voiceLanguage}.`;
+        ? `Read this mixed Khmer and English text naturally with a ${voiceGender.toLowerCase()} voice, preserving each language pronunciation.`
+        : `Read this text in ${voiceLanguage} with a ${voiceGender.toLowerCase()} voice.`;
       const timedPrompt = `${readingMode} Aim for about ${targetDuration} minute(s): ${ttsText}`;
       const response = await fetch('/api/ai', {
         method: 'POST',
@@ -242,19 +260,23 @@ const VideoVoice: React.FC = () => {
     }
   };
 
-  const speakWithBrowserVoice = () => {
+  const speakWithBrowserVoice = (retryCount = 0) => {
     if (!('speechSynthesis' in window) || !ttsText.trim()) return;
     window.speechSynthesis.cancel();
-    const voices = window.speechSynthesis.getVoices();
+    const voices = browserVoices.length ? browserVoices : window.speechSynthesis.getVoices();
+    if (!voices.length && retryCount < 5) {
+      window.setTimeout(() => speakWithBrowserVoice(retryCount + 1), 250);
+      return;
+    }
     const segments = splitTextForSpeech(ttsText);
 
     segments.forEach((segment) => {
       const utterance = new SpeechSynthesisUtterance(segment.text);
-      const matchingVoice = voices.find((voice) => voice.lang === segment.lang)
-        || voices.find((voice) => voice.lang.toLowerCase().startsWith(segment.lang.slice(0, 2).toLowerCase()));
+      const matchingVoice = findBrowserVoice(voices, segment.lang, voiceGender);
       utterance.lang = segment.lang;
       if (matchingVoice) utterance.voice = matchingVoice;
       utterance.rate = segment.lang === 'km-KH' ? 0.9 : 0.95;
+      utterance.pitch = voiceGender === 'Male' ? 0.85 : 1.05;
       window.speechSynthesis.speak(utterance);
     });
   };
@@ -268,6 +290,33 @@ const VideoVoice: React.FC = () => {
   const detectSpeechLanguage = (text: string): 'km-KH' | 'en-US' => (
     /[\u1780-\u17FF]/.test(text) ? 'km-KH' : 'en-US'
   );
+
+  const findBrowserVoice = (
+    voices: SpeechSynthesisVoice[],
+    lang: 'km-KH' | 'en-US',
+    gender: VoiceGender,
+  ) => {
+    const languageMatches = voices.filter((voice) => {
+      const voiceLang = voice.lang.toLowerCase();
+      const voiceName = voice.name.toLowerCase();
+      if (lang === 'km-KH') {
+        return voiceLang === 'km-kh'
+          || voiceLang.startsWith('km')
+          || voiceName.includes('khmer')
+          || voiceName.includes('cambodian');
+      }
+      return voiceLang === 'en-us' || voiceLang.startsWith('en');
+    });
+
+    const femaleHints = ['female', 'woman', 'zira', 'susan', 'aria', 'jenny', 'samantha', 'victoria', 'zira'];
+    const maleHints = ['male', 'man', 'david', 'mark', 'guy', 'george', 'daniel', 'alex'];
+    const hints = gender === 'Male' ? maleHints : femaleHints;
+    const genderMatch = languageMatches.find((voice) => (
+      hints.some((hint) => voice.name.toLowerCase().includes(hint))
+    ));
+
+    return genderMatch || languageMatches[0] || null;
+  };
 
   const splitTextForSpeech = (text: string) => {
     const tokens = text.match(/[\u1780-\u17FF]+|[A-Za-z0-9][A-Za-z0-9'._-]*|\s+|[^\sA-Za-z0-9\u1780-\u17FF]+/g) || [];
@@ -317,6 +366,15 @@ const VideoVoice: React.FC = () => {
       document.body.removeChild(link);
     }
   };
+
+  const hasKhmerVoice = browserVoices.some((voice) => {
+    const voiceLang = voice.lang.toLowerCase();
+    const voiceName = voice.name.toLowerCase();
+    return voiceLang === 'km-kh'
+      || voiceLang.startsWith('km')
+      || voiceName.includes('khmer')
+      || voiceName.includes('cambodian');
+  });
 
   return (
     <div className="max-w-6xl mx-auto space-y-10">
@@ -481,6 +539,29 @@ const VideoVoice: React.FC = () => {
                     </div>
                   </div>
                 </div>
+                <div className="flex justify-between items-end">
+                  <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">
+                    {language === 'km' ? 'ភេទសំឡេង' : 'Voice Type'}
+                  </label>
+                  <div className="flex bg-brand-50 p-1 rounded-xl border border-brand-100">
+                    {[
+                      { id: 'Female', label: language === 'km' ? 'សំឡេងស្រី' : 'Female' },
+                      { id: 'Male', label: language === 'km' ? 'សំឡេងប្រុស' : 'Male' },
+                    ].map(voice => (
+                      <button
+                        key={voice.id}
+                        type="button"
+                        onClick={() => setVoiceGender(voice.id as VoiceGender)}
+                        className={cn(
+                          "px-4 py-1.5 rounded-lg text-[10px] font-black transition-all",
+                          voiceGender === voice.id ? "bg-white text-brand-700 shadow-sm" : "text-brand-400 hover:text-brand-700"
+                        )}
+                      >
+                        {voice.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <textarea value={ttsText} onChange={(e) => setTtsText(e.target.value)} className="w-full h-48 p-4 rounded-2xl bg-brand-50 border border-brand-200 outline-none transition-all resize-none" />
                 <p className="text-xs text-brand-400 font-medium">
                   {voiceLanguage === 'Khmer'
@@ -491,6 +572,13 @@ const VideoVoice: React.FC = () => {
                       ? 'ប្រព័ន្ធនឹងអានអត្ថបទនេះជាភាសាអង់គ្លេស។'
                       : 'The app will read this text in English.')}
                 </p>
+                {ttsText && /[\u1780-\u17FF]/.test(ttsText) && !hasKhmerVoice && (
+                  <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-800">
+                    {language === 'km'
+                      ? 'Chrome/Windows របស់អ្នកមិនឃើញមាន Khmer voice ទេ។ ប្រសិនបើវានៅតែអានជាអង់គ្លេស សូមដំឡើង Khmer language/voice ក្នុង Windows Settings ឬប្រើ browser/device ដែលមាន Khmer TTS។'
+                      : 'No Khmer browser voice was detected. If Khmer still reads with an English accent, install a Khmer language/voice in Windows Settings or use a browser/device with Khmer TTS.'}
+                  </p>
+                )}
               </div>
             )}
             <button onClick={activeTool === 'video' ? handleGenerateVideo : handleGenerateAudio} className="w-full bg-gradient-to-r from-brand-600 to-crab-shell text-white font-bold py-5 rounded-2xl flex items-center justify-center gap-3 shadow-xl">
@@ -570,7 +658,7 @@ const VideoVoice: React.FC = () => {
                       <div className="flex flex-wrap justify-center gap-3">
                         <button
                           type="button"
-                          onClick={speakWithBrowserVoice}
+                          onClick={() => speakWithBrowserVoice()}
                           className="rounded-xl bg-brand-700 px-4 py-2 text-white hover:bg-brand-800 transition-all"
                         >
                           {language === 'km' ? 'ចាក់សំឡេងម្ដងទៀត' : 'Play again'}
