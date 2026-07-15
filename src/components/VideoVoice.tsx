@@ -245,7 +245,7 @@ const VideoVoice: React.FC = () => {
           performanceStyle: voiceGender === 'Male'
             ? 'warm, confident, expressive male human voice with natural emotion, gentle pauses, breath-like phrasing, and persuasive marketing energy'
             : 'warm, friendly, expressive female human voice with natural emotion, gentle pauses, breath-like phrasing, and persuasive marketing energy',
-          speed: targetDuration > 1 ? 0.9 : 0.95,
+          speed: targetDuration > 1 ? 1.02 : 1.08,
         }),
       });
       const data = await response.json();

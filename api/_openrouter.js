@@ -148,7 +148,7 @@ const jsonFromMaybeText = (text) => {
 
 const containsKhmer = (text) => /[\u1780-\u17FF]/.test(text || '');
 
-const splitLongSpeechText = (text, maxLength = 180) => {
+const splitLongSpeechText = (text, maxLength = 115) => {
   const chunks = [];
   let remaining = String(text || '').trim();
 
@@ -206,6 +206,7 @@ export async function generateTranslateSpeech({ input }) {
       ie: 'UTF-8',
       client: 'tw-ob',
       tl: segment.lang,
+      ttsspeed: '1',
       q: segment.text,
     });
     const response = await fetch(`https://translate.google.com/translate_tts?${params.toString()}`, {
