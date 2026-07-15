@@ -26,6 +26,8 @@ const VideoVoice: React.FC = () => {
   const [voiceLanguage, setVoiceLanguage] = useState<'Khmer' | 'English'>('Khmer');
   const [voiceGender, setVoiceGender] = useState<VoiceGender>('Female');
   const [browserVoices, setBrowserVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [selectedKhmerVoiceURI, setSelectedKhmerVoiceURI] = useState('');
+  const [selectedEnglishVoiceURI, setSelectedEnglishVoiceURI] = useState('');
   const [loading, setLoading] = useState(false);
   const [generatedVideo, setGeneratedVideo] = useState<string | null>(null);
   const [ttsText, setTtsText] = useState('');
@@ -296,6 +298,10 @@ const VideoVoice: React.FC = () => {
     lang: 'km-KH' | 'en-US',
     gender: VoiceGender,
   ) => {
+    const selectedVoiceURI = lang === 'km-KH' ? selectedKhmerVoiceURI : selectedEnglishVoiceURI;
+    const selectedVoice = voices.find((voice) => voice.voiceURI === selectedVoiceURI);
+    if (selectedVoice) return selectedVoice;
+
     const languageMatches = voices.filter((voice) => {
       const voiceLang = voice.lang.toLowerCase();
       const voiceName = voice.name.toLowerCase();
@@ -375,6 +381,15 @@ const VideoVoice: React.FC = () => {
       || voiceName.includes('khmer')
       || voiceName.includes('cambodian');
   });
+  const khmerVoices = browserVoices.filter((voice) => {
+    const voiceLang = voice.lang.toLowerCase();
+    const voiceName = voice.name.toLowerCase();
+    return voiceLang === 'km-kh'
+      || voiceLang.startsWith('km')
+      || voiceName.includes('khmer')
+      || voiceName.includes('cambodian');
+  });
+  const englishVoices = browserVoices.filter((voice) => voice.lang.toLowerCase().startsWith('en'));
 
   return (
     <div className="max-w-6xl mx-auto space-y-10">
@@ -561,6 +576,46 @@ const VideoVoice: React.FC = () => {
                       </button>
                     ))}
                   </div>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <label className="space-y-1">
+                    <span className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">
+                      {language === 'km' ? 'សំឡេងខ្មែរ' : 'Khmer Voice'}
+                    </span>
+                    <select
+                      value={selectedKhmerVoiceURI}
+                      onChange={(event) => setSelectedKhmerVoiceURI(event.target.value)}
+                      className="w-full rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-xs font-semibold text-brand-700 outline-none"
+                    >
+                      <option value="">
+                        {khmerVoices.length
+                          ? (language === 'km' ? 'ជ្រើសដោយស្វ័យប្រវត្តិ' : 'Auto select')
+                          : (language === 'km' ? 'មិនមាន Khmer voice ក្នុង browser' : 'No Khmer voice detected')}
+                      </option>
+                      {khmerVoices.map((voice) => (
+                        <option key={voice.voiceURI} value={voice.voiceURI}>
+                          {voice.name} ({voice.lang})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">
+                      {language === 'km' ? 'សំឡេងអង់គ្លេស' : 'English Voice'}
+                    </span>
+                    <select
+                      value={selectedEnglishVoiceURI}
+                      onChange={(event) => setSelectedEnglishVoiceURI(event.target.value)}
+                      className="w-full rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-xs font-semibold text-brand-700 outline-none"
+                    >
+                      <option value="">{language === 'km' ? 'ជ្រើសដោយស្វ័យប្រវត្តិ' : 'Auto select'}</option>
+                      {englishVoices.map((voice) => (
+                        <option key={voice.voiceURI} value={voice.voiceURI}>
+                          {voice.name} ({voice.lang})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                 </div>
                 <textarea value={ttsText} onChange={(e) => setTtsText(e.target.value)} className="w-full h-48 p-4 rounded-2xl bg-brand-50 border border-brand-200 outline-none transition-all resize-none" />
                 <p className="text-xs text-brand-400 font-medium">
