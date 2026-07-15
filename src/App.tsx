@@ -13,6 +13,7 @@ import AdsManager from './components/AdsManager';
 import SchedulerHub from './components/SchedulerHub';
 import Auth from './components/Auth';
 import LegalPage from './components/LegalPage';
+import SecurityCenter from './components/SecurityCenter';
 import { TabType } from './types';
 import { useLanguage } from './contexts/LanguageContext';
 import { useAuth } from './contexts/AuthContext';
@@ -52,6 +53,7 @@ export default function App() {
       case 'automation': return <Automation />;
       case 'ads-manager': return <AdsManager />;
       case 'scheduler': return <SchedulerHub />;
+      case 'security-center': return <SecurityCenter />;
       default: return <Copywriter />;
     }
   };

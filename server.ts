@@ -6,10 +6,58 @@ import cookieParser from "cookie-parser";
 import cors from "cors";
 import dotenv from "dotenv";
 import admin from "firebase-admin";
+import { GoogleGenAI } from "@google/genai";
 
 dotenv.config();
 
 let firestoreDb: admin.firestore.Firestore | null = null;
+const apiRateLimitStore = new Map<string, { count: number; resetAt: number }>();
+
+const safeError = (res: express.Response, status: number, message: string) => {
+  res.status(status).json({ error: message });
+};
+
+const requireFirebaseSession = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const authHeader = req.get("authorization") || "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : undefined;
+
+  if (!token) {
+    return safeError(res, 401, "Authentication required");
+  }
+
+  try {
+    const decoded = await admin.auth().verifyIdToken(token, true);
+    const disabledUser = await admin.auth().getUser(decoded.uid);
+    if (disabledUser.disabled) {
+      return safeError(res, 403, "Account is deactivated");
+    }
+    (req as any).user = decoded;
+    next();
+  } catch (error) {
+    return safeError(res, 401, "Invalid or expired session");
+  }
+};
+
+const rateLimit = (name: string, maxRequests: number, windowMs: number) => {
+  return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const key = `${name}:${req.ip}:${(req as any).user?.uid || "anonymous"}`;
+    const now = Date.now();
+    const current = apiRateLimitStore.get(key);
+
+    if (!current || current.resetAt <= now) {
+      apiRateLimitStore.set(key, { count: 1, resetAt: now + windowMs });
+      return next();
+    }
+
+    if (current.count >= maxRequests) {
+      return safeError(res, 429, "Too many requests. Please try again later.");
+    }
+
+    current.count += 1;
+    apiRateLimitStore.set(key, current);
+    next();
+  };
+};
 
 console.log("Starting server process...");
 
@@ -40,7 +88,15 @@ async function startServer() {
     console.error("❌ Firebase setup failed:", err);
   }
 
-  app.use(express.json());
+  app.disable("x-powered-by");
+  app.use((req, res, next) => {
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+    next();
+  });
+  app.use(express.json({ limit: "2mb" }));
   app.use(cookieParser());
   app.use(cors({
     origin: true,
@@ -50,6 +106,21 @@ async function startServer() {
   // Health check
   app.get("/api/health", (req, res) => {
     res.json({ status: "alive" });
+  });
+
+  app.get("/api/security/readiness", requireFirebaseSession, rateLimit("security-readiness", 60, 60_000), (req, res) => {
+    res.json({
+      productionReady: false,
+      reason: "Pilot mode until Supabase RLS, private storage, AI permission filtering, audit logs, and backup restore are verified.",
+      requiredBeforeProduction: [
+        "Run Supabase migrations and seed data",
+        "Verify RLS with cross-company tests",
+        "Use private storage bucket and signed URLs only",
+        "Filter semantic search through match_allowed_file_chunks",
+        "Log confidential view/download/AI access",
+        "Complete TESTING.md security cases",
+      ],
+    });
   });
 
   // Config check (checks if secrets are set without revealing them)
@@ -66,6 +137,72 @@ async function startServer() {
         isInitialized: !!firestoreDb
       }
     });
+  });
+
+  app.post("/api/product-research", rateLimit("product-research", 20, 60_000), async (req, res) => {
+    const query = String(req.body?.query || "").trim();
+    const language = String(req.body?.language || "en");
+    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+
+    if (!query) {
+      return safeError(res, 400, "Please enter a product, niche, or URL to research.");
+    }
+
+    if (!apiKey) {
+      return safeError(res, 500, "Gemini API key is not configured.");
+    }
+
+    try {
+      const prompt = `You are an expert e-commerce product researcher. Analyze the following product, niche, or URL: "${query}".
+
+Provide a concise but useful research report including:
+1. Market Demand: current trend status and why people buy it.
+2. Competitor Analysis: major players, offer style, and positioning.
+3. Pricing Strategy: recommended price range and bundle ideas.
+4. Target Audience: demographics, pain points, and buying triggers.
+5. Winning Creative Angles: TikTok/video ad hooks and content ideas.
+
+Language rules:
+- The current application language is set to: ${language === "km" ? "Khmer" : "English"}.
+- Detect the language of the input: "${query}".
+- If either the input is in Khmer OR the application language is Khmer, provide the entire report in Khmer.
+- Otherwise, provide it in English.
+
+Use clear headings and practical bullet points.`;
+
+      const ai = new GoogleGenAI({ apiKey });
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: prompt,
+      });
+
+      res.json({ analysis: response.text || "" });
+    } catch (error) {
+      console.error("Product research failed:", error);
+      const message = String((error as any)?.message || "");
+      if (message.includes("API key expired") || message.includes("API_KEY_INVALID")) {
+        return safeError(res, 500, "Gemini API key expired. Please renew the API key and update GEMINI_API_KEY.");
+      }
+      return safeError(res, 500, "Error performing research. Please try again.");
+    }
+  });
+
+  app.post("/api/ads-strategy", rateLimit("ads-strategy", 20, 60_000), async (req, res) => {
+    const query = String(req.body?.query || "").trim();
+    const language = req.body?.language === "km" ? "Khmer" : "English";
+    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+    if (!query) return safeError(res, 400, "Product or category is required.");
+    if (!apiKey) return safeError(res, 503, "Gemini API key is not configured.");
+    try {
+      const ai = new GoogleGenAI({ apiKey });
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: `Create a concise digital advertising strategy for: "${query}". Write entirely in ${language}. Include target audience, three-second hooks, campaign structure, and a practical test budget. Do not invent live ad-account metrics.`,
+      });
+      res.json({ strategy: response.text || "No strategy generated." });
+    } catch (error: any) {
+      safeError(res, /expired|API_KEY_INVALID/i.test(error.message || "") ? 503 : 500, error.message || "Failed to generate strategy.");
+    }
   });
 
   const getRedirectUri = (req: express.Request) => {
@@ -108,7 +245,7 @@ async function startServer() {
     }
 
     const state = "pulse_sync";
-    const scope = "user.info.basic";
+    const scope = (process.env.TIKTOK_SCOPES || "user.info.basic").trim();
     const authUrl = `https://www.tiktok.com/v2/auth/authorize/?client_key=${clientKey}&scope=${encodeURIComponent(scope)}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}`;
     
     console.log(" - Final Redirect Auth URL:", authUrl);
@@ -128,7 +265,7 @@ async function startServer() {
     }
 
     const state = "pulse_sync";
-    const scope = "user.info.basic";
+    const scope = (process.env.TIKTOK_SCOPES || "user.info.basic").trim();
     const authUrl = `https://www.tiktok.com/v2/auth/authorize/?client_key=${clientKey}&scope=${encodeURIComponent(scope)}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}`;
     
     console.log(" - Final JSON Auth URL:", authUrl);
@@ -201,6 +338,30 @@ async function startServer() {
     } catch (error: any) {
       console.error("TikTok User Info Error:", error.response?.data || error.message);
       res.status(500).json({ error: "Failed to fetch TikTok user info" });
+    }
+  });
+
+  app.get("/api/tiktok/stats", async (req, res) => {
+    const token = req.cookies?.tiktok_token;
+    if (!token) return res.status(401).json({ error: "Connect your TikTok account first.", code: "not_connected" });
+    const fields = "open_id,avatar_url,display_name,username,follower_count,following_count,likes_count,video_count";
+    try {
+      const response = await axios.get(`https://open.tiktokapis.com/v2/user/info/?fields=${fields}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const user = response.data?.data?.user || {};
+      res.json({
+        handle: user.username || user.display_name || "", displayName: user.display_name || "", avatarUrl: user.avatar_url || "",
+        followers: user.follower_count ?? null, following: user.following_count ?? null, likes: user.likes_count ?? null,
+        videoCount: user.video_count ?? null, updatedAt: new Date().toISOString(), source: "tiktok_official_api"
+      });
+    } catch (error: any) {
+      const detail = error.response?.data?.error;
+      const needsStats = /scope|permission|access/i.test(`${detail?.code || ""} ${detail?.message || ""}`);
+      res.status(error.response?.status || 500).json({
+        error: needsStats ? "TikTok must approve user.info.stats, then reconnect the account." : (detail?.message || "TikTok could not return account statistics."),
+        code: detail?.code || "tiktok_error"
+      });
     }
   });
 

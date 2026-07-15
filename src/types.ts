@@ -26,7 +26,8 @@ export type TabType =
   | 'product-research' 
   | 'automation' 
   | 'ads-manager'
-  | 'scheduler';
+  | 'scheduler'
+  | 'security-center';
 
 export interface SchedulePost {
   id: string;
