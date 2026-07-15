@@ -67,7 +67,9 @@ const VideoVoice: React.FC = () => {
         setIsAuthenticating(false);
         fetch('/api/tiktok/me')
           .then(res => res.json())
-          .then(data => setTiktokUser(data))
+          .then(data => {
+            if (!data.error) setTiktokUser(data);
+          })
           .catch(err => console.error("Failed to fetch user after auth", err));
       }
     };
@@ -162,11 +164,13 @@ const VideoVoice: React.FC = () => {
         throw new Error(data.error?.message || "Publishing failed");
       }
     } catch (error: any) {
-      alert(t('postFailed') + ": " + error.message);
+      alert(`${t('postFailed')}: ${error.message}\n\nTikTok Login/Stats approval lets the app read account data only. Auto-posting videos requires TikTok Content Posting API approval with video.upload/video.publish scopes.`);
     } finally {
       setIsPostingTikTok(false);
     }
   };
+
+  const tiktokDisplayName = tiktokUser?.display_name || tiktokUser?.username || tiktokUser?.open_id || 'TikTok user';
 
   const handleOpenKeySelector = async () => {
     if (typeof window !== 'undefined' && (window as any).aistudio) {
@@ -463,7 +467,7 @@ const VideoVoice: React.FC = () => {
                 <path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.06 3.42-.01 6.83-.02 10.25-.17 4.14-4.23 7.25-8.26 6.5-3.94-.73-6.47-5.11-4.67-8.73 1.14-2.2 3.86-3.54 6.32-3.14.05 1.58 0 3.16 0 4.74-1.57-.14-3.29.35-4.23 1.71-.96 1.39-.64 3.55.75 4.53 1.38.97 3.56.64 4.53-.75.28-.38.39-.84.41-1.3.02-3.58 0-7.17.01-10.75 0-2.87 0-5.74 0-8.61z"/>
               </svg>
             )}
-            {tiktokUser ? `Connected: ${tiktokUser.display_name}` : (isAuthenticating ? t('connecting') : t('connectTiktok'))}
+            {tiktokUser ? `Connected: ${tiktokDisplayName}` : (isAuthenticating ? t('connecting') : t('connectTiktok'))}
           </button>
         </div>
       </header>
@@ -694,7 +698,7 @@ const VideoVoice: React.FC = () => {
                             <path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.06 3.42-.01 6.83-.02 10.25-.17 4.14-4.23 7.25-8.26 6.5-3.94-.73-6.47-5.11-4.67-8.73 1.14-2.2 3.86-3.54 6.32-3.14.05 1.58 0 3.16 0 4.74-1.57-.14-3.29.35-4.23 1.71-.96 1.39-.64 3.55.75 4.53 1.38.97 3.56.64 4.53-.75.28-.38.39-.84.41-1.3.02-3.58 0-7.17.01-10.75 0-2.87 0-5.74 0-8.61z"/>
                           </svg>
                         )}
-                        {t('postToTiktok')} {tiktokUser ? `(@${tiktokUser.display_name})` : ''}
+                        {t('postToTiktok')} {tiktokUser ? `(@${tiktokDisplayName})` : ''}
                       </button>
                     ) : (
                       <button 
