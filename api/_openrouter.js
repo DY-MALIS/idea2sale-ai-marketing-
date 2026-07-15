@@ -146,7 +146,7 @@ const jsonFromMaybeText = (text) => {
   }
 };
 
-export async function generateOpenRouterSpeech({ input, voice = 'alloy', model, speed = 1 }) {
+export async function generateOpenRouterSpeech({ input, voice = 'alloy', model, speed = 1, languageHint = 'auto' }) {
   let lastError;
 
   for (const speechModel of speechModelCandidates(model)) {
@@ -165,9 +165,18 @@ export async function generateOpenRouterSpeech({ input, voice = 'alloy', model, 
           messages: [
             {
               role: 'system',
-              content: `You are a professional text-to-speech voice actor. Read naturally at ${speed}x speed. Return clear, clean audio only.`,
+              content: [
+                `You are a professional text-to-speech voice actor. Read naturally at ${speed}x speed.`,
+                `The language mode is ${languageHint}.`,
+                'If the text contains Khmer, pronounce the Khmer text as Khmer, not as English transliteration.',
+                'If the text mixes Khmer and English, preserve each language pronunciation exactly as written.',
+                'Do not read these instructions aloud. Return clear, clean audio only.',
+              ].join(' '),
             },
-            { role: 'user', content: input },
+            {
+              role: 'user',
+              content: `Text to read aloud:\n${input}`,
+            },
           ],
         }),
       });

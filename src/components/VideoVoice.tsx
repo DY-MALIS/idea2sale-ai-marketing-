@@ -228,14 +228,22 @@ const VideoVoice: React.FC = () => {
     try {
       const hasKhmerText = /[\u1780-\u17FF]/.test(ttsText);
       const hasEnglishText = /[A-Za-z]/.test(ttsText);
-      const readingMode = hasKhmerText && hasEnglishText
-        ? `Read this mixed Khmer and English text naturally with a ${voiceGender.toLowerCase()} voice, preserving each language pronunciation.`
-        : `Read this text in ${voiceLanguage} with a ${voiceGender.toLowerCase()} voice.`;
-      const timedPrompt = `${readingMode} Aim for about ${targetDuration} minute(s): ${ttsText}`;
+      const openRouterVoice = voiceGender === 'Male' ? 'onyx' : 'nova';
+      const languageHint = hasKhmerText && hasEnglishText
+        ? 'mixed Khmer and English'
+        : hasKhmerText
+          ? 'Khmer'
+          : voiceLanguage;
       const response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'ttsGenerate', input: timedPrompt }),
+        body: JSON.stringify({
+          action: 'ttsGenerate',
+          input: ttsText,
+          voice: openRouterVoice,
+          languageHint,
+          speed: targetDuration > 1 ? 0.95 : 1,
+        }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Audio generation failed.');

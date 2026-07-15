@@ -148,8 +148,9 @@ export default async function handler(req, res) {
       const input = String(req.body?.input || '').trim();
       const voice = String(req.body?.voice || process.env.OPEN_ROUTER_TTS_VOICE || 'alloy');
       const speed = Number(req.body?.speed || 1);
+      const languageHint = String(req.body?.languageHint || 'auto');
       if (!input) return res.status(400).json({ error: 'Text is required.' });
-      const audio = await generateOpenRouterSpeech({ input, voice, speed });
+      const audio = await generateOpenRouterSpeech({ input, voice, speed, languageHint });
       return res.status(200).json(audio);
     }
 
