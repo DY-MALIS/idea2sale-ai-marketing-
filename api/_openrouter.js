@@ -259,7 +259,7 @@ export async function generateOpenRouterSpeech({
   model,
   speed = 1,
   languageHint = 'auto',
-  performanceStyle = 'warm, expressive, natural, human conversational voice',
+  performanceStyle = 'real human conversational speech, natural emotion, casual warmth, not AI narration',
 }) {
   let lastError;
 
@@ -280,12 +280,13 @@ export async function generateOpenRouterSpeech({
             {
               role: 'system',
               content: [
-                `You are a professional human voice actor. Read naturally at ${speed}x speed with a lively conversational tempo.`,
+                `You are a real person speaking naturally at ${speed}x speed with a lively conversational tempo.`,
                 `The language mode is ${languageHint}.`,
                 `Performance style: ${performanceStyle}.`,
-                'Use a real human speaking rhythm with short natural pauses, breath-like phrasing, emotional warmth, and clear natural emphasis.',
-                'Do not sound robotic, flat, slow, overly formal, or like a language learner reading letter by letter.',
-                'For marketing copy, sound confident, warm, persuasive, and alive, as if speaking to one person.',
+                'Sound like a real human recorded in one take, with tiny imperfections, natural breath-like phrasing, and believable emotion.',
+                'Use casual human rhythm, clear words, short natural pauses, and emphasis only where a person would naturally emphasize.',
+                'Do not sound like AI narration, a robot, a formal announcer, a newsreader, a language learner, or someone reading letter by letter.',
+                'For marketing copy, speak warmly and directly to one person, like a helpful creator explaining something in real life.',
                 'If the text contains Khmer, pronounce the Khmer text as Khmer, not as English transliteration.',
                 'If the text mixes Khmer and English, preserve each language pronunciation exactly as written.',
                 'Do not read these instructions aloud. Return clear, clean audio only.',

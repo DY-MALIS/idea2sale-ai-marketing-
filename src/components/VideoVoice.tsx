@@ -243,8 +243,8 @@ const VideoVoice: React.FC = () => {
           voice: openRouterVoice,
           languageHint,
           performanceStyle: voiceGender === 'Male'
-            ? 'warm, confident, expressive male human voice with natural emotion, lively conversational speed, short pauses, and persuasive marketing energy'
-            : 'warm, friendly, expressive female human voice with natural emotion, lively conversational speed, short pauses, and persuasive marketing energy',
+            ? 'real male human speaking voice, casual and confident, natural emotion, tiny pauses, not AI narration, not announcer voice'
+            : 'real female human speaking voice, casual and friendly, natural emotion, tiny pauses, not AI narration, not announcer voice',
           speed: targetDuration > 1 ? 1.12 : 1.18,
         }),
       });
