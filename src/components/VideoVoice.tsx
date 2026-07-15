@@ -17,6 +17,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 
 type ToolType = 'video' | 'voice';
 type VoiceGender = 'Female' | 'Male';
+type VoicePersona = 'sreymom' | 'piseth';
 
 const VideoVoice: React.FC = () => {
   const { t, language } = useLanguage();
@@ -25,6 +26,7 @@ const VideoVoice: React.FC = () => {
   const [videoLanguage, setVideoLanguage] = useState<'Khmer' | 'English'>('Khmer');
   const [voiceLanguage, setVoiceLanguage] = useState<'Khmer' | 'English'>('Khmer');
   const [voiceGender, setVoiceGender] = useState<VoiceGender>('Female');
+  const [voicePersona, setVoicePersona] = useState<VoicePersona>('sreymom');
   const [browserVoices, setBrowserVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [selectedKhmerVoiceURI, setSelectedKhmerVoiceURI] = useState('');
   const [selectedEnglishVoiceURI, setSelectedEnglishVoiceURI] = useState('');
@@ -45,6 +47,35 @@ const VideoVoice: React.FC = () => {
   const [isPostingTikTok, setIsPostingTikTok] = useState(false);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [tiktokUser, setTiktokUser] = useState<any>(null);
+
+  const voicePersonas = {
+    sreymom: {
+      id: 'sreymom' as VoicePersona,
+      gender: 'Female' as VoiceGender,
+      name: 'ស្រីមុំ',
+      englishName: 'Sreymom',
+      description: language === 'km'
+        ? 'សំឡេងស្រីកក់ក្ដៅ ស្និទ្ធស្នាល លឿនសមរម្យ សម្រាប់លក់ផលិតផល និងបកស្រាយ។'
+        : 'Warm, friendly female voice with natural marketing energy.',
+      openRouterVoice: 'nova',
+      browserRate: 1.08,
+      browserPitch: 1.08,
+      style: 'Sreymom persona: real Cambodian female creator voice, warm, friendly, confident, expressive, clear Khmer pronunciation, quick natural conversational tempo, tiny breaths and natural pauses, like a real person explaining a product to a customer.',
+    },
+    piseth: {
+      id: 'piseth' as VoicePersona,
+      gender: 'Male' as VoiceGender,
+      name: 'ពិសិដ្ឋ',
+      englishName: 'Piseth',
+      description: language === 'km'
+        ? 'សំឡេងប្រុសជឿជាក់ ស្ងប់ និងច្បាស់ សម្រាប់ពន្យល់ ឬប្រកាសមាតិកា។'
+        : 'Confident, calm male voice with clear creator-style delivery.',
+      openRouterVoice: 'onyx',
+      browserRate: 1.04,
+      browserPitch: 0.9,
+      style: 'Piseth persona: real Cambodian male creator voice, confident, calm, clear, emotionally grounded, natural Khmer pronunciation, conversational tempo, not announcer style, like a real person presenting useful advice.',
+    },
+  };
 
   React.useEffect(() => {
     if (!('speechSynthesis' in window)) return;
@@ -230,9 +261,9 @@ const VideoVoice: React.FC = () => {
     setGeneratedAudio(null);
     setVoiceFallbackMessage(null);
     try {
+      const selectedPersona = voicePersonas[voicePersona];
       const hasKhmerText = /[\u1780-\u17FF]/.test(ttsText);
       const hasEnglishText = /[A-Za-z]/.test(ttsText);
-      const openRouterVoice = voiceGender === 'Male' ? 'onyx' : 'nova';
       const languageHint = hasKhmerText && hasEnglishText
         ? 'mixed Khmer and English'
         : hasKhmerText
@@ -244,12 +275,10 @@ const VideoVoice: React.FC = () => {
         body: JSON.stringify({
           action: 'ttsGenerate',
           input: ttsText,
-          voice: openRouterVoice,
+          voice: selectedPersona.openRouterVoice,
           languageHint,
-          performanceStyle: voiceGender === 'Male'
-            ? 'real male human speaking voice, casual and confident, natural emotion, tiny pauses, not AI narration, not announcer voice'
-            : 'real female human speaking voice, casual and friendly, natural emotion, tiny pauses, not AI narration, not announcer voice',
-          speed: targetDuration > 1 ? 1.12 : 1.18,
+          performanceStyle: `${selectedPersona.style} Read the exact provided text. Keep Khmer words Khmer and English words English. Use human emotion, natural rhythm, clear consonants, and a lively pace. Avoid robotic or AI narration.`,
+          speed: targetDuration > 1 ? 1.16 : 1.24,
         }),
       });
       const data = await response.json();
@@ -292,14 +321,17 @@ const VideoVoice: React.FC = () => {
       return;
     }
     const segments = splitTextForSpeech(ttsText);
+    const selectedPersona = voicePersonas[voicePersona];
 
     segments.forEach((segment) => {
       const utterance = new SpeechSynthesisUtterance(segment.text);
-      const matchingVoice = findBrowserVoice(voices, segment.lang, voiceGender);
+      const matchingVoice = findBrowserVoice(voices, segment.lang, selectedPersona.gender);
       utterance.lang = segment.lang;
       if (matchingVoice) utterance.voice = matchingVoice;
-      utterance.rate = segment.lang === 'km-KH' ? 0.9 : 0.95;
-      utterance.pitch = voiceGender === 'Male' ? 0.85 : 1.05;
+      utterance.rate = segment.lang === 'km-KH'
+        ? Math.min(selectedPersona.browserRate + 0.04, 1.16)
+        : Math.min(selectedPersona.browserRate + 0.08, 1.22);
+      utterance.pitch = selectedPersona.browserPitch;
       window.speechSynthesis.speak(utterance);
     });
   };
@@ -587,13 +619,63 @@ const VideoVoice: React.FC = () => {
                       <button
                         key={voice.id}
                         type="button"
-                        onClick={() => setVoiceGender(voice.id as VoiceGender)}
+                        onClick={() => {
+                          const nextGender = voice.id as VoiceGender;
+                          setVoiceGender(nextGender);
+                          setVoicePersona(nextGender === 'Male' ? 'piseth' : 'sreymom');
+                        }}
                         className={cn(
                           "px-4 py-1.5 rounded-lg text-[10px] font-black transition-all",
                           voiceGender === voice.id ? "bg-white text-brand-700 shadow-sm" : "text-brand-400 hover:text-brand-700"
                         )}
                       >
                         {voice.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-3 rounded-3xl border border-brand-100 bg-white/70 p-4 shadow-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">
+                      {language === 'km' ? 'ជ្រើសសំឡេងមនុស្ស' : 'Human Voice Persona'}
+                    </label>
+                    <span className="rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-black text-emerald-700 border border-emerald-100">
+                      {language === 'km' ? 'សំឡេងធម្មជាតិ' : 'Natural voice'}
+                    </span>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {Object.values(voicePersonas).map((persona) => (
+                      <button
+                        key={persona.id}
+                        type="button"
+                        onClick={() => {
+                          setVoicePersona(persona.id);
+                          setVoiceGender(persona.gender);
+                        }}
+                        className={cn(
+                          "text-left rounded-2xl border p-4 transition-all min-h-[116px]",
+                          voicePersona === persona.id
+                            ? "border-brand-400 bg-white shadow-lg ring-2 ring-brand-100"
+                            : "border-brand-100 bg-brand-50/70 hover:bg-white hover:border-brand-300"
+                        )}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-lg font-display font-black text-brand-700">{persona.name}</p>
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-brand-400">
+                              {persona.gender === 'Female'
+                                ? (language === 'km' ? 'សំឡេងស្រី' : 'Female voice')
+                                : (language === 'km' ? 'សំឡេងប្រុស' : 'Male voice')}
+                            </p>
+                          </div>
+                          <div className={cn(
+                            "h-9 w-9 rounded-xl flex items-center justify-center",
+                            voicePersona === persona.id ? "bg-brand-600 text-white" : "bg-white text-brand-500"
+                          )}>
+                            <Mic size={18} />
+                          </div>
+                        </div>
+                        <p className="mt-3 text-xs leading-relaxed text-slate-500">{persona.description}</p>
                       </button>
                     ))}
                   </div>
