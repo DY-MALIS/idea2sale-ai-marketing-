@@ -192,8 +192,31 @@ const speechSegmentsForTranslate = (text) => {
     .filter((segment) => segment.text.trim());
 };
 
+const normalizeForKhmerSpeech = (text) => {
+  const replacements = [
+    [/\bDGACADEMY\b/gi, 'ឌីជី អាកាដេមី'],
+    [/\bAI\b/g, 'អេ អាយ'],
+    [/\bAPI\b/g, 'អេ ភី អាយ'],
+    [/\bsystem\b/gi, 'ស៊ីស្ទឹម'],
+    [/\bworkflow\b/gi, 'វើកហ្វ្លូ'],
+    [/\baction\b/gi, 'អាក់សិន'],
+    [/\bbuilder\b/gi, 'ប៊ីលឌឺ'],
+    [/\bconcept\b/gi, 'ខនសេប'],
+    [/\bupload\b/gi, 'អាប់ឡូត'],
+    [/\bvideo\b/gi, 'វីដេអូ'],
+    [/\bvoice\b/gi, 'វ៉យស៍'],
+    [/\bmarketing\b/gi, 'ម៉ាឃីតធីង'],
+    [/\bcontent\b/gi, 'ខនថិន'],
+    [/\bbrand\b/gi, 'ប្រេន'],
+  ];
+
+  return replacements.reduce((value, [pattern, replacement]) => (
+    value.replace(pattern, replacement)
+  ), String(text || ''));
+};
+
 export async function generateTranslateSpeech({ input }) {
-  const expressiveInput = String(input || '')
+  const expressiveInput = normalizeForKhmerSpeech(input)
     .replace(/\s+/g, ' ')
     .replace(/([។.!?])\s*/g, '$1 ')
     .trim();
