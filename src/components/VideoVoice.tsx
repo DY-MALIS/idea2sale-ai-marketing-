@@ -257,6 +257,12 @@ const VideoVoice: React.FC = () => {
           ? 'ម៉ូដែលបង្កើតសំឡេងដែលបានកំណត់ក្នុង Vercel មិនត្រឹមត្រូវទេ។ សូមដាក់ OPEN_ROUTER_TTS_MODEL=openai/gpt-audio-mini ហើយ redeploy។'
           : 'The configured TTS model is not available. Set OPEN_ROUTER_TTS_MODEL=openai/gpt-audio-mini in Vercel and redeploy.')
         : rawMessage;
+      if (/[\u1780-\u17FF]/.test(ttsText)) {
+        setVoiceFallbackMessage(language === 'km'
+          ? 'Khmer cloud TTS មិនអាចបង្កើត MP3 បាននៅពេលនេះ។ App មិនអានជាសំឡេង English fallback ទេ ដើម្បីរក្សាការអានខ្មែរ។ សូមសាកល្បងម្តងទៀត។'
+          : 'Khmer cloud TTS could not create an MP3 right now. The app did not use an English browser voice fallback, so Khmer pronunciation is preserved.');
+        return;
+      }
       if ('speechSynthesis' in window) {
         speakWithBrowserVoice();
         setVoiceFallbackMessage(language === 'km'

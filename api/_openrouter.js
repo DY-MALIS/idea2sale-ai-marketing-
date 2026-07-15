@@ -146,6 +146,85 @@ const jsonFromMaybeText = (text) => {
   }
 };
 
+const containsKhmer = (text) => /[\u1780-\u17FF]/.test(text || '');
+
+const splitLongSpeechText = (text, maxLength = 180) => {
+  const chunks = [];
+  let remaining = String(text || '').trim();
+
+  while (remaining.length > maxLength) {
+    const slice = remaining.slice(0, maxLength);
+    const breakAt = Math.max(
+      slice.lastIndexOf('។'),
+      slice.lastIndexOf('!'),
+      slice.lastIndexOf('?'),
+      slice.lastIndexOf('.'),
+      slice.lastIndexOf(','),
+      slice.lastIndexOf(' '),
+    );
+    const cut = breakAt > 40 ? breakAt + 1 : maxLength;
+    chunks.push(remaining.slice(0, cut).trim());
+    remaining = remaining.slice(cut).trim();
+  }
+
+  if (remaining) chunks.push(remaining);
+  return chunks;
+};
+
+const speechSegmentsForTranslate = (text) => {
+  const tokens = String(text || '').match(/[\u1780-\u17FF]+|[A-Za-z0-9][A-Za-z0-9'._-]*|\s+|[^\sA-Za-z0-9\u1780-\u17FF]+/g) || [];
+  const segments = [];
+
+  for (const token of tokens) {
+    const lang = containsKhmer(token) ? 'km' : 'en';
+    const previous = segments[segments.length - 1];
+    if (previous && previous.lang === lang) {
+      previous.text += token;
+    } else if (/^\s+$/.test(token) && previous) {
+      previous.text += token;
+    } else {
+      segments.push({ lang, text: token });
+    }
+  }
+
+  return segments
+    .flatMap((segment) => splitLongSpeechText(segment.text).map((textChunk) => ({ ...segment, text: textChunk })))
+    .filter((segment) => segment.text.trim());
+};
+
+export async function generateTranslateSpeech({ input }) {
+  const segments = speechSegmentsForTranslate(input);
+  if (!segments.length) throw new Error('Text is required.');
+
+  const audioBuffers = [];
+  for (const segment of segments) {
+    const params = new URLSearchParams({
+      ie: 'UTF-8',
+      client: 'tw-ob',
+      tl: segment.lang,
+      q: segment.text,
+    });
+    const response = await fetch(`https://translate.google.com/translate_tts?${params.toString()}`, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0',
+        Referer: 'https://translate.google.com/',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Khmer TTS fallback failed with status ${response.status}.`);
+    }
+
+    audioBuffers.push(Buffer.from(await response.arrayBuffer()));
+  }
+
+  return {
+    audioUrl: fileToDataUrl(Buffer.concat(audioBuffers).toString('base64'), 'audio/mpeg'),
+    transcript: input,
+    model: 'khmer-translate-tts-fallback',
+  };
+};
+
 export async function generateOpenRouterSpeech({ input, voice = 'alloy', model, speed = 1, languageHint = 'auto' }) {
   let lastError;
 

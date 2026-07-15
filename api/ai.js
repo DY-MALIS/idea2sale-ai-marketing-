@@ -2,6 +2,7 @@ import {
   generateOpenRouterImage,
   generateOpenRouterSpeech,
   generateOpenRouterText,
+  generateTranslateSpeech,
   pollOpenRouterVideo,
   startOpenRouterVideo,
 } from './_openrouter.js';
@@ -150,8 +151,19 @@ export default async function handler(req, res) {
       const speed = Number(req.body?.speed || 1);
       const languageHint = String(req.body?.languageHint || 'auto');
       if (!input) return res.status(400).json({ error: 'Text is required.' });
-      const audio = await generateOpenRouterSpeech({ input, voice, speed, languageHint });
-      return res.status(200).json(audio);
+      try {
+        const audio = await generateOpenRouterSpeech({ input, voice, speed, languageHint });
+        return res.status(200).json(audio);
+      } catch (error) {
+        if (/[\u1780-\u17FF]/.test(input)) {
+          const audio = await generateTranslateSpeech({ input });
+          return res.status(200).json({
+            ...audio,
+            fallbackReason: error?.message || 'OpenRouter speech failed.',
+          });
+        }
+        throw error;
+      }
     }
 
     if (action === 'videoGenerate') {
