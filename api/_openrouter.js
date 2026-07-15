@@ -148,7 +148,7 @@ const jsonFromMaybeText = (text) => {
 
 const containsKhmer = (text) => /[\u1780-\u17FF]/.test(text || '');
 
-const splitLongSpeechText = (text, maxLength = 115) => {
+const splitLongSpeechText = (text, maxLength = 145) => {
   const chunks = [];
   let remaining = String(text || '').trim();
 
@@ -229,7 +229,7 @@ export async function generateTranslateSpeech({ input }) {
       ie: 'UTF-8',
       client: 'tw-ob',
       tl: segment.lang,
-      ttsspeed: '1',
+      ttsspeed: '1.18',
       q: segment.text,
     });
     const response = await fetch(`https://translate.google.com/translate_tts?${params.toString()}`, {
@@ -280,11 +280,11 @@ export async function generateOpenRouterSpeech({
             {
               role: 'system',
               content: [
-                `You are a professional human voice actor. Read naturally at ${speed}x speed.`,
+                `You are a professional human voice actor. Read naturally at ${speed}x speed with a lively conversational tempo.`,
                 `The language mode is ${languageHint}.`,
                 `Performance style: ${performanceStyle}.`,
-                'Use a real human speaking rhythm with gentle pauses, breath-like phrasing, emotional warmth, and natural emphasis.',
-                'Do not sound robotic, flat, rushed, or like a language learner reading letter by letter.',
+                'Use a real human speaking rhythm with short natural pauses, breath-like phrasing, emotional warmth, and clear natural emphasis.',
+                'Do not sound robotic, flat, slow, overly formal, or like a language learner reading letter by letter.',
                 'For marketing copy, sound confident, warm, persuasive, and alive, as if speaking to one person.',
                 'If the text contains Khmer, pronounce the Khmer text as Khmer, not as English transliteration.',
                 'If the text mixes Khmer and English, preserve each language pronunciation exactly as written.',

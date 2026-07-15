@@ -243,9 +243,9 @@ const VideoVoice: React.FC = () => {
           voice: openRouterVoice,
           languageHint,
           performanceStyle: voiceGender === 'Male'
-            ? 'warm, confident, expressive male human voice with natural emotion, gentle pauses, breath-like phrasing, and persuasive marketing energy'
-            : 'warm, friendly, expressive female human voice with natural emotion, gentle pauses, breath-like phrasing, and persuasive marketing energy',
-          speed: targetDuration > 1 ? 1.02 : 1.08,
+            ? 'warm, confident, expressive male human voice with natural emotion, lively conversational speed, short pauses, and persuasive marketing energy'
+            : 'warm, friendly, expressive female human voice with natural emotion, lively conversational speed, short pauses, and persuasive marketing energy',
+          speed: targetDuration > 1 ? 1.12 : 1.18,
         }),
       });
       const data = await response.json();
