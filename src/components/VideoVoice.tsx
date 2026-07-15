@@ -581,31 +581,13 @@ const VideoVoice: React.FC = () => {
               </div>
             ) : (
               <div className="space-y-6">
-                <div className="flex justify-between items-end">
+                <div className="space-y-2">
                   <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">{t('scriptTextLabel')}</label>
-                  <div className="space-y-1 text-right">
-                    <p className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">
-                      {language === 'km' ? 'ភាសាអានសំឡេង' : 'Reading Language'}
-                    </p>
-                    <div className="flex bg-brand-50 p-1 rounded-xl border border-brand-100">
-                      {[
-                        { id: 'Khmer', label: language === 'km' ? 'ខ្មែរ' : 'Khmer' },
-                        { id: 'English', label: language === 'km' ? 'អង់គ្លេស' : 'English' },
-                      ].map(lang => (
-                        <button
-                          key={lang.id}
-                          type="button"
-                          onClick={() => setVoiceLanguage(lang.id as 'Khmer' | 'English')}
-                          className={cn(
-                            "px-4 py-1.5 rounded-lg text-[10px] font-black transition-all",
-                            voiceLanguage === lang.id ? "bg-white text-brand-700 shadow-sm" : "text-brand-400 hover:text-brand-700"
-                          )}
-                        >
-                          {lang.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                  <p className="text-xs font-semibold text-slate-500">
+                    {language === 'km'
+                      ? 'សរសេរខ្មែរ អង់គ្លេស ឬលាយគ្នា។ ប្រព័ន្ធនឹងអានតាមភាសាដែលមានក្នុងអត្ថបទ។'
+                      : 'Write Khmer, English, or both. The app will read each language from your text.'}
+                  </p>
                 </div>
                 <div className="flex justify-between items-end">
                   <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">
@@ -634,7 +616,7 @@ const VideoVoice: React.FC = () => {
                     ))}
                   </div>
                 </div>
-                <div className="space-y-3 rounded-3xl border border-brand-100 bg-white/70 p-4 shadow-sm">
+                <div className="hidden">
                   <div className="flex items-center justify-between gap-3">
                     <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">
                       {language === 'km' ? 'ជ្រើសសំឡេងមនុស្ស' : 'Human Voice Persona'}
@@ -680,7 +662,7 @@ const VideoVoice: React.FC = () => {
                     ))}
                   </div>
                 </div>
-                <div className="grid gap-3 md:grid-cols-2">
+                <div className="hidden">
                   <label className="space-y-1">
                     <span className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">
                       {language === 'km' ? 'សំឡេងខ្មែរ' : 'Khmer Voice'}
@@ -721,16 +703,12 @@ const VideoVoice: React.FC = () => {
                   </label>
                 </div>
                 <textarea value={ttsText} onChange={(e) => setTtsText(e.target.value)} className="w-full h-48 p-4 rounded-2xl bg-brand-50 border border-brand-200 outline-none transition-all resize-none" />
-                <p className="text-xs text-brand-400 font-medium">
-                  {voiceLanguage === 'Khmer'
-                    ? (language === 'km'
-                      ? 'ប្រព័ន្ធនឹងអានអត្ថបទនេះជាភាសាខ្មែរ ប្រសិនបើ browser របស់អ្នកមានសំឡេងខ្មែរ។'
-                      : 'The app will read this text in Khmer if your browser has a Khmer voice installed.')
-                    : (language === 'km'
-                      ? 'ប្រព័ន្ធនឹងអានអត្ថបទនេះជាភាសាអង់គ្លេស។'
-                      : 'The app will read this text in English.')}
+                <p className="rounded-2xl border border-brand-100 bg-brand-50 px-4 py-3 text-xs font-semibold text-brand-700">
+                  {language === 'km'
+                    ? 'បញ្ចូលអត្ថបទខ្មែរ ឬអង់គ្លេស។ App នឹងព្យាយាមអានតាមភាសានៅក្នុងអត្ថបទដោយសំឡេងមនុស្សធម្មជាតិ។'
+                    : 'Enter Khmer or English text. The app will read it with the most natural available human voice.'}
                 </p>
-                {ttsText && /[\u1780-\u17FF]/.test(ttsText) && !hasKhmerVoice && (
+                {false && ttsText && /[\u1780-\u17FF]/.test(ttsText) && !hasKhmerVoice && (
                   <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-800">
                     {language === 'km'
                       ? 'Chrome/Windows របស់អ្នកមិនឃើញមាន Khmer voice ទេ។ ប្រសិនបើវានៅតែអានជាអង់គ្លេស សូមដំឡើង Khmer language/voice ក្នុង Windows Settings ឬប្រើ browser/device ដែលមាន Khmer TTS។'
