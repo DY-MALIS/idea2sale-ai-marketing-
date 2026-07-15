@@ -242,7 +242,10 @@ const VideoVoice: React.FC = () => {
           input: ttsText,
           voice: openRouterVoice,
           languageHint,
-          speed: targetDuration > 1 ? 0.95 : 1,
+          performanceStyle: voiceGender === 'Male'
+            ? 'warm, confident, expressive male human voice with natural emotion, gentle pauses, breath-like phrasing, and persuasive marketing energy'
+            : 'warm, friendly, expressive female human voice with natural emotion, gentle pauses, breath-like phrasing, and persuasive marketing energy',
+          speed: targetDuration > 1 ? 0.9 : 0.95,
         }),
       });
       const data = await response.json();

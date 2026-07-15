@@ -150,9 +150,10 @@ export default async function handler(req, res) {
       const voice = String(req.body?.voice || process.env.OPEN_ROUTER_TTS_VOICE || 'alloy');
       const speed = Number(req.body?.speed || 1);
       const languageHint = String(req.body?.languageHint || 'auto');
+      const performanceStyle = String(req.body?.performanceStyle || 'warm, expressive, natural, emotional human voice with realistic pauses');
       if (!input) return res.status(400).json({ error: 'Text is required.' });
       try {
-        const audio = await generateOpenRouterSpeech({ input, voice, speed, languageHint });
+        const audio = await generateOpenRouterSpeech({ input, voice, speed, languageHint, performanceStyle });
         return res.status(200).json(audio);
       } catch (error) {
         if (/[\u1780-\u17FF]/.test(input)) {

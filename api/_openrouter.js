@@ -193,7 +193,11 @@ const speechSegmentsForTranslate = (text) => {
 };
 
 export async function generateTranslateSpeech({ input }) {
-  const segments = speechSegmentsForTranslate(input);
+  const expressiveInput = String(input || '')
+    .replace(/\s+/g, ' ')
+    .replace(/([។.!?])\s*/g, '$1 ')
+    .trim();
+  const segments = speechSegmentsForTranslate(expressiveInput);
   if (!segments.length) throw new Error('Text is required.');
 
   const audioBuffers = [];
@@ -225,7 +229,14 @@ export async function generateTranslateSpeech({ input }) {
   };
 };
 
-export async function generateOpenRouterSpeech({ input, voice = 'alloy', model, speed = 1, languageHint = 'auto' }) {
+export async function generateOpenRouterSpeech({
+  input,
+  voice = 'alloy',
+  model,
+  speed = 1,
+  languageHint = 'auto',
+  performanceStyle = 'warm, expressive, natural, human conversational voice',
+}) {
   let lastError;
 
   for (const speechModel of speechModelCandidates(model)) {
@@ -245,8 +256,12 @@ export async function generateOpenRouterSpeech({ input, voice = 'alloy', model, 
             {
               role: 'system',
               content: [
-                `You are a professional text-to-speech voice actor. Read naturally at ${speed}x speed.`,
+                `You are a professional human voice actor. Read naturally at ${speed}x speed.`,
                 `The language mode is ${languageHint}.`,
+                `Performance style: ${performanceStyle}.`,
+                'Use a real human speaking rhythm with gentle pauses, breath-like phrasing, emotional warmth, and natural emphasis.',
+                'Do not sound robotic, flat, rushed, or like a language learner reading letter by letter.',
+                'For marketing copy, sound confident, warm, persuasive, and alive, as if speaking to one person.',
                 'If the text contains Khmer, pronounce the Khmer text as Khmer, not as English transliteration.',
                 'If the text mixes Khmer and English, preserve each language pronunciation exactly as written.',
                 'Do not read these instructions aloud. Return clear, clean audio only.',
