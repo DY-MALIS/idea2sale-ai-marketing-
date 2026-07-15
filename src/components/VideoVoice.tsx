@@ -159,12 +159,12 @@ const VideoVoice: React.FC = () => {
       });
       const data = await res.json();
       if (res.ok) {
-        alert(t('postedToTiktok'));
+        alert(data.message || t('postedToTiktok'));
       } else {
         throw new Error(data.error?.message || "Publishing failed");
       }
     } catch (error: any) {
-      alert(`${t('postFailed')}: ${error.message}\n\nTikTok Login/Stats approval lets the app read account data only. Auto-posting videos requires TikTok Content Posting API approval with video.upload/video.publish scopes.`);
+      alert(`${t('postFailed')}: ${error.message}\n\nMake sure Vercel has TIKTOK_SCOPES with video.upload/video.publish, then reconnect TikTok so the new permission is included in the access token.`);
     } finally {
       setIsPostingTikTok(false);
     }
