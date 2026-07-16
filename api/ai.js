@@ -61,6 +61,64 @@ Behavior rules:
 - Do not claim to have live TikTok/Facebook/X trend data unless the user provides it. You may give trend-style ideas based on common social media patterns.
 - Be clear, useful, and ready to copy. Avoid repetitive wording.`;
 
+const shouldUseXContext = (message) => {
+  return /\b(x|twitter)\b|x\.com|tweet|post|trend|trending|news|ព័ត៌មាន|ព័ត៍មាន|ពេញនិយម/i.test(message);
+};
+
+const buildXSearchQuery = (message) => {
+  return String(message)
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/\b(x|twitter|x\.com|tweet|tweets|post|posts|trend|trending|news|from|latest|recent)\b/gi, ' ')
+    .replace(/យក|ពី|មក|ផ្ទាល់|ព័ត៌មាន|ព័ត៍មាន|ពេញនិយម|ថ្មីៗ|ចុងក្រោយ/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 180);
+};
+
+const fetchXContext = async (message) => {
+  const bearerToken = process.env.X_BEARER_TOKEN;
+  if (!bearerToken || !shouldUseXContext(message)) {
+    return '';
+  }
+
+  const query = buildXSearchQuery(message) || 'marketing OR business OR AI lang:en';
+  const params = new URLSearchParams({
+    query: `${query} -is:retweet`,
+    max_results: '10',
+    'tweet.fields': 'created_at,public_metrics,lang,author_id',
+    expansions: 'author_id',
+    'user.fields': 'name,username',
+  });
+
+  try {
+    const response = await fetch(`https://api.x.com/2/tweets/search/recent?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${bearerToken}` },
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      return `X API context unavailable: ${data?.title || data?.detail || data?.error || response.statusText}`;
+    }
+
+    const users = new Map((data?.includes?.users || []).map((user) => [user.id, user]));
+    const posts = (data?.data || []).slice(0, 8).map((post, index) => {
+      const user = users.get(post.author_id);
+      const metrics = post.public_metrics || {};
+      return `${index + 1}. @${user?.username || 'unknown'}: ${post.text}
+Likes: ${metrics.like_count || 0}, reposts: ${metrics.retweet_count || 0}, replies: ${metrics.reply_count || 0}, date: ${post.created_at || 'unknown'}`;
+    });
+
+    if (!posts.length) {
+      return `X API returned no recent public posts for query: ${query}`;
+    }
+
+    return `Recent public X posts for query "${query}":
+${posts.join('\n\n')}`;
+  } catch (error) {
+    return `X API context unavailable: ${error?.message || 'request failed'}`;
+  }
+};
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
@@ -95,6 +153,7 @@ export default async function handler(req, res) {
       const historyText = history
         .map((item) => `${item.role === 'assistant' ? 'Assistant' : 'User'}: ${String(item.content || '').slice(0, 1200)}`)
         .join('\n');
+      const xContext = await fetchXContext(message);
 
       const text = await generateOpenRouterText({
         system: agentSystemPrompt,
@@ -106,6 +165,9 @@ Mode: ${mode}. If this is auto, infer the user's intent and answer that intent o
 Recent conversation:
 ${historyText || 'None'}
 
+X API context:
+${xContext || 'No X API context was requested or available.'}
+
 User request:
 ${message}
 
@@ -115,6 +177,8 @@ Response rules:
 - If it is a question: answer the question directly.
 - If it is troubleshooting: give likely cause and next steps.
 - If it is content creation: provide only the content assets the user requested. If they did not specify format, suggest 2-3 good formats first.
+- If X API context is available, use it as source inspiration and mention that the ideas are based on recent public X posts. Do not copy posts verbatim.
+- If X API context says unavailable, explain the likely setup issue briefly and still answer with general guidance.
 - If it is a follow-up: connect your answer to the previous messages.
 - Do not repeat the same structure unless it fits the request.`,
       });
