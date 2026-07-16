@@ -28,7 +28,7 @@ const SchedulerHub: React.FC = () => {
   
   // Form state
   const [content, setContent] = useState('');
-  const [platform, setPlatform] = useState<'TIKTOK' | 'INSTAGRAM' | 'TWITTER'>('TIKTOK');
+  const [platform, setPlatform] = useState<'TIKTOK' | 'INSTAGRAM' | 'TWITTER' | 'TELEGRAM'>('TIKTOK');
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [scheduledTime, setScheduledTime] = useState(() => {
     const nextHour = new Date();
@@ -101,7 +101,7 @@ const SchedulerHub: React.FC = () => {
         aiSuggested: false,
         videoUrl,
         videoName: videoFile?.name || null,
-        publishMode: platform === 'TIKTOK' ? 'TIKTOK_DIRECT_POST' : 'PLANNED_ONLY',
+        publishMode: platform === 'TIKTOK' ? 'TIKTOK_DIRECT_POST' : platform === 'TELEGRAM' ? 'TELEGRAM_AUTO_POST' : 'PLANNED_ONLY',
         createdAt: serverTimestamp()
       });
       setIsModalOpen(false);
@@ -237,11 +237,12 @@ const SchedulerHub: React.FC = () => {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-[10px] font-bold text-[#4A4B4F] uppercase tracking-widest mb-2">{t('platform')}</label>
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="grid grid-cols-4 gap-2">
                         {[
                           { id: 'TIKTOK', icon: Share2 },
                           { id: 'INSTAGRAM', icon: Instagram },
-                          { id: 'TWITTER', icon: Twitter }
+                          { id: 'TWITTER', icon: Twitter },
+                          { id: 'TELEGRAM', icon: Send }
                         ].map((p) => (
                           <button
                             key={p.id}
@@ -283,6 +284,12 @@ const SchedulerHub: React.FC = () => {
                         className="w-full p-3 bg-[#0A0A0B] border border-[#2A2B2F] rounded-xl text-white text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-purple-500 file:px-3 file:py-2 file:font-bold file:text-white"
                       />
                       <p className="mt-2 text-xs text-[#8E9299]">MP4, MOV, or WebM. Auto-post starts only after TikTok approves video.publish.</p>
+                    </div>
+                  )}
+                  {platform === 'TELEGRAM' && (
+                    <div className="p-3 bg-sky-500/10 border border-sky-500/20 rounded-xl flex items-start gap-2 text-sky-300 text-xs">
+                      <Send size={14} className="mt-0.5 shrink-0" />
+                      <p>Telegram auto-post will send this text to the configured channel when the scheduled time arrives.</p>
                     </div>
                   )}
                 </div>

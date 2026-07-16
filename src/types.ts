@@ -33,11 +33,14 @@ export type TabType =
 export interface SchedulePost {
   id: string;
   content: string;
-  platform: 'TIKTOK' | 'INSTAGRAM' | 'TWITTER';
+  platform: 'TIKTOK' | 'INSTAGRAM' | 'TWITTER' | 'TELEGRAM';
   scheduledTime: string;
   status: 'PENDING' | 'PUBLISHED' | 'FAILED';
   userId: string;
   aiSuggested: boolean;
+  publishMode?: string;
+  telegramMessageId?: number | null;
+  errorMessage?: string | null;
   createdAt?: any;
 }
 

@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Calendar, Clock, Trash2, CheckCircle2, AlertCircle, Share2, Instagram, Twitter, X } from 'lucide-react';
+import { Calendar, Clock, Trash2, CheckCircle2, AlertCircle, Share2, Instagram, Twitter, X, Send } from 'lucide-react';
 import { db, auth } from '../lib/firebase';
-import { collection, query, where, orderBy, onSnapshot, deleteDoc, doc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, deleteDoc, doc, updateDoc } from 'firebase/firestore';
 import { SchedulePost } from '../types';
 import { format, isAfter, parseISO, addHours, subHours } from 'date-fns';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -14,6 +14,8 @@ const Scheduler: React.FC = () => {
   const [posts, setPosts] = useState<SchedulePost[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [nowTick, setNowTick] = useState(Date.now());
+  const processingTelegram = useRef<Set<string>>(new Set());
 
   const getDemoPosts = () => {
     const savedPosts = JSON.parse(localStorage.getItem('demo_scheduled_posts') || '[]');
@@ -89,6 +91,64 @@ const Scheduler: React.FC = () => {
       if (unsubscribe) unsubscribe();
     };
   }, [user, isDemoMode]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowTick(Date.now()), 15000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const dueTelegramPosts = posts.filter((post) => {
+      if (post.platform !== 'TELEGRAM' || post.status !== 'PENDING') return false;
+      if (processingTelegram.current.has(post.id)) return false;
+      return !isAfter(parseISO(post.scheduledTime), new Date(nowTick));
+    });
+
+    if (dueTelegramPosts.length === 0) return;
+
+    dueTelegramPosts.forEach(async (post) => {
+      processingTelegram.current.add(post.id);
+      try {
+        if (isDemoMode) {
+          setPosts(prev => {
+            const next = prev.map(p => p.id === post.id ? { ...p, status: 'PUBLISHED' as const } : p);
+            localStorage.setItem('demo_scheduled_posts', JSON.stringify(next.filter(p => !['1', '2'].includes(p.id))));
+            return next;
+          });
+          return;
+        }
+
+        const res = await fetch('/api/telegram/post', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: post.content })
+        });
+        const data = await res.json();
+
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || 'Telegram post failed.');
+        }
+
+        await updateDoc(doc(db, 'scheduled_posts', post.id), {
+          status: 'PUBLISHED',
+          telegramMessageId: data.messageId || null,
+          errorMessage: null
+        });
+      } catch (err: any) {
+        console.error('Telegram auto-post failed:', err);
+        const msg = err.message || 'Telegram auto-post failed.';
+        setErrorMsg(language === 'km' ? 'Telegram បង្ហោះមិនបាន: ' + msg : 'Telegram post failed: ' + msg);
+        if (!isDemoMode) {
+          await updateDoc(doc(db, 'scheduled_posts', post.id), {
+            status: 'FAILED',
+            errorMessage: msg
+          });
+        }
+      } finally {
+        processingTelegram.current.delete(post.id);
+      }
+    });
+  }, [posts, nowTick, isDemoMode, language]);
 
   const handleDelete = async (id: string) => {
     try {
@@ -189,7 +249,7 @@ const Scheduler: React.FC = () => {
                       <div className={`p-2 rounded-lg ${
                         post.status === 'PUBLISHED' ? 'bg-green-500/10 text-green-400' : 'bg-[#2A2B2F] text-[#8E9299]'
                       }`}>
-                        {post.platform === 'INSTAGRAM' ? <Instagram size={20} /> : post.platform === 'TWITTER' ? <Twitter size={20} /> : <Share2 size={20} />}
+                        {post.platform === 'INSTAGRAM' ? <Instagram size={20} /> : post.platform === 'TWITTER' ? <Twitter size={20} /> : post.platform === 'TELEGRAM' ? <Send size={20} /> : <Share2 size={20} />}
                       </div>
                       <span className="text-[10px] font-bold text-[#4A4B4F] uppercase tracking-tighter mt-1">{post.platform}</span>
                     </div>
@@ -212,6 +272,9 @@ const Scheduler: React.FC = () => {
                       <p className="text-sm text-[#BCBFC4] leading-relaxed line-clamp-2">
                         {post.content}
                       </p>
+                      {post.status === 'FAILED' && post.errorMessage && (
+                        <p className="mt-2 text-xs text-red-400">{post.errorMessage}</p>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-2 transition-opacity">
