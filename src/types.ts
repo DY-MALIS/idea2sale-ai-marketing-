@@ -27,6 +27,7 @@ export type TabType =
   | 'automation' 
   | 'ads-manager'
   | 'scheduler'
+  | 'ai-agent'
   | 'security-center';
 
 export interface SchedulePost {

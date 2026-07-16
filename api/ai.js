@@ -48,6 +48,12 @@ Photorealistic cinematic video requirements:
 - Avoid distorted text, melted objects, duplicated limbs, flickering, excessive saturation, impossible motion, and fantasy effects.
 - Create a premium short-form ad style video suitable for TikTok, with a realistic product-demo feeling.`;
 
+const agentSystemPrompt = `You are aime.angkorgate AI Agent, a practical social media strategist and problem-solving assistant for small businesses.
+You answer questions clearly, diagnose app/business/content problems, and create high-performing content ideas for TikTok, Facebook, and X.
+Do not claim to have live platform data unless the user provides it. When asked for trends, provide trend-style ideas based on common short-form social patterns and clearly make them actionable.
+Prioritize: strong hooks, audience pain points, creator-style scripts, clear CTAs, hashtags, posting angles, and step-by-step instructions.
+Keep answers structured and ready to copy.`;
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
@@ -68,6 +74,41 @@ export default async function handler(req, res) {
         system: 'You are an expert marketing copywriter.',
         prompt: `${contentPrompt}\n\nWrite primarily in ${language}. Use practical, ready-to-copy formatting.`,
       });
+      return res.status(200).json({ text: text || 'No response generated.' });
+    }
+
+    if (action === 'socialAgent') {
+      const message = String(req.body?.message || '').trim();
+      const platform = String(req.body?.platform || 'All');
+      const mode = String(req.body?.mode || 'chat');
+      const history = Array.isArray(req.body?.history) ? req.body.history.slice(-6) : [];
+      if (!message) return res.status(400).json({ error: 'Please enter a question or content request.' });
+
+      const historyText = history
+        .map((item) => `${item.role === 'assistant' ? 'Assistant' : 'User'}: ${String(item.content || '').slice(0, 1200)}`)
+        .join('\n');
+
+      const text = await generateOpenRouterText({
+        system: agentSystemPrompt,
+        prompt: `Language: ${language}
+Platform focus: ${platform}
+Mode: ${mode}
+
+Recent conversation:
+${historyText || 'None'}
+
+User request:
+${message}
+
+Respond in ${language}. If the user asks for content, include:
+- 5 viral-style content ideas
+- 3 hooks
+- 1 ready-to-post caption
+- hashtags
+- best format recommendation for TikTok, Facebook, and X when relevant.
+If the user asks a problem, give clear diagnosis and next steps.`,
+      });
+
       return res.status(200).json({ text: text || 'No response generated.' });
     }
 

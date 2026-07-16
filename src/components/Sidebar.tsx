@@ -10,6 +10,7 @@ import {
   Search,
   TrendingUp,
   MessagesSquare,
+  Bot,
   ShieldCheck,
 } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -30,6 +31,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onLogout }) 
     {
       title: t('researchStrategy'),
       items: [
+        { id: 'ai-agent', label: 'AI Agent', icon: Bot },
         { id: 'product-research', label: t('researchLabel'), icon: Search },
       ]
     },

@@ -11,6 +11,7 @@ import ProductResearch from './components/ProductResearch';
 import Automation from './components/Automation';
 import AdsManager from './components/AdsManager';
 import SchedulerHub from './components/SchedulerHub';
+import AIAgent from './components/AIAgent';
 import Auth from './components/Auth';
 import LegalPage from './components/LegalPage';
 import SecurityCenter from './components/SecurityCenter';
@@ -53,6 +54,7 @@ export default function App() {
       case 'automation': return <Automation />;
       case 'ads-manager': return <AdsManager />;
       case 'scheduler': return <SchedulerHub />;
+      case 'ai-agent': return <AIAgent />;
       case 'security-center': return <SecurityCenter />;
       default: return <Copywriter />;
     }
