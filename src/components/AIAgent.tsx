@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Copy, Loader2, RefreshCw, Send, Sparkles } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { motion, AnimatePresence } from 'motion/react';
@@ -13,15 +13,11 @@ const AIAgent: React.FC = () => {
   const { language } = useLanguage();
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [messages, setMessages] = useState<AgentMessage[]>(() => {
-    const stored = localStorage.getItem('ai_agent_messages');
-    if (!stored) return [];
-    try {
-      return JSON.parse(stored);
-    } catch {
-      return [];
-    }
-  });
+  const [messages, setMessages] = useState<AgentMessage[]>([]);
+
+  useEffect(() => {
+    localStorage.removeItem('ai_agent_messages');
+  }, []);
 
   const text = useMemo(() => ({
     title: language === 'km' ? 'AI Agent បង្កើត Content' : 'AI Content Agent',
@@ -41,8 +37,7 @@ const AIAgent: React.FC = () => {
   }), [language]);
 
   const persistMessages = (nextMessages: AgentMessage[]) => {
-    setMessages(nextMessages);
-    localStorage.setItem('ai_agent_messages', JSON.stringify(nextMessages.slice(-12)));
+    setMessages(nextMessages.slice(-12));
   };
 
   const askAgent = async (overridePrompt?: string) => {
