@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Calendar, Bot, Zap, Plus, Sparkles, Clock, X, Send, Instagram, Twitter, Share2, Loader2, AlertCircle } from 'lucide-react';
+import { Calendar, Bot, Zap, Plus, Sparkles, Clock, X, Send, Instagram, Twitter, Share2, Loader2, AlertCircle, Upload } from 'lucide-react';
 import AITrainer from './AITrainer';
 import Suggestions from './Suggestions';
 import Scheduler from './Scheduler';
@@ -30,6 +30,7 @@ const SchedulerHub: React.FC = () => {
   const [content, setContent] = useState('');
   const [platform, setPlatform] = useState<'TIKTOK' | 'INSTAGRAM' | 'TWITTER' | 'TELEGRAM'>('TIKTOK');
   const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [telegramMediaFile, setTelegramMediaFile] = useState<File | null>(null);
   const [scheduledTime, setScheduledTime] = useState(() => {
     const nextHour = new Date();
     nextHour.setHours(nextHour.getHours() + 1);
@@ -47,7 +48,7 @@ const SchedulerHub: React.FC = () => {
 
     const userToUse = user || (isDemoMode ? { uid: 'demo-user' } : null);
 
-    if (!content.trim() || !scheduledTime || !userToUse || (platform === 'TIKTOK' && !videoFile)) {
+    if ((!content.trim() && !(platform === 'TELEGRAM' && telegramMediaFile)) || !scheduledTime || !userToUse || (platform === 'TIKTOK' && !videoFile)) {
       setFormError(t('fillAllFieldsErr'));
       return;
     }
@@ -71,6 +72,8 @@ const SchedulerHub: React.FC = () => {
           userId: 'demo-user',
           aiSuggested: false,
           videoName: videoFile?.name || null,
+          mediaName: telegramMediaFile?.name || null,
+          mediaType: telegramMediaFile?.type.startsWith('video/') ? 'video' : telegramMediaFile ? 'photo' : null,
           createdAt: new Date().toISOString()
         };
         const savedPosts = JSON.parse(localStorage.getItem('demo_scheduled_posts') || '[]');
@@ -80,17 +83,27 @@ const SchedulerHub: React.FC = () => {
         setIsModalOpen(false);
         setContent('');
         setVideoFile(null);
+        setTelegramMediaFile(null);
       }, 800);
       return;
     }
 
     try {
       let videoUrl = '';
+      let mediaUrl = '';
+      let mediaType: 'photo' | 'video' | null = null;
       if (platform === 'TIKTOK' && videoFile) {
         const safeName = videoFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
         const storageRef = ref(storage, `scheduled-videos/${userToUse.uid}/${Date.now()}-${safeName}`);
         await uploadBytes(storageRef, videoFile, { contentType: videoFile.type });
         videoUrl = await getDownloadURL(storageRef);
+      }
+      if (platform === 'TELEGRAM' && telegramMediaFile) {
+        const safeName = telegramMediaFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const storageRef = ref(storage, `telegram-media/${userToUse.uid}/${Date.now()}-${safeName}`);
+        await uploadBytes(storageRef, telegramMediaFile, { contentType: telegramMediaFile.type });
+        mediaUrl = await getDownloadURL(storageRef);
+        mediaType = telegramMediaFile.type.startsWith('video/') ? 'video' : 'photo';
       }
       await addDoc(collection(db, 'scheduled_posts'), {
         content: content.trim(),
@@ -101,12 +114,16 @@ const SchedulerHub: React.FC = () => {
         aiSuggested: false,
         videoUrl,
         videoName: videoFile?.name || null,
+        mediaUrl,
+        mediaName: telegramMediaFile?.name || null,
+        mediaType,
         publishMode: platform === 'TIKTOK' ? 'TIKTOK_DIRECT_POST' : platform === 'TELEGRAM' ? 'TELEGRAM_AUTO_POST' : 'PLANNED_ONLY',
         createdAt: serverTimestamp()
       });
       setIsModalOpen(false);
       setContent('');
       setVideoFile(null);
+      setTelegramMediaFile(null);
       
       const nextHour = new Date();
       nextHour.setHours(nextHour.getHours() + 1);
@@ -287,9 +304,20 @@ const SchedulerHub: React.FC = () => {
                     </div>
                   )}
                   {platform === 'TELEGRAM' && (
-                    <div className="p-3 bg-sky-500/10 border border-sky-500/20 rounded-xl flex items-start gap-2 text-sky-300 text-xs">
-                      <Send size={14} className="mt-0.5 shrink-0" />
-                      <p>Telegram auto-post will send this text to the configured channel when the scheduled time arrives.</p>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-[10px] font-bold text-[#4A4B4F] uppercase tracking-widest mb-2">Telegram image or video</label>
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm"
+                          onChange={(e) => setTelegramMediaFile(e.target.files?.[0] || null)}
+                          className="w-full p-3 bg-[#0A0A0B] border border-[#2A2B2F] rounded-xl text-white text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-sky-500 file:px-3 file:py-2 file:font-bold file:text-white"
+                        />
+                      </div>
+                      <div className="p-3 bg-sky-500/10 border border-sky-500/20 rounded-xl flex items-start gap-2 text-sky-300 text-xs">
+                        <Upload size={14} className="mt-0.5 shrink-0" />
+                        <p>Telegram can post text, image, or video. If you add media, the text will be used as the caption.</p>
+                      </div>
                     </div>
                   )}
                 </div>

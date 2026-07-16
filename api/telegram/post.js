@@ -14,20 +14,36 @@ export default async function handler(req, res) {
   }
 
   const text = String(req.body?.text || '').trim();
+  const mediaUrl = String(req.body?.mediaUrl || '').trim();
+  const mediaType = String(req.body?.mediaType || '').trim().toLowerCase();
 
-  if (!text) {
-    return res.status(400).json({ error: 'Telegram message text is required.' });
+  if (!text && !mediaUrl) {
+    return res.status(400).json({ error: 'Telegram text, image, or video is required.' });
   }
 
   try {
-    const telegramRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    const method = mediaUrl
+      ? mediaType === 'video'
+        ? 'sendVideo'
+        : 'sendPhoto'
+      : 'sendMessage';
+
+    const payload = mediaUrl
+      ? {
+          chat_id: chatId,
+          [mediaType === 'video' ? 'video' : 'photo']: mediaUrl,
+          caption: text || undefined
+        }
+      : {
+          chat_id: chatId,
+          text,
+          disable_web_page_preview: false
+        };
+
+    const telegramRes = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text,
-        disable_web_page_preview: false
-      })
+      body: JSON.stringify(payload)
     });
 
     const data = await telegramRes.json();

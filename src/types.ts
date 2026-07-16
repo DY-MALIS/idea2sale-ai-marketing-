@@ -39,6 +39,11 @@ export interface SchedulePost {
   userId: string;
   aiSuggested: boolean;
   publishMode?: string;
+  mediaUrl?: string;
+  mediaName?: string | null;
+  mediaType?: 'photo' | 'video' | null;
+  videoUrl?: string;
+  videoName?: string | null;
   telegramMessageId?: number | null;
   errorMessage?: string | null;
   createdAt?: any;

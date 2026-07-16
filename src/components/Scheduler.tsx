@@ -121,7 +121,11 @@ const Scheduler: React.FC = () => {
         const res = await fetch('/api/telegram/post', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: post.content })
+          body: JSON.stringify({
+            text: post.content,
+            mediaUrl: post.mediaUrl || '',
+            mediaType: post.mediaType || ''
+          })
         });
         const data = await res.json();
 
@@ -272,6 +276,11 @@ const Scheduler: React.FC = () => {
                       <p className="text-sm text-[#BCBFC4] leading-relaxed line-clamp-2">
                         {post.content}
                       </p>
+                      {post.platform === 'TELEGRAM' && post.mediaName && (
+                        <p className="mt-2 inline-flex items-center rounded-full border border-sky-500/20 bg-sky-500/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-sky-300">
+                          {post.mediaType === 'video' ? 'Video' : 'Image'}: {post.mediaName}
+                        </p>
+                      )}
                       {post.status === 'FAILED' && post.errorMessage && (
                         <p className="mt-2 text-xs text-red-400">{post.errorMessage}</p>
                       )}
