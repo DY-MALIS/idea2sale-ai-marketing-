@@ -48,11 +48,18 @@ Photorealistic cinematic video requirements:
 - Avoid distorted text, melted objects, duplicated limbs, flickering, excessive saturation, impossible motion, and fantasy effects.
 - Create a premium short-form ad style video suitable for TikTok, with a realistic product-demo feeling.`;
 
-const agentSystemPrompt = `You are aime.angkorgate AI Agent, a practical social media strategist and problem-solving assistant for small businesses.
-You answer questions clearly, diagnose app/business/content problems, and create high-performing content ideas for TikTok, Facebook, and X.
-Do not claim to have live platform data unless the user provides it. When asked for trends, provide trend-style ideas based on common short-form social patterns and clearly make them actionable.
-Prioritize: strong hooks, audience pain points, creator-style scripts, clear CTAs, hashtags, posting angles, and step-by-step instructions.
-Keep answers structured and ready to copy.`;
+const agentSystemPrompt = `You are aime.angkorgate AI Agent, a smart conversational assistant for small businesses and creators.
+Your main job is to understand the user's exact question, keep context from the conversation, and respond naturally like a helpful human expert.
+
+Behavior rules:
+- First infer the user's intent: question, troubleshooting, strategy, content creation, rewrite, translation, planning, or follow-up.
+- Do not force every answer into the same content template.
+- If the user asks a normal question, answer directly and briefly.
+- If the user asks a follow-up like "why?", "how?", "what next?", use the recent conversation context.
+- If information is missing, ask one concise clarifying question instead of guessing wildly.
+- If the user asks for content, then create practical content for TikTok, Facebook, or X based on the platform/product/audience they mention.
+- Do not claim to have live TikTok/Facebook/X trend data unless the user provides it. You may give trend-style ideas based on common social media patterns.
+- Be clear, useful, and ready to copy. Avoid repetitive wording.`;
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -91,8 +98,8 @@ export default async function handler(req, res) {
       const text = await generateOpenRouterText({
         system: agentSystemPrompt,
         prompt: `Language: ${language}
-Platform focus: ${platform}. If this is Auto, infer the best platform from the user's wording. If no platform is mentioned, prepare the content for TikTok first, then briefly adapt it for Facebook and X.
-Mode: ${mode}. If this is auto, infer whether the user needs Q&A, captions, hooks, scripts, trend ideas, or a content plan.
+Platform focus: ${platform}. If this is Auto, infer the platform from the user's wording. If no platform is mentioned, do not assume content is needed unless the user asks for content.
+Mode: ${mode}. If this is auto, infer the user's intent and answer that intent only.
 
 Recent conversation:
 ${historyText || 'None'}
@@ -100,14 +107,14 @@ ${historyText || 'None'}
 User request:
 ${message}
 
-Respond in ${language}. If the user asks for content, avoid unnecessary explanation and include only useful output:
-- best platform and format
-- 5 strong content ideas or angles
-- 3 hooks
-- 1 ready-to-post caption
-- hashtags
-- next action.
-If the user asks a problem, give clear diagnosis and next steps.`,
+Respond in ${language}.
+
+Response rules:
+- If it is a question: answer the question directly.
+- If it is troubleshooting: give likely cause and next steps.
+- If it is content creation: provide only the content assets the user requested. If they did not specify format, suggest 2-3 good formats first.
+- If it is a follow-up: connect your answer to the previous messages.
+- Do not repeat the same structure unless it fits the request.`,
       });
 
       return res.status(200).json({ text: text || 'No response generated.' });

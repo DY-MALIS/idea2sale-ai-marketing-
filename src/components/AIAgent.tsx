@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Copy, Loader2, Send, Sparkles } from 'lucide-react';
+import { Copy, Loader2, RefreshCw, Send, Sparkles } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -37,6 +37,7 @@ const AIAgent: React.FC = () => {
     result: language === 'km' ? 'Content ដែលបានបង្កើត' : 'Generated Content',
     empty: language === 'km' ? 'Content ដែលបានបង្កើតនឹងបង្ហាញនៅទីនេះ។' : 'Generated content will appear here.',
     copy: language === 'km' ? 'ចម្លងចម្លើយ' : 'Copy answer',
+    clear: language === 'km' ? 'Chat ថ្មី' : 'New chat',
   }), [language]);
 
   const persistMessages = (nextMessages: AgentMessage[]) => {
@@ -64,7 +65,7 @@ const AIAgent: React.FC = () => {
           platform: 'Auto',
           mode: 'auto',
           language,
-          history: messages,
+          history: nextMessages.slice(-8),
         }),
       });
       const data = await response.json();
@@ -117,6 +118,17 @@ const AIAgent: React.FC = () => {
               <div className="w-2 h-6 bg-brand-500 rounded-full" />
               {text.result}
             </h3>
+            <div className="flex items-center gap-2">
+            {messages.length > 0 && (
+              <button
+                onClick={() => persistMessages([])}
+                className="px-4 py-3 bg-white/70 text-brand-600 hover:bg-brand-50 rounded-xl transition-all border border-brand-200 flex items-center gap-2 text-sm font-bold"
+                title={text.clear}
+              >
+                <RefreshCw size={16} />
+                {text.clear}
+              </button>
+            )}
             {latestAnswer && (
               <button
                 onClick={() => navigator.clipboard.writeText(latestAnswer)}
@@ -126,6 +138,7 @@ const AIAgent: React.FC = () => {
                 <Copy size={20} />
               </button>
             )}
+            </div>
           </div>
 
           <div className="flex-1 overflow-y-auto pr-2 space-y-4">
