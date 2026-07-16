@@ -90,6 +90,7 @@ export default async function handler(req, res) {
       const mode = String(req.body?.mode || 'chat');
       const history = Array.isArray(req.body?.history) ? req.body.history.slice(-6) : [];
       if (!message) return res.status(400).json({ error: 'Please enter a question or content request.' });
+      const responseLanguage = /[\u1780-\u17FF]/.test(message) ? 'Khmer' : 'English';
 
       const historyText = history
         .map((item) => `${item.role === 'assistant' ? 'Assistant' : 'User'}: ${String(item.content || '').slice(0, 1200)}`)
@@ -97,7 +98,8 @@ export default async function handler(req, res) {
 
       const text = await generateOpenRouterText({
         system: agentSystemPrompt,
-        prompt: `Language: ${language}
+        prompt: `Detected user message language: ${responseLanguage}
+UI language preference: ${language}
 Platform focus: ${platform}. If this is Auto, infer the platform from the user's wording. If no platform is mentioned, do not assume content is needed unless the user asks for content.
 Mode: ${mode}. If this is auto, infer the user's intent and answer that intent only.
 
@@ -107,7 +109,7 @@ ${historyText || 'None'}
 User request:
 ${message}
 
-Respond in ${language}.
+Respond in ${responseLanguage}. If the user mixes Khmer and English, keep the same mixed style naturally.
 
 Response rules:
 - If it is a question: answer the question directly.
