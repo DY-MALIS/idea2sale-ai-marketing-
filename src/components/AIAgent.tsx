@@ -1,44 +1,16 @@
 import React, { useMemo, useState } from 'react';
-import { Bot, Copy, Loader2, Send, Sparkles, Wand2 } from 'lucide-react';
+import { Copy, Loader2, Send, Sparkles } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { motion, AnimatePresence } from 'motion/react';
-import { cn } from '../lib/utils';
 import { useLanguage } from '../contexts/LanguageContext';
-
-type Platform = 'All' | 'TikTok' | 'Facebook' | 'X';
-type AgentMode = 'chat' | 'content' | 'hooks' | 'calendar';
 
 interface AgentMessage {
   role: 'user' | 'assistant';
   content: string;
 }
 
-const quickModes: Array<{ id: AgentMode; en: string; km: string }> = [
-  { id: 'chat', en: 'Ask Anything', km: 'សួរបញ្ហា' },
-  { id: 'content', en: 'Viral Ideas', km: 'គំនិតពេញនិយម' },
-  { id: 'hooks', en: 'Hooks & Captions', km: 'Hook និង Caption' },
-  { id: 'calendar', en: 'Content Plan', km: 'ផែនការ Content' },
-];
-
-const platforms: Platform[] = ['All', 'TikTok', 'Facebook', 'X'];
-
-const samples = {
-  en: [
-    'Create 10 TikTok content ideas for a beauty product that can go viral.',
-    'Why is my TikTok post not getting views? Give me a step-by-step fix.',
-    'Write hooks and captions for a Facebook campaign selling an online course.',
-  ],
-  km: [
-    'បង្កើតគំនិត content TikTok 10 ចំណុច សម្រាប់ផលិតផលថែរក្សាសម្រស់។',
-    'ហេតុអ្វី post TikTok របស់ខ្ញុំមិនសូវមានអ្នកមើល? សូមប្រាប់វិធីកែ។',
-    'សរសេរ hooks និង captions សម្រាប់ campaign Facebook លក់វគ្គសិក្សា online។',
-  ],
-};
-
 const AIAgent: React.FC = () => {
   const { language } = useLanguage();
-  const [platform, setPlatform] = useState<Platform>('All');
-  const [mode, setMode] = useState<AgentMode>('content');
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [messages, setMessages] = useState<AgentMessage[]>(() => {
@@ -52,19 +24,18 @@ const AIAgent: React.FC = () => {
   });
 
   const text = useMemo(() => ({
-    title: language === 'km' ? 'AI Agent សួរ-ឆ្លើយ និង Content Trend' : 'AI Agent for Q&A and Trend Content',
+    title: language === 'km' ? 'AI Agent បង្កើត Content' : 'AI Content Agent',
     subtitle: language === 'km'
-      ? 'សួរបញ្ហា បង្កើតមាតិកាពេញនិយម និងរៀបចំ idea សម្រាប់ TikTok, Facebook និង X។'
-      : 'Ask problems, create trend-style content, and plan ideas for TikTok, Facebook, and X.',
-    platform: language === 'km' ? 'Platform' : 'Platform',
-    prompt: language === 'km' ? 'សំណួរ ឬ Content ដែលចង់បង្កើត' : 'Question or content request',
+      ? 'សរសេរថាអ្នកចង់បង្កើត content អំពីអ្វី។ Agent នឹងរៀបចំឲ្យសម្រាប់ TikTok, Facebook ឬ X តាមអ្វីដែលអ្នកបានប្រាប់។'
+      : 'Tell the agent what content you want. It will prepare the right TikTok, Facebook, or X content from your request.',
+    prompt: language === 'km' ? 'អ្នកចង់បង្កើត Content អំពីអ្វី?' : 'What content do you want to create?',
     placeholder: language === 'km'
-      ? 'ឧ. បង្កើត content ពេញនិយមសម្រាប់ TikTok លក់ផលិតផល...'
-      : 'e.g. Create viral TikTok content for selling this product...',
-    generate: language === 'km' ? 'សួរ AI Agent' : 'Ask AI Agent',
+      ? 'ឧ. ខ្ញុំចង់បង្កើត content TikTok សម្រាប់លក់ផលិតផលថែរក្សាសម្រស់ ឲ្យមើលទៅពេញនិយម និងមាន caption...'
+      : 'e.g. I want TikTok content for selling a beauty product with viral hooks and captions...',
+    generate: language === 'km' ? 'បង្កើត Content' : 'Create Content',
     thinking: language === 'km' ? 'កំពុងគិត...' : 'Thinking...',
-    result: language === 'km' ? 'ចម្លើយពី AI Agent' : 'AI Agent Answer',
-    empty: language === 'km' ? 'ចម្លើយ និង content idea នឹងបង្ហាញនៅទីនេះ។' : 'Answers and content ideas will appear here.',
+    result: language === 'km' ? 'Content ដែលបានបង្កើត' : 'Generated Content',
+    empty: language === 'km' ? 'Content ដែលបានបង្កើតនឹងបង្ហាញនៅទីនេះ។' : 'Generated content will appear here.',
     copy: language === 'km' ? 'ចម្លងចម្លើយ' : 'Copy answer',
   }), [language]);
 
@@ -90,8 +61,8 @@ const AIAgent: React.FC = () => {
         body: JSON.stringify({
           action: 'socialAgent',
           message,
-          platform,
-          mode,
+          platform: 'Auto',
+          mode: 'auto',
           language,
           history: messages,
         }),
@@ -113,57 +84,20 @@ const AIAgent: React.FC = () => {
       <header className="flex flex-col gap-2">
         <h2 className="text-4xl font-display font-bold text-brand-700 tracking-tight flex items-center gap-3">
           {text.title}
-          <Bot className="text-brand-500" size={34} />
+          <Sparkles className="text-brand-500" size={34} />
         </h2>
         <p className="text-slate-500 text-lg max-w-3xl">{text.subtitle}</p>
       </header>
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
-        <section className="xl:col-span-5 glass rounded-[2.5rem] p-8 space-y-6">
-          <div className="space-y-3">
-            <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">{text.platform}</label>
-            <div className="grid grid-cols-4 gap-2">
-              {platforms.map((item) => (
-                <button
-                  key={item}
-                  onClick={() => setPlatform(item)}
-                  className={cn(
-                    'px-3 py-3 rounded-xl text-xs font-bold border transition-all',
-                    platform === item
-                      ? 'bg-brand-700 text-white border-brand-700 shadow-md'
-                      : 'bg-brand-50 text-brand-600 border-brand-100 hover:border-brand-300'
-                  )}
-                >
-                  {item}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            {quickModes.map((item) => (
-              <button
-                key={item.id}
-                onClick={() => setMode(item.id)}
-                className={cn(
-                  'px-4 py-3 rounded-xl text-xs font-bold border transition-all',
-                  mode === item.id
-                    ? 'bg-brand-600 text-white border-brand-600'
-                    : 'bg-white/60 text-brand-600 border-brand-100 hover:border-brand-300'
-                )}
-              >
-                {language === 'km' ? item.km : item.en}
-              </button>
-            ))}
-          </div>
-
+        <section className="xl:col-span-4 glass rounded-[2.5rem] p-8 space-y-6 self-start">
           <div className="space-y-2">
             <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">{text.prompt}</label>
             <textarea
               value={input}
               onChange={(event) => setInput(event.target.value)}
               placeholder={text.placeholder}
-              className="w-full h-56 p-5 rounded-2xl bg-brand-50 border border-brand-200 focus:ring-2 focus:ring-brand-500 focus:bg-white outline-none transition-all resize-none font-medium"
+              className="w-full h-72 p-5 rounded-2xl bg-brand-50 border border-brand-200 focus:ring-2 focus:ring-brand-500 focus:bg-white outline-none transition-all resize-none font-medium"
             />
           </div>
 
@@ -175,28 +109,9 @@ const AIAgent: React.FC = () => {
             {loading ? <Loader2 className="animate-spin" /> : <Send size={20} />}
             <span>{loading ? text.thinking : text.generate}</span>
           </button>
-
-          <div className="space-y-3 rounded-3xl border border-brand-100 bg-brand-50/50 p-5">
-            <div className="flex items-center gap-2 text-sm font-bold text-brand-700">
-              <Wand2 size={16} />
-              {language === 'km' ? 'ឧទាហរណ៍ងាយប្រើ' : 'Quick examples'}
-            </div>
-            {(language === 'km' ? samples.km : samples.en).map((sample) => (
-              <button
-                key={sample}
-                onClick={() => {
-                  setInput(sample);
-                  setMode(sample.includes('hook') || sample.includes('hooks') ? 'hooks' : 'content');
-                }}
-                className="block w-full rounded-2xl border border-brand-100 bg-white/70 p-3 text-left text-sm text-slate-600 hover:border-brand-300 hover:text-brand-700 transition-all"
-              >
-                {sample}
-              </button>
-            ))}
-          </div>
         </section>
 
-        <section className="xl:col-span-7 glass rounded-[2.5rem] p-8 min-h-[680px] flex flex-col">
+        <section className="xl:col-span-8 glass rounded-[2.5rem] p-8 min-h-[620px] flex flex-col">
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-xl font-bold text-brand-700 flex items-center gap-2">
               <div className="w-2 h-6 bg-brand-500 rounded-full" />
@@ -229,12 +144,11 @@ const AIAgent: React.FC = () => {
                   key={`${message.role}-${index}`}
                   initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className={cn(
-                    'rounded-3xl border p-5',
+                  className={`rounded-3xl border p-5 ${
                     message.role === 'user'
                       ? 'ml-auto max-w-[85%] bg-brand-700 text-white border-brand-700'
                       : 'mr-auto max-w-full bg-brand-50/60 text-slate-700 border-brand-100'
-                  )}
+                  }`}
                 >
                   {message.role === 'assistant' ? (
                     <div className="prose prose-brand max-w-none">

@@ -91,8 +91,8 @@ export default async function handler(req, res) {
       const text = await generateOpenRouterText({
         system: agentSystemPrompt,
         prompt: `Language: ${language}
-Platform focus: ${platform}
-Mode: ${mode}
+Platform focus: ${platform}. If this is Auto, infer the best platform from the user's wording. If no platform is mentioned, prepare the content for TikTok first, then briefly adapt it for Facebook and X.
+Mode: ${mode}. If this is auto, infer whether the user needs Q&A, captions, hooks, scripts, trend ideas, or a content plan.
 
 Recent conversation:
 ${historyText || 'None'}
@@ -100,12 +100,13 @@ ${historyText || 'None'}
 User request:
 ${message}
 
-Respond in ${language}. If the user asks for content, include:
-- 5 viral-style content ideas
+Respond in ${language}. If the user asks for content, avoid unnecessary explanation and include only useful output:
+- best platform and format
+- 5 strong content ideas or angles
 - 3 hooks
 - 1 ready-to-post caption
 - hashtags
-- best format recommendation for TikTok, Facebook, and X when relevant.
+- next action.
 If the user asks a problem, give clear diagnosis and next steps.`,
       });
 
