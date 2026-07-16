@@ -78,7 +78,8 @@ const AIAgent: React.FC = () => {
     }
   };
 
-  const latestAnswer = [...messages].reverse().find((message) => message.role === 'assistant')?.content || '';
+  const assistantMessages = messages.filter((message) => message.role === 'assistant');
+  const latestAnswer = [...assistantMessages].reverse()[0]?.content || '';
 
   return (
     <div className="max-w-7xl mx-auto space-y-8">
@@ -152,24 +153,16 @@ const AIAgent: React.FC = () => {
             )}
 
             <AnimatePresence>
-              {messages.map((message, index) => (
+              {assistantMessages.map((message, index) => (
                 <motion.div
                   key={`${message.role}-${index}`}
                   initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className={`rounded-3xl border p-5 ${
-                    message.role === 'user'
-                      ? 'ml-auto max-w-[85%] bg-brand-700 text-white border-brand-700'
-                      : 'mr-auto max-w-full bg-brand-50/60 text-slate-700 border-brand-100'
-                  }`}
+                  className="mr-auto max-w-full rounded-3xl border border-brand-100 bg-brand-50/60 p-5 text-slate-700"
                 >
-                  {message.role === 'assistant' ? (
-                    <div className="prose prose-brand max-w-none">
-                      <Markdown>{message.content}</Markdown>
-                    </div>
-                  ) : (
-                    <p className="whitespace-pre-wrap font-medium">{message.content}</p>
-                  )}
+                  <div className="prose prose-brand max-w-none">
+                    <Markdown>{message.content}</Markdown>
+                  </div>
                 </motion.div>
               ))}
             </AnimatePresence>
