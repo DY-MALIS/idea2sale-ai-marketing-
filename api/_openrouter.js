@@ -229,7 +229,7 @@ export async function generateTranslateSpeech({ input }) {
       ie: 'UTF-8',
       client: 'tw-ob',
       tl: segment.lang,
-      ttsspeed: '1.4',
+      ttsspeed: '2',
       q: segment.text,
     });
     const response = await fetch(`https://translate.google.com/translate_tts?${params.toString()}`, {
@@ -280,7 +280,7 @@ export async function generateOpenRouterSpeech({
             {
               role: 'system',
               content: [
-                `You are a real person speaking naturally at about ${speed}x speed with a very quick, lively conversational tempo.`,
+                `You are a real person speaking naturally at about ${speed}x speed with a fast but clear human conversational tempo.`,
                 `The language mode is ${languageHint}.`,
                 `Performance style: ${performanceStyle}.`,
                 'Sound like a real human recorded in one take, with tiny imperfections, natural breath-like phrasing, and believable emotion.',

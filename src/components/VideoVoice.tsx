@@ -58,7 +58,7 @@ const VideoVoice: React.FC = () => {
         ? 'សំឡេងស្រីកក់ក្ដៅ ស្និទ្ធស្នាល លឿនសមរម្យ សម្រាប់លក់ផលិតផល និងបកស្រាយ។'
         : 'Warm, friendly female voice with natural marketing energy.',
       openRouterVoice: 'nova',
-      browserRate: 1.32,
+      browserRate: 1.82,
       browserPitch: 1.08,
       style: 'Sreymom persona: real Cambodian female creator voice, warm, friendly, confident, expressive, clear Khmer pronunciation, fast natural conversational tempo, short pauses, lively intonation, like a real person talking directly to a customer.',
     },
@@ -71,7 +71,7 @@ const VideoVoice: React.FC = () => {
         ? 'សំឡេងប្រុសជឿជាក់ ស្ងប់ និងច្បាស់ សម្រាប់ពន្យល់ ឬប្រកាសមាតិកា។'
         : 'Confident, calm male voice with clear creator-style delivery.',
       openRouterVoice: 'onyx',
-      browserRate: 1.28,
+      browserRate: 1.78,
       browserPitch: 0.9,
       style: 'Piseth persona: real Cambodian male creator voice, confident, calm, clear, emotionally grounded, natural Khmer pronunciation, quick conversational tempo, short pauses, natural emphasis, not announcer style, like a real person presenting useful advice.',
     },
@@ -277,8 +277,8 @@ const VideoVoice: React.FC = () => {
           input: ttsText,
           voice: selectedPersona.openRouterVoice,
           languageHint,
-          performanceStyle: `${selectedPersona.style} Read the exact provided text like you are speaking in a real conversation, not reading a script. Keep Khmer words Khmer and English words English. Use human emotion, natural rhythm, clear consonants, lively pace, short pauses, and real creator-style intonation. Avoid robotic or AI narration.`,
-          speed: targetDuration > 1 ? 1.4 : 1.48,
+          performanceStyle: `${selectedPersona.style} Read the exact provided text like you are speaking in a real conversation, not reading a script. Keep Khmer words Khmer and English words English. Use human emotion, natural rhythm, clear consonants, fast natural pacing, short pauses, and real creator-style intonation. Avoid robotic or AI narration.`,
+          speed: targetDuration > 1 ? 1.9 : 2,
         }),
       });
       const data = await response.json();
@@ -329,8 +329,8 @@ const VideoVoice: React.FC = () => {
       utterance.lang = segment.lang;
       if (matchingVoice) utterance.voice = matchingVoice;
       utterance.rate = segment.lang === 'km-KH'
-        ? Math.min(selectedPersona.browserRate + 0.08, 1.45)
-        : Math.min(selectedPersona.browserRate + 0.12, 1.5);
+        ? Math.min(selectedPersona.browserRate + 0.08, 1.95)
+        : Math.min(selectedPersona.browserRate + 0.12, 2);
       utterance.pitch = selectedPersona.browserPitch;
       window.speechSynthesis.speak(utterance);
     });
