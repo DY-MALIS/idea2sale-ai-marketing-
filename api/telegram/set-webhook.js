@@ -29,7 +29,7 @@ export default async function handler(req, res) {
 
   const payload = {
     url: webhookUrl,
-    allowed_updates: ['message', 'edited_message'],
+    allowed_updates: ['message', 'edited_message', 'channel_post', 'edited_channel_post'],
     drop_pending_updates: false,
     ...(secret ? { secret_token: secret } : {}),
   };

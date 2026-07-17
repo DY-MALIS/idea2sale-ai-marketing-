@@ -81,7 +81,7 @@ export default async function handler(req, res) {
   }
 
   const update = req.body || {};
-  const message = update.message || update.edited_message;
+  const message = update.message || update.edited_message || update.channel_post || update.edited_channel_post;
   const chatId = message?.chat?.id;
   const text = String(message?.text || message?.caption || '').trim();
 
@@ -113,7 +113,7 @@ export default async function handler(req, res) {
     await telegramApi(token, 'sendChatAction', {
       chat_id: chatId,
       action: 'typing',
-    });
+    }).catch(() => {});
 
     const answer = await generateOpenRouterText({
       system: buildSystemPrompt(),
