@@ -40,13 +40,26 @@ export default async function handler(req, res) {
           disable_web_page_preview: false
         };
 
-    const telegramRes = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+    let telegramRes = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
 
-    const data = await telegramRes.json();
+    let data = await telegramRes.json();
+
+    if (mediaUrl && (!telegramRes.ok || !data.ok)) {
+      telegramRes = await fetch(`https://api.telegram.org/bot${token}/sendDocument`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          document: mediaUrl,
+          caption: text || undefined
+        })
+      });
+      data = await telegramRes.json();
+    }
 
     if (!telegramRes.ok || !data.ok) {
       return res.status(502).json({

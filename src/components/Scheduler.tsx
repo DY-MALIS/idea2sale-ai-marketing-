@@ -109,15 +109,6 @@ const Scheduler: React.FC = () => {
     dueTelegramPosts.forEach(async (post) => {
       processingTelegram.current.add(post.id);
       try {
-        if (isDemoMode) {
-          setPosts(prev => {
-            const next = prev.map(p => p.id === post.id ? { ...p, status: 'PUBLISHED' as const } : p);
-            localStorage.setItem('demo_scheduled_posts', JSON.stringify(next.filter(p => !['1', '2'].includes(p.id))));
-            return next;
-          });
-          return;
-        }
-
         const res = await fetch('/api/telegram/post', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -133,6 +124,20 @@ const Scheduler: React.FC = () => {
           throw new Error(data.error || 'Telegram post failed.');
         }
 
+        if (isDemoMode) {
+          setPosts(prev => {
+            const next = prev.map(p => p.id === post.id ? {
+              ...p,
+              status: 'PUBLISHED' as const,
+              telegramMessageId: data.messageId || null,
+              errorMessage: null
+            } : p);
+            localStorage.setItem('demo_scheduled_posts', JSON.stringify(next.filter(p => !['1', '2'].includes(p.id))));
+            return next;
+          });
+          return;
+        }
+
         await updateDoc(doc(db, 'scheduled_posts', post.id), {
           status: 'PUBLISHED',
           telegramMessageId: data.messageId || null,
@@ -142,7 +147,17 @@ const Scheduler: React.FC = () => {
         console.error('Telegram auto-post failed:', err);
         const msg = err.message || 'Telegram auto-post failed.';
         setErrorMsg(language === 'km' ? 'Telegram បង្ហោះមិនបាន: ' + msg : 'Telegram post failed: ' + msg);
-        if (!isDemoMode) {
+        if (isDemoMode) {
+          setPosts(prev => {
+            const next = prev.map(p => p.id === post.id ? {
+              ...p,
+              status: 'FAILED' as const,
+              errorMessage: msg
+            } : p);
+            localStorage.setItem('demo_scheduled_posts', JSON.stringify(next.filter(p => !['1', '2'].includes(p.id))));
+            return next;
+          });
+        } else {
           await updateDoc(doc(db, 'scheduled_posts', post.id), {
             status: 'FAILED',
             errorMessage: msg

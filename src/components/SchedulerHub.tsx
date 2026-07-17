@@ -243,7 +243,6 @@ const SchedulerHub: React.FC = () => {
                   <div>
                     <label className="block text-[10px] font-bold text-[#4A4B4F] uppercase tracking-widest mb-2">{t('contentDraft')}</label>
                     <textarea 
-                      required
                       value={content}
                       onChange={(e) => setContent(e.target.value)}
                       placeholder={t('contentPlaceholder')}
