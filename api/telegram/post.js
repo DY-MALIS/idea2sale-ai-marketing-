@@ -15,35 +15,57 @@ export default async function handler(req, res) {
 
   const text = String(req.body?.text || '').trim();
   const mediaUrl = String(req.body?.mediaUrl || '').trim();
+  const mediaDataUrl = String(req.body?.mediaDataUrl || '').trim();
+  const mediaName = String(req.body?.mediaName || 'telegram-media').trim();
   const mediaType = String(req.body?.mediaType || '').trim().toLowerCase();
 
-  if (!text && !mediaUrl) {
+  if (!text && !mediaUrl && !mediaDataUrl) {
     return res.status(400).json({ error: 'Telegram text, image, or video is required.' });
   }
 
   try {
-    const method = mediaUrl
+    const hasMedia = !!(mediaUrl || mediaDataUrl);
+    const method = hasMedia
       ? mediaType === 'video'
         ? 'sendVideo'
         : 'sendPhoto'
       : 'sendMessage';
 
-    const payload = mediaUrl
-      ? {
-          chat_id: chatId,
-          [mediaType === 'video' ? 'video' : 'photo']: mediaUrl,
-          caption: text || undefined
-        }
-      : {
-          chat_id: chatId,
-          text,
-          disable_web_page_preview: false
-        };
+    let payload;
+    let headers = { 'Content-Type': 'application/json' };
+
+    if (mediaDataUrl) {
+      const match = mediaDataUrl.match(/^data:([^;,]+);base64,(.+)$/);
+      if (!match) {
+        return res.status(400).json({ error: 'Invalid media data.' });
+      }
+
+      const contentType = match[1];
+      const buffer = Buffer.from(match[2], 'base64');
+      const form = new FormData();
+      form.append('chat_id', chatId);
+      if (text) form.append('caption', text);
+      form.append(mediaType === 'video' ? 'video' : 'photo', new Blob([buffer], { type: contentType }), mediaName);
+      payload = form;
+      headers = undefined;
+    } else {
+      payload = mediaUrl
+        ? {
+            chat_id: chatId,
+            [mediaType === 'video' ? 'video' : 'photo']: mediaUrl,
+            caption: text || undefined
+          }
+        : {
+            chat_id: chatId,
+            text,
+            disable_web_page_preview: false
+          };
+    }
 
     let telegramRes = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      headers,
+      body: mediaDataUrl ? payload : JSON.stringify(payload)
     });
 
     let data = await telegramRes.json();

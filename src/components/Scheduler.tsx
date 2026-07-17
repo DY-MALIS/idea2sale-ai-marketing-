@@ -128,6 +128,8 @@ const Scheduler: React.FC = () => {
         body: JSON.stringify({
           text: post.content,
           mediaUrl: post.mediaUrl || '',
+          mediaDataUrl: post.mediaDataUrl || '',
+          mediaName: post.mediaName || '',
           mediaType: post.mediaType || ''
         })
       });

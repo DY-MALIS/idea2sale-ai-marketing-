@@ -61,8 +61,16 @@ const SchedulerHub: React.FC = () => {
 
     setIsSubmitting(true);
 
+    const fileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(reader.error || new Error('Could not read file.'));
+      reader.readAsDataURL(file);
+    });
+
     if (isDemoMode) {
-      setTimeout(() => {
+      try {
+        const mediaDataUrl = telegramMediaFile ? await fileToDataUrl(telegramMediaFile) : '';
         const post = {
           id: Date.now().toString(),
           content: content.trim(),
@@ -72,6 +80,7 @@ const SchedulerHub: React.FC = () => {
           userId: 'demo-user',
           aiSuggested: false,
           videoName: videoFile?.name || null,
+          mediaDataUrl,
           mediaName: telegramMediaFile?.name || null,
           mediaType: telegramMediaFile?.type.startsWith('video/') ? 'video' : telegramMediaFile ? 'photo' : null,
           createdAt: new Date().toISOString()
@@ -84,7 +93,12 @@ const SchedulerHub: React.FC = () => {
         setContent('');
         setVideoFile(null);
         setTelegramMediaFile(null);
-      }, 800);
+      } catch (err) {
+        console.error('Error preparing demo media:', err);
+        setFormError('Could not prepare this media file. Please try a smaller image or video.');
+      } finally {
+        setIsSubmitting(false);
+      }
       return;
     }
 

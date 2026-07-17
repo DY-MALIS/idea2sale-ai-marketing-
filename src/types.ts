@@ -40,6 +40,7 @@ export interface SchedulePost {
   aiSuggested: boolean;
   publishMode?: string;
   mediaUrl?: string;
+  mediaDataUrl?: string;
   mediaName?: string | null;
   mediaType?: 'photo' | 'video' | null;
   videoUrl?: string;
