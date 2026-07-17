@@ -12,6 +12,11 @@ import { useLanguage } from '../contexts/LanguageContext';
 
 import { useAuth } from '../contexts/AuthContext';
 
+const MB = 1024 * 1024;
+const DEMO_MEDIA_LIMIT_MB = 4;
+const TELEGRAM_MEDIA_LIMIT_MB = 48;
+const UPLOAD_TIMEOUT_MS = 60000;
+
 const SchedulerHub: React.FC = () => {
   const { t } = useLanguage();
   const { user, isDemoMode } = useAuth();
@@ -42,6 +47,33 @@ const SchedulerHub: React.FC = () => {
     setActivityVersion(v => v + 1);
   };
 
+  const formatFileSize = (bytes: number) => `${(bytes / MB).toFixed(bytes > 10 * MB ? 0 : 1)} MB`;
+
+  const validateTelegramMedia = (file: File | null, demoMode: boolean) => {
+    if (!file) return null;
+    if (file.size > TELEGRAM_MEDIA_LIMIT_MB * MB) {
+      return `This file is ${formatFileSize(file.size)}. Telegram videos must be under ${TELEGRAM_MEDIA_LIMIT_MB} MB. Please choose a smaller/compressed video.`;
+    }
+    if (demoMode && file.size > DEMO_MEDIA_LIMIT_MB * MB) {
+      return `This video is ${formatFileSize(file.size)} and is too large for local demo scheduling. Please sign in before scheduling media, or choose a file under ${DEMO_MEDIA_LIMIT_MB} MB.`;
+    }
+    return null;
+  };
+
+  const withUploadTimeout = async <T,>(promise: Promise<T>) => {
+    let timeoutId: number | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timeoutId = window.setTimeout(() => {
+        reject(new Error('Upload is taking too long. Please check your internet connection or use a smaller video.'));
+      }, UPLOAD_TIMEOUT_MS);
+    });
+    try {
+      return await Promise.race([promise, timeout]);
+    } finally {
+      if (timeoutId) window.clearTimeout(timeoutId);
+    }
+  };
+
   const handleCreatePost = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
@@ -56,6 +88,12 @@ const SchedulerHub: React.FC = () => {
     const scheduledDate = new Date(scheduledTime);
     if (scheduledDate < new Date()) {
       setFormError(t('futureTimeErr'));
+      return;
+    }
+
+    const mediaError = platform === 'TELEGRAM' ? validateTelegramMedia(telegramMediaFile, isDemoMode) : null;
+    if (mediaError) {
+      setFormError(mediaError);
       return;
     }
 
@@ -109,13 +147,13 @@ const SchedulerHub: React.FC = () => {
       if (platform === 'TIKTOK' && videoFile) {
         const safeName = videoFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
         const storageRef = ref(storage, `scheduled-videos/${userToUse.uid}/${Date.now()}-${safeName}`);
-        await uploadBytes(storageRef, videoFile, { contentType: videoFile.type });
+        await withUploadTimeout(uploadBytes(storageRef, videoFile, { contentType: videoFile.type }));
         videoUrl = await getDownloadURL(storageRef);
       }
       if (platform === 'TELEGRAM' && telegramMediaFile) {
         const safeName = telegramMediaFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
         const storageRef = ref(storage, `telegram-media/${userToUse.uid}/${Date.now()}-${safeName}`);
-        await uploadBytes(storageRef, telegramMediaFile, { contentType: telegramMediaFile.type });
+        await withUploadTimeout(uploadBytes(storageRef, telegramMediaFile, { contentType: telegramMediaFile.type }));
         mediaUrl = await getDownloadURL(storageRef);
         mediaType = telegramMediaFile.type.startsWith('video/') ? 'video' : 'photo';
       }
@@ -326,6 +364,11 @@ const SchedulerHub: React.FC = () => {
                           onChange={(e) => setTelegramMediaFile(e.target.files?.[0] || null)}
                           className="w-full p-3 bg-[#0A0A0B] border border-[#2A2B2F] rounded-xl text-white text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-sky-500 file:px-3 file:py-2 file:font-bold file:text-white"
                         />
+                        {telegramMediaFile && (
+                          <p className="mt-2 text-xs text-[#8E9299]">
+                            Selected: {telegramMediaFile.name} ({formatFileSize(telegramMediaFile.size)})
+                          </p>
+                        )}
                       </div>
                       <div className="p-3 bg-sky-500/10 border border-sky-500/20 rounded-xl flex items-start gap-2 text-sky-300 text-xs">
                         <Upload size={14} className="mt-0.5 shrink-0" />
