@@ -93,9 +93,60 @@ const Scheduler: React.FC = () => {
   }, [user, isDemoMode]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setNowTick(Date.now()), 15000);
-    return () => window.clearInterval(timer);
+    const timer = window.setInterval(() => setNowTick(Date.now()), 5000);
+    const refreshNow = () => setNowTick(Date.now());
+    window.addEventListener('focus', refreshNow);
+    document.addEventListener('visibilitychange', refreshNow);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refreshNow);
+      document.removeEventListener('visibilitychange', refreshNow);
+    };
   }, []);
+
+  const markPostStatus = async (post: SchedulePost, status: SchedulePost['status']) => {
+    if (isDemoMode) {
+      setPosts(prev => {
+        const next = prev.map(p => p.id === post.id ? { ...p, status } : p);
+        localStorage.setItem('demo_scheduled_posts', JSON.stringify(next.filter(p => !['1', '2'].includes(p.id))));
+        return next;
+      });
+      return;
+    }
+
+    await updateDoc(doc(db, 'scheduled_posts', post.id), { status });
+  };
+
+  const sendTelegramPost = async (post: SchedulePost) => {
+    if (processingTelegram.current.has(post.id)) return;
+    processingTelegram.current.add(post.id);
+
+    try {
+      const res = await fetch('/api/telegram/post', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: post.content,
+          mediaUrl: post.mediaUrl || '',
+          mediaType: post.mediaType || ''
+        })
+      });
+      const data = await res.json();
+
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || 'Telegram post failed.');
+      }
+
+      await markPostStatus(post, 'PUBLISHED');
+    } catch (err: any) {
+      console.error('Telegram auto-post failed:', err);
+      const msg = err.message || 'Telegram auto-post failed.';
+      setErrorMsg(language === 'km' ? 'Telegram បង្ហោះមិនបាន: ' + msg : 'Telegram post failed: ' + msg);
+      await markPostStatus(post, 'FAILED');
+    } finally {
+      processingTelegram.current.delete(post.id);
+    }
+  };
 
   useEffect(() => {
     const dueTelegramPosts = posts.filter((post) => {
@@ -106,67 +157,7 @@ const Scheduler: React.FC = () => {
 
     if (dueTelegramPosts.length === 0) return;
 
-    dueTelegramPosts.forEach(async (post) => {
-      processingTelegram.current.add(post.id);
-      try {
-        const res = await fetch('/api/telegram/post', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            text: post.content,
-            mediaUrl: post.mediaUrl || '',
-            mediaType: post.mediaType || ''
-          })
-        });
-        const data = await res.json();
-
-        if (!res.ok || !data.ok) {
-          throw new Error(data.error || 'Telegram post failed.');
-        }
-
-        if (isDemoMode) {
-          setPosts(prev => {
-            const next = prev.map(p => p.id === post.id ? {
-              ...p,
-              status: 'PUBLISHED' as const,
-              telegramMessageId: data.messageId || null,
-              errorMessage: null
-            } : p);
-            localStorage.setItem('demo_scheduled_posts', JSON.stringify(next.filter(p => !['1', '2'].includes(p.id))));
-            return next;
-          });
-          return;
-        }
-
-        await updateDoc(doc(db, 'scheduled_posts', post.id), {
-          status: 'PUBLISHED',
-          telegramMessageId: data.messageId || null,
-          errorMessage: null
-        });
-      } catch (err: any) {
-        console.error('Telegram auto-post failed:', err);
-        const msg = err.message || 'Telegram auto-post failed.';
-        setErrorMsg(language === 'km' ? 'Telegram បង្ហោះមិនបាន: ' + msg : 'Telegram post failed: ' + msg);
-        if (isDemoMode) {
-          setPosts(prev => {
-            const next = prev.map(p => p.id === post.id ? {
-              ...p,
-              status: 'FAILED' as const,
-              errorMessage: msg
-            } : p);
-            localStorage.setItem('demo_scheduled_posts', JSON.stringify(next.filter(p => !['1', '2'].includes(p.id))));
-            return next;
-          });
-        } else {
-          await updateDoc(doc(db, 'scheduled_posts', post.id), {
-            status: 'FAILED',
-            errorMessage: msg
-          });
-        }
-      } finally {
-        processingTelegram.current.delete(post.id);
-      }
-    });
+    dueTelegramPosts.forEach((post) => sendTelegramPost(post));
   }, [posts, nowTick, isDemoMode, language]);
 
   const handleDelete = async (id: string) => {
@@ -312,6 +303,17 @@ const Scheduler: React.FC = () => {
                       >
                         <CheckCircle2 size={18} />
                       </motion.button>
+                      {post.platform === 'TELEGRAM' && post.status === 'PENDING' && (
+                        <motion.button
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.9 }}
+                          onClick={() => sendTelegramPost(post)}
+                          className="p-2 text-sky-400 hover:text-sky-300 hover:bg-sky-500/10 rounded-md transition-colors"
+                          title="Send to Telegram now"
+                        >
+                          <Send size={18} />
+                        </motion.button>
+                      )}
                       <motion.button
                         whileHover={{ scale: 1.1 }}
                         whileTap={{ scale: 0.9 }}

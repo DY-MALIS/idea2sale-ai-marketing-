@@ -61,14 +61,14 @@ service cloud.firestore {
         && incoming().userId == request.auth.uid
         && incoming().content is string
         && incoming().content.size() <= 2000
-        && incoming().platform in ['TIKTOK', 'INSTAGRAM', 'TWITTER']
+        && incoming().platform in ['TIKTOK', 'INSTAGRAM', 'TWITTER', 'TELEGRAM']
         && incoming().status == 'PENDING';
         
       allow update: if isSignedIn()
         && existing().userId == request.auth.uid
         && incoming().userId == request.auth.uid
         && (
-          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'scheduledTime', 'content'])
+          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'scheduledTime', 'content', 'mediaUrl', 'mediaName', 'mediaType', 'videoUrl', 'videoName', 'publishMode'])
         );
         
       allow delete: if isSignedIn() && existing().userId == request.auth.uid;
