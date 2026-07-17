@@ -12,7 +12,8 @@ import {
   Loader2,
   Sparkles,
   ArrowRight,
-  CheckCircle2
+  CheckCircle2,
+  Copy
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -23,6 +24,8 @@ const AdsManager: React.FC = () => {
   const [targetQuery, setTargetQuery] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [strategy, setStrategy] = useState<string | null>(() => localStorage.getItem('ads_strategy'));
+  const [isCreatingAd, setIsCreatingAd] = useState(false);
+  const [adCreative, setAdCreative] = useState<string | null>(() => localStorage.getItem('ads_creative'));
 
   const [isScalingActive, setIsScalingActive] = useState(() => localStorage.getItem('ads_scaling_active') === 'true');
 
@@ -62,12 +65,58 @@ const AdsManager: React.FC = () => {
       if (!response.ok) throw new Error(data.error || 'Failed to generate strategy.');
       const text = data.strategy || 'No strategy generated.';
       setStrategy(text);
+      setAdCreative(null);
       localStorage.setItem('ads_strategy', text);
+      localStorage.removeItem('ads_creative');
     } catch (error: any) {
       console.error(error);
       setStrategy(error.message || 'Error generating strategy.');
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const handleCreateAd = async () => {
+    if (!strategy) return;
+    setIsCreatingAd(true);
+    try {
+      const response = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'socialAgent',
+          language,
+          platform: 'Facebook/TikTok Ads',
+          mode: 'create-ad',
+          message: `Create a ready-to-launch paid social ad from this strategy.
+
+Product/category:
+${targetQuery || 'Use the product implied by the strategy.'}
+
+Strategy:
+${strategy}
+
+Return a practical ad package with:
+1. Primary ad text
+2. Short headline
+3. CTA
+4. 15-second video ad script
+5. Creative direction
+6. Audience targeting checklist
+7. First test budget suggestion
+
+Keep it ready to copy into TikTok Ads or Meta Ads.`,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to create ad.');
+      const text = data.text || 'No ad generated.';
+      setAdCreative(text);
+      localStorage.setItem('ads_creative', text);
+    } catch (error: any) {
+      setAdCreative(error.message || 'Error creating ad.');
+    } finally {
+      setIsCreatingAd(false);
     }
   };
 
@@ -212,9 +261,13 @@ const AdsManager: React.FC = () => {
                       <p className="text-sm text-slate-500 m-0">{t('generatedByAiStrategist')}</p>
                     </div>
                   </div>
-                  <button className="flex items-center gap-2 px-6 py-3 bg-brand-50 text-brand-600 rounded-2xl font-bold text-sm hover:bg-white border border-brand-100 shadow-sm transition-all group">
-                    {t('nextStepCreateAd')}
-                    <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
+                  <button
+                    onClick={handleCreateAd}
+                    disabled={isCreatingAd}
+                    className="flex items-center gap-2 px-6 py-3 bg-brand-50 text-brand-600 rounded-2xl font-bold text-sm hover:bg-white border border-brand-100 shadow-sm transition-all group disabled:opacity-60"
+                  >
+                    {isCreatingAd ? (language === 'km' ? 'កំពុងបង្កើត...' : 'Creating...') : t('nextStepCreateAd')}
+                    {isCreatingAd ? <Loader2 size={18} className="animate-spin" /> : <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />}
                   </button>
                 </div>
                 
@@ -223,6 +276,26 @@ const AdsManager: React.FC = () => {
                     {strategy}
                   </div>
                 </div>
+
+                {adCreative && (
+                  <div className="rounded-[2rem] border border-brand-100 bg-brand-50/70 p-6 space-y-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <h4 className="text-lg font-bold text-brand-700 m-0">
+                        {language === 'km' ? 'Ad ដែលត្រៀមប្រើបាន' : 'Ready-to-Use Ad'}
+                      </h4>
+                      <button
+                        onClick={() => navigator.clipboard.writeText(adCreative)}
+                        className="flex items-center gap-2 px-4 py-2 bg-white text-brand-600 rounded-xl border border-brand-100 text-sm font-bold hover:bg-brand-50 transition-all"
+                      >
+                        <Copy size={16} />
+                        {language === 'km' ? 'ចម្លង' : 'Copy'}
+                      </button>
+                    </div>
+                    <div className="whitespace-pre-wrap text-brand-700 leading-relaxed">
+                      {adCreative}
+                    </div>
+                  </div>
+                )}
               </motion.div>
             )}
           </AnimatePresence>
