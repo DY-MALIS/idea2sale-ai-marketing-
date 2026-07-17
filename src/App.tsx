@@ -8,7 +8,6 @@ import PosterGen from './components/PosterGen';
 import VideoVoice from './components/VideoVoice';
 import TikTokAnalytics from './components/TikTokAnalytics';
 import ProductResearch from './components/ProductResearch';
-import Automation from './components/Automation';
 import AdsManager from './components/AdsManager';
 import SchedulerHub from './components/SchedulerHub';
 import AIAgent from './components/AIAgent';
@@ -51,7 +50,6 @@ export default function App() {
       case 'video-voice': return <VideoVoice />;
       case 'tiktok': return <TikTokAnalytics />;
       case 'product-research': return <ProductResearch />;
-      case 'automation': return <Automation />;
       case 'ads-manager': return <AdsManager />;
       case 'scheduler': return <SchedulerHub />;
       case 'ai-agent': return <AIAgent />;

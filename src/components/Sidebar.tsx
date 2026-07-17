@@ -9,7 +9,6 @@ import {
   Video as VideoIcon,
   Search,
   TrendingUp,
-  MessagesSquare,
   Bot,
   ShieldCheck,
 } from 'lucide-react';
@@ -47,7 +46,6 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onLogout }) 
       title: t('growthAutomation'),
       items: [
         { id: 'scheduler', label: t('schedulerLabel'), icon: Calendar },
-        { id: 'automation', label: t('automationLabel'), icon: MessagesSquare },
         { id: 'ads-manager', label: t('adsManagerLabel'), icon: TrendingUp },
         { id: 'tiktok', label: t('tiktokLabel'), icon: BarChart3 },
       ]

@@ -24,7 +24,6 @@ export type TabType =
   | 'video-voice' 
   | 'tiktok' 
   | 'product-research' 
-  | 'automation' 
   | 'ads-manager'
   | 'scheduler'
   | 'ai-agent'
