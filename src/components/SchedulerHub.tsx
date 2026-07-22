@@ -17,6 +17,22 @@ const MB = 1024 * 1024;
 const DEMO_MEDIA_LIMIT_MB = 4;
 const TELEGRAM_MEDIA_LIMIT_MB = 48;
 const UPLOAD_TIMEOUT_MS = 60000;
+const LOCAL_POSTS_KEY = 'demo_scheduled_posts';
+
+const getCompactLocalPosts = () => {
+  try {
+    const savedPosts = JSON.parse(localStorage.getItem(LOCAL_POSTS_KEY) || '[]');
+    return savedPosts.map(({ mediaDataUrl, ...post }: any) => post);
+  } catch {
+    return [];
+  }
+};
+
+const saveCompactLocalPosts = (posts: any[]) => {
+  const compactPosts = posts.map(({ mediaDataUrl, ...post }) => post);
+  localStorage.removeItem(LOCAL_POSTS_KEY);
+  localStorage.setItem(LOCAL_POSTS_KEY, JSON.stringify(compactPosts));
+};
 
 const SchedulerHub: React.FC = () => {
   const { t } = useLanguage();
@@ -111,8 +127,7 @@ const SchedulerHub: React.FC = () => {
       createdAt: new Date().toISOString()
     };
 
-    const savedPosts = JSON.parse(localStorage.getItem('demo_scheduled_posts') || '[]');
-    localStorage.setItem('demo_scheduled_posts', JSON.stringify([post, ...savedPosts]));
+    saveCompactLocalPosts([post, ...getCompactLocalPosts()]);
     window.dispatchEvent(new Event('demo-scheduled-posts-updated'));
   };
 

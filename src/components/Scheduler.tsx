@@ -20,9 +20,13 @@ const getLocalScheduledPosts = (): SchedulePost[] => {
 };
 
 const saveLocalScheduledPosts = (posts: SchedulePost[]) => {
+  const compactPosts = posts
+    .filter(p => !DEMO_DEFAULT_POST_IDS.includes(p.id))
+    .map(({ mediaDataUrl, ...post }) => post);
+  localStorage.removeItem('demo_scheduled_posts');
   localStorage.setItem(
     'demo_scheduled_posts',
-    JSON.stringify(posts.filter(p => !DEMO_DEFAULT_POST_IDS.includes(p.id)))
+    JSON.stringify(compactPosts)
   );
 };
 
