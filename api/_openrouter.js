@@ -30,8 +30,15 @@ const openRouterJson = async (path, body) => {
 
 const fileToDataUrl = (base64, mimeType) => `data:${mimeType};base64,${base64}`;
 
-export async function generateOpenRouterText({ prompt, system = 'You are a helpful marketing assistant.', model, responseFormat }) {
+export async function generateOpenRouterText({ prompt, system = 'You are a helpful marketing assistant.', model, responseFormat, imageBase64, imageMimeType }) {
   const apiKey = getApiKey();
+
+  const userContent = imageBase64 && imageMimeType
+    ? [
+        { type: 'text', text: prompt },
+        { type: 'image_url', image_url: { url: fileToDataUrl(imageBase64, imageMimeType) } },
+      ]
+    : prompt;
 
   const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
     method: 'POST',
@@ -45,7 +52,7 @@ export async function generateOpenRouterText({ prompt, system = 'You are a helpf
       model: model || process.env.OPEN_ROUTER_MODEL || 'openai/gpt-4o-mini',
       messages: [
         { role: 'system', content: system },
-        { role: 'user', content: prompt },
+        { role: 'user', content: userContent },
       ],
       ...(responseFormat ? { response_format: responseFormat } : {}),
     }),

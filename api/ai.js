@@ -28,6 +28,19 @@ const productResearchPrompt = (query, language) => `Analyze the following produc
 Provide a concise but useful research report including market demand, competitors, pricing, target audience, and TikTok/video ad hooks.
 Write in ${language === 'km' ? 'Khmer' : 'English'} when appropriate. Use clear headings and practical bullet points.`;
 
+const productImageAnalysisPrompt = (language) => `You are a senior e-commerce visual merchandising and performance-ad creative analyst.
+Analyze the attached product photo and produce a structured report covering four areas:
+
+1. Visual & Technical Quality — composition/framing, lighting and color tone, background and staging, image sharpness, product angle and presentation.
+2. Content & Message — what the product appears to be (likely name/category, materials, key visible features), styling cues, symbolism or mood, overall impression it creates.
+3. Target Audience & Purpose — likely target audience (age, gender, interests, lifestyle), the buying intent this photo triggers, emotional appeal.
+4. Marketing & Performance Potential — strengths of this photo for paid ads, weaknesses or fixes needed, recommended hook/CTA angle, and 2-3 ad hook ideas suited to this product.
+
+Write the "analysis" field entirely in ${language}. Use short bold section headings with concise bullet points. Be specific and practical, not generic filler.
+
+Respond with ONLY valid JSON, no markdown code fences, in exactly this shape:
+{"productSummary": "short product/category name, max 8 words, in ${language}", "analysis": "the full structured report described above, formatted as plain text with line breaks"}`;
+
 const photorealImagePrompt = (prompt) => `${prompt}
 
 Photorealistic commercial image requirements:
@@ -211,6 +224,23 @@ Response rules:
         prompt: `Create a concise digital advertising strategy for: "${query}". Write entirely in ${language}. Include target audience, three-second hooks, campaign structure, and a practical test budget. Do not invent live ad-account metrics.`,
       });
       return res.status(200).json({ strategy: strategy || 'No strategy generated.' });
+    }
+
+    if (action === 'productImageAnalyze') {
+      const imageBase64 = String(req.body?.imageBase64 || '').trim();
+      const imageMimeType = String(req.body?.imageMimeType || 'image/jpeg');
+      if (!imageBase64) return res.status(400).json({ error: 'Product image is required.' });
+      const text = await generateOpenRouterText({
+        system: 'You are a precise visual product analyst. Always respond with valid JSON only.',
+        prompt: productImageAnalysisPrompt(language),
+        imageBase64,
+        imageMimeType,
+      });
+      const parsed = jsonFromText(text, {});
+      const analysis = String(parsed.analysis || text || '').trim();
+      const productSummary = String(parsed.productSummary || '').trim();
+      if (!analysis) return res.status(502).json({ error: 'No analysis generated.' });
+      return res.status(200).json({ analysis, productSummary });
     }
 
     if (action === 'productResearch') {

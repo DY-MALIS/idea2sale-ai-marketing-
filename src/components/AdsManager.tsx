@@ -13,7 +13,9 @@ import {
   Sparkles,
   ArrowRight,
   CheckCircle2,
-  Copy
+  Copy,
+  ImagePlus,
+  X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -29,10 +31,58 @@ const AdsManager: React.FC = () => {
 
   const [isScalingActive, setIsScalingActive] = useState(() => localStorage.getItem('ads_scaling_active') === 'true');
 
+  const [productImageBase64, setProductImageBase64] = useState<string | null>(null);
+  const [productImageMimeType, setProductImageMimeType] = useState<string | null>(null);
+  const [isAnalyzingImage, setIsAnalyzingImage] = useState(false);
+  const [imageAnalysis, setImageAnalysis] = useState<string | null>(null);
+  const [imageAnalysisError, setImageAnalysisError] = useState<string | null>(null);
+
   const handleActivateScaling = () => {
     const newState = !isScalingActive;
     setIsScalingActive(newState);
     localStorage.setItem('ads_scaling_active', newState ? 'true' : 'false');
+  };
+
+  const handleAnalyzeImage = async (base64: string, mimeType: string) => {
+    setIsAnalyzingImage(true);
+    setImageAnalysis(null);
+    setImageAnalysisError(null);
+    try {
+      const response = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'productImageAnalyze', imageBase64: base64, imageMimeType: mimeType, language }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to analyze image.');
+      setImageAnalysis(data.analysis || null);
+      if (data.productSummary) setTargetQuery(data.productSummary);
+    } catch (error: any) {
+      setImageAnalysisError(error.message || 'Error analyzing image.');
+    } finally {
+      setIsAnalyzingImage(false);
+    }
+  };
+
+  const handleProductImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64 = (reader.result as string).split(',')[1];
+      setProductImageBase64(base64);
+      setProductImageMimeType(file.type);
+      handleAnalyzeImage(base64, file.type);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveProductImage = () => {
+    setProductImageBase64(null);
+    setProductImageMimeType(null);
+    setImageAnalysis(null);
+    setImageAnalysisError(null);
   };
 
   const handleGenerateStrategy = async () => {
@@ -151,6 +201,35 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
 
             <div className="space-y-4">
               <div className="space-y-2">
+                <label className="flex items-center justify-center gap-2 w-full py-3 px-4 border-2 border-dashed border-brand-200 rounded-2xl bg-brand-50 hover:bg-brand-100 cursor-pointer transition-all text-sm font-bold text-brand-500">
+                  {isAnalyzingImage ? <Loader2 className="animate-spin" size={16} /> : <ImagePlus size={16} />}
+                  {isAnalyzingImage ? t('analyzingImage') : t('scanProductBtn')}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    disabled={isAnalyzingImage}
+                    onChange={handleProductImageChange}
+                  />
+                </label>
+                {productImageBase64 && (
+                  <div className="flex items-center gap-3 p-2 rounded-2xl bg-brand-50 border border-brand-100">
+                    <img
+                      src={`data:${productImageMimeType};base64,${productImageBase64}`}
+                      className="w-10 h-10 rounded-xl object-cover"
+                      alt="Product"
+                    />
+                    <span className="text-xs text-slate-500 flex-1 truncate">
+                      {isAnalyzingImage ? t('analyzingImage') : imageAnalysis ? t('imageAnalyzed') : ''}
+                    </span>
+                    <button onClick={handleRemoveProductImage} className="text-brand-300 hover:text-red-500 transition-colors">
+                      <X size={16} />
+                    </button>
+                  </div>
+                )}
+                {imageAnalysisError && <p className="text-xs text-red-500">{imageAnalysisError}</p>}
+              </div>
+              <div className="space-y-2">
                 <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest text-[9px]">{t('productCategoryLabel')}</label>
                 <input 
                   type="text"
@@ -215,6 +294,33 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
         </div>
 
         <div className="lg:col-span-8 space-y-8">
+          {(isAnalyzingImage || imageAnalysis) && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="glass p-8 rounded-[2.5rem] shadow-sm space-y-4"
+            >
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-brand-50 text-brand-600 rounded-2xl">
+                  <Eye size={22} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-brand-700 m-0">{t('productImageAnalysisTitle')}</h3>
+                  <p className="text-sm text-slate-500 m-0">{t('generatedByAiStrategist')}</p>
+                </div>
+              </div>
+              {isAnalyzingImage ? (
+                <div className="flex items-center gap-3 text-brand-500">
+                  <Loader2 className="animate-spin" size={18} />
+                  <span className="text-sm font-medium">{t('analyzingImage')}</span>
+                </div>
+              ) : (
+                <div className="whitespace-pre-wrap text-brand-700 leading-relaxed text-sm font-sans">
+                  {imageAnalysis}
+                </div>
+              )}
+            </motion.div>
+          )}
           <AnimatePresence mode="wait">
             {!strategy && !isGenerating ? (
               <motion.div 
