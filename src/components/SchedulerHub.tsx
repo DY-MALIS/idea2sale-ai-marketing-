@@ -15,6 +15,7 @@ import { useAuth } from '../contexts/AuthContext';
 
 const MB = 1024 * 1024;
 const DEMO_MEDIA_LIMIT_MB = 4;
+const TELEGRAM_SERVER_MEDIA_LIMIT_MB = 4;
 const TELEGRAM_MEDIA_LIMIT_MB = 48;
 const UPLOAD_TIMEOUT_MS = 60000;
 const LOCAL_POSTS_KEY = 'demo_scheduled_posts';
@@ -74,8 +75,18 @@ const SchedulerHub: React.FC = () => {
     if (demoMode && file.size > DEMO_MEDIA_LIMIT_MB * MB) {
       return `This video is ${formatFileSize(file.size)} and is too large for local demo scheduling. Please sign in before scheduling media, or choose a file under ${DEMO_MEDIA_LIMIT_MB} MB.`;
     }
+    if (!demoMode && file.size > TELEGRAM_SERVER_MEDIA_LIMIT_MB * MB) {
+      return `This file is ${formatFileSize(file.size)}. Telegram auto-scheduling currently supports files under ${TELEGRAM_SERVER_MEDIA_LIMIT_MB} MB. Please compress it or choose a smaller file.`;
+    }
     return null;
   };
+
+  const fileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('Could not read media file.'));
+    reader.readAsDataURL(file);
+  });
 
   const withUploadTimeout = async <T,>(promise: Promise<T>) => {
     let timeoutId: number | undefined;
@@ -174,6 +185,30 @@ const SchedulerHub: React.FC = () => {
       let videoUrl = '';
       let mediaUrl = '';
       let mediaType: 'photo' | 'video' | null = null;
+      if (platform === 'TELEGRAM') {
+        const idToken = await userToUse.getIdToken();
+        const mediaDataUrl = telegramMediaFile ? await fileToDataUrl(telegramMediaFile) : '';
+        const response = await fetch('/api/telegram/run-scheduled?action=create', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${idToken}`
+          },
+          body: JSON.stringify({
+            content: content.trim(),
+            scheduledTime: scheduledDate.toISOString(),
+            mediaDataUrl,
+            mediaName: telegramMediaFile?.name || null,
+            mediaType: telegramMediaFile?.type.startsWith('video/') ? 'video' : telegramMediaFile ? 'photo' : null
+          })
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) {
+          throw new Error(data.error || 'Could not schedule this Telegram post.');
+        }
+        resetFormAfterSchedule();
+        return;
+      }
       if (platform === 'TIKTOK' && videoFile) {
         const safeName = videoFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
         const storageRef = ref(storage, `scheduled-videos/${userToUse.uid}/${Date.now()}-${safeName}`);

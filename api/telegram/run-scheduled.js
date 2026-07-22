@@ -26,6 +26,100 @@ const initFirebaseAdmin = () => {
   return db;
 };
 
+const getStorageBucket = () => {
+  const bucketName = process.env.FIREBASE_STORAGE_BUCKET || process.env.VITE_FIREBASE_STORAGE_BUCKET;
+  if (!bucketName) {
+    throw new Error('FIREBASE_STORAGE_BUCKET is not configured.');
+  }
+  return admin.storage().bucket(bucketName);
+};
+
+const uploadMediaDataUrl = async ({ userId, mediaDataUrl, mediaName, mediaType }) => {
+  if (!mediaDataUrl) return { mediaUrl: '', mediaType: null };
+
+  const match = String(mediaDataUrl).match(/^data:([^;,]+);base64,(.+)$/);
+  if (!match) {
+    throw new Error('Invalid media file data.');
+  }
+
+  const contentType = match[1];
+  const buffer = Buffer.from(match[2], 'base64');
+  const maxBytes = 4 * 1024 * 1024;
+  if (buffer.length > maxBytes) {
+    throw new Error('This media file is too large for web scheduling. Please use a file under 4 MB.');
+  }
+
+  const token = crypto.randomUUID();
+  const safeName = String(mediaName || 'telegram-media').replace(/[^a-zA-Z0-9._-]/g, '_');
+  const objectPath = `telegram-media/${userId}/${Date.now()}-${safeName}`;
+  const file = getStorageBucket().file(objectPath);
+
+  await file.save(buffer, {
+    resumable: false,
+    metadata: {
+      contentType,
+      metadata: {
+        firebaseStorageDownloadTokens: token
+      }
+    }
+  });
+
+  const bucketName = process.env.FIREBASE_STORAGE_BUCKET || process.env.VITE_FIREBASE_STORAGE_BUCKET;
+  const encodedPath = encodeURIComponent(objectPath);
+  return {
+    mediaUrl: `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodedPath}?alt=media&token=${token}`,
+    mediaType: mediaType || (contentType.startsWith('video/') ? 'video' : 'photo')
+  };
+};
+
+const createScheduledTelegramPost = async (req, res) => {
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  if (!token) {
+    return res.status(401).json({ error: 'Please sign in before scheduling auto-posts.' });
+  }
+
+  const decoded = await admin.auth().verifyIdToken(token, true);
+  const content = String(req.body?.content || '').trim();
+  const scheduledTime = String(req.body?.scheduledTime || '').trim();
+  const mediaDataUrl = String(req.body?.mediaDataUrl || '').trim();
+  const mediaName = String(req.body?.mediaName || '').trim();
+  const requestedMediaType = String(req.body?.mediaType || '').trim().toLowerCase();
+
+  if (!content && !mediaDataUrl) {
+    return res.status(400).json({ error: 'Text or media is required.' });
+  }
+
+  const scheduledDate = new Date(scheduledTime);
+  if (!scheduledTime || Number.isNaN(scheduledDate.getTime()) || scheduledDate < new Date()) {
+    return res.status(400).json({ error: 'Please choose a future publish time.' });
+  }
+
+  const db = initFirebaseAdmin();
+  const uploaded = await uploadMediaDataUrl({
+    userId: decoded.uid,
+    mediaDataUrl,
+    mediaName,
+    mediaType: requestedMediaType
+  });
+
+  const docRef = await db.collection('scheduled_posts').add({
+    content,
+    platform: 'TELEGRAM',
+    scheduledTime: scheduledDate.toISOString(),
+    status: 'PENDING',
+    userId: decoded.uid,
+    aiSuggested: false,
+    mediaUrl: uploaded.mediaUrl,
+    mediaName: mediaName || null,
+    mediaType: uploaded.mediaType,
+    publishMode: 'TELEGRAM_AUTO_POST',
+    createdAt: admin.firestore.FieldValue.serverTimestamp()
+  });
+
+  return res.status(200).json({ ok: true, id: docRef.id });
+};
+
 const sendTelegram = async (post) => {
   const token = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
   const chatId = (process.env.TELEGRAM_CHAT_ID || '').trim();
@@ -93,6 +187,18 @@ export default async function handler(req, res) {
   if (!['GET', 'POST'].includes(req.method)) {
     res.setHeader('Allow', 'GET, POST');
     return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  if (req.method === 'POST' && req.query?.action === 'create') {
+    try {
+      initFirebaseAdmin();
+      return await createScheduledTelegramPost(req, res);
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        error: error?.message || 'Could not schedule this Telegram post.'
+      });
+    }
   }
 
   const cronSecret = process.env.CRON_SECRET;
