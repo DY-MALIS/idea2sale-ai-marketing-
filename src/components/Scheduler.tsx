@@ -7,6 +7,27 @@ import { SchedulePost } from '../types';
 import { format, isAfter, parseISO, addHours, subHours } from 'date-fns';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
+import { deleteLocalMedia, getLocalMediaDataUrl } from '../lib/localMediaStore';
+
+const DEMO_DEFAULT_POST_IDS = ['1', '2'];
+
+const getLocalScheduledPosts = (): SchedulePost[] => {
+  try {
+    return JSON.parse(localStorage.getItem('demo_scheduled_posts') || '[]') as SchedulePost[];
+  } catch {
+    return [];
+  }
+};
+
+const saveLocalScheduledPosts = (posts: SchedulePost[]) => {
+  localStorage.setItem(
+    'demo_scheduled_posts',
+    JSON.stringify(posts.filter(p => !DEMO_DEFAULT_POST_IDS.includes(p.id)))
+  );
+};
+
+const sortScheduledPosts = (posts: SchedulePost[]) =>
+  [...posts].sort((a, b) => new Date(a.scheduledTime).getTime() - new Date(b.scheduledTime).getTime());
 
 const Scheduler: React.FC = () => {
   const { t, language } = useLanguage();
@@ -18,7 +39,7 @@ const Scheduler: React.FC = () => {
   const processingTelegram = useRef<Set<string>>(new Set());
 
   const getDemoPosts = () => {
-    const savedPosts = JSON.parse(localStorage.getItem('demo_scheduled_posts') || '[]');
+    const savedPosts = getLocalScheduledPosts();
     const now = new Date();
     const defaultPosts = [
       {
@@ -42,7 +63,7 @@ const Scheduler: React.FC = () => {
         createdAt: subHours(now, 24).toISOString()
       }
     ];
-    return [...savedPosts, ...defaultPosts].sort((a, b) => new Date(a.scheduledTime).getTime() - new Date(b.scheduledTime).getTime()) as SchedulePost[];
+    return sortScheduledPosts([...savedPosts, ...defaultPosts]) as SchedulePost[];
   };
 
   useEffect(() => {
@@ -63,25 +84,34 @@ const Scheduler: React.FC = () => {
           where('userId', '==', userToUse.uid)
         );
 
-        unsubscribe = onSnapshot(q, 
+        let remotePosts: SchedulePost[] = [];
+        const mergeLocalAndRemotePosts = () => {
+          const localPosts = getLocalScheduledPosts().filter(post => post.localOnly && post.userId === userToUse.uid);
+          setPosts(sortScheduledPosts([...localPosts, ...remotePosts]));
+        };
+
+        const unsubscribeSnapshot = onSnapshot(q, 
           (snapshot) => {
-            const postsData = snapshot.docs.map(doc => ({
+            remotePosts = snapshot.docs.map(doc => ({
               id: doc.id,
               ...doc.data()
             })) as SchedulePost[];
-            
-            const sortedPosts = postsData.sort((a, b) => 
-              new Date(a.scheduledTime).getTime() - new Date(b.scheduledTime).getTime()
-            );
-            
-            setPosts(sortedPosts);
+            mergeLocalAndRemotePosts();
             setLoading(false);
           },
           (error) => {
             console.error("Firestore Error in Scheduler:", error);
+            mergeLocalAndRemotePosts();
             setLoading(false);
           }
         );
+
+        window.addEventListener('demo-scheduled-posts-updated', mergeLocalAndRemotePosts);
+        mergeLocalAndRemotePosts();
+        unsubscribe = () => {
+          unsubscribeSnapshot();
+          window.removeEventListener('demo-scheduled-posts-updated', mergeLocalAndRemotePosts);
+        };
       }
     } else {
       setLoading(false);
@@ -105,10 +135,10 @@ const Scheduler: React.FC = () => {
   }, []);
 
   const markPostStatus = async (post: SchedulePost, status: SchedulePost['status']) => {
-    if (isDemoMode) {
+    if (isDemoMode || post.localOnly) {
       setPosts(prev => {
         const next = prev.map(p => p.id === post.id ? { ...p, status } : p);
-        localStorage.setItem('demo_scheduled_posts', JSON.stringify(next.filter(p => !['1', '2'].includes(p.id))));
+        saveLocalScheduledPosts(next);
         return next;
       });
       return;
@@ -122,13 +152,14 @@ const Scheduler: React.FC = () => {
     processingTelegram.current.add(post.id);
 
     try {
+      const localMediaDataUrl = post.mediaDataUrl || await getLocalMediaDataUrl(post.mediaDbKey);
       const res = await fetch('/api/telegram/post', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text: post.content,
           mediaUrl: post.mediaUrl || '',
-          mediaDataUrl: post.mediaDataUrl || '',
+          mediaDataUrl: localMediaDataUrl,
           mediaName: post.mediaName || '',
           mediaType: post.mediaType || ''
         })
@@ -140,6 +171,7 @@ const Scheduler: React.FC = () => {
       }
 
       await markPostStatus(post, 'PUBLISHED');
+      await deleteLocalMedia(post.mediaDbKey);
     } catch (err: any) {
       console.error('Telegram auto-post failed:', err);
       const msg = err.message || 'Telegram auto-post failed.';
@@ -164,12 +196,14 @@ const Scheduler: React.FC = () => {
 
   const handleDelete = async (id: string) => {
     try {
-      if (isDemoMode) {
+      const postToDelete = posts.find(p => p.id === id);
+      if (isDemoMode || postToDelete?.localOnly) {
         setPosts(prev => {
           const next = prev.filter(p => p.id !== id);
-          localStorage.setItem('demo_scheduled_posts', JSON.stringify(next.filter(p => !['1', '2'].includes(p.id))));
+          saveLocalScheduledPosts(next);
           return next;
         });
+        await deleteLocalMedia(postToDelete?.mediaDbKey);
         return;
       }
       await deleteDoc(doc(db, 'scheduled_posts', id));
@@ -183,10 +217,10 @@ const Scheduler: React.FC = () => {
   const toggleStatus = async (post: SchedulePost) => {
     const newStatus: SchedulePost['status'] = post.status === 'PENDING' ? 'PUBLISHED' : 'PENDING';
     try {
-      if (isDemoMode) {
+      if (isDemoMode || post.localOnly) {
         setPosts(prev => {
           const next = prev.map(p => p.id === post.id ? { ...p, status: newStatus } : p);
-          localStorage.setItem('demo_scheduled_posts', JSON.stringify(next.filter(p => !['1', '2'].includes(p.id))));
+          saveLocalScheduledPosts(next);
           return next;
         });
         return;

@@ -40,12 +40,14 @@ export interface SchedulePost {
   publishMode?: string;
   mediaUrl?: string;
   mediaDataUrl?: string;
+  mediaDbKey?: string | null;
   mediaName?: string | null;
   mediaType?: 'photo' | 'video' | null;
   videoUrl?: string;
   videoName?: string | null;
   telegramMessageId?: number | null;
   errorMessage?: string | null;
+  localOnly?: boolean;
   createdAt?: any;
 }
 

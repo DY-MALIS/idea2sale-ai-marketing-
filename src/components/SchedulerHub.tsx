@@ -9,6 +9,7 @@ import { db, storage } from '../lib/firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { useLanguage } from '../contexts/LanguageContext';
+import { saveLocalMedia } from '../lib/localMediaStore';
 
 import { useAuth } from '../contexts/AuthContext';
 
@@ -74,6 +75,47 @@ const SchedulerHub: React.FC = () => {
     }
   };
 
+  const resetFormAfterSchedule = () => {
+    setIsModalOpen(false);
+    setContent('');
+    setVideoFile(null);
+    setTelegramMediaFile(null);
+
+    const nextHour = new Date();
+    nextHour.setHours(nextHour.getHours() + 1);
+    nextHour.setMinutes(0);
+    setScheduledTime(getLocalISOString(nextHour));
+  };
+
+  const saveLocalTelegramSchedule = async (userId: string, scheduledDate: Date) => {
+    const postId = Date.now().toString();
+    const mediaDbKey = telegramMediaFile ? `telegram-${postId}-${crypto.randomUUID()}` : null;
+    if (mediaDbKey && telegramMediaFile) {
+      await saveLocalMedia(mediaDbKey, telegramMediaFile);
+    }
+
+    const post = {
+      id: postId,
+      content: content.trim(),
+      platform,
+      scheduledTime: scheduledDate.toISOString(),
+      status: 'PENDING',
+      userId,
+      aiSuggested: false,
+      videoName: videoFile?.name || null,
+      mediaDbKey,
+      mediaName: telegramMediaFile?.name || null,
+      mediaType: telegramMediaFile?.type.startsWith('video/') ? 'video' : telegramMediaFile ? 'photo' : null,
+      publishMode: 'TELEGRAM_AUTO_POST_LOCAL',
+      localOnly: true,
+      createdAt: new Date().toISOString()
+    };
+
+    const savedPosts = JSON.parse(localStorage.getItem('demo_scheduled_posts') || '[]');
+    localStorage.setItem('demo_scheduled_posts', JSON.stringify([post, ...savedPosts]));
+    window.dispatchEvent(new Event('demo-scheduled-posts-updated'));
+  };
+
   const handleCreatePost = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
@@ -99,41 +141,14 @@ const SchedulerHub: React.FC = () => {
 
     setIsSubmitting(true);
 
-    const fileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result || ''));
-      reader.onerror = () => reject(reader.error || new Error('Could not read file.'));
-      reader.readAsDataURL(file);
-    });
-
     if (isDemoMode) {
       try {
-        const mediaDataUrl = telegramMediaFile ? await fileToDataUrl(telegramMediaFile) : '';
-        const post = {
-          id: Date.now().toString(),
-          content: content.trim(),
-          platform,
-          scheduledTime: scheduledDate.toISOString(),
-          status: 'PENDING',
-          userId: 'demo-user',
-          aiSuggested: false,
-          videoName: videoFile?.name || null,
-          mediaDataUrl,
-          mediaName: telegramMediaFile?.name || null,
-          mediaType: telegramMediaFile?.type.startsWith('video/') ? 'video' : telegramMediaFile ? 'photo' : null,
-          createdAt: new Date().toISOString()
-        };
-        const savedPosts = JSON.parse(localStorage.getItem('demo_scheduled_posts') || '[]');
-        localStorage.setItem('demo_scheduled_posts', JSON.stringify([post, ...savedPosts]));
-        window.dispatchEvent(new Event('demo-scheduled-posts-updated'));
-        setIsSubmitting(false);
-        setIsModalOpen(false);
-        setContent('');
-        setVideoFile(null);
-        setTelegramMediaFile(null);
+        await saveLocalTelegramSchedule('demo-user', scheduledDate);
+        resetFormAfterSchedule();
       } catch (err) {
         console.error('Error preparing demo media:', err);
-        setFormError('Could not prepare this media file. Please try a smaller image or video.');
+        const message = err instanceof Error ? err.message : 'Could not prepare this media file.';
+        setFormError(`Failed to save post: ${message}`);
       } finally {
         setIsSubmitting(false);
       }
@@ -183,7 +198,17 @@ const SchedulerHub: React.FC = () => {
       setScheduledTime(getLocalISOString(nextHour));
     } catch (err) {
       console.error('Error creating post:', err);
-      setFormError(t('failedSavePostErr'));
+      const message = err instanceof Error ? err.message : t('failedSavePostErr');
+      if (platform === 'TELEGRAM') {
+        try {
+          await saveLocalTelegramSchedule(userToUse.uid, scheduledDate);
+          resetFormAfterSchedule();
+          return;
+        } catch (fallbackErr) {
+          console.error('Local Telegram schedule fallback failed:', fallbackErr);
+        }
+      }
+      setFormError(`Failed to save post: ${message}`);
     } finally {
       setIsSubmitting(false);
     }
