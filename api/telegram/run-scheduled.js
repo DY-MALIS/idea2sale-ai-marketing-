@@ -1,29 +1,32 @@
 import admin from 'firebase-admin';
+import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 
 const initFirebaseAdmin = () => {
-  if (admin.apps.length) return admin.firestore();
-
   const projectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID;
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
   const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+  const databaseId = process.env.FIREBASE_FIRESTORE_DATABASE_ID || process.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID;
 
   if (!projectId) {
     throw new Error('FIREBASE_PROJECT_ID is not configured.');
   }
 
+  if (admin.apps.length) {
+    const app = admin.app();
+    return databaseId ? getFirestore(app, databaseId) : getFirestore(app);
+  }
+
+  let app;
   if (clientEmail && privateKey) {
-    admin.initializeApp({
+    app = admin.initializeApp({
       credential: admin.credential.cert({ projectId, clientEmail, privateKey }),
       projectId
     });
   } else {
-    admin.initializeApp({ projectId });
+    app = admin.initializeApp({ projectId });
   }
 
-  const db = admin.firestore();
-  const databaseId = process.env.FIREBASE_FIRESTORE_DATABASE_ID || process.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID;
-  if (databaseId) db.settings({ databaseId });
-  return db;
+  return databaseId ? getFirestore(app, databaseId) : getFirestore(app);
 };
 
 const getStorageBucket = () => {
@@ -114,7 +117,7 @@ const createScheduledTelegramPost = async (req, res) => {
     mediaName: mediaName || null,
     mediaType: uploaded.mediaType,
     publishMode: 'TELEGRAM_AUTO_POST',
-    createdAt: admin.firestore.FieldValue.serverTimestamp()
+    createdAt: FieldValue.serverTimestamp()
   });
 
   return res.status(200).json({ ok: true, id: docRef.id });
@@ -130,7 +133,6 @@ const sendTelegram = async (post) => {
 
   const text = String(post.content || '').trim();
   const mediaUrl = String(post.mediaUrl || '').trim();
-  const mediaName = String(post.mediaName || 'telegram-media').trim();
   const mediaType = String(post.mediaType || '').trim().toLowerCase();
 
   if (!text && !mediaUrl) {
@@ -231,7 +233,7 @@ export default async function handler(req, res) {
       try {
         await doc.ref.update({
           status: 'PROCESSING',
-          processingAt: admin.firestore.FieldValue.serverTimestamp()
+          processingAt: FieldValue.serverTimestamp()
         });
 
         const messageId = await sendTelegram(post);
@@ -239,7 +241,7 @@ export default async function handler(req, res) {
         await doc.ref.update({
           status: 'PUBLISHED',
           telegramMessageId: messageId,
-          publishedAt: admin.firestore.FieldValue.serverTimestamp(),
+          publishedAt: FieldValue.serverTimestamp(),
           errorMessage: null
         });
 
@@ -249,7 +251,7 @@ export default async function handler(req, res) {
         await doc.ref.update({
           status: 'FAILED',
           errorMessage: message,
-          failedAt: admin.firestore.FieldValue.serverTimestamp()
+          failedAt: FieldValue.serverTimestamp()
         });
         results.push({ id: doc.id, ok: false, error: message });
       }
