@@ -214,15 +214,6 @@ const SchedulerHub: React.FC = () => {
     } catch (err) {
       console.error('Error creating post:', err);
       const message = err instanceof Error ? err.message : t('failedSavePostErr');
-      if (platform === 'TELEGRAM') {
-        try {
-          await saveLocalTelegramSchedule(userToUse.uid, scheduledDate);
-          resetFormAfterSchedule();
-          return;
-        } catch (fallbackErr) {
-          console.error('Local Telegram schedule fallback failed:', fallbackErr);
-        }
-      }
       setFormError(`Failed to save post: ${message}`);
     } finally {
       setIsSubmitting(false);
