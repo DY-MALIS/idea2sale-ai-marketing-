@@ -37,6 +37,7 @@ const AdsManager: React.FC = () => {
   const [isAnalyzingImage, setIsAnalyzingImage] = useState(false);
   const [imageAnalysis, setImageAnalysis] = useState<string | null>(null);
   const [imageAnalysisError, setImageAnalysisError] = useState<string | null>(null);
+  const [scanLanguage, setScanLanguage] = useState<'km' | 'en'>(language);
 
   const handleActivateScaling = () => {
     const newState = !isScalingActive;
@@ -88,7 +89,7 @@ const AdsManager: React.FC = () => {
       const response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'productImageAnalyze', imageBase64: base64, imageMimeType: mimeType, sourceType, language }),
+        body: JSON.stringify({ action: 'productImageAnalyze', imageBase64: base64, imageMimeType: mimeType, sourceType, language: scanLanguage }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to analyze media.');
@@ -259,6 +260,24 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
 
             <div className="space-y-4">
               <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest text-[9px]">{t('scanLanguageLabel')}</label>
+                  <div className="flex bg-brand-50 p-1 rounded-xl border border-brand-100">
+                    {(['km', 'en'] as const).map((lang) => (
+                      <button
+                        key={lang}
+                        type="button"
+                        onClick={() => setScanLanguage(lang)}
+                        className={cn(
+                          "px-3 py-1 rounded-lg text-[10px] font-black transition-all",
+                          scanLanguage === lang ? "bg-white text-brand-700 shadow-sm" : "text-brand-400"
+                        )}
+                      >
+                        {lang === 'km' ? 'ខ្មែរ' : 'English'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <label className="flex items-center justify-center gap-2 w-full py-3 px-4 border-2 border-dashed border-brand-200 rounded-2xl bg-brand-50 hover:bg-brand-100 cursor-pointer transition-all text-sm font-bold text-brand-500">
                   {isAnalyzingImage ? <Loader2 className="animate-spin" size={16} /> : <ImagePlus size={16} />}
                   {isAnalyzingImage ? t('analyzingImage') : t('scanProductBtn')}
