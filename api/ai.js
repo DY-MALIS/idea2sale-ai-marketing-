@@ -28,8 +28,11 @@ const productResearchPrompt = (query, language) => `Analyze the following produc
 Provide a concise but useful research report including market demand, competitors, pricing, target audience, and TikTok/video ad hooks.
 Write in ${language === 'km' ? 'Khmer' : 'English'} when appropriate. Use clear headings and practical bullet points.`;
 
-const productImageAnalysisPrompt = (language) => `You are a senior e-commerce visual merchandising and performance-ad creative analyst.
-Analyze the attached product photo and produce a structured report covering four areas:
+const productImageAnalysisPrompt = (language, sourceType = 'image') => `You are a senior e-commerce visual merchandising and performance-ad creative analyst.
+${sourceType === 'video'
+  ? 'The attached image is a single representative frame extracted from an uploaded product video. Analyze it as a still frame only — do not invent details about motion, pacing, transitions, voiceover, or audio that cannot be seen in a still image.'
+  : 'The attached image is a single product photo.'}
+Analyze the attached image and produce a structured report covering four areas:
 
 1. Visual & Technical Quality — composition/framing, lighting and color tone, background and staging, image sharpness, product angle and presentation.
 2. Content & Message — what the product appears to be (likely name/category, materials, key visible features), styling cues, symbolism or mood, overall impression it creates.
@@ -229,10 +232,11 @@ Response rules:
     if (action === 'productImageAnalyze') {
       const imageBase64 = String(req.body?.imageBase64 || '').trim();
       const imageMimeType = String(req.body?.imageMimeType || 'image/jpeg');
+      const sourceType = req.body?.sourceType === 'video' ? 'video' : 'image';
       if (!imageBase64) return res.status(400).json({ error: 'Product image is required.' });
       const text = await generateOpenRouterText({
         system: 'You are a precise visual product analyst. Always respond with valid JSON only.',
-        prompt: productImageAnalysisPrompt(language),
+        prompt: productImageAnalysisPrompt(language, sourceType),
         imageBase64,
         imageMimeType,
       });

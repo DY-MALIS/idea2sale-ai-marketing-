@@ -33,6 +33,7 @@ const AdsManager: React.FC = () => {
 
   const [productImageBase64, setProductImageBase64] = useState<string | null>(null);
   const [productImageMimeType, setProductImageMimeType] = useState<string | null>(null);
+  const [productMediaSource, setProductMediaSource] = useState<'image' | 'video' | null>(null);
   const [isAnalyzingImage, setIsAnalyzingImage] = useState(false);
   const [imageAnalysis, setImageAnalysis] = useState<string | null>(null);
   const [imageAnalysisError, setImageAnalysisError] = useState<string | null>(null);
@@ -43,7 +44,43 @@ const AdsManager: React.FC = () => {
     localStorage.setItem('ads_scaling_active', newState ? 'true' : 'false');
   };
 
-  const handleAnalyzeImage = async (base64: string, mimeType: string) => {
+  const extractVideoFrame = (file: File): Promise<{ base64: string; mimeType: string }> => {
+    return new Promise((resolve, reject) => {
+      const video = document.createElement('video');
+      video.preload = 'metadata';
+      video.muted = true;
+      video.playsInline = true;
+      const url = URL.createObjectURL(file);
+      video.src = url;
+
+      const cleanup = () => URL.revokeObjectURL(url);
+
+      video.onloadedmetadata = () => {
+        video.currentTime = Math.min(1, (video.duration || 1) / 2);
+      };
+      video.onseeked = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        if (!ctx || !canvas.width || !canvas.height) {
+          cleanup();
+          reject(new Error('Could not read a frame from this video.'));
+          return;
+        }
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        cleanup();
+        resolve({ base64: dataUrl.split(',')[1], mimeType: 'image/jpeg' });
+      };
+      video.onerror = () => {
+        cleanup();
+        reject(new Error('Could not read this video file.'));
+      };
+    });
+  };
+
+  const handleAnalyzeImage = async (base64: string, mimeType: string, sourceType: 'image' | 'video') => {
     setIsAnalyzingImage(true);
     setImageAnalysis(null);
     setImageAnalysisError(null);
@@ -51,14 +88,14 @@ const AdsManager: React.FC = () => {
       const response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'productImageAnalyze', imageBase64: base64, imageMimeType: mimeType, language }),
+        body: JSON.stringify({ action: 'productImageAnalyze', imageBase64: base64, imageMimeType: mimeType, sourceType, language }),
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Failed to analyze image.');
+      if (!response.ok) throw new Error(data.error || 'Failed to analyze media.');
       setImageAnalysis(data.analysis || null);
       if (data.productSummary) setTargetQuery(data.productSummary);
     } catch (error: any) {
-      setImageAnalysisError(error.message || 'Error analyzing image.');
+      setImageAnalysisError(error.message || 'Error analyzing media.');
     } finally {
       setIsAnalyzingImage(false);
     }
@@ -68,12 +105,32 @@ const AdsManager: React.FC = () => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
+
+    if (file.type.startsWith('video/')) {
+      setIsAnalyzingImage(true);
+      setImageAnalysis(null);
+      setImageAnalysisError(null);
+      extractVideoFrame(file)
+        .then(({ base64, mimeType }) => {
+          setProductImageBase64(base64);
+          setProductImageMimeType(mimeType);
+          setProductMediaSource('video');
+          handleAnalyzeImage(base64, mimeType, 'video');
+        })
+        .catch((error: any) => {
+          setIsAnalyzingImage(false);
+          setImageAnalysisError(error.message || 'Could not read this video file.');
+        });
+      return;
+    }
+
     const reader = new FileReader();
     reader.onloadend = () => {
       const base64 = (reader.result as string).split(',')[1];
       setProductImageBase64(base64);
       setProductImageMimeType(file.type);
-      handleAnalyzeImage(base64, file.type);
+      setProductMediaSource('image');
+      handleAnalyzeImage(base64, file.type, 'image');
     };
     reader.readAsDataURL(file);
   };
@@ -81,6 +138,7 @@ const AdsManager: React.FC = () => {
   const handleRemoveProductImage = () => {
     setProductImageBase64(null);
     setProductImageMimeType(null);
+    setProductMediaSource(null);
     setImageAnalysis(null);
     setImageAnalysisError(null);
   };
@@ -206,7 +264,7 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
                   {isAnalyzingImage ? t('analyzingImage') : t('scanProductBtn')}
                   <input
                     type="file"
-                    accept="image/*"
+                    accept="image/*,video/*"
                     className="hidden"
                     disabled={isAnalyzingImage}
                     onChange={handleProductImageChange}
@@ -220,7 +278,11 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
                       alt="Product"
                     />
                     <span className="text-xs text-slate-500 flex-1 truncate">
-                      {isAnalyzingImage ? t('analyzingImage') : imageAnalysis ? t('imageAnalyzed') : ''}
+                      {isAnalyzingImage
+                        ? t('analyzingImage')
+                        : imageAnalysis
+                          ? (productMediaSource === 'video' ? t('videoFrameAnalyzed') : t('imageAnalyzed'))
+                          : ''}
                     </span>
                     <button onClick={handleRemoveProductImage} className="text-brand-300 hover:text-red-500 transition-colors">
                       <X size={16} />
