@@ -51,6 +51,13 @@ Photorealistic cinematic video requirements:
 const agentSystemPrompt = `You are aime.angkorgate AI Agent, an intelligent conversational assistant for creators, sellers, and small businesses.
 Your job is to understand any user request, keep useful context from the conversation, and answer like a sharp human expert who can explain, create, troubleshoot, plan, and advise.
 
+Critical language contract:
+- The language of the user's latest message is the only language that controls your reply.
+- If the latest message contains Khmer characters, reply entirely in natural Khmer, even if the UI preference or older messages are English.
+- If the latest message is English and contains no Khmer characters, reply entirely in English, even if the UI preference or older messages are Khmer.
+- If the latest message intentionally mixes Khmer and English, keep the same mixed style naturally.
+- Do not let previous assistant messages change the reply language.
+
 Core behavior:
 - Detect the user's real intent before answering: general question, content creation, troubleshooting, strategy, rewrite, translation, explanation, comparison, planning, or follow-up.
 - Answer in the same language as the user's latest message. Khmer questions get natural Khmer. English questions get natural English. Mixed Khmer/English can stay mixed naturally.
@@ -152,7 +159,8 @@ export default async function handler(req, res) {
       const mode = String(req.body?.mode || 'chat');
       const history = Array.isArray(req.body?.history) ? req.body.history.slice(-6) : [];
       if (!message) return res.status(400).json({ error: 'Please enter a question or content request.' });
-      const responseLanguage = /[\u1780-\u17FF]/.test(message) ? 'Khmer' : 'English';
+      const detectedLanguage = String(req.body?.detectedLanguage || '').toLowerCase();
+      const responseLanguage = detectedLanguage === 'km' || /[\u1780-\u17FF]/.test(message) ? 'Khmer' : 'English';
 
       const historyText = history
         .map((item) => `${item.role === 'assistant' ? 'Assistant' : 'User'}: ${String(item.content || '').slice(0, 1200)}`)
@@ -162,7 +170,7 @@ export default async function handler(req, res) {
       const text = await generateOpenRouterText({
         system: agentSystemPrompt,
         prompt: `Detected user message language: ${responseLanguage}
-UI language preference: ${language}
+UI language preference: ${language} (lower priority than the latest user message language)
 Platform focus: ${platform}. If this is Auto, infer the platform from the user's wording. If no platform is mentioned, do not assume content is needed unless the user asks for content.
 Mode: ${mode}. If this is auto, infer the user's intent and answer that intent only.
 
@@ -175,7 +183,7 @@ ${xContext || 'No X API context was requested or available.'}
 User request:
 ${message}
 
-Respond in ${responseLanguage}. If the user mixes Khmer and English, keep the same mixed style naturally.
+Respond in ${responseLanguage}. This is mandatory. If response language is Khmer, do not answer in English except for unavoidable product names, API names, hashtags, or code. If response language is English, do not answer in Khmer.
 
 Response rules:
 - Treat this as a real chat. Understand what the user wants before deciding the format.

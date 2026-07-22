@@ -9,6 +9,11 @@ interface AgentMessage {
   content: string;
 }
 
+const detectMessageLanguage = (message: string) => {
+  if (/[\u1780-\u17FF]/.test(message)) return 'km';
+  return 'en';
+};
+
 const AIAgent: React.FC = () => {
   const { language } = useLanguage();
   const [input, setInput] = useState('');
@@ -43,6 +48,7 @@ const AIAgent: React.FC = () => {
   const askAgent = async (overridePrompt?: string) => {
     const message = (overridePrompt || input).trim();
     if (!message) return;
+    const detectedLanguage = detectMessageLanguage(message);
 
     const userMessage: AgentMessage = { role: 'user', content: message };
     const nextMessages = [...messages, userMessage];
@@ -60,6 +66,7 @@ const AIAgent: React.FC = () => {
           platform: 'Auto',
           mode: 'auto',
           language,
+          detectedLanguage,
           history: nextMessages.slice(-8),
         }),
       });
