@@ -264,19 +264,19 @@ const SchedulerHub: React.FC = () => {
     <div className="space-y-8 pb-20">
       <header className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2 mb-2 text-purple-400">
+          <div className="flex items-center gap-2 mb-2 text-brand-500">
             <Sparkles size={16} />
             <span className="text-[10px] uppercase font-bold tracking-[0.2em]">{t('intelligentEngine')}</span>
           </div>
-          <h1 className="text-4xl font-display font-bold text-white tracking-tight">{t('smartScheduler')}</h1>
-          <p className="text-brand-300/70 mt-1 max-w-xl">{t('contentOrchestrationDesc')}</p>
+          <h1 className="text-4xl font-display font-bold text-brand-700 tracking-tight">{t('smartScheduler')}</h1>
+          <p className="text-slate-500 mt-1 max-w-xl">{t('contentOrchestrationDesc')}</p>
         </div>
-        
+
         <div className="flex items-center gap-4">
           <div className="text-right">
-             <p className="text-[10px] text-brand-300 font-bold uppercase tracking-widest">{t('activeModel')}</p>
-             <p className="text-sm text-white font-mono flex items-center gap-2">
-               <Bot size={14} className="text-purple-500" />
+             <p className="text-[10px] text-brand-400 font-bold uppercase tracking-widest">{t('activeModel')}</p>
+             <p className="text-sm text-brand-700 font-mono flex items-center gap-2">
+               <Bot size={14} className="text-brand-500" />
                OpenRouter
              </p>
           </div>
@@ -284,7 +284,7 @@ const SchedulerHub: React.FC = () => {
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => setIsModalOpen(true)}
-            className="px-6 py-3 bg-white text-brand-700 rounded-2xl font-bold text-sm shadow-xl flex items-center gap-2 transition-transform"
+            className="px-6 py-3 bg-brand-700 hover:bg-brand-800 text-white rounded-2xl font-bold text-sm shadow-xl shadow-brand-700/20 flex items-center gap-2 transition-transform"
           >
             <Plus size={18} />
             {t('scheduleBtn')}
@@ -292,11 +292,11 @@ const SchedulerHub: React.FC = () => {
         </div>
       </header>
 
-      <div className="rounded-2xl border border-purple-500/20 bg-purple-500/10 px-5 py-4 text-sm text-brand-200">
-        <strong className="text-white">
+      <div className="rounded-2xl border border-brand-200 bg-brand-50 px-5 py-4 text-sm text-brand-700">
+        <strong className="text-brand-700">
           {t('smartScheduler')}
         </strong>
-        <span className="ml-2">
+        <span className="ml-2 text-slate-600">
           {t('schedulerRoleDesc')}
         </span>
       </div>
@@ -305,8 +305,8 @@ const SchedulerHub: React.FC = () => {
         {/* Left: Training & Suggestions */}
         <div className="lg:col-span-4 space-y-8">
            <AITrainer onTrainingComplete={handleTrainingComplete} />
-           
-           <div className="bg-[#151619] border border-[#2A2B2F] rounded-xl p-6 shadow-2xl">
+
+           <div className="glass rounded-[2rem] p-6 shadow-sm">
              <Suggestions activityVersion={activityVersion} />
            </div>
         </div>
@@ -333,44 +333,44 @@ const SchedulerHub: React.FC = () => {
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative w-full max-w-lg bg-[#151619] border border-[#2A2B2F] rounded-3xl shadow-2xl overflow-hidden"
+              className="relative w-full max-w-lg bg-white border border-brand-100 rounded-3xl shadow-2xl overflow-hidden"
             >
-              <div className="p-8 border-b border-[#2A2B2F] flex justify-between items-center bg-[#1A1B1E]">
+              <div className="p-8 border-b border-brand-100 flex justify-between items-center bg-brand-50">
                 <div>
-                  <h3 className="text-xl font-bold text-white tracking-tight">{t('manualSchedule')}</h3>
-                  <p className="text-[#8E9299] text-xs mt-1">{t('bypassAiDesc')}</p>
+                  <h3 className="text-xl font-bold text-brand-700 tracking-tight">{t('manualSchedule')}</h3>
+                  <p className="text-slate-500 text-xs mt-1">{t('bypassAiDesc')}</p>
                 </div>
-                <button onClick={closeModal} className="p-2 hover:bg-[#2A2B2F] rounded-xl transition-all">
-                  <X size={20} className="text-[#8E9299]" />
+                <button onClick={closeModal} className="p-2 hover:bg-brand-100 rounded-xl transition-all">
+                  <X size={20} className="text-slate-500" />
                 </button>
               </div>
 
               <form onSubmit={handleCreatePost} className="p-8 space-y-6">
                 {formError && (
-                  <motion.div 
+                  <motion.div
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: 'auto' }}
-                    className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-2 text-red-500 text-xs"
+                    className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-500 text-xs"
                   >
                     <AlertCircle size={14} />
                     {formError}
                   </motion.div>
                 )}
-                
+
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-[10px] font-bold text-[#4A4B4F] uppercase tracking-widest mb-2">{t('contentDraft')}</label>
-                    <textarea 
+                    <label className="block text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-2">{t('contentDraft')}</label>
+                    <textarea
                       value={content}
                       onChange={(e) => setContent(e.target.value)}
                       placeholder={t('contentPlaceholder')}
-                      className="w-full h-32 bg-[#0A0A0B] border border-[#2A2B2F] rounded-xl p-4 text-white text-sm focus:ring-1 focus:ring-purple-500 focus:outline-none transition-all resize-none"
+                      className="w-full h-32 bg-brand-50 border border-brand-100 rounded-xl p-4 text-brand-700 text-sm focus:ring-2 focus:ring-brand-500 focus:outline-none transition-all resize-none"
                     />
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-[10px] font-bold text-[#4A4B4F] uppercase tracking-widest mb-2">{t('platform')}</label>
+                      <label className="block text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-2">{t('platform')}</label>
                       <div className="grid grid-cols-4 gap-2">
                         {[
                           { id: 'TIKTOK', icon: Share2 },
@@ -383,9 +383,9 @@ const SchedulerHub: React.FC = () => {
                             type="button"
                             onClick={() => setPlatform(p.id as any)}
                             className={`p-3 rounded-xl border flex flex-col items-center gap-1 transition-all ${
-                              platform === p.id 
-                                ? 'bg-purple-500/10 border-purple-500 text-purple-400' 
-                                : 'bg-[#0A0A0B] border-[#2A2B2F] text-[#4A4B4F] hover:border-[#4A4B4F]'
+                              platform === p.id
+                                ? 'bg-brand-50 border-brand-500 text-brand-600'
+                                : 'bg-white border-brand-100 text-slate-400 hover:border-brand-200'
                             }`}
                           >
                             <p.icon size={16} />
@@ -396,47 +396,47 @@ const SchedulerHub: React.FC = () => {
                     </div>
 
                     <div>
-                      <label className="block text-[10px] font-bold text-[#4A4B4F] uppercase tracking-widest mb-2">{t('publishTime')}</label>
-                      <input 
+                      <label className="block text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-2">{t('publishTime')}</label>
+                      <input
                         required
                         type="datetime-local"
                         value={scheduledTime}
                         onChange={(e) => setScheduledTime(e.target.value)}
-                        className="w-full p-3 bg-[#0A0A0B] border border-[#2A2B2F] rounded-xl text-white text-sm focus:ring-1 focus:ring-purple-500 focus:outline-none transition-all"
+                        className="w-full p-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-700 text-sm focus:ring-2 focus:ring-brand-500 focus:outline-none transition-all"
                       />
                     </div>
                   </div>
 
                   {platform === 'TIKTOK' && (
                     <div>
-                      <label className="block text-[10px] font-bold text-[#4A4B4F] uppercase tracking-widest mb-2">TikTok video</label>
+                      <label className="block text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-2">TikTok video</label>
                       <input
                         required
                         type="file"
                         accept="video/mp4,video/quicktime,video/webm"
                         onChange={(e) => setVideoFile(e.target.files?.[0] || null)}
-                        className="w-full p-3 bg-[#0A0A0B] border border-[#2A2B2F] rounded-xl text-white text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-purple-500 file:px-3 file:py-2 file:font-bold file:text-white"
+                        className="w-full p-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-700 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-brand-600 file:px-3 file:py-2 file:font-bold file:text-white"
                       />
-                      <p className="mt-2 text-xs text-[#8E9299]">MP4, MOV, or WebM. Auto-post starts only after TikTok approves video.publish.</p>
+                      <p className="mt-2 text-xs text-slate-500">MP4, MOV, or WebM. Auto-post starts only after TikTok approves video.publish.</p>
                     </div>
                   )}
                   {platform === 'TELEGRAM' && (
                     <div className="space-y-3">
                       <div>
-                        <label className="block text-[10px] font-bold text-[#4A4B4F] uppercase tracking-widest mb-2">Telegram image or video</label>
+                        <label className="block text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-2">Telegram image or video</label>
                         <input
                           type="file"
                           accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm"
                           onChange={(e) => setTelegramMediaFile(e.target.files?.[0] || null)}
-                          className="w-full p-3 bg-[#0A0A0B] border border-[#2A2B2F] rounded-xl text-white text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-sky-500 file:px-3 file:py-2 file:font-bold file:text-white"
+                          className="w-full p-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-700 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-sky-500 file:px-3 file:py-2 file:font-bold file:text-white"
                         />
                         {telegramMediaFile && (
-                          <p className="mt-2 text-xs text-[#8E9299]">
+                          <p className="mt-2 text-xs text-slate-500">
                             Selected: {telegramMediaFile.name} ({formatFileSize(telegramMediaFile.size)})
                           </p>
                         )}
                       </div>
-                      <div className="p-3 bg-sky-500/10 border border-sky-500/20 rounded-xl flex items-start gap-2 text-sky-300 text-xs">
+                      <div className="p-3 bg-sky-50 border border-sky-200 rounded-xl flex items-start gap-2 text-sky-600 text-xs">
                         <Upload size={14} className="mt-0.5 shrink-0" />
                         <p>Telegram can post text, image, or video. If you add media, the text will be used as the caption.</p>
                       </div>
@@ -445,17 +445,17 @@ const SchedulerHub: React.FC = () => {
                 </div>
 
                 <div className="flex gap-4 pt-4">
-                  <button 
+                  <button
                     type="button"
                     onClick={closeModal}
-                    className="flex-1 py-4 bg-[#2A2B2F] text-white font-bold rounded-2xl hover:bg-[#3A3B3F] transition-all"
+                    className="flex-1 py-4 bg-brand-50 text-brand-700 border border-brand-100 font-bold rounded-2xl hover:bg-brand-100 transition-all"
                   >
                     {t('discard')}
                   </button>
-                  <button 
+                  <button
                     type="submit"
                     disabled={isSubmitting}
-                    className="flex-1 py-4 bg-white text-brand-700 font-bold rounded-2xl hover:bg-slate-100 transition-all flex items-center justify-center gap-2 shadow-xl shadow-white/5"
+                    className="flex-1 py-4 bg-brand-700 hover:bg-brand-800 text-white font-bold rounded-2xl transition-all flex items-center justify-center gap-2 shadow-xl shadow-brand-700/20"
                   >
                     {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : (
                       <>
