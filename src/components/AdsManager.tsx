@@ -81,7 +81,7 @@ const AdsManager: React.FC = () => {
     });
   };
 
-  const handleAnalyzeImage = async (base64: string, mimeType: string, sourceType: 'image' | 'video') => {
+  const handleAnalyzeImage = async (base64: string, mimeType: string, sourceType: 'image' | 'video', lang: 'km' | 'en') => {
     setIsAnalyzingImage(true);
     setImageAnalysis(null);
     setImageAnalysisError(null);
@@ -89,7 +89,7 @@ const AdsManager: React.FC = () => {
       const response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'productImageAnalyze', imageBase64: base64, imageMimeType: mimeType, sourceType, language: scanLanguage }),
+        body: JSON.stringify({ action: 'productImageAnalyze', imageBase64: base64, imageMimeType: mimeType, sourceType, language: lang }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to analyze media.');
@@ -116,7 +116,7 @@ const AdsManager: React.FC = () => {
           setProductImageBase64(base64);
           setProductImageMimeType(mimeType);
           setProductMediaSource('video');
-          handleAnalyzeImage(base64, mimeType, 'video');
+          handleAnalyzeImage(base64, mimeType, 'video', scanLanguage);
         })
         .catch((error: any) => {
           setIsAnalyzingImage(false);
@@ -131,7 +131,7 @@ const AdsManager: React.FC = () => {
       setProductImageBase64(base64);
       setProductImageMimeType(file.type);
       setProductMediaSource('image');
-      handleAnalyzeImage(base64, file.type, 'image');
+      handleAnalyzeImage(base64, file.type, 'image', scanLanguage);
     };
     reader.readAsDataURL(file);
   };
@@ -267,7 +267,12 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
                       <button
                         key={lang}
                         type="button"
-                        onClick={() => setScanLanguage(lang)}
+                        onClick={() => {
+                          setScanLanguage(lang);
+                          if (productImageBase64 && productImageMimeType) {
+                            handleAnalyzeImage(productImageBase64, productImageMimeType, productMediaSource || 'image', lang);
+                          }
+                        }}
                         className={cn(
                           "px-3 py-1 rounded-lg text-[10px] font-black transition-all",
                           scanLanguage === lang ? "bg-white text-brand-700 shadow-sm" : "text-brand-400"
