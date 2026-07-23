@@ -39,7 +39,11 @@ Analyze the attached image and produce a structured report covering four areas:
 3. Target Audience & Purpose — likely target audience (age, gender, interests, lifestyle), the buying intent this photo triggers, emotional appeal.
 4. Marketing & Performance Potential — strengths of this photo for paid ads, weaknesses or fixes needed, recommended hook/CTA angle, and 2-3 ad hook ideas suited to this product.
 
-Write the "analysis" field entirely in ${language}. Use short bold section headings with concise bullet points. Be specific and practical, not generic filler.
+Write the "analysis" field entirely in ${language}.
+${language === 'Khmer'
+  ? 'Write like a native Cambodian digital-marketing professional speaking naturally to a colleague — not a literal, word-for-word translation from English. Use natural Khmer sentence structure and everyday marketing phrasing. Keep universally-used terms that Khmer marketers normally say in English as-is (e.g., CTA, ads, hook, TikTok, Facebook, brand names), but every explanation and full sentence must read as fluent, natural Khmer, not stiff or awkward machine-translated Khmer.'
+  : 'Write in clear, natural, professional English.'}
+Use short bold section headings with concise bullet points. Be specific and practical, not generic filler.
 
 Respond with ONLY valid JSON, no markdown code fences, in exactly this shape:
 {"productSummary": "short product/category name, max 8 words, in ${language}", "analysis": "the full structured report described above, formatted as plain text with line breaks"}`;
