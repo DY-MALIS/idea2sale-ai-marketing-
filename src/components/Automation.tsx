@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  MessagesSquare, 
-  Bot, 
-  Zap, 
-  Shield, 
-  MessageCircle, 
+import {
+  MessagesSquare,
+  Bot,
+  Zap,
+  Shield,
+  MessageCircle,
   MousePointer2,
   RefreshCw,
   Plus,
@@ -15,13 +15,35 @@ import {
   X,
   Calendar as CalendarIcon,
   Clock,
-  AlertCircle
+  AlertCircle,
+  Inbox as InboxIcon,
+  Send,
+  Sparkles
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db } from '../lib/firebase';
-import { collection, query, where, onSnapshot, addDoc, serverTimestamp, deleteDoc, doc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp, deleteDoc, doc, updateDoc } from 'firebase/firestore';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
+
+interface TelegramLead {
+  id: string;
+  chatId: string;
+  username: string | null;
+  displayName: string;
+  tag: string;
+  lastMessage: string;
+  lastMessageAt?: { toDate: () => Date };
+}
+
+interface TelegramMessage {
+  id: string;
+  chatId: string;
+  direction: 'in' | 'out';
+  text: string;
+  source: 'user' | 'rule' | 'ai' | 'system';
+  createdAt?: { toDate: () => Date };
+}
 
 interface Campaign {
   id: string;
@@ -64,6 +86,46 @@ const Automation: React.FC = () => {
   const [ruleResponse, setRuleResponse] = useState('');
   const [rulePlatform, setRulePlatform] = useState('TikTok');
   const [isCreatingRule, setIsCreatingRule] = useState(false);
+
+  // Inbox state
+  const [inboxLeads, setInboxLeads] = useState<TelegramLead[]>([]);
+  const [inboxLoading, setInboxLoading] = useState(true);
+  const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+  const [inboxMessages, setInboxMessages] = useState<TelegramMessage[]>([]);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+
+  useEffect(() => {
+    if (activeTab !== 'inbox') return;
+    const q = query(collection(db, 'telegram_leads'), orderBy('lastMessageAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as TelegramLead[];
+      setInboxLeads(data);
+      setInboxLoading(false);
+      setSelectedChatId((current) => current || data[0]?.chatId || null);
+    }, (error) => {
+      console.error('Inbox leads listener error:', error);
+      setInboxLoading(false);
+    });
+    return () => unsubscribe();
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (!selectedChatId || activeTab !== 'inbox') return;
+    setMessagesLoading(true);
+    const q = query(
+      collection(db, 'telegram_messages'),
+      where('chatId', '==', selectedChatId),
+      orderBy('createdAt', 'asc')
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setInboxMessages(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as TelegramMessage[]);
+      setMessagesLoading(false);
+    }, (error) => {
+      console.error('Inbox messages listener error:', error);
+      setMessagesLoading(false);
+    });
+    return () => unsubscribe();
+  }, [selectedChatId, activeTab]);
 
   useEffect(() => {
     let unsubscribe: () => void;
@@ -413,11 +475,17 @@ const Automation: React.FC = () => {
           >
             {t('autoPosting')}
           </button>
-          <button 
+          <button
             onClick={() => setActiveTab('reply')}
             className={cn("px-6 py-2.5 rounded-xl text-sm font-bold transition-all", activeTab === 'reply' ? "bg-white text-brand-700 shadow-sm" : "text-brand-500 hover:bg-brand-50")}
           >
             {t('smartReply')}
+          </button>
+          <button
+            onClick={() => setActiveTab('inbox')}
+            className={cn("px-6 py-2.5 rounded-xl text-sm font-bold transition-all", activeTab === 'inbox' ? "bg-white text-brand-700 shadow-sm" : "text-brand-500 hover:bg-brand-50")}
+          >
+            {t('inboxLabel')}
           </button>
         </div>
       </header>
@@ -444,6 +512,84 @@ const Automation: React.FC = () => {
         <span className="ml-2">{t('automationRoleDesc')}</span>
       </div>
 
+      {activeTab === 'inbox' ? (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          <div className="lg:col-span-4 glass rounded-[2rem] overflow-hidden max-h-[70vh] flex flex-col">
+            <div className="p-5 border-b border-brand-100 bg-brand-50 flex items-center justify-between shrink-0">
+              <h3 className="font-bold text-brand-700 flex items-center gap-2">
+                <InboxIcon size={18} className="text-brand-500" />
+                {t('inboxLabel')}
+              </h3>
+              <span className="text-[10px] font-bold text-slate-400">{inboxLeads.length}</span>
+            </div>
+            <div className="overflow-y-auto flex-1">
+              {inboxLoading ? (
+                <div className="flex justify-center p-10"><Loader2 className="animate-spin text-brand-400" /></div>
+              ) : inboxLeads.length === 0 ? (
+                <div className="text-center p-10">
+                  <MessageCircle size={32} className="mx-auto text-brand-200 mb-3" />
+                  <p className="text-sm text-slate-500">{t('noLeadsYet')}</p>
+                </div>
+              ) : (
+                inboxLeads.map((lead) => (
+                  <button
+                    key={lead.id}
+                    onClick={() => setSelectedChatId(lead.chatId)}
+                    className={cn(
+                      'w-full text-left p-4 border-b border-brand-50 transition-colors',
+                      selectedChatId === lead.chatId ? 'bg-brand-50' : 'hover:bg-brand-50/50'
+                    )}
+                  >
+                    <p className="font-bold text-sm text-brand-700 truncate">{lead.displayName}</p>
+                    <p className="text-xs text-slate-500 truncate">{lead.lastMessage}</p>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="lg:col-span-8 glass rounded-[2rem] overflow-hidden max-h-[70vh] flex flex-col">
+            <div className="p-5 border-b border-brand-100 bg-brand-50 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2">
+                <Bot size={18} className="text-brand-500" />
+                <h3 className="font-bold text-brand-700">
+                  {inboxLeads.find((l) => l.chatId === selectedChatId)?.displayName || t('inboxLabel')}
+                </h3>
+              </div>
+              <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full border border-emerald-200">
+                <Sparkles size={10} />
+                {t('agentStandingBy')}
+              </span>
+            </div>
+            <div className="overflow-y-auto flex-1 p-5 space-y-3">
+              {!selectedChatId ? (
+                <div className="text-center p-10 text-sm text-slate-400">{t('selectLeadPrompt')}</div>
+              ) : messagesLoading ? (
+                <div className="flex justify-center p-10"><Loader2 className="animate-spin text-brand-400" /></div>
+              ) : inboxMessages.length === 0 ? (
+                <div className="text-center p-10 text-sm text-slate-400">{t('noLeadsYet')}</div>
+              ) : (
+                inboxMessages.map((msg) => (
+                  <div key={msg.id} className={cn('flex', msg.direction === 'in' ? 'justify-start' : 'justify-end')}>
+                    <div className={cn(
+                      'max-w-[75%] px-4 py-3 rounded-2xl text-sm',
+                      msg.direction === 'in' ? 'bg-brand-50 text-brand-700' : 'bg-brand-700 text-white'
+                    )}>
+                      <p className="whitespace-pre-wrap">{msg.text}</p>
+                      {msg.direction === 'out' && (
+                        <p className="text-[9px] mt-1 opacity-70 uppercase tracking-widest flex items-center gap-1">
+                          <Send size={9} />
+                          {msg.source === 'rule' ? t('sourceRule') : msg.source === 'ai' ? t('sourceAi') : t('sourceSystem')}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      ) : (
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         <div className="lg:col-span-8 space-y-8">
           {activeTab === 'posting' ? (
@@ -639,6 +785,7 @@ const Automation: React.FC = () => {
           </div>
         </div>
       </div>
+      )}
 
       <AnimatePresence>
         {isScheduleModalOpen && (

@@ -147,5 +147,12 @@ service cloud.firestore {
       allow list: if isSignedIn();
       allow write: if false;
     }
+
+    match /telegram_messages/{messageId} {
+      // Written only by the server (Admin SDK bypasses these rules). Any signed-in user can view the shared inbox.
+      allow read: if isSignedIn();
+      allow list: if isSignedIn();
+      allow write: if false;
+    }
   }
 }

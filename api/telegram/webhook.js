@@ -18,6 +18,20 @@ const findMatchingReplyRule = async (db, text) => {
   return null;
 };
 
+const logMessage = async (db, chatId, direction, text, source) => {
+  try {
+    await db.collection('telegram_messages').add({
+      chatId: String(chatId),
+      direction,
+      text: String(text || '').slice(0, 2000),
+      source,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+  } catch (error) {
+    console.error('Telegram message log failed:', error?.message || error);
+  }
+};
+
 const classifyLead = async (text) => {
   try {
     const result = await generateOpenRouterText({
@@ -172,15 +186,18 @@ export default async function handler(req, res) {
 
   if (db) {
     await upsertTelegramLead(db, message, text);
+    await logMessage(db, chatId, 'in', text, 'user');
   }
 
   const isKhmer = containsKhmer(text);
   if (/^\/(start|help)\b/i.test(text)) {
+    const welcome = welcomeMessage(isKhmer);
     await telegramApi(token, 'sendMessage', {
       chat_id: chatId,
-      text: welcomeMessage(isKhmer),
+      text: welcome,
       disable_web_page_preview: true,
     });
+    if (db) await logMessage(db, chatId, 'out', welcome, 'system');
     return res.status(200).json({ ok: true });
   }
 
@@ -192,6 +209,7 @@ export default async function handler(req, res) {
         text: ruleResponse,
         disable_web_page_preview: false,
       });
+      await logMessage(db, chatId, 'out', ruleResponse, 'rule');
       return res.status(200).json({ ok: true, matchedRule: true });
     }
   }
@@ -219,6 +237,8 @@ export default async function handler(req, res) {
         disable_web_page_preview: false,
       });
     }
+
+    if (db) await logMessage(db, chatId, 'out', reply, 'ai');
 
     return res.status(200).json({ ok: true });
   } catch (error) {
