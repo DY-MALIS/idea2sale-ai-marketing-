@@ -112,13 +112,16 @@ const Automation: React.FC = () => {
   useEffect(() => {
     if (!selectedChatId || activeTab !== 'inbox') return;
     setMessagesLoading(true);
+    // Sort client-side (not orderBy in the query) to avoid needing a composite
+    // Firestore index for the chatId + createdAt combination.
     const q = query(
       collection(db, 'telegram_messages'),
-      where('chatId', '==', selectedChatId),
-      orderBy('createdAt', 'asc')
+      where('chatId', '==', selectedChatId)
     );
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      setInboxMessages(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as TelegramMessage[]);
+      const messages = snapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as TelegramMessage[];
+      messages.sort((a, b) => (a.createdAt?.toDate?.().getTime() || 0) - (b.createdAt?.toDate?.().getTime() || 0));
+      setInboxMessages(messages);
       setMessagesLoading(false);
     }, (error) => {
       console.error('Inbox messages listener error:', error);
