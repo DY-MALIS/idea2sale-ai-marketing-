@@ -525,7 +525,7 @@ const Automation: React.FC = () => {
                   <h3 className="text-2xl font-bold text-brand-700">{t('smartAiReplies')}</h3>
                   <p className="text-slate-500 text-sm">{t('aiReplyDesc')}</p>
                 </div>
-                <button 
+                <button
                   onClick={() => {
                     setIsRuleModalOpen(true);
                   }}
@@ -534,6 +534,10 @@ const Automation: React.FC = () => {
                   <Plus size={20} />
                   {t('addRule')}
                 </button>
+              </div>
+
+              <div className="mb-6 p-4 bg-sky-50 border border-sky-100 rounded-2xl text-sm text-sky-700">
+                {t('telegramRulesLiveNote')}
               </div>
 
               <div className="space-y-4">
@@ -814,7 +818,7 @@ const Automation: React.FC = () => {
                 
                 <div>
                   <label className="block text-xs font-bold text-brand-400 uppercase tracking-widest mb-2">{t('platform')}</label>
-                  <select 
+                  <select
                     value={rulePlatform}
                     onChange={(e) => setRulePlatform(e.target.value)}
                     className="w-full px-4 py-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-800 focus:outline-none font-medium"
@@ -822,6 +826,7 @@ const Automation: React.FC = () => {
                     <option>TikTok</option>
                     <option>Facebook</option>
                     <option>Instagram</option>
+                    <option value="TELEGRAM">Telegram</option>
                   </select>
                 </div>
               </div>

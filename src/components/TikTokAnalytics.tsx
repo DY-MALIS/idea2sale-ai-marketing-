@@ -1,24 +1,36 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Eye, 
-  Heart, 
-  BarChart3, 
+import {
+  Eye,
+  Heart,
+  BarChart3,
   RefreshCw,
   Clock,
   CheckCircle2,
   AlertCircle,
   Settings2,
   X,
-  Share2
+  Share2,
+  Send
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { collection, query, orderBy, limit, onSnapshot, Timestamp } from 'firebase/firestore';
+import { collection, query, where, orderBy, limit, onSnapshot, Timestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { cn } from '../lib/utils';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useAuth } from '../contexts/AuthContext';
+
+const getLocalTelegramPosts = () => {
+  try {
+    return JSON.parse(localStorage.getItem('demo_scheduled_posts') || '[]').filter((p: any) => p.platform === 'TELEGRAM');
+  } catch {
+    return [];
+  }
+};
 
 const TikTokAnalytics: React.FC = () => {
   const { t } = useLanguage();
+  const { user, isDemoMode } = useAuth();
+  const [telegramPosts, setTelegramPosts] = useState<any[]>([]);
   const [handle, setHandle] = useState(() => localStorage.getItem('tiktok_handle') || 'ai.cafe4');
   const [isEditingHandle, setIsEditingHandle] = useState(false);
   const [tempHandle, setTempHandle] = useState(handle);
@@ -127,6 +139,42 @@ const TikTokAnalytics: React.FC = () => {
       unsubscribe();
     };
   }, [handle]);
+
+  useEffect(() => {
+    if (isDemoMode) {
+      setTelegramPosts(getLocalTelegramPosts());
+      const refresh = () => setTelegramPosts(getLocalTelegramPosts());
+      window.addEventListener('demo-scheduled-posts-updated', refresh);
+      return () => window.removeEventListener('demo-scheduled-posts-updated', refresh);
+    }
+
+    if (!user) {
+      setTelegramPosts([]);
+      return;
+    }
+
+    const q = query(
+      collection(db, 'scheduled_posts'),
+      where('userId', '==', user.uid),
+      where('platform', '==', 'TELEGRAM')
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setTelegramPosts(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+    }, (error) => {
+      console.error('Telegram posts listener error:', error);
+      setTelegramPosts([]);
+    });
+
+    return () => unsubscribe();
+  }, [user, isDemoMode]);
+
+  const telegramStats = {
+    total: telegramPosts.length,
+    published: telegramPosts.filter((p) => p.status === 'PUBLISHED').length,
+    pending: telegramPosts.filter((p) => p.status === 'PENDING').length,
+    failed: telegramPosts.filter((p) => p.status === 'FAILED').length,
+  };
 
   return (
     <div className="max-w-6xl mx-auto space-y-8">
@@ -335,6 +383,58 @@ const TikTokAnalytics: React.FC = () => {
               </div>
             </div>
           ))}
+        </div>
+      </div>
+
+      <div className="glass p-8 rounded-[2.5rem] border border-white/50 shadow-sm">
+        <h3 className="text-xl font-bold text-brand-700 mb-6 flex items-center gap-2">
+          <Send className="text-sky-500" size={24} />
+          {t('telegramChannelStats')}
+        </h3>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+          {[
+            { label: t('totalSent'), value: telegramStats.total, color: 'text-brand-600', bg: 'bg-brand-50' },
+            { label: t('published'), value: telegramStats.published, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+            { label: t('pending'), value: telegramStats.pending, color: 'text-amber-600', bg: 'bg-amber-50' },
+            { label: t('failed'), value: telegramStats.failed, color: 'text-rose-600', bg: 'bg-rose-50' },
+          ].map((stat, i) => (
+            <div key={i} className={cn('p-5 rounded-2xl border border-brand-100', stat.bg)}>
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">{stat.label}</p>
+              <p className={cn('text-2xl font-bold', stat.color)}>{stat.value}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="space-y-3">
+          {telegramPosts.length === 0 ? (
+            <div className="text-center p-10 text-slate-400">{t('noTelegramPosts')}</div>
+          ) : (
+            [...telegramPosts]
+              .sort((a, b) => new Date(b.scheduledTime || 0).getTime() - new Date(a.scheduledTime || 0).getTime())
+              .slice(0, 8)
+              .map((post) => (
+                <div key={post.id} className="flex items-center justify-between p-5 bg-brand-50/50 rounded-2xl border border-brand-100">
+                  <div className="flex items-center gap-4 min-w-0">
+                    <div className="w-10 h-10 bg-sky-50 text-sky-600 rounded-xl flex items-center justify-center border border-sky-100 shrink-0">
+                      <Send size={18} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm text-brand-700 font-medium line-clamp-1">{post.content || post.mediaName || '—'}</p>
+                      <p className="text-xs text-slate-400">
+                        {post.scheduledTime ? new Date(post.scheduledTime).toLocaleString() : ''}
+                      </p>
+                    </div>
+                  </div>
+                  <span className={cn(
+                    'text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full shrink-0',
+                    post.status === 'PUBLISHED' ? 'bg-emerald-50 text-emerald-600' : post.status === 'FAILED' ? 'bg-rose-50 text-rose-600' : 'bg-amber-50 text-amber-600'
+                  )}>
+                    {post.status}
+                  </span>
+                </div>
+              ))
+          )}
         </div>
       </div>
     </div>

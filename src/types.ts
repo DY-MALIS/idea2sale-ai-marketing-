@@ -18,15 +18,16 @@ export interface Post {
   imageUrl?: string;
 }
 
-export type TabType = 
-  | 'copywriter' 
-  | 'poster-gen' 
-  | 'video-voice' 
-  | 'tiktok' 
-  | 'product-research' 
+export type TabType =
+  | 'copywriter'
+  | 'poster-gen'
+  | 'video-voice'
+  | 'tiktok'
+  | 'product-research'
   | 'ads-manager'
   | 'scheduler'
   | 'ai-agent'
+  | 'crm'
   | 'security-center';
 
 export interface SchedulePost {

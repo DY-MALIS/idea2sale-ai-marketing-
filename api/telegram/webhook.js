@@ -1,6 +1,70 @@
 import { generateOpenRouterText } from '../_openrouter.js';
+import { initFirebaseAdmin } from '../_firebaseAdmin.js';
+import { FieldValue } from 'firebase-admin/firestore';
 
 const TELEGRAM_LIMIT = 3900;
+
+const LEAD_TAGS = ['interested', 'price-question', 'support', 'general'];
+
+const findMatchingReplyRule = async (db, text) => {
+  const lowerText = text.toLowerCase();
+  const snapshot = await db.collection('reply_rules').where('platform', '==', 'TELEGRAM').limit(200).get();
+  for (const doc of snapshot.docs) {
+    const trigger = String(doc.data()?.trigger || '').trim().toLowerCase();
+    if (trigger && lowerText.includes(trigger)) {
+      return doc.data()?.response || null;
+    }
+  }
+  return null;
+};
+
+const classifyLead = async (text) => {
+  try {
+    const result = await generateOpenRouterText({
+      system: 'Classify the intent of this first message from a new contact. Respond with ONLY one lowercase word from this exact list: interested, price-question, support, general. No punctuation, no explanation.',
+      prompt: text.slice(0, 500),
+    });
+    const tag = String(result || '').trim().toLowerCase().replace(/[^a-z-]/g, '');
+    return LEAD_TAGS.includes(tag) ? tag : 'general';
+  } catch {
+    return 'general';
+  }
+};
+
+const upsertTelegramLead = async (db, message, text) => {
+  const chat = message?.chat || {};
+  const chatId = String(chat.id);
+  const leadRef = db.collection('telegram_leads').doc(chatId);
+
+  try {
+    const existingSnap = await leadRef.get();
+    const displayName = [chat.first_name, chat.last_name].filter(Boolean).join(' ') || chat.username || 'Telegram user';
+
+    if (!existingSnap.exists) {
+      const tag = await classifyLead(text);
+      await leadRef.set({
+        chatId,
+        username: chat.username || null,
+        displayName,
+        tag,
+        messageCount: 1,
+        lastMessage: text.slice(0, 500),
+        lastMessageAt: FieldValue.serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp(),
+      });
+    } else {
+      await leadRef.update({
+        displayName,
+        username: chat.username || null,
+        messageCount: FieldValue.increment(1),
+        lastMessage: text.slice(0, 500),
+        lastMessageAt: FieldValue.serverTimestamp(),
+      });
+    }
+  } catch (error) {
+    console.error('Telegram lead capture failed:', error?.message || error);
+  }
+};
 
 const containsKhmer = (text) => /[\u1780-\u17FF]/.test(text || '');
 
@@ -99,6 +163,17 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true });
   }
 
+  let db = null;
+  try {
+    db = initFirebaseAdmin();
+  } catch (error) {
+    console.error('Firebase Admin not configured for Telegram CRM/rules:', error?.message || error);
+  }
+
+  if (db) {
+    await upsertTelegramLead(db, message, text);
+  }
+
   const isKhmer = containsKhmer(text);
   if (/^\/(start|help)\b/i.test(text)) {
     await telegramApi(token, 'sendMessage', {
@@ -107,6 +182,18 @@ export default async function handler(req, res) {
       disable_web_page_preview: true,
     });
     return res.status(200).json({ ok: true });
+  }
+
+  if (db) {
+    const ruleResponse = await findMatchingReplyRule(db, text).catch(() => null);
+    if (ruleResponse) {
+      await telegramApi(token, 'sendMessage', {
+        chat_id: chatId,
+        text: ruleResponse,
+        disable_web_page_preview: false,
+      });
+      return res.status(200).json({ ok: true, matchedRule: true });
+    }
   }
 
   try {

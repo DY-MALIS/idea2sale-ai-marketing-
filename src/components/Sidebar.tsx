@@ -11,6 +11,7 @@ import {
   TrendingUp,
   Bot,
   ShieldCheck,
+  Users,
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { TabType } from '../types';
@@ -48,6 +49,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onLogout }) 
         { id: 'scheduler', label: t('schedulerLabel'), icon: Calendar },
         { id: 'ads-manager', label: t('adsManagerLabel'), icon: TrendingUp },
         { id: 'tiktok', label: t('tiktokLabel'), icon: BarChart3 },
+        { id: 'crm', label: t('crmLabel'), icon: Users },
       ]
     },
     {

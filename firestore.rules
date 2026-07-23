@@ -129,7 +129,7 @@ service cloud.firestore {
         && incoming().trigger.size() <= 500
         && incoming().response is string
         && incoming().response.size() <= 2000
-        && incoming().platform in ['TikTok', 'Facebook', 'Instagram'];
+        && incoming().platform in ['TikTok', 'Facebook', 'Instagram', 'TELEGRAM'];
         
       allow update: if isSignedIn()
         && existing().userId == request.auth.uid
@@ -139,6 +139,13 @@ service cloud.firestore {
         );
         
       allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    match /telegram_leads/{leadId} {
+      // Written only by the server (Admin SDK bypasses these rules). Any signed-in user can view the shared CRM list.
+      allow read: if isSignedIn();
+      allow list: if isSignedIn();
+      allow write: if false;
     }
   }
 }
