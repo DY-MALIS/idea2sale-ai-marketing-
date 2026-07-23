@@ -2,11 +2,13 @@ import React, { useState } from 'react';
 import {
   Search,
   TrendingUp,
-  Target, 
-  BarChart2, 
-  ArrowUpRight, 
-  Package, 
-  Loader2
+  Target,
+  BarChart2,
+  ArrowUpRight,
+  Package,
+  Loader2,
+  Radar,
+  Heart
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -16,7 +18,17 @@ const ProductResearch: React.FC = () => {
     const [queryInput, setQueryInput] = useState(() => localStorage.getItem('research_query') || '');
     const [isSearching, setIsSearching] = useState(false);
     const [analysis, setAnalysis] = useState<string | null>(() => localStorage.getItem('research_analysis'));
-  
+
+    const [competitorInput, setCompetitorInput] = useState('');
+    const [isTrackingCompetitor, setIsTrackingCompetitor] = useState(false);
+    const [competitorReport, setCompetitorReport] = useState<string | null>(null);
+    const [competitorError, setCompetitorError] = useState<string | null>(null);
+
+    const [brandInput, setBrandInput] = useState('');
+    const [isCheckingSentiment, setIsCheckingSentiment] = useState(false);
+    const [sentimentReport, setSentimentReport] = useState<string | null>(null);
+    const [sentimentError, setSentimentError] = useState<string | null>(null);
+
     const handleSearch = async () => {
       const query = queryInput.trim();
       if (!query) return;
@@ -44,6 +56,52 @@ const ProductResearch: React.FC = () => {
       setAnalysis(message);
     } finally {
       setIsSearching(false);
+    }
+  };
+
+  const handleTrackCompetitor = async () => {
+    const competitor = competitorInput.trim();
+    if (!competitor) return;
+    setIsTrackingCompetitor(true);
+    setCompetitorReport(null);
+    setCompetitorError(null);
+    try {
+      const response = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'competitorTracker', competitor, language }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || t('errorPerformingResearch'));
+      setCompetitorReport(data.report || t('noDataGenerated'));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t('errorPerformingResearch');
+      setCompetitorError(message);
+    } finally {
+      setIsTrackingCompetitor(false);
+    }
+  };
+
+  const handleCheckSentiment = async () => {
+    const brand = brandInput.trim();
+    if (!brand) return;
+    setIsCheckingSentiment(true);
+    setSentimentReport(null);
+    setSentimentError(null);
+    try {
+      const response = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'brandSentiment', brand, language }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || t('errorPerformingResearch'));
+      setSentimentReport(data.report || t('noDataGenerated'));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t('errorPerformingResearch');
+      setSentimentError(message);
+    } finally {
+      setIsCheckingSentiment(false);
     }
   };
 
@@ -111,6 +169,60 @@ const ProductResearch: React.FC = () => {
               </motion.div>
             )}
           </AnimatePresence>
+
+          <AnimatePresence>
+            {(isTrackingCompetitor || competitorReport || competitorError) && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="glass p-10 rounded-[2.5rem] shadow-sm prose prose-brand max-w-none"
+              >
+                <div className="flex items-center gap-2 mb-6 text-brand-700">
+                  <Radar size={24} />
+                  <h3 className="text-2xl font-bold m-0">{t('competitorReportTitle')}</h3>
+                </div>
+                {isTrackingCompetitor ? (
+                  <div className="flex items-center gap-3 text-brand-500">
+                    <Loader2 className="animate-spin" size={20} />
+                    <span className="text-sm font-medium">{t('trackingCompetitor')}</span>
+                  </div>
+                ) : competitorError ? (
+                  <p className="text-sm text-red-500">{competitorError}</p>
+                ) : (
+                  <div className="whitespace-pre-wrap text-brand-600 leading-relaxed font-sans">
+                    {competitorReport}
+                  </div>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <AnimatePresence>
+            {(isCheckingSentiment || sentimentReport || sentimentError) && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="glass p-10 rounded-[2.5rem] shadow-sm prose prose-brand max-w-none"
+              >
+                <div className="flex items-center gap-2 mb-6 text-brand-700">
+                  <Heart size={24} />
+                  <h3 className="text-2xl font-bold m-0">{t('sentimentReportTitle')}</h3>
+                </div>
+                {isCheckingSentiment ? (
+                  <div className="flex items-center gap-3 text-brand-500">
+                    <Loader2 className="animate-spin" size={20} />
+                    <span className="text-sm font-medium">{t('checkingSentiment')}</span>
+                  </div>
+                ) : sentimentError ? (
+                  <p className="text-sm text-red-500">{sentimentError}</p>
+                ) : (
+                  <div className="whitespace-pre-wrap text-brand-600 leading-relaxed font-sans">
+                    {sentimentReport}
+                  </div>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         <div className="lg:col-span-4 space-y-8">
@@ -144,8 +256,45 @@ const ProductResearch: React.FC = () => {
             </div>
             <h4 className="text-xl font-bold mb-2">{t('competitorTracking')}</h4>
             <p className="text-brand-100 text-sm mb-6 leading-relaxed">{t('competitorTrackingDesc')}</p>
-            <button className="w-full py-4 bg-white/20 hover:bg-white/30 backdrop-blur-md rounded-xl font-bold transition-all border border-white/20">
-              {t('setupAlerts')}
+            <input
+              type="text"
+              value={competitorInput}
+              onChange={(e) => setCompetitorInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleTrackCompetitor()}
+              placeholder={t('competitorNamePlaceholder')}
+              className="w-full px-4 py-3 mb-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder:text-white/60 focus:ring-2 focus:ring-white/40 outline-none transition-all text-sm font-medium"
+            />
+            <button
+              onClick={handleTrackCompetitor}
+              disabled={isTrackingCompetitor || !competitorInput.trim()}
+              className="w-full py-4 bg-white/20 hover:bg-white/30 disabled:opacity-50 backdrop-blur-md rounded-xl font-bold transition-all border border-white/20 flex items-center justify-center gap-2"
+            >
+              {isTrackingCompetitor ? <Loader2 className="animate-spin" size={18} /> : <Radar size={18} />}
+              {isTrackingCompetitor ? t('trackingCompetitor') : t('trackCompetitorBtn')}
+            </button>
+          </div>
+
+          <div className="glass p-8 rounded-[2rem] border border-brand-100 shadow-sm relative overflow-hidden">
+            <div className="flex items-center gap-2 mb-2">
+              <Heart size={20} className="text-brand-500" />
+              <h4 className="text-lg font-bold text-brand-700">{t('brandSentimentTitle')}</h4>
+            </div>
+            <p className="text-slate-500 text-sm mb-6 leading-relaxed">{t('brandSentimentDesc')}</p>
+            <input
+              type="text"
+              value={brandInput}
+              onChange={(e) => setBrandInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleCheckSentiment()}
+              placeholder={t('brandNamePlaceholder')}
+              className="w-full px-4 py-3 mb-3 bg-brand-50 border border-brand-100 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all text-sm font-medium"
+            />
+            <button
+              onClick={handleCheckSentiment}
+              disabled={isCheckingSentiment || !brandInput.trim()}
+              className="w-full py-4 bg-brand-700 hover:bg-brand-800 disabled:bg-brand-200 text-white font-bold rounded-xl text-sm transition-all flex items-center justify-center gap-2"
+            >
+              {isCheckingSentiment ? <Loader2 className="animate-spin" size={18} /> : <Heart size={18} />}
+              {isCheckingSentiment ? t('checkingSentiment') : t('checkSentimentBtn')}
             </button>
           </div>
         </div>

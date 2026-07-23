@@ -28,6 +28,36 @@ const productResearchPrompt = (query, language) => `Analyze the following produc
 Provide a concise but useful research report including market demand, competitors, pricing, target audience, and TikTok/video ad hooks.
 Write in ${language === 'km' ? 'Khmer' : 'English'} when appropriate. Use clear headings and practical bullet points.`;
 
+const competitorTrackerPrompt = (competitor, language, xContext) => `You are a competitive intelligence analyst for social media and paid advertising.
+Research and summarize the current market activity, positioning, and advertising strategy of this competitor/brand/product: "${competitor}".
+
+Public social context you can use as source material (do not copy verbatim, use as inspiration/evidence):
+${xContext || 'No live social API context was available for this query.'}
+
+Cover these sections:
+1. Recent Activity & Signals — notable recent posts, promotions, or product launches you can infer.
+2. Pricing & Offer Signals — any pricing, discounts, or offers mentioned or typical for this kind of competitor.
+3. Messaging & Creative Angles — hooks, themes, or emotional angles they seem to use.
+4. Strengths & Weaknesses — what they appear to do well, and where they seem vulnerable.
+5. Suggested Counter-Strategy — 2-3 practical, specific ways to compete against them.
+
+Write entirely in ${language}. Be concise, structured, and practical with short bold headings and bullet points. If the social context above is unavailable or thin, say so briefly and give best-effort general guidance instead of inventing specific facts, prices, or quotes as if confirmed.`;
+
+const brandSentimentPrompt = (brand, language, xContext) => `You are a brand reputation and social sentiment analyst.
+Analyze public sentiment for this brand/product: "${brand}".
+
+Public social context you can use as source material (do not copy verbatim, use as evidence):
+${xContext || 'No live social API context was available for this query.'}
+
+Cover these sections:
+1. Overall Sentiment — an approximate positive/neutral/negative split with brief reasoning.
+2. What People Like — recurring positive themes or praises.
+3. What People Complain About — recurring negative themes or complaints.
+4. Notable Mentions — 2-3 illustrative examples, paraphrased (not verbatim quotes) if drawn from the social context.
+5. Recommended Actions — practical steps to improve sentiment or capitalize on strengths.
+
+Write entirely in ${language}. Be concise, structured, and practical with short bold headings and bullet points. If the social context above is unavailable or thin, say so clearly and give best-effort general guidance instead of fabricating specific quotes, numbers, or complaints as if confirmed.`;
+
 const productImageAnalysisPrompt = (language, sourceType = 'image') => `You are a senior e-commerce visual merchandising and performance-ad creative analyst.
 ${sourceType === 'video'
   ? 'The attached image is a single representative frame extracted from an uploaded product video. Analyze it as a still frame only — do not invent details about motion, pacing, transitions, voiceover, or audio that cannot be seen in a still image.'
@@ -106,13 +136,10 @@ const buildXSearchQuery = (message) => {
     .slice(0, 180);
 };
 
-const fetchXContext = async (message) => {
+const searchXPosts = async (query) => {
   const bearerToken = process.env.X_BEARER_TOKEN;
-  if (!bearerToken || !shouldUseXContext(message)) {
-    return '';
-  }
+  if (!bearerToken || !query) return '';
 
-  const query = buildXSearchQuery(message) || 'marketing OR business OR AI lang:en';
   const params = new URLSearchParams({
     query: `${query} -is:retweet`,
     max_results: '10',
@@ -148,6 +175,18 @@ ${posts.join('\n\n')}`;
   } catch (error) {
     return `X API context unavailable: ${error?.message || 'request failed'}`;
   }
+};
+
+const fetchXContext = async (message) => {
+  if (!process.env.X_BEARER_TOKEN || !shouldUseXContext(message)) return '';
+  const query = buildXSearchQuery(message) || 'marketing OR business OR AI lang:en';
+  return searchXPosts(query);
+};
+
+const fetchXContextForEntity = async (entityName) => {
+  if (!process.env.X_BEARER_TOKEN) return '';
+  const query = String(entityName || '').trim().slice(0, 180);
+  return query ? searchXPosts(query) : '';
 };
 
 export default async function handler(req, res) {
@@ -259,6 +298,28 @@ Response rules:
         prompt: productResearchPrompt(query, languageCode),
       });
       return res.status(200).json({ analysis });
+    }
+
+    if (action === 'competitorTracker') {
+      const competitor = String(req.body?.competitor || '').trim();
+      if (!competitor) return res.status(400).json({ error: 'Please enter a competitor, brand, or product to track.' });
+      const xContext = await fetchXContextForEntity(competitor);
+      const report = await generateOpenRouterText({
+        system: 'You are a precise, practical competitive intelligence analyst.',
+        prompt: competitorTrackerPrompt(competitor, language, xContext),
+      });
+      return res.status(200).json({ report: report || 'No report generated.' });
+    }
+
+    if (action === 'brandSentiment') {
+      const brand = String(req.body?.brand || '').trim();
+      if (!brand) return res.status(400).json({ error: 'Please enter a brand or product name to check.' });
+      const xContext = await fetchXContextForEntity(brand);
+      const report = await generateOpenRouterText({
+        system: 'You are a precise, practical brand reputation and sentiment analyst.',
+        prompt: brandSentimentPrompt(brand, language, xContext),
+      });
+      return res.status(200).json({ report: report || 'No report generated.' });
     }
 
     if (action === 'plannerAuto') {
