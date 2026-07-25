@@ -431,7 +431,7 @@ Response rules:
         const fdb = initFirebaseAdmin();
         report.firebaseAdminInit = 'ok';
         try {
-          const testRef = fdb.collection('telegram_leads').doc('__diagnose_test__');
+          const testRef = fdb.collection('telegram_leads').doc('diagnose_test');
           await testRef.set({ diagnosedAt: FieldValue.serverTimestamp() });
           const snap = await testRef.get();
           report.firestoreWrite = snap.exists ? 'ok' : 'wrote but not found on read-back';
