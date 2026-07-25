@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { Users, MessageCircle, Send, Loader2, Search, Tag, ChevronDown } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Users, MessageCircle, Send, Loader2, Search, Tag } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { collection, query, orderBy, limit, startAfter, getDocs, onSnapshot, QueryDocumentSnapshot, DocumentData } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -71,6 +71,19 @@ const CRM: React.FC = () => {
       setLoadingMore(false);
     }
   };
+
+  // Auto-load the next page as the user scrolls near the bottom, so every
+  // contact eventually loads without needing a manual "Load more" click.
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const node = sentinelRef.current;
+    if (!node || !hasMore) return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries[0]?.isIntersecting) handleLoadMore();
+    }, { rootMargin: '400px' });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasMore, lastDoc]);
 
   const filteredLeads = leads.filter((lead) => {
     if (tagFilter && lead.tag !== tagFilter) return false;
@@ -181,15 +194,8 @@ const CRM: React.FC = () => {
         )}
 
         {!loading && hasMore && (
-          <div className="p-4 border-t border-brand-100">
-            <button
-              onClick={handleLoadMore}
-              disabled={loadingMore}
-              className="w-full py-3 bg-brand-50 text-brand-600 font-bold rounded-xl text-sm hover:bg-brand-100 transition-all border border-brand-100 flex items-center justify-center gap-2 disabled:opacity-60"
-            >
-              {loadingMore ? <Loader2 className="animate-spin" size={16} /> : <ChevronDown size={16} />}
-              {t('loadMoreLeads')}
-            </button>
+          <div ref={sentinelRef} className="flex justify-center p-4 border-t border-brand-100">
+            <Loader2 className="animate-spin text-brand-300" size={18} />
           </div>
         )}
       </div>

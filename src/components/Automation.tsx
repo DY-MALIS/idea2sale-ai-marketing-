@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   MessagesSquare,
   Bot,
@@ -139,6 +139,18 @@ const Automation: React.FC = () => {
     const needle = inboxSearch.trim().toLowerCase();
     return lead.displayName?.toLowerCase().includes(needle) || lead.username?.toLowerCase().includes(needle) || lead.lastMessage?.toLowerCase().includes(needle);
   });
+
+  // Auto-load the next page as the user scrolls near the bottom of the list.
+  const inboxSentinelRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const node = inboxSentinelRef.current;
+    if (!node || !inboxHasMore || activeTab !== 'inbox') return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries[0]?.isIntersecting) handleLoadMoreInboxLeads();
+    }, { rootMargin: '300px' });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [inboxHasMore, inboxLastDoc, activeTab]);
 
   useEffect(() => {
     if (!selectedChatId || activeTab !== 'inbox') return;
@@ -592,14 +604,9 @@ const Automation: React.FC = () => {
                     </button>
                   ))}
                   {inboxHasMore && (
-                    <button
-                      onClick={handleLoadMoreInboxLeads}
-                      disabled={inboxLoadingMore}
-                      className="w-full py-3 text-xs font-bold text-brand-600 hover:bg-brand-50 transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
-                    >
-                      {inboxLoadingMore ? <Loader2 className="animate-spin" size={14} /> : null}
-                      {t('loadMoreLeads')}
-                    </button>
+                    <div ref={inboxSentinelRef} className="flex justify-center p-3">
+                      <Loader2 className="animate-spin text-brand-300" size={14} />
+                    </div>
                   )}
                 </>
               )}
