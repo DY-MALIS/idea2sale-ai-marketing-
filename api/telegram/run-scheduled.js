@@ -1,5 +1,6 @@
 import admin from 'firebase-admin';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
+import { createHash } from 'crypto';
 
 const initFirebaseAdmin = () => {
   const projectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID;
@@ -29,15 +30,7 @@ const initFirebaseAdmin = () => {
   return databaseId ? getFirestore(app, databaseId) : getFirestore(app);
 };
 
-const getStorageBucket = () => {
-  const bucketName = process.env.FIREBASE_STORAGE_BUCKET || process.env.VITE_FIREBASE_STORAGE_BUCKET;
-  if (!bucketName) {
-    throw new Error('FIREBASE_STORAGE_BUCKET is not configured.');
-  }
-  return admin.storage().bucket(bucketName);
-};
-
-const uploadMediaDataUrl = async ({ userId, mediaDataUrl, mediaName, mediaType }) => {
+const uploadMediaDataUrl = async ({ mediaDataUrl, mediaType }) => {
   if (!mediaDataUrl) return { mediaUrl: '', mediaType: null };
 
   const match = String(mediaDataUrl).match(/^data:([^;,]+);base64,(.+)$/);
@@ -47,31 +40,41 @@ const uploadMediaDataUrl = async ({ userId, mediaDataUrl, mediaName, mediaType }
 
   const contentType = match[1];
   const buffer = Buffer.from(match[2], 'base64');
-  const maxBytes = 4 * 1024 * 1024;
+  const maxBytes = 48 * 1024 * 1024;
   if (buffer.length > maxBytes) {
-    throw new Error('This media file is too large for web scheduling. Please use a file under 4 MB.');
+    throw new Error('This media file is too large for web scheduling. Please use a file under 48 MB.');
   }
 
-  const token = crypto.randomUUID();
-  const safeName = String(mediaName || 'telegram-media').replace(/[^a-zA-Z0-9._-]/g, '_');
-  const objectPath = `telegram-media/${userId}/${Date.now()}-${safeName}`;
-  const file = getStorageBucket().file(objectPath);
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+  const apiKey = process.env.CLOUDINARY_API_KEY;
+  const apiSecret = process.env.CLOUDINARY_API_SECRET;
+  if (!cloudName || !apiKey || !apiSecret) {
+    throw new Error('Cloudinary is not configured (CLOUDINARY_CLOUD_NAME / CLOUDINARY_API_KEY / CLOUDINARY_API_SECRET).');
+  }
 
-  await file.save(buffer, {
-    resumable: false,
-    metadata: {
-      contentType,
-      metadata: {
-        firebaseStorageDownloadTokens: token
-      }
-    }
+  const timestamp = Math.floor(Date.now() / 1000);
+  const paramsToSign = `folder=telegram-media&timestamp=${timestamp}`;
+  const signature = createHash('sha1').update(paramsToSign + apiSecret).digest('hex');
+
+  const form = new URLSearchParams();
+  form.set('file', mediaDataUrl);
+  form.set('api_key', apiKey);
+  form.set('timestamp', String(timestamp));
+  form.set('signature', signature);
+  form.set('folder', 'telegram-media');
+
+  const response = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`, {
+    method: 'POST',
+    body: form
   });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data?.error?.message || 'Cloudinary upload failed.');
+  }
 
-  const bucketName = process.env.FIREBASE_STORAGE_BUCKET || process.env.VITE_FIREBASE_STORAGE_BUCKET;
-  const encodedPath = encodeURIComponent(objectPath);
   return {
-    mediaUrl: `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodedPath}?alt=media&token=${token}`,
-    mediaType: mediaType || (contentType.startsWith('video/') ? 'video' : 'photo')
+    mediaUrl: data.secure_url,
+    mediaType: mediaType || (data.resource_type === 'video' ? 'video' : contentType.startsWith('video/') ? 'video' : 'photo')
   };
 };
 
