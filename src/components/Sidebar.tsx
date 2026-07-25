@@ -12,6 +12,7 @@ import {
   Bot,
   ShieldCheck,
   Users,
+  MessagesSquare,
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { TabType } from '../types';
@@ -50,6 +51,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onLogout }) 
         { id: 'ads-manager', label: t('adsManagerLabel'), icon: TrendingUp },
         { id: 'tiktok', label: t('tiktokLabel'), icon: BarChart3 },
         { id: 'crm', label: t('crmLabel'), icon: Users },
+        { id: 'automation', label: t('automationLabel'), icon: MessagesSquare },
       ]
     },
     {

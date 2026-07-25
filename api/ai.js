@@ -6,8 +6,6 @@ import {
   pollOpenRouterVideo,
   startOpenRouterVideo,
 } from './_openrouter.js';
-import { initFirebaseAdmin } from './_firebaseAdmin.js';
-import { FieldValue } from 'firebase-admin/firestore';
 
 const jsonFromText = (text, fallback) => {
   try {
@@ -416,42 +414,6 @@ Response rules:
       if (!jobId) return res.status(400).json({ error: 'Video job id is required.' });
       const video = await pollOpenRouterVideo({ jobId });
       return res.status(200).json(video);
-    }
-
-    if (action === 'telegramDiagnose') {
-      const report = {
-        hasTelegramBotToken: !!(process.env.TELEGRAM_BOT_TOKEN || '').trim(),
-        hasTelegramChatId: !!(process.env.TELEGRAM_CHAT_ID || '').trim(),
-        hasFirebaseProjectId: !!(process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || '').trim(),
-        hasFirebaseClientEmail: !!(process.env.FIREBASE_CLIENT_EMAIL || '').trim(),
-        hasFirebasePrivateKey: !!(process.env.FIREBASE_PRIVATE_KEY || '').trim(),
-        firestoreDatabaseId: process.env.FIREBASE_FIRESTORE_DATABASE_ID || process.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || '(default)',
-      };
-      try {
-        const fdb = initFirebaseAdmin();
-        report.firebaseAdminInit = 'ok';
-        try {
-          const testRef = fdb.collection('telegram_leads').doc('diagnose_test');
-          await testRef.set({ diagnosedAt: FieldValue.serverTimestamp() });
-          const snap = await testRef.get();
-          report.firestoreWrite = snap.exists ? 'ok' : 'wrote but not found on read-back';
-          await testRef.delete();
-        } catch (writeError) {
-          report.firestoreWrite = 'FAILED';
-          report.firestoreWriteError = writeError?.message || String(writeError);
-        }
-        try {
-          const leadsSnap = await fdb.collection('telegram_leads').limit(20).get();
-          report.realLeadCount = leadsSnap.size;
-          report.realLeads = leadsSnap.docs.map((d) => ({ id: d.id, displayName: d.data()?.displayName, lastMessage: d.data()?.lastMessage }));
-        } catch (listError) {
-          report.leadListError = listError?.message || String(listError);
-        }
-      } catch (initError) {
-        report.firebaseAdminInit = 'FAILED';
-        report.firebaseAdminInitError = initError?.message || String(initError);
-      }
-      return res.status(200).json(report);
     }
 
     return res.status(400).json({ error: 'Unknown AI action.' });
