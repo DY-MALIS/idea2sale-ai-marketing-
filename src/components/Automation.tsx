@@ -18,11 +18,12 @@ import {
   AlertCircle,
   Inbox as InboxIcon,
   Send,
-  Sparkles
+  Sparkles,
+  Search
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db } from '../lib/firebase';
-import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp, deleteDoc, doc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, orderBy, limit, startAfter, getDocs, onSnapshot, addDoc, serverTimestamp, deleteDoc, doc, updateDoc, QueryDocumentSnapshot, DocumentData } from 'firebase/firestore';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -88,18 +89,25 @@ const Automation: React.FC = () => {
   const [isCreatingRule, setIsCreatingRule] = useState(false);
 
   // Inbox state
+  const INBOX_PAGE_SIZE = 30;
   const [inboxLeads, setInboxLeads] = useState<TelegramLead[]>([]);
   const [inboxLoading, setInboxLoading] = useState(true);
+  const [inboxLoadingMore, setInboxLoadingMore] = useState(false);
+  const [inboxHasMore, setInboxHasMore] = useState(false);
+  const [inboxLastDoc, setInboxLastDoc] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
+  const [inboxSearch, setInboxSearch] = useState('');
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [inboxMessages, setInboxMessages] = useState<TelegramMessage[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
 
   useEffect(() => {
     if (activeTab !== 'inbox') return;
-    const q = query(collection(db, 'telegram_leads'), orderBy('lastMessageAt', 'desc'));
+    const q = query(collection(db, 'telegram_leads'), orderBy('lastMessageAt', 'desc'), limit(INBOX_PAGE_SIZE));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as TelegramLead[];
       setInboxLeads(data);
+      setInboxLastDoc(snapshot.docs[snapshot.docs.length - 1] || null);
+      setInboxHasMore(snapshot.docs.length === INBOX_PAGE_SIZE);
       setInboxLoading(false);
       setSelectedChatId((current) => current || data[0]?.chatId || null);
     }, (error) => {
@@ -108,6 +116,29 @@ const Automation: React.FC = () => {
     });
     return () => unsubscribe();
   }, [activeTab]);
+
+  const handleLoadMoreInboxLeads = async () => {
+    if (!inboxLastDoc || inboxLoadingMore) return;
+    setInboxLoadingMore(true);
+    try {
+      const q = query(collection(db, 'telegram_leads'), orderBy('lastMessageAt', 'desc'), startAfter(inboxLastDoc), limit(INBOX_PAGE_SIZE));
+      const snapshot = await getDocs(q);
+      const next = snapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as TelegramLead[];
+      setInboxLeads((prev) => [...prev, ...next]);
+      setInboxLastDoc(snapshot.docs[snapshot.docs.length - 1] || null);
+      setInboxHasMore(snapshot.docs.length === INBOX_PAGE_SIZE);
+    } catch (error) {
+      console.error('Inbox load more error:', error);
+    } finally {
+      setInboxLoadingMore(false);
+    }
+  };
+
+  const filteredInboxLeads = inboxLeads.filter((lead) => {
+    if (!inboxSearch.trim()) return true;
+    const needle = inboxSearch.trim().toLowerCase();
+    return lead.displayName?.toLowerCase().includes(needle) || lead.username?.toLowerCase().includes(needle) || lead.lastMessage?.toLowerCase().includes(needle);
+  });
 
   useEffect(() => {
     if (!selectedChatId || activeTab !== 'inbox') return;
@@ -523,30 +554,54 @@ const Automation: React.FC = () => {
                 <InboxIcon size={18} className="text-brand-500" />
                 {t('inboxLabel')}
               </h3>
-              <span className="text-[10px] font-bold text-slate-400">{inboxLeads.length}</span>
+              <span className="text-[10px] font-bold text-slate-400">{inboxLeads.length}{inboxHasMore ? '+' : ''}</span>
+            </div>
+            <div className="p-3 border-b border-brand-50 shrink-0">
+              <div className="relative">
+                <input
+                  type="text"
+                  value={inboxSearch}
+                  onChange={(e) => setInboxSearch(e.target.value)}
+                  placeholder={t('searchLeadsPlaceholder')}
+                  className="w-full pl-9 pr-3 py-2 bg-brand-50 border border-brand-100 rounded-xl text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all"
+                />
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-brand-400" size={14} />
+              </div>
             </div>
             <div className="overflow-y-auto flex-1">
               {inboxLoading ? (
                 <div className="flex justify-center p-10"><Loader2 className="animate-spin text-brand-400" /></div>
-              ) : inboxLeads.length === 0 ? (
+              ) : filteredInboxLeads.length === 0 ? (
                 <div className="text-center p-10">
                   <MessageCircle size={32} className="mx-auto text-brand-200 mb-3" />
                   <p className="text-sm text-slate-500">{t('noLeadsYet')}</p>
                 </div>
               ) : (
-                inboxLeads.map((lead) => (
-                  <button
-                    key={lead.id}
-                    onClick={() => setSelectedChatId(lead.chatId)}
-                    className={cn(
-                      'w-full text-left p-4 border-b border-brand-50 transition-colors',
-                      selectedChatId === lead.chatId ? 'bg-brand-50' : 'hover:bg-brand-50/50'
-                    )}
-                  >
-                    <p className="font-bold text-sm text-brand-700 truncate">{lead.displayName}</p>
-                    <p className="text-xs text-slate-500 truncate">{lead.lastMessage}</p>
-                  </button>
-                ))
+                <>
+                  {filteredInboxLeads.map((lead) => (
+                    <button
+                      key={lead.id}
+                      onClick={() => setSelectedChatId(lead.chatId)}
+                      className={cn(
+                        'w-full text-left p-4 border-b border-brand-50 transition-colors',
+                        selectedChatId === lead.chatId ? 'bg-brand-50' : 'hover:bg-brand-50/50'
+                      )}
+                    >
+                      <p className="font-bold text-sm text-brand-700 truncate">{lead.displayName}</p>
+                      <p className="text-xs text-slate-500 truncate">{lead.lastMessage}</p>
+                    </button>
+                  ))}
+                  {inboxHasMore && (
+                    <button
+                      onClick={handleLoadMoreInboxLeads}
+                      disabled={inboxLoadingMore}
+                      className="w-full py-3 text-xs font-bold text-brand-600 hover:bg-brand-50 transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
+                    >
+                      {inboxLoadingMore ? <Loader2 className="animate-spin" size={14} /> : null}
+                      {t('loadMoreLeads')}
+                    </button>
+                  )}
+                </>
               )}
             </div>
           </div>

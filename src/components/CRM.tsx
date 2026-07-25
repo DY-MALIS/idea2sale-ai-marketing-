@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Users, MessageCircle, Send, Loader2, Search, Tag } from 'lucide-react';
+import { Users, MessageCircle, Send, Loader2, Search, Tag, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
+import { collection, query, orderBy, limit, startAfter, getDocs, onSnapshot, QueryDocumentSnapshot, DocumentData } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { cn } from '../lib/utils';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -25,19 +25,26 @@ const TAG_STYLES: Record<string, string> = {
   general: 'bg-brand-50 text-brand-600 border-brand-200',
 };
 
+const PAGE_SIZE = 30;
+
 const CRM: React.FC = () => {
   const { t } = useLanguage();
   const [leads, setLeads] = useState<TelegramLead[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [lastDoc, setLastDoc] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
   const [searchInput, setSearchInput] = useState('');
   const [tagFilter, setTagFilter] = useState<string | null>(null);
 
   useEffect(() => {
-    const q = query(collection(db, 'telegram_leads'), orderBy('lastMessageAt', 'desc'));
+    const q = query(collection(db, 'telegram_leads'), orderBy('lastMessageAt', 'desc'), limit(PAGE_SIZE));
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
         setLeads(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as TelegramLead[]);
+        setLastDoc(snapshot.docs[snapshot.docs.length - 1] || null);
+        setHasMore(snapshot.docs.length === PAGE_SIZE);
         setLoading(false);
       },
       (error) => {
@@ -47,6 +54,23 @@ const CRM: React.FC = () => {
     );
     return () => unsubscribe();
   }, []);
+
+  const handleLoadMore = async () => {
+    if (!lastDoc || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const q = query(collection(db, 'telegram_leads'), orderBy('lastMessageAt', 'desc'), startAfter(lastDoc), limit(PAGE_SIZE));
+      const snapshot = await getDocs(q);
+      const nextLeads = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as TelegramLead[];
+      setLeads((prev) => [...prev, ...nextLeads]);
+      setLastDoc(snapshot.docs[snapshot.docs.length - 1] || null);
+      setHasMore(snapshot.docs.length === PAGE_SIZE);
+    } catch (error) {
+      console.error('CRM load more error:', error);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   const filteredLeads = leads.filter((lead) => {
     if (tagFilter && lead.tag !== tagFilter) return false;
@@ -79,7 +103,7 @@ const CRM: React.FC = () => {
           )}
         >
           <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">{t('allLeads')}</p>
-          <p className="text-2xl font-bold text-brand-700">{leads.length}</p>
+          <p className="text-2xl font-bold text-brand-700">{leads.length}{hasMore ? '+' : ''}</p>
         </button>
         {['interested', 'price-question', 'support', 'general'].map((tag) => (
           <button
@@ -153,6 +177,19 @@ const CRM: React.FC = () => {
                 </motion.div>
               ))}
             </AnimatePresence>
+          </div>
+        )}
+
+        {!loading && hasMore && (
+          <div className="p-4 border-t border-brand-100">
+            <button
+              onClick={handleLoadMore}
+              disabled={loadingMore}
+              className="w-full py-3 bg-brand-50 text-brand-600 font-bold rounded-xl text-sm hover:bg-brand-100 transition-all border border-brand-100 flex items-center justify-center gap-2 disabled:opacity-60"
+            >
+              {loadingMore ? <Loader2 className="animate-spin" size={16} /> : <ChevronDown size={16} />}
+              {t('loadMoreLeads')}
+            </button>
           </div>
         )}
       </div>
