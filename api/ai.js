@@ -440,6 +440,13 @@ Response rules:
           report.firestoreWrite = 'FAILED';
           report.firestoreWriteError = writeError?.message || String(writeError);
         }
+        try {
+          const leadsSnap = await fdb.collection('telegram_leads').limit(20).get();
+          report.realLeadCount = leadsSnap.size;
+          report.realLeads = leadsSnap.docs.map((d) => ({ id: d.id, displayName: d.data()?.displayName, lastMessage: d.data()?.lastMessage }));
+        } catch (listError) {
+          report.leadListError = listError?.message || String(listError);
+        }
       } catch (initError) {
         report.firebaseAdminInit = 'FAILED';
         report.firebaseAdminInitError = initError?.message || String(initError);
