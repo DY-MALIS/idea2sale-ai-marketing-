@@ -61,7 +61,6 @@ const Automation: React.FC = () => {
   // Modal states for Reply
   const [ruleTrigger, setRuleTrigger] = useState('');
   const [ruleResponse, setRuleResponse] = useState('');
-  const [rulePlatform, setRulePlatform] = useState('TikTok');
   const [isCreatingRule, setIsCreatingRule] = useState(false);
 
   // Inbox state
@@ -250,7 +249,7 @@ const Automation: React.FC = () => {
           id: Date.now().toString(),
           trigger: ruleTrigger,
           response: ruleResponse,
-          platform: rulePlatform,
+          platform: 'TELEGRAM',
           userId: 'demo-user'
         }]);
         setIsCreatingRule(false);
@@ -265,7 +264,7 @@ const Automation: React.FC = () => {
       await addDoc(collection(db, 'reply_rules'), {
         trigger: ruleTrigger,
         response: ruleResponse,
-        platform: rulePlatform,
+        platform: 'TELEGRAM',
         userId: userToUse.uid,
         createdAt: serverTimestamp()
       });
@@ -644,16 +643,9 @@ const Automation: React.FC = () => {
                 
                 <div>
                   <label className="block text-xs font-bold text-brand-400 uppercase tracking-widest mb-2">{t('platform')}</label>
-                  <select
-                    value={rulePlatform}
-                    onChange={(e) => setRulePlatform(e.target.value)}
-                    className="w-full px-4 py-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-800 focus:outline-none font-medium"
-                  >
-                    <option>TikTok</option>
-                    <option>Facebook</option>
-                    <option>Instagram</option>
-                    <option value="TELEGRAM">Telegram</option>
-                  </select>
+                  <div className="w-full px-4 py-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-800 font-medium">
+                    Telegram
+                  </div>
                 </div>
               </div>
 
