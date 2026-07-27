@@ -5,16 +5,10 @@ import {
   Zap,
   Shield,
   MessageCircle,
-  MousePointer2,
-  RefreshCw,
   Plus,
   ArrowRight,
   Loader2,
-  Settings,
-  CheckCircle2,
   X,
-  Calendar as CalendarIcon,
-  Clock,
   AlertCircle,
   Inbox as InboxIcon,
   Send,
@@ -23,7 +17,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db } from '../lib/firebase';
-import { collection, query, where, orderBy, limit, startAfter, getDocs, onSnapshot, addDoc, serverTimestamp, deleteDoc, doc, updateDoc, QueryDocumentSnapshot, DocumentData } from 'firebase/firestore';
+import { collection, query, where, orderBy, limit, startAfter, getDocs, onSnapshot, addDoc, serverTimestamp, deleteDoc, doc, QueryDocumentSnapshot, DocumentData } from 'firebase/firestore';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -46,16 +40,6 @@ interface TelegramMessage {
   createdAt?: { toDate: () => Date };
 }
 
-interface Campaign {
-  id: string;
-  name: string;
-  platform: string;
-  frequency: string;
-  status: 'Active' | 'Paused';
-  userId: string;
-  createdAt: any;
-}
-
 interface ReplyRule {
   id: string;
   trigger: string;
@@ -68,18 +52,10 @@ interface ReplyRule {
 const Automation: React.FC = () => {
   const { t, language } = useLanguage();
   const { user, isDemoMode } = useAuth();
-  const [activeTab, setActiveTab] = useState<'posting' | 'reply' | 'inbox'>('posting');
-  const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<'reply' | 'inbox'>('reply');
   const [isRuleModalOpen, setIsRuleModalOpen] = useState(false);
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [replyRules, setReplyRules] = useState<ReplyRule[]>([]);
   const [loading, setLoading] = useState(true);
-  
-  // Modal states for Posting
-  const [campaignName, setCampaignName] = useState('');
-  const [platform, setPlatform] = useState('TikTok');
-  const [frequency, setFrequency] = useState('Daily');
-  const [isCreating, setIsCreating] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Modal states for Reply
@@ -181,55 +157,24 @@ const Automation: React.FC = () => {
     if (userToUse) {
       if (isDemoMode) {
         // Mock data for demo mode
-        setCampaigns([
-          { id: '1', name: 'Demo Campaign', platform: 'TikTok', frequency: 'Daily', status: 'Active', userId: 'demo-user', createdAt: null },
-          { id: '2', name: 'Holiday Special', platform: 'Instagram', frequency: 'Weekly', status: 'Paused', userId: 'demo-user', createdAt: null }
-        ]);
         setReplyRules([
           { id: '1', trigger: 'price', response: 'Hi! The price is $25.', platform: 'TikTok', userId: 'demo-user' },
           { id: '2', trigger: 'available', response: 'Yes, it is available!', platform: 'Facebook', userId: 'demo-user' }
         ]);
         setLoading(false);
       } else {
-        const qC = query(
-          collection(db, 'campaigns'),
-          where('userId', '==', userToUse.uid)
-        );
-
         const qR = query(
           collection(db, 'reply_rules'),
           where('userId', '==', userToUse.uid)
         );
 
-        const unsubC = onSnapshot(qC, 
-          (snapshot) => {
-            const data = snapshot.docs.map(doc => ({
-              id: doc.id,
-              ...doc.data()
-            })) as Campaign[];
-            
-            const sorted = data.sort((a, b) => {
-              const dateA = a.createdAt?.toDate?.() || new Date(0);
-              const dateB = b.createdAt?.toDate?.() || new Date(0);
-              return dateB - dateA;
-            });
-
-            setCampaigns(sorted);
-            if (activeTab === 'posting') setLoading(false);
-          },
-          (error) => {
-            console.error("Firestore Error in Campaigns:", error);
-            setLoading(false);
-          }
-        );
-
-        const unsubR = onSnapshot(qR, 
+        unsubscribe = onSnapshot(qR,
           (snapshot) => {
             const data = snapshot.docs.map(doc => ({
               id: doc.id,
               ...doc.data()
             })) as ReplyRule[];
-            
+
             setReplyRules(data);
             setLoading(false);
           },
@@ -238,14 +183,8 @@ const Automation: React.FC = () => {
             setLoading(false);
           }
         );
-
-        unsubscribe = () => {
-          unsubC();
-          unsubR();
-        };
       }
     } else {
-      setCampaigns([]);
       setReplyRules([]);
       setLoading(false);
     }
@@ -256,9 +195,6 @@ const Automation: React.FC = () => {
   }, [user, isDemoMode]);
 
   const [stats, setStats] = useState({ replies: 0, hours: 0, rate: 0 });
-  const [tiktokConnected, setTiktokConnected] = useState(() => {
-    return localStorage.getItem('tiktok_connected') === 'true';
-  });
   const [isAutomationActive, setIsAutomationActive] = useState(() => {
     return localStorage.getItem('global_automation_active') !== 'false'; // Default to true if not set
   });
@@ -285,140 +221,16 @@ const Automation: React.FC = () => {
     if (isDemoMode) {
       setStats({ replies: 1248, hours: 12, rate: 84 });
     } else {
-      // Calculate real stats based on active campaigns
-      const activeCount = campaigns.filter(c => c.status === 'Active').length;
-      const hoursSaved = activeCount * 2.5; // Rough estimate: 2.5 hours per active campaign
+      // Calculate real stats based on active reply rules
+      const activeCount = replyRules.length;
+      const hoursSaved = activeCount * 2.5; // Rough estimate: 2.5 hours per active rule
       setStats({
         replies: activeCount * 15, // Mocking replies for now as we don't have a replies collection
         hours: Math.round(hoursSaved),
         rate: activeCount > 0 ? 82 : 0
       });
     }
-  }, [campaigns, isDemoMode]);
-  useEffect(() => {
-    const checkTikTok = async () => {
-      try {
-        const res = await fetch('/api/tiktok/me');
-        const data = await res.json();
-        setTiktokConnected(!!data.display_name || !!data.open_id);
-      } catch (e) {
-        setTiktokConnected(false);
-      }
-    };
-    if (!isDemoMode) {
-      if (localStorage.getItem('tiktok_connected') === 'true') {
-        setTiktokConnected(true);
-      } else {
-        checkTikTok();
-      }
-    }
-  }, [isDemoMode]);
-
-  const handleTikTokAuth = async () => {
-    try {
-      // In a real app, we use OAuth. For prototype, we open TikTok and help user simulate.
-      window.open('https://www.tiktok.com/login', 'tiktokAuth', 'width=600,height=700');
-      
-      // Let the user know they can confirm manually in the UI
-      setErrorMsg(language === 'km' 
-        ? 'សូមចុចប៊ូតុង "បញ្ជាក់ការភ្ជាប់ (សាកល្បង)" ខាងក្រោម ដើម្បីបន្ត។' 
-        : 'Please click the "Confirm Connection (Mock)" button below to continue.');
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const confirmConnection = () => {
-    setTiktokConnected(true);
-    localStorage.setItem('tiktok_connected', 'true');
-    setErrorMsg(null);
-  };
-  const handleCreateSchedule = async () => {
-    if (!campaignName.trim()) {
-      setErrorMsg(t('enterCampaignNameErr'));
-      return;
-    }
-    
-    const userToUse = user || (isDemoMode ? { uid: 'demo-user' } : null);
-    if (!userToUse) {
-      setErrorMsg(t('signInFirstErr'));
-      return;
-    }
-
-    if (platform === 'TikTok' && !tiktokConnected && !isDemoMode) {
-      setErrorMsg(t('connectTiktokFirstErr'));
-      return;
-    }
-
-    setIsCreating(true);
-    setErrorMsg(null);
-
-    if (isDemoMode) {
-      // Just simulate success in demo mode
-      setTimeout(() => {
-        setCampaigns(prev => [...prev, {
-          id: Date.now().toString(),
-          name: campaignName,
-          platform,
-          frequency,
-          status: 'Active',
-          userId: 'demo-user',
-          createdAt: { toDate: () => new Date() }
-        }]);
-        setIsCreating(false);
-        setIsScheduleModalOpen(false);
-        setCampaignName('');
-      }, 800);
-      return;
-    }
-
-    try {
-      await addDoc(collection(db, 'campaigns'), {
-        name: campaignName,
-        platform,
-        frequency,
-        status: 'Active',
-        userId: userToUse.uid,
-        createdAt: serverTimestamp()
-      });
-      setIsScheduleModalOpen(false);
-      setCampaignName('');
-    } catch (err: any) {
-      console.error('Error creating campaign:', err);
-      setErrorMsg(err.message || (language === 'km' ? 'ការបង្កើតយុទ្ធនាការមិនបានសម្រេច។ សូមព្យាយាមម្តងទៀត។' : 'Failed to create campaign. Please try again.'));
-    } finally {
-      setIsCreating(false);
-    }
-  };
-
-  const toggleCampaignStatus = async (campaign: Campaign) => {
-    const newStatus = campaign.status === 'Active' ? 'Paused' : 'Active';
-    try {
-      await updateDoc(doc(db, 'campaigns', campaign.id), {
-        status: newStatus
-      });
-    } catch (err) {
-      console.error('Error updating status:', err);
-    }
-  };
-
-  const deleteCampaign = async (id: string) => {
-    try {
-      if (isDemoMode) {
-        setCampaigns(prev => prev.filter(c => c.id !== id));
-        return;
-      }
-      await deleteDoc(doc(db, 'campaigns', id));
-    } catch (err: any) {
-      console.error('Error deleting campaign:', err);
-      const msg = err.message || '';
-      if (msg.includes('insufficient permissions')) {
-        setErrorMsg(language === 'km' ? 'អ្នកមិនមានការអនុញ្ញាតឱ្យលុបទិន្នន័យនេះទេ។' : 'You do not have permission to delete this.');
-      } else {
-        setErrorMsg(language === 'km' ? 'មិនអាចលុបបាន៖ ' + msg : 'Failed to delete: ' + msg);
-      }
-    }
-  };
+  }, [replyRules, isDemoMode]);
 
   const handleCreateRule = async () => {
     if (!ruleTrigger.trim() || !ruleResponse.trim()) {
@@ -515,12 +327,6 @@ const Automation: React.FC = () => {
           <p className="text-slate-500 mt-1 text-lg">{t('engagementTeam')}</p>
         </div>
         <div className="flex bg-brand-100/50 p-1.5 rounded-2xl border border-brand-200">
-          <button 
-            onClick={() => setActiveTab('posting')}
-            className={cn("px-6 py-2.5 rounded-xl text-sm font-bold transition-all", activeTab === 'posting' ? "bg-white text-brand-700 shadow-sm" : "text-brand-500 hover:bg-brand-50")}
-          >
-            {t('autoPosting')}
-          </button>
           <button
             onClick={() => setActiveTab('reply')}
             className={cn("px-6 py-2.5 rounded-xl text-sm font-bold transition-all", activeTab === 'reply' ? "bg-white text-brand-700 shadow-sm" : "text-brand-500 hover:bg-brand-50")}
@@ -536,7 +342,7 @@ const Automation: React.FC = () => {
         </div>
       </header>
 
-      {errorMsg && !isScheduleModalOpen && !isRuleModalOpen && (
+      {errorMsg && !isRuleModalOpen && (
         <motion.div 
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -657,79 +463,6 @@ const Automation: React.FC = () => {
       ) : (
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         <div className="lg:col-span-8 space-y-8">
-          {activeTab === 'posting' ? (
-            <div className="glass p-10 rounded-[2.5rem] shadow-sm">
-              <div className="flex justify-between items-center mb-8">
-                <div>
-                  <h3 className="text-2xl font-bold text-brand-700">{t('autoPostEngine')}</h3>
-                  <p className="text-slate-500 text-sm">{t('autoPostDesc')}</p>
-                </div>
-                <button 
-                  onClick={() => {
-                    setIsScheduleModalOpen(true);
-                  }}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-brand-700 text-white rounded-xl font-bold hover:bg-brand-800 transition-all active:scale-95"
-                >
-                  <Plus size={20} />
-                  {t('newScheduleBtn')}
-                </button>
-              </div>
-
-              <div className="space-y-6">
-                {loading ? (
-                  <div className="flex flex-col items-center justify-center py-20 gap-4">
-                    <Loader2 className="animate-spin text-brand-500" size={32} />
-                    <p className="text-slate-400 text-sm font-medium">{t('syncCampaigns')}</p>
-                  </div>
-                ) : campaigns.length === 0 ? (
-                  <div className="text-center py-20 bg-brand-50/30 rounded-[2.5rem] border border-dashed border-brand-200">
-                    <CalendarIcon size={48} className="mx-auto text-brand-200 mb-4" />
-                    <h4 className="text-brand-700 font-bold mb-1">{t('noActiveCampaigns')}</h4>
-                    <p className="text-sm text-slate-500">{t('createFirstSchedule')}</p>
-                  </div>
-                ) : (
-                  campaigns.map((campaign) => (
-                    <div key={campaign.id} className="flex items-center justify-between p-6 bg-brand-50/50 rounded-[2rem] border border-brand-100 relative group overflow-hidden">
-                      <div className={`absolute top-0 left-0 w-1 h-full ${campaign.status === 'Active' ? 'bg-emerald-500' : 'bg-slate-300'}`} />
-                      <div className="flex items-center gap-5">
-                        <div className="w-16 h-16 bg-white rounded-2xl shadow-sm border border-brand-100 overflow-hidden flex items-center justify-center">
-                          <Zap size={24} className={campaign.status === 'Active' ? "text-brand-500" : "text-slate-300"} />
-                        </div>
-                        <div>
-                          <h4 className="font-bold text-brand-700">{campaign.name}</h4>
-                          <p className="text-xs text-slate-500 font-medium">
-                            {campaign.platform} • {campaign.frequency} • {campaign.status === 'Active' ? t('enabled') : t('paused')}
-                          </p>
-                        </div>
-                      </div>
-                        <div className="flex items-center gap-4">
-                          <button 
-                            onClick={() => toggleCampaignStatus(campaign)}
-                            className={cn(
-                              "flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full transition-all",
-                              campaign.status === 'Active' 
-                                ? "text-emerald-600 bg-emerald-50 hover:bg-emerald-100" 
-                                : "text-slate-500 bg-slate-100 hover:bg-slate-200"
-                            )}
-                          >
-                            {campaign.status === 'Active' ? <CheckCircle2 size={14} /> : <Clock size={14} />}
-                            {campaign.status === 'Active' ? t('enabled') : t('paused')}
-                          </button>
-                          <div className="flex items-center gap-2">
-                            <button 
-                              onClick={() => deleteCampaign(campaign.id)}
-                              className="p-3 bg-white hover:bg-red-50 text-red-400 rounded-xl transition-all border border-brand-100 shadow-sm"
-                            >
-                              <X size={18} />
-                            </button>
-                          </div>
-                        </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          ) : (
             <div className="glass p-10 rounded-[2.5rem] shadow-sm">
               <div className="flex justify-between items-center mb-8">
                 <div>
@@ -752,7 +485,11 @@ const Automation: React.FC = () => {
               </div>
 
               <div className="space-y-4">
-                {replyRules.length === 0 ? (
+                {loading ? (
+                  <div className="flex flex-col items-center justify-center py-20 gap-4">
+                    <Loader2 className="animate-spin text-brand-500" size={32} />
+                  </div>
+                ) : replyRules.length === 0 ? (
                   <div className="text-center py-20 bg-brand-50/30 rounded-[2.5rem] border border-dashed border-brand-200">
                     <MessageCircle size={48} className="mx-auto text-brand-200 mb-4" />
                     <h4 className="text-brand-700 font-bold mb-1">{language === 'km' ? 'មិនទាន់មានច្បាប់ឆ្លើយតបនៅឡើយទេ' : 'No reply rules yet'}</h4>
@@ -768,7 +505,7 @@ const Automation: React.FC = () => {
                         </div>
                         <div className="flex items-center gap-4">
                           <span className="text-xs text-slate-400 font-bold">{rule.platform}</span>
-                          <button 
+                          <button
                             onClick={() => deleteRule(rule.id)}
                             className="p-2 bg-white hover:bg-red-50 text-red-400 rounded-lg border border-brand-100 shadow-sm"
                           >
@@ -785,7 +522,6 @@ const Automation: React.FC = () => {
                 )}
               </div>
             </div>
-          )}
         </div>
 
         <div className="lg:col-span-4 space-y-8">
@@ -853,128 +589,6 @@ const Automation: React.FC = () => {
       )}
 
       <AnimatePresence>
-        {isScheduleModalOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsScheduleModalOpen(false)}
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative w-full max-w-lg bg-white rounded-[2.5rem] shadow-2xl overflow-hidden"
-            >
-              <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-brand-50/30">
-                <div>
-                  <h3 className="text-2xl font-bold text-brand-700">{t('newSchedule')}</h3>
-                  <p className="text-slate-500 text-sm">{t('automationSubtitle')}</p>
-                </div>
-                <button onClick={() => setIsScheduleModalOpen(false)} className="p-2 hover:bg-white rounded-xl transition-all">
-                  <X size={20} className="text-brand-400" />
-                </button>
-              </div>
-              
-              <div className="p-8 space-y-6">
-                {errorMsg && (
-                  <div className="p-4 bg-red-50 text-red-600 rounded-xl flex flex-col gap-3 text-sm border border-red-100">
-                    <div className="flex items-center gap-2">
-                      <AlertCircle size={16} />
-                      {errorMsg}
-                    </div>
-                    {errorMsg.includes(language === 'km' ? 'ភ្ជាប់' : 'connect') && (
-                      <div className="flex flex-col gap-2 mt-2">
-                        <button 
-                          onClick={handleTikTokAuth}
-                          className="py-2 bg-black text-white rounded-lg font-bold text-xs flex items-center justify-center gap-2 hover:bg-slate-900 transition-all"
-                        >
-                          <RefreshCw size={14} />
-                          {language === 'km' ? 'ភ្ជាប់ TikTok ឥឡូវនេះ' : 'Connect TikTok Now'}
-                        </button>
-                        
-                        <button 
-                          type="button"
-                          onClick={confirmConnection}
-                          className="py-2 bg-brand-100 text-brand-700 border border-brand-200 rounded-lg font-bold text-xs flex items-center justify-center gap-2 hover:bg-brand-200 transition-all"
-                        >
-                          <Zap size={14} />
-                          {language === 'km' ? 'បញ្ជាក់ការភ្ជាប់ (សាកល្បង)' : 'Confirm Connection (Mock)'}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-                <div>
-                  <label className="block text-xs font-bold text-brand-400 uppercase tracking-widest mb-2">{t('campaignName')}</label>
-                  <input 
-                    type="text" 
-                    value={campaignName}
-                    onChange={(e) => setCampaignName(e.target.value)}
-                    placeholder={t('campaignNamePlaceholder')} 
-                    className="w-full px-4 py-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 ring-brand-500/20" 
-                  />
-                </div>
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-brand-400 uppercase tracking-widest mb-2">{t('platform')}</label>
-                    <select 
-                      value={platform}
-                      onChange={(e) => setPlatform(e.target.value)}
-                      className="w-full px-4 py-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-800 focus:outline-none font-medium"
-                    >
-                      <option>TikTok</option>
-                      <option>Facebook</option>
-                      <option>Instagram</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-brand-400 uppercase tracking-widest mb-2">{t('frequency')}</label>
-                    <select 
-                      value={frequency}
-                      onChange={(e) => setFrequency(e.target.value)}
-                      className="w-full px-4 py-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-800 focus:outline-none font-medium"
-                    >
-                      <option value="Daily">{t('daily')}</option>
-                      <option value="Weekly">{t('weekly')}</option>
-                      <option value="Custom">{t('custom')}</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="p-4 bg-brand-50 rounded-2xl border border-brand-100 text-sm text-brand-600 flex gap-3">
-                  <CalendarIcon className="shrink-0 text-brand-400" size={20} />
-                  {t('bestTimeSuggestion')}
-                </div>
-              </div>
-
-              <div className="p-8 bg-brand-50/50 border-t border-slate-100 flex gap-3">
-                <button 
-                  onClick={() => setIsScheduleModalOpen(false)}
-                  className="flex-1 py-4 bg-white border border-brand-200 text-brand-700 font-bold rounded-2xl hover:bg-brand-50 transition-all"
-                >
-                  {t('cancel')}
-                </button>
-                <button 
-                  onClick={handleCreateSchedule}
-                  disabled={isCreating}
-                  className="flex-1 py-4 bg-brand-700 text-white font-bold rounded-2xl hover:bg-brand-800 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-                >
-                  {isCreating ? <Loader2 className="animate-spin" size={18} /> : (
-                    <>
-                      {t('createSchedule')}
-                      <ArrowRight size={18} />
-                    </>
-                  )}
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-
         {isRuleModalOpen && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
             <motion.div 
