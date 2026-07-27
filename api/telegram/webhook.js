@@ -1,5 +1,5 @@
 import { generateOpenRouterText } from '../_openrouter.js';
-import { initFirebaseAdmin } from '../_firebaseAdmin.js';
+import admin, { initFirebaseAdmin } from '../_firebaseAdmin.js';
 import { FieldValue } from 'firebase-admin/firestore';
 
 const TELEGRAM_LIMIT = 3900;
@@ -142,10 +142,53 @@ const buildSystemPrompt = () => [
   'Do not claim that you posted, scheduled, or changed settings unless the user explicitly asks and an integration confirms it.',
 ].join(' ');
 
+const sendManualReply = async (req, res) => {
+  const token = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
+  if (!token) {
+    return res.status(503).json({ error: 'TELEGRAM_BOT_TOKEN is not configured in Vercel.' });
+  }
+
+  const authHeader = req.headers.authorization || '';
+  const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  if (!idToken) {
+    return res.status(401).json({ error: 'Please sign in before replying.' });
+  }
+
+  const chatId = String(req.body?.chatId || '').trim();
+  const text = String(req.body?.text || '').trim();
+  if (!chatId || !text) {
+    return res.status(400).json({ error: 'chatId and text are required.' });
+  }
+
+  let db;
+  try {
+    db = initFirebaseAdmin();
+    await admin.auth().verifyIdToken(idToken, true);
+  } catch (error) {
+    return res.status(401).json({ error: 'Sign-in verification failed.' });
+  }
+
+  try {
+    await telegramApi(token, 'sendMessage', {
+      chat_id: chatId,
+      text,
+      disable_web_page_preview: false,
+    });
+    await logMessage(db, chatId, 'out', text, 'system');
+    return res.status(200).json({ ok: true });
+  } catch (error) {
+    return res.status(502).json({ error: error?.message || 'Could not send this reply.' });
+  }
+};
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
     return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  if (req.query?.action === 'reply') {
+    return sendManualReply(req, res);
   }
 
   const token = (process.env.TELEGRAM_BOT_TOKEN || '').trim();

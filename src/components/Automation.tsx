@@ -74,6 +74,8 @@ const Automation: React.FC = () => {
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [inboxMessages, setInboxMessages] = useState<TelegramMessage[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
+  const [replyText, setReplyText] = useState('');
+  const [sendingReply, setSendingReply] = useState(false);
 
   useEffect(() => {
     if (activeTab !== 'inbox') return;
@@ -147,6 +149,46 @@ const Automation: React.FC = () => {
     });
     return () => unsubscribe();
   }, [selectedChatId, activeTab]);
+
+  const handleSendReply = async () => {
+    const text = replyText.trim();
+    if (!text || !selectedChatId || sendingReply) return;
+    setSendingReply(true);
+    setErrorMsg(null);
+
+    if (isDemoMode) {
+      setInboxMessages((prev) => [...prev, {
+        id: Date.now().toString(),
+        chatId: selectedChatId,
+        direction: 'out',
+        text,
+        source: 'system',
+        createdAt: { toDate: () => new Date() }
+      }]);
+      setReplyText('');
+      setSendingReply(false);
+      return;
+    }
+
+    try {
+      if (!user) throw new Error(language === 'km' ? 'សូម Sign in ជាមុនសិន' : 'Please sign in first.');
+      const idToken = await user.getIdToken();
+      const response = await fetch('/api/telegram/webhook?action=reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ chatId: selectedChatId, text })
+      });
+      const data = await response.json();
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error || (language === 'km' ? 'មិនអាចផ្ញើសារបានទេ' : 'Could not send this reply.'));
+      }
+      setReplyText('');
+    } catch (err: any) {
+      setErrorMsg(err.message || (language === 'km' ? 'មិនអាចផ្ញើសារបានទេ' : 'Could not send this reply.'));
+    } finally {
+      setSendingReply(false);
+    }
+  };
 
   useEffect(() => {
     let unsubscribe: () => void;
@@ -457,6 +499,30 @@ const Automation: React.FC = () => {
                 ))
               )}
             </div>
+            {selectedChatId && (
+              <div className="p-4 border-t border-brand-100 bg-white flex items-end gap-2 shrink-0">
+                <textarea
+                  value={replyText}
+                  onChange={(e) => setReplyText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSendReply();
+                    }
+                  }}
+                  placeholder={language === 'km' ? 'វាយសារឆ្លើយតប...' : 'Type a reply...'}
+                  rows={1}
+                  className="flex-1 px-4 py-3 bg-brand-50 border border-brand-100 rounded-xl text-sm text-brand-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 ring-brand-500/20 resize-none max-h-32"
+                />
+                <button
+                  onClick={handleSendReply}
+                  disabled={!replyText.trim() || sendingReply}
+                  className="px-4 py-3 bg-brand-700 text-white rounded-xl font-bold hover:bg-brand-800 transition-all disabled:opacity-40 shrink-0"
+                >
+                  {sendingReply ? <Loader2 className="animate-spin" size={18} /> : <Send size={18} />}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       ) : (

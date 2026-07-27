@@ -45,7 +45,7 @@ const Scheduler: React.FC = () => {
   const getDemoPosts = () => {
     const savedPosts = getLocalScheduledPosts();
     const now = new Date();
-    const defaultPosts = [
+    const defaultPosts: SchedulePost[] = [
       {
         id: '1',
         content: 'Excited to announce our new product launch! Stay tuned for more details at 5 PM today. #NewArrival #PulseSync',
@@ -67,7 +67,7 @@ const Scheduler: React.FC = () => {
         createdAt: subHours(now, 24).toISOString()
       }
     ];
-    return sortScheduledPosts([...savedPosts, ...defaultPosts]) as SchedulePost[];
+    return sortScheduledPosts([...savedPosts, ...defaultPosts]);
   };
 
   useEffect(() => {

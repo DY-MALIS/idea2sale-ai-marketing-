@@ -186,7 +186,8 @@ const SchedulerHub: React.FC = () => {
       let mediaUrl = '';
       let mediaType: 'photo' | 'video' | null = null;
       if (platform === 'TELEGRAM') {
-        const idToken = await userToUse.getIdToken();
+        if (!user) throw new Error('Please sign in first.');
+        const idToken = await user.getIdToken();
         const mediaDataUrl = telegramMediaFile ? await fileToDataUrl(telegramMediaFile) : '';
         const response = await fetch('/api/telegram/run-scheduled?action=create', {
           method: 'POST',
@@ -215,13 +216,6 @@ const SchedulerHub: React.FC = () => {
         await withUploadTimeout(uploadBytes(storageRef, videoFile, { contentType: videoFile.type }));
         videoUrl = await getDownloadURL(storageRef);
       }
-      if (platform === 'TELEGRAM' && telegramMediaFile) {
-        const safeName = telegramMediaFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-        const storageRef = ref(storage, `telegram-media/${userToUse.uid}/${Date.now()}-${safeName}`);
-        await withUploadTimeout(uploadBytes(storageRef, telegramMediaFile, { contentType: telegramMediaFile.type }));
-        mediaUrl = await getDownloadURL(storageRef);
-        mediaType = telegramMediaFile.type.startsWith('video/') ? 'video' : 'photo';
-      }
       await addDoc(collection(db, 'scheduled_posts'), {
         content: content.trim(),
         platform,
@@ -234,7 +228,7 @@ const SchedulerHub: React.FC = () => {
         mediaUrl,
         mediaName: telegramMediaFile?.name || null,
         mediaType,
-        publishMode: platform === 'TIKTOK' ? 'TIKTOK_DIRECT_POST' : platform === 'TELEGRAM' ? 'TELEGRAM_AUTO_POST' : 'PLANNED_ONLY',
+        publishMode: platform === 'TIKTOK' ? 'TIKTOK_DIRECT_POST' : 'PLANNED_ONLY',
         createdAt: serverTimestamp()
       });
       setIsModalOpen(false);
