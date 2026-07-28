@@ -1,7 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Copy, Loader2, RefreshCw, Send, Sparkles } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Bot, Copy, Loader2, RefreshCw, Send, Sparkles, UserRound } from 'lucide-react';
 import Markdown from 'react-markdown';
-import { motion, AnimatePresence } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 import { useLanguage } from '../contexts/LanguageContext';
 
 interface AgentMessage {
@@ -9,79 +9,117 @@ interface AgentMessage {
   content: string;
 }
 
-const detectMessageLanguage = (message: string) => {
-  if (/[\u1780-\u17FF]/.test(message)) return 'km';
-  return 'en';
-};
+const MAX_MESSAGES = 20;
+const HISTORY_MESSAGES = 14;
+
+const detectMessageLanguage = (message: string) => (
+  /[\u1780-\u17FF]/.test(message) ? 'km' : 'en'
+);
 
 const AIAgent: React.FC = () => {
   const { language } = useLanguage();
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [messages, setMessages] = useState<AgentMessage[]>([]);
+  const conversationEndRef = useRef<HTMLDivElement>(null);
+  const requestControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    localStorage.removeItem('ai_agent_messages');
-  }, []);
+    conversationEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [messages, loading]);
+
+  useEffect(() => () => requestControllerRef.current?.abort(), []);
 
   const text = useMemo(() => ({
-    title: language === 'km' ? 'AI Agent បង្កើត Content' : 'AI Content Agent',
+    title: language === 'km' ? 'AI Agent ឆ្លាតវៃ' : 'Intelligent AI Agent',
     subtitle: language === 'km'
-      ? 'សរសេរថាអ្នកចង់បង្កើត content អំពីអ្វី។ Agent នឹងរៀបចំឲ្យសម្រាប់ TikTok, Facebook ឬ X តាមអ្វីដែលអ្នកបានប្រាប់។'
-      : 'Tell the agent what content you want. It will prepare the right TikTok, Facebook, or X content from your request.',
-    prompt: language === 'km' ? 'អ្នកចង់បង្កើត Content អំពីអ្វី?' : 'What content do you want to create?',
+      ? 'សួរអ្វីក៏បាន ឬប្រាប់ Agent ឲ្យបង្កើត Content, ដោះស្រាយបញ្ហា និងរៀបចំផែនការសម្រាប់ TikTok, Facebook, X ឬ Telegram។'
+      : 'Ask anything, create content, troubleshoot problems, or plan work for TikTok, Facebook, X, and Telegram.',
+    prompt: language === 'km' ? 'តើអ្នកចង់សួរ ឬឲ្យ Agent ធ្វើអ្វី?' : 'What would you like the agent to help with?',
     placeholder: language === 'km'
-      ? 'ឧ. ខ្ញុំចង់បង្កើត content TikTok សម្រាប់លក់ផលិតផលថែរក្សាសម្រស់ ឲ្យមើលទៅពេញនិយម និងមាន caption...'
-      : 'e.g. I want TikTok content for selling a beauty product with viral hooks and captions...',
-    generate: language === 'km' ? 'បង្កើត Content' : 'Create Content',
-    thinking: language === 'km' ? 'កំពុងគិត...' : 'Thinking...',
-    result: language === 'km' ? 'Content ដែលបានបង្កើត' : 'Generated Content',
-    empty: language === 'km' ? 'Content ដែលបានបង្កើតនឹងបង្ហាញនៅទីនេះ។' : 'Generated content will appear here.',
-    copy: language === 'km' ? 'ចម្លងចម្លើយ' : 'Copy answer',
-    clear: language === 'km' ? 'Chat ថ្មី' : 'New chat',
+      ? 'សរសេរសំណួរ ឬការងាររបស់អ្នកនៅទីនេះ...'
+      : 'Ask a question or describe what you want to create...',
+    send: language === 'km' ? 'ផ្ញើទៅ Agent' : 'Ask Agent',
+    thinking: language === 'km' ? 'កំពុងគិត និងវិភាគ...' : 'Thinking and analyzing...',
+    result: language === 'km' ? 'ការសន្ទនាជាមួយ Agent' : 'Agent Conversation',
+    emptyTitle: language === 'km' ? 'Agent រួចរាល់សម្រាប់ជួយអ្នក' : 'Your agent is ready',
+    empty: language === 'km'
+      ? 'សួរសំណួរ បង្កើត Content ឬពិពណ៌នាបញ្ហាដែលអ្នកចង់ដោះស្រាយ។'
+      : 'Ask a question, request content, or describe a problem you want to solve.',
+    copy: language === 'km' ? 'ចម្លងចម្លើយចុងក្រោយ' : 'Copy latest answer',
+    clear: language === 'km' ? 'សន្ទនាថ្មី' : 'New chat',
+    user: language === 'km' ? 'អ្នក' : 'You',
+    agent: language === 'km' ? 'AI Agent' : 'AI Agent',
+    inputHint: language === 'km' ? 'ចុច Enter ដើម្បីផ្ញើ · Shift + Enter ដើម្បីចុះបន្ទាត់' : 'Enter to send · Shift + Enter for a new line',
   }), [language]);
 
-  const persistMessages = (nextMessages: AgentMessage[]) => {
-    setMessages(nextMessages.slice(-12));
+  const updateMessages = (nextMessages: AgentMessage[]) => {
+    setMessages(nextMessages.slice(-MAX_MESSAGES));
   };
 
-  const askAgent = async (overridePrompt?: string) => {
-    const message = (overridePrompt || input).trim();
-    if (!message) return;
-    const detectedLanguage = detectMessageLanguage(message);
+  const startNewChat = () => {
+    requestControllerRef.current?.abort();
+    setMessages([]);
+    setInput('');
+    setLoading(false);
+  };
 
+  const askAgent = async () => {
+    const message = input.trim();
+    if (!message || loading) return;
+
+    const history = messages.slice(-HISTORY_MESSAGES);
     const userMessage: AgentMessage = { role: 'user', content: message };
-    const nextMessages = [...messages, userMessage];
-    persistMessages(nextMessages);
+    const pendingMessages = [...messages, userMessage].slice(-MAX_MESSAGES);
+    updateMessages(pendingMessages);
     setInput('');
     setLoading(true);
+
+    requestControllerRef.current?.abort();
+    const controller = new AbortController();
+    requestControllerRef.current = controller;
 
     try {
       const response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           action: 'socialAgent',
           message,
           platform: 'Auto',
           mode: 'auto',
           language,
-          detectedLanguage,
-          history: nextMessages.slice(-8),
+          detectedLanguage: detectMessageLanguage(message),
+          history,
         }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'AI Agent failed.');
-      persistMessages([...nextMessages, { role: 'assistant', content: data.text || 'No response generated.' }]);
+
+      updateMessages([
+        ...pendingMessages,
+        { role: 'assistant', content: String(data.text || 'No response generated.').trim() },
+      ]);
     } catch (error: any) {
-      persistMessages([...nextMessages, { role: 'assistant', content: error.message || 'AI Agent error.' }]);
+      if (error?.name !== 'AbortError') {
+        updateMessages([
+          ...pendingMessages,
+          {
+            role: 'assistant',
+            content: error?.message || (language === 'km' ? 'Agent មិនអាចឆ្លើយបាននៅពេលនេះ។' : 'The agent could not respond right now.'),
+          },
+        ]);
+      }
     } finally {
-      setLoading(false);
+      if (requestControllerRef.current === controller) {
+        requestControllerRef.current = null;
+        setLoading(false);
+      }
     }
   };
 
-  const assistantMessages = messages.filter((message) => message.role === 'assistant');
-  const latestAnswer = [...assistantMessages].reverse()[0]?.content || '';
+  const latestAnswer = [...messages].reverse().find((message) => message.role === 'assistant')?.content || '';
 
   return (
     <div className="max-w-7xl mx-auto space-y-8">
@@ -90,91 +128,133 @@ const AIAgent: React.FC = () => {
           {text.title}
           <Sparkles className="text-brand-500" size={34} />
         </h2>
-        <p className="text-slate-500 text-lg max-w-3xl">{text.subtitle}</p>
+        <p className="text-slate-500 text-lg max-w-4xl">{text.subtitle}</p>
       </header>
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
-        <section className="xl:col-span-4 glass rounded-[2.5rem] p-8 space-y-6 self-start">
+        <section className="xl:col-span-4 glass rounded-[2rem] p-7 space-y-5 self-start">
           <div className="space-y-2">
-            <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">{text.prompt}</label>
+            <label className="text-[10px] font-bold text-brand-700 uppercase tracking-widest">{text.prompt}</label>
             <textarea
               value={input}
               onChange={(event) => setInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault();
+                  void askAgent();
+                }
+              }}
               placeholder={text.placeholder}
-              className="w-full h-72 p-5 rounded-2xl bg-brand-50 border border-brand-200 focus:ring-2 focus:ring-brand-500 focus:bg-white outline-none transition-all resize-none font-medium"
+              className="w-full min-h-60 p-5 rounded-2xl bg-brand-50 border border-brand-200 focus:ring-2 focus:ring-brand-500 focus:bg-white outline-none transition-all resize-y font-medium"
             />
+            <p className="text-xs text-slate-400">{text.inputHint}</p>
           </div>
 
           <button
-            onClick={() => askAgent()}
+            onClick={() => void askAgent()}
             disabled={loading || !input.trim()}
             className="w-full bg-gradient-to-r from-brand-600 to-crab-shell hover:from-brand-700 hover:to-crab-shell/90 disabled:from-brand-200 disabled:to-brand-300 text-white font-bold py-5 rounded-2xl flex items-center justify-center gap-3 transition-all shadow-xl shadow-brand-500/20"
           >
             {loading ? <Loader2 className="animate-spin" /> : <Send size={20} />}
-            <span>{loading ? text.thinking : text.generate}</span>
+            <span>{loading ? text.thinking : text.send}</span>
           </button>
         </section>
 
-        <section className="xl:col-span-8 glass rounded-[2.5rem] p-8 min-h-[620px] flex flex-col">
-          <div className="flex items-center justify-between mb-6">
+        <section className="xl:col-span-8 glass rounded-[2rem] p-7 min-h-[650px] flex flex-col">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
             <h3 className="text-xl font-bold text-brand-700 flex items-center gap-2">
-              <div className="w-2 h-6 bg-brand-500 rounded-full" />
+              <span className="w-2 h-6 bg-brand-500 rounded-full" />
               {text.result}
             </h3>
             <div className="flex items-center gap-2">
-            {messages.length > 0 && (
-              <button
-                onClick={() => persistMessages([])}
-                className="px-4 py-3 bg-white/70 text-brand-600 hover:bg-brand-50 rounded-xl transition-all border border-brand-200 flex items-center gap-2 text-sm font-bold"
-                title={text.clear}
-              >
-                <RefreshCw size={16} />
-                {text.clear}
-              </button>
-            )}
-            {latestAnswer && (
-              <button
-                onClick={() => navigator.clipboard.writeText(latestAnswer)}
-                className="p-3 bg-brand-50 text-brand-500 hover:bg-brand-100 rounded-xl transition-all border border-brand-200"
-                title={text.copy}
-              >
-                <Copy size={20} />
-              </button>
-            )}
+              {messages.length > 0 && (
+                <button
+                  onClick={startNewChat}
+                  className="px-4 py-3 bg-white/70 text-brand-600 hover:bg-brand-50 rounded-xl transition-all border border-brand-200 flex items-center gap-2 text-sm font-bold"
+                  title={text.clear}
+                >
+                  <RefreshCw size={16} />
+                  {text.clear}
+                </button>
+              )}
+              {latestAnswer && (
+                <button
+                  onClick={() => navigator.clipboard.writeText(latestAnswer)}
+                  className="p-3 bg-brand-50 text-brand-500 hover:bg-brand-100 rounded-xl transition-all border border-brand-200"
+                  title={text.copy}
+                >
+                  <Copy size={20} />
+                </button>
+              )}
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto pr-2 space-y-4">
+          <div className="flex-1 max-h-[720px] overflow-y-auto pr-2 space-y-4">
             {!messages.length && !loading && (
-              <div className="h-full min-h-[480px] flex flex-col items-center justify-center text-center text-brand-400">
-                <div className="w-24 h-24 bg-brand-50 rounded-[2rem] flex items-center justify-center border border-brand-100 shadow-inner mb-5">
-                  <Sparkles size={40} className="text-brand-200" />
+              <div className="h-full min-h-[500px] flex flex-col items-center justify-center text-center">
+                <div className="w-20 h-20 bg-brand-50 rounded-3xl flex items-center justify-center border border-brand-100 shadow-inner mb-5">
+                  <Bot size={38} className="text-brand-400" />
                 </div>
-                <p className="text-lg font-medium text-brand-600">{text.empty}</p>
+                <p className="text-lg font-bold text-brand-700">{text.emptyTitle}</p>
+                <p className="mt-2 max-w-md text-slate-500">{text.empty}</p>
               </div>
             )}
 
-            <AnimatePresence>
-              {assistantMessages.map((message, index) => (
-                <motion.div
-                  key={`${message.role}-${index}`}
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="mr-auto max-w-full rounded-3xl border border-brand-100 bg-brand-50/60 p-5 text-slate-700"
-                >
-                  <div className="prose prose-brand max-w-none">
-                    <Markdown>{message.content}</Markdown>
-                  </div>
-                </motion.div>
-              ))}
+            <AnimatePresence initial={false}>
+              {messages.map((message, index) => {
+                const isUser = message.role === 'user';
+                return (
+                  <motion.article
+                    key={`${message.role}-${index}-${message.content.slice(0, 20)}`}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className={`flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}
+                  >
+                    {!isUser && (
+                      <div className="mt-1 h-9 w-9 shrink-0 rounded-xl bg-brand-600 text-white flex items-center justify-center">
+                        <Bot size={18} />
+                      </div>
+                    )}
+                    <div
+                      className={`max-w-[88%] rounded-2xl px-5 py-4 ${
+                        isUser
+                          ? 'bg-brand-600 text-white rounded-br-md'
+                          : 'border border-brand-100 bg-brand-50/70 text-slate-700 rounded-bl-md'
+                      }`}
+                    >
+                      <p className={`mb-2 text-[10px] font-bold uppercase tracking-widest ${isUser ? 'text-white/70' : 'text-brand-500'}`}>
+                        {isUser ? text.user : text.agent}
+                      </p>
+                      {isUser ? (
+                        <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
+                      ) : (
+                        <div className="prose prose-brand max-w-none">
+                          <Markdown>{message.content}</Markdown>
+                        </div>
+                      )}
+                    </div>
+                    {isUser && (
+                      <div className="mt-1 h-9 w-9 shrink-0 rounded-xl bg-white border border-brand-200 text-brand-600 flex items-center justify-center">
+                        <UserRound size={18} />
+                      </div>
+                    )}
+                  </motion.article>
+                );
+              })}
             </AnimatePresence>
 
             {loading && (
-              <div className="mr-auto max-w-[80%] rounded-3xl border border-brand-100 bg-brand-50/60 p-5 text-brand-600 flex items-center gap-3">
-                <Loader2 className="animate-spin" size={18} />
-                <span className="font-medium">{text.thinking}</span>
+              <div className="flex items-start gap-3">
+                <div className="mt-1 h-9 w-9 shrink-0 rounded-xl bg-brand-600 text-white flex items-center justify-center">
+                  <Bot size={18} />
+                </div>
+                <div className="rounded-2xl rounded-bl-md border border-brand-100 bg-brand-50/70 px-5 py-4 text-brand-600 flex items-center gap-3">
+                  <Loader2 className="animate-spin" size={18} />
+                  <span className="font-medium">{text.thinking}</span>
+                </div>
               </div>
             )}
+            <div ref={conversationEndRef} />
           </div>
         </section>
       </div>

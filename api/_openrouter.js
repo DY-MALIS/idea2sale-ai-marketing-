@@ -30,7 +30,16 @@ const openRouterJson = async (path, body) => {
 
 const fileToDataUrl = (base64, mimeType) => `data:${mimeType};base64,${base64}`;
 
-export async function generateOpenRouterText({ prompt, system = 'You are a helpful marketing assistant.', model, responseFormat, imageBase64, imageMimeType }) {
+export async function generateOpenRouterText({
+  prompt,
+  system = 'You are a helpful marketing assistant.',
+  model,
+  responseFormat,
+  imageBase64,
+  imageMimeType,
+  temperature,
+  maxTokens,
+}) {
   const apiKey = getApiKey();
 
   const userContent = imageBase64 && imageMimeType
@@ -54,6 +63,8 @@ export async function generateOpenRouterText({ prompt, system = 'You are a helpf
         { role: 'system', content: system },
         { role: 'user', content: userContent },
       ],
+      ...(Number.isFinite(temperature) ? { temperature } : {}),
+      ...(Number.isFinite(maxTokens) ? { max_tokens: maxTokens } : {}),
       ...(responseFormat ? { response_format: responseFormat } : {}),
     }),
   });
