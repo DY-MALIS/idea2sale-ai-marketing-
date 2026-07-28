@@ -31,6 +31,15 @@ export type TabType =
   | 'automation'
   | 'security-center';
 
+export interface CreativeAutomationRequest {
+  id: string;
+  kind: 'image' | 'video';
+  prompt: string;
+  platform: 'TikTok' | 'Facebook' | 'X' | 'Telegram' | 'General';
+  aspectRatio: '1:1' | '9:16' | '16:9' | '4:5' | '3:4';
+  language: 'km' | 'en';
+}
+
 export interface SchedulePost {
   id: string;
   content: string;

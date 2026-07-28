@@ -14,12 +14,18 @@ import {
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage } from '../contexts/LanguageContext';
+import { CreativeAutomationRequest } from '../types';
 
 type ToolType = 'video' | 'voice';
 type VoiceGender = 'Female' | 'Male';
 type VoicePersona = 'sreymom' | 'piseth';
 
-const VideoVoice: React.FC = () => {
+interface VideoVoiceProps {
+  automationRequest?: CreativeAutomationRequest | null;
+  onAutomationConsumed?: (requestId: string) => void;
+}
+
+const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomationConsumed }) => {
   const { t, language } = useLanguage();
   const [activeTool, setActiveTool] = useState<ToolType>('video');
   const [videoPrompt, setVideoPrompt] = useState('A realistic 8-second TikTok product ad: close-up product reveal on a real table, warm natural light, slow camera push-in, hand places the product naturally, detailed texture, cinematic depth of field, clean premium brand feeling');
@@ -40,6 +46,8 @@ const VideoVoice: React.FC = () => {
   const [needsApiKey, setNeedsApiKey] = useState(false);
   const [videoImage, setVideoImage] = useState<string | null>(null);
   const [videoImageMimeType, setVideoImageMimeType] = useState<string | null>(null);
+  const [automationNotice, setAutomationNotice] = useState<string | null>(null);
+  const handledAutomationRef = React.useRef<string | null>(null);
 
   const [aiCaption, setAiCaption] = useState('');
   const [captionLanguage, setCaptionLanguage] = useState<'Khmer' | 'English'>('Khmer');
@@ -210,13 +218,18 @@ const VideoVoice: React.FC = () => {
     }
   };
 
-  const handleGenerateVideo = async () => {
-    if (!videoPrompt && !videoImage) return;
+  const handleGenerateVideo = async (
+    promptOverride?: string,
+    languageOverride?: 'Khmer' | 'English',
+  ) => {
+    const promptText = typeof promptOverride === 'string' ? promptOverride.trim() : videoPrompt.trim();
+    const generationLanguage = languageOverride || videoLanguage;
+    if (!promptText && !videoImage) return;
 
     setLoading(true);
     setGeneratedVideo(null);
     try {
-      const prompt = `${videoLanguage === 'Khmer' ? 'Khmer/Cambodian context. ' : ''}${videoPrompt || 'Create a realistic short marketing video from the uploaded reference image.'}`;
+      const prompt = `${generationLanguage === 'Khmer' ? 'Khmer/Cambodian context. ' : ''}${promptText || 'Create a realistic short marketing video from the uploaded reference image.'}`;
       const response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -253,6 +266,25 @@ const VideoVoice: React.FC = () => {
       setLoading(false);
     }
   };
+
+  React.useEffect(() => {
+    if (!automationRequest || automationRequest.kind !== 'video') return;
+    if (handledAutomationRef.current === automationRequest.id) return;
+
+    const generationLanguage = automationRequest.language === 'km' ? 'Khmer' : 'English';
+    handledAutomationRef.current = automationRequest.id;
+    setActiveTool('video');
+    setVideoPrompt(automationRequest.prompt);
+    setVideoLanguage(generationLanguage);
+    setCaptionLanguage(generationLanguage);
+    setAutomationNotice(
+      language === 'km'
+        ? `Agent បានរៀប brief សម្រាប់ ${automationRequest.platform} ហើយកំពុងបង្កើតវីដេអូស្វ័យប្រវត្តិ។`
+        : `The agent prepared a ${automationRequest.platform} brief and started automatic video creation.`,
+    );
+    onAutomationConsumed?.(automationRequest.id);
+    void handleGenerateVideo(automationRequest.prompt, generationLanguage);
+  }, [automationRequest?.id]);
 
   const handleGenerateAudio = async () => {
     if (!ttsText) return;
@@ -446,6 +478,12 @@ const VideoVoice: React.FC = () => {
 
   return (
     <div className="max-w-6xl mx-auto space-y-10">
+      {automationNotice && (
+        <div className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-semibold text-emerald-800">
+          <Sparkles size={18} className="shrink-0" />
+          <span>{automationNotice}</span>
+        </div>
+      )}
       <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
         <div>
           <h2 className="text-4xl font-display font-bold text-brand-700 tracking-tight flex items-center gap-3">
@@ -717,7 +755,16 @@ const VideoVoice: React.FC = () => {
                 )}
               </div>
             )}
-            <button onClick={activeTool === 'video' ? handleGenerateVideo : handleGenerateAudio} className="w-full bg-gradient-to-r from-brand-600 to-crab-shell text-white font-bold py-5 rounded-2xl flex items-center justify-center gap-3 shadow-xl">
+            <button
+              onClick={() => {
+                if (activeTool === 'video') {
+                  void handleGenerateVideo();
+                } else {
+                  void handleGenerateAudio();
+                }
+              }}
+              className="w-full bg-gradient-to-r from-brand-600 to-crab-shell text-white font-bold py-5 rounded-2xl flex items-center justify-center gap-3 shadow-xl"
+            >
               {loading || audioLoading ? <Loader2 className="animate-spin" /> : <Sparkles size={22} />}
               <span className="text-lg">{loading || audioLoading ? t('generating') : t('generateWithAi')}</span>
             </button>

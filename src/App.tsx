@@ -16,7 +16,7 @@ import Automation from './components/Automation';
 import Auth from './components/Auth';
 import LegalPage from './components/LegalPage';
 import SecurityCenter from './components/SecurityCenter';
-import { TabType } from './types';
+import { CreativeAutomationRequest, TabType } from './types';
 import { useLanguage } from './contexts/LanguageContext';
 import { useAuth } from './contexts/AuthContext';
 
@@ -26,6 +26,7 @@ export default function App() {
   const { user, isDemoMode, loading: authLoading, setDemoMode, logout } = useAuth();
   const [configInfo, setConfigInfo] = useState<any>(null);
   const [showLanguageMenu, setShowLanguageMenu] = useState(false);
+  const [creativeAutomation, setCreativeAutomation] = useState<CreativeAutomationRequest | null>(null);
 
   const { language, setLanguage, t } = useLanguage();
 
@@ -45,16 +46,35 @@ export default function App() {
     setDemoMode(true);
   };
 
+  const handleCreativeAutomation = (request: CreativeAutomationRequest) => {
+    setCreativeAutomation(request);
+    setActiveTab(request.kind === 'video' ? 'video-voice' : 'poster-gen');
+  };
+
+  const consumeCreativeAutomation = (requestId: string) => {
+    setCreativeAutomation((current) => current?.id === requestId ? null : current);
+  };
+
   const renderContent = () => {
     switch (activeTab) {
       case 'copywriter': return <Copywriter />;
-      case 'poster-gen': return <PosterGen />;
-      case 'video-voice': return <VideoVoice />;
+      case 'poster-gen': return (
+        <PosterGen
+          automationRequest={creativeAutomation?.kind === 'image' ? creativeAutomation : null}
+          onAutomationConsumed={consumeCreativeAutomation}
+        />
+      );
+      case 'video-voice': return (
+        <VideoVoice
+          automationRequest={creativeAutomation?.kind === 'video' ? creativeAutomation : null}
+          onAutomationConsumed={consumeCreativeAutomation}
+        />
+      );
       case 'tiktok': return <TikTokAnalytics />;
       case 'product-research': return <ProductResearch />;
       case 'ads-manager': return <AdsManager />;
       case 'scheduler': return <SchedulerHub />;
-      case 'ai-agent': return <AIAgent />;
+      case 'ai-agent': return <AIAgent onCreativeAutomation={handleCreativeAutomation} />;
       case 'crm': return <CRM />;
       case 'automation': return <Automation />;
       case 'security-center': return <SecurityCenter />;

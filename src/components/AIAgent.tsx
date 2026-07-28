@@ -1,12 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Bot, Copy, Loader2, RefreshCw, Send, Sparkles, UserRound } from 'lucide-react';
+import { Bot, Copy, Image as ImageIcon, Loader2, RefreshCw, Send, Sparkles, UserRound, Video, Zap } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { AnimatePresence, motion } from 'motion/react';
 import { useLanguage } from '../contexts/LanguageContext';
+import { CreativeAutomationRequest } from '../types';
 
 interface AgentMessage {
   role: 'user' | 'assistant';
   content: string;
+}
+
+interface AIAgentProps {
+  onCreativeAutomation: (request: CreativeAutomationRequest) => void;
 }
 
 const MAX_MESSAGES = 20;
@@ -16,10 +21,11 @@ const detectMessageLanguage = (message: string) => (
   /[\u1780-\u17FF]/.test(message) ? 'km' : 'en'
 );
 
-const AIAgent: React.FC = () => {
+const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const { language } = useLanguage();
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [autoCreateEnabled, setAutoCreateEnabled] = useState(true);
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const conversationEndRef = useRef<HTMLDivElement>(null);
   const requestControllerRef = useRef<AbortController | null>(null);
@@ -51,6 +57,10 @@ const AIAgent: React.FC = () => {
     user: language === 'km' ? 'អ្នក' : 'You',
     agent: language === 'km' ? 'AI Agent' : 'AI Agent',
     inputHint: language === 'km' ? 'ចុច Enter ដើម្បីផ្ញើ · Shift + Enter ដើម្បីចុះបន្ទាត់' : 'Enter to send · Shift + Enter for a new line',
+    autoCreate: language === 'km' ? 'បង្កើតរូប/វីដេអូស្វ័យប្រវត្តិ' : 'Automatic image/video creation',
+    autoCreateHelp: language === 'km'
+      ? 'ពេលព័ត៌មានគ្រប់ Agent នឹងបើក generator និងចាប់ផ្តើមបង្កើតភ្លាម។'
+      : 'When the brief is complete, the agent opens the right generator and starts creating.',
   }), [language]);
 
   const updateMessages = (nextMessages: AgentMessage[]) => {
@@ -101,6 +111,22 @@ const AIAgent: React.FC = () => {
         ...pendingMessages,
         { role: 'assistant', content: String(data.text || 'No response generated.').trim() },
       ]);
+
+      if (autoCreateEnabled && data.automation?.ready) {
+        const kind = data.automation.kind === 'video' ? 'video' : 'image';
+        onCreativeAutomation({
+          id: `${Date.now()}-${kind}`,
+          kind,
+          prompt: String(data.automation.prompt || '').trim(),
+          platform: ['TikTok', 'Facebook', 'X', 'Telegram'].includes(data.automation.platform)
+            ? data.automation.platform
+            : 'General',
+          aspectRatio: ['1:1', '9:16', '16:9', '4:5', '3:4'].includes(data.automation.aspectRatio)
+            ? data.automation.aspectRatio
+            : (kind === 'video' ? '9:16' : '1:1'),
+          language: detectMessageLanguage(message),
+        });
+      }
     } catch (error: any) {
       if (error?.name !== 'AbortError') {
         updateMessages([
@@ -148,6 +174,40 @@ const AIAgent: React.FC = () => {
               className="w-full min-h-60 p-5 rounded-2xl bg-brand-50 border border-brand-200 focus:ring-2 focus:ring-brand-500 focus:bg-white outline-none transition-all resize-y font-medium"
             />
             <p className="text-xs text-slate-400">{text.inputHint}</p>
+          </div>
+
+          <div className="flex items-center justify-between gap-4 rounded-2xl border border-brand-200 bg-white/70 p-4">
+            <div className="flex min-w-0 items-start gap-3">
+              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600">
+                <Zap size={18} />
+              </span>
+              <div>
+                <p className="text-sm font-bold text-brand-700">{text.autoCreate}</p>
+                <p className="mt-1 text-xs leading-relaxed text-slate-500">{text.autoCreateHelp}</p>
+                <div className="mt-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-brand-400">
+                  <ImageIcon size={13} />
+                  <span>Image</span>
+                  <Video size={13} className="ml-1" />
+                  <span>Video</span>
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={autoCreateEnabled}
+              onClick={() => setAutoCreateEnabled((enabled) => !enabled)}
+              className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${
+                autoCreateEnabled ? 'bg-emerald-500' : 'bg-slate-300'
+              }`}
+              title={text.autoCreate}
+            >
+              <span
+                className={`absolute left-1 top-1 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                  autoCreateEnabled ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
           </div>
 
           <button

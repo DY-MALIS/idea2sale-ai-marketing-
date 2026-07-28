@@ -9,10 +9,16 @@ import {
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage } from '../contexts/LanguageContext';
+import { CreativeAutomationRequest } from '../types';
 
 type ToolType = 'poster' | 'visual';
 
-const PosterGen: React.FC = () => {
+interface PosterGenProps {
+  automationRequest?: CreativeAutomationRequest | null;
+  onAutomationConsumed?: (requestId: string) => void;
+}
+
+const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationConsumed }) => {
   const { t, language } = useLanguage();
   const [activeTool, setActiveTool] = useState<ToolType>('poster');
   const [posterPrompt, setPosterPrompt] = useState('A real product photo in a Cambodian cafe setting, warm sunlight, premium commercial photography, natural shadows, realistic texture, lifestyle background');
@@ -28,6 +34,8 @@ const PosterGen: React.FC = () => {
   const [tiktokUser, setTiktokUser] = useState<any>(null);
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [needsApiKey, setNeedsApiKey] = useState(false);
+  const [automationNotice, setAutomationNotice] = useState<string | null>(null);
+  const handledAutomationRef = React.useRef<string | null>(null);
 
   React.useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -127,15 +135,17 @@ const PosterGen: React.FC = () => {
     }
   };
 
-  const handleGenerateImage = async () => {
-    if (!visualPrompt) return;
+  const handleGenerateImage = async (promptOverride?: string, aspectRatioOverride?: string) => {
+    const prompt = typeof promptOverride === 'string' ? promptOverride.trim() : visualPrompt.trim();
+    const aspectRatio = typeof aspectRatioOverride === 'string' ? aspectRatioOverride : '1:1';
+    if (!prompt) return;
     setLoading(true);
     setGeneratedImage(null);
     try {
       const response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'imageGenerate', prompt: visualPrompt, aspectRatio: '1:1' }),
+        body: JSON.stringify({ action: 'imageGenerate', prompt, aspectRatio }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Image generation failed.');
@@ -151,6 +161,22 @@ const PosterGen: React.FC = () => {
     }
   };
 
+  React.useEffect(() => {
+    if (!automationRequest || automationRequest.kind !== 'image') return;
+    if (handledAutomationRef.current === automationRequest.id) return;
+
+    handledAutomationRef.current = automationRequest.id;
+    setActiveTool('visual');
+    setVisualPrompt(automationRequest.prompt);
+    setAutomationNotice(
+      language === 'km'
+        ? `Agent បានរៀប prompt សម្រាប់ ${automationRequest.platform} ហើយកំពុងបង្កើតរូបភាពស្វ័យប្រវត្តិ។`
+        : `The agent prepared a ${automationRequest.platform} brief and started automatic image creation.`,
+    );
+    onAutomationConsumed?.(automationRequest.id);
+    void handleGenerateImage(automationRequest.prompt, automationRequest.aspectRatio);
+  }, [automationRequest?.id]);
+
   const handleDownload = () => {
     if (generatedImage) {
       const link = document.createElement('a');
@@ -164,6 +190,12 @@ const PosterGen: React.FC = () => {
 
   return (
     <div className="max-w-6xl mx-auto space-y-10">
+      {automationNotice && (
+        <div className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-semibold text-emerald-800">
+          <Sparkles size={18} className="shrink-0" />
+          <span>{automationNotice}</span>
+        </div>
+      )}
       <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
         <div>
           <h2 className="text-4xl font-display font-bold text-brand-700 tracking-tight flex items-center gap-3">
@@ -287,7 +319,13 @@ const PosterGen: React.FC = () => {
             )}
             
             <button
-              onClick={activeTool === 'poster' ? handleGeneratePoster : handleGenerateImage}
+              onClick={() => {
+                if (activeTool === 'poster') {
+                  void handleGeneratePoster();
+                } else {
+                  void handleGenerateImage();
+                }
+              }}
               disabled={loading || (activeTool === 'visual' && !visualPrompt)}
               className="w-full bg-gradient-to-r from-brand-600 to-crab-shell hover:from-brand-700 hover:to-crab-shell/90 text-white font-bold py-5 rounded-2xl flex items-center justify-center gap-3 transition-all shadow-xl shadow-brand-500/20"
             >
