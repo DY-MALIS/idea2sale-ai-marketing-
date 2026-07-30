@@ -168,7 +168,18 @@ const Scheduler: React.FC = () => {
           mediaType: post.mediaType || ''
         })
       });
-      const data = await res.json();
+      const responseText = await res.text();
+      let data: any = {};
+      try {
+        data = responseText ? JSON.parse(responseText) : {};
+      } catch {
+        const tooLarge = res.status === 413 || responseText.toLowerCase().includes('request entity too large');
+        throw new Error(
+          tooLarge
+            ? 'This Demo media request is too large. Sign out, choose Continue as Guest, and schedule it again.'
+            : `Telegram service returned HTTP ${res.status} instead of JSON.`
+        );
+      }
 
       if (!res.ok || !data.ok) {
         throw new Error(data.error || 'Telegram post failed.');

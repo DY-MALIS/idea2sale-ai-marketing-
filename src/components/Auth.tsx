@@ -6,7 +6,8 @@ import {
   Loader2
 } from 'lucide-react';
 
-import { signInWithGoogle } from '../lib/firebase';
+import { signInWithGoogle, auth } from '../lib/firebase';
+import { signInWithCustomToken } from 'firebase/auth';
 import { useLanguage } from '../contexts/LanguageContext';
 
 interface AuthProps {
@@ -64,8 +65,34 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
     setLoading(true);
     setError(null);
     setErrorCode(null);
-    onDemoMode?.();
-    setLoading(false);
+    try {
+      const response = await fetch('/api/telegram/run-scheduled?action=guest-token', {
+        method: 'POST'
+      });
+      const responseText = await response.text();
+      let data: any = {};
+      try {
+        data = responseText ? JSON.parse(responseText) : {};
+      } catch {
+        throw new Error(`Guest sign-in service returned HTTP ${response.status}.`);
+      }
+
+      if (!response.ok || !data.ok || !data.token) {
+        throw new Error(data.error || 'Could not start a guest session.');
+      }
+
+      await signInWithCustomToken(auth, data.token);
+    } catch (err: any) {
+      console.error('Guest sign-in failed:', err);
+      setErrorCode(err?.code || null);
+      setError(
+        language === 'km'
+          ? `មិនអាចចូលជា Guest បានទេ៖ ${err?.message || 'Unknown error'}`
+          : `Could not continue as guest: ${err?.message || 'Unknown error'}`
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleGoogleLogin = async () => {

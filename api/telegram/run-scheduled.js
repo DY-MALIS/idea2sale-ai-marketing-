@@ -1,6 +1,6 @@
 import admin from 'firebase-admin';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
-import { createHash } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 
 const initFirebaseAdmin = () => {
   const projectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID;
@@ -49,6 +49,13 @@ const verifyUser = async (req) => {
     throw error;
   }
   return admin.auth().verifyIdToken(token, true);
+};
+
+const createGuestToken = async (res) => {
+  const uid = `guest_${randomBytes(18).toString('hex')}`;
+  const token = await admin.auth().createCustomToken(uid, { guest: true });
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(200).json({ ok: true, token });
 };
 
 const createSignedUpload = async (req, res) => {
@@ -245,6 +252,18 @@ export default async function handler(req, res) {
   if (!['GET', 'POST'].includes(req.method)) {
     res.setHeader('Allow', 'GET, POST');
     return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  if (req.method === 'POST' && req.query?.action === 'guest-token') {
+    try {
+      initFirebaseAdmin();
+      return await createGuestToken(res);
+    } catch (error) {
+      return res.status(500).json({
+        ok: false,
+        error: error?.message || 'Could not start a guest session.'
+      });
+    }
   }
 
   if (req.method === 'POST' && req.query?.action === 'create') {

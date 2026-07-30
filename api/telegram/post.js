@@ -68,7 +68,16 @@ export default async function handler(req, res) {
       body: mediaDataUrl ? payload : JSON.stringify(payload)
     });
 
-    let data = await telegramRes.json();
+    const readTelegramJson = async (response) => {
+      const responseText = await response.text();
+      try {
+        return responseText ? JSON.parse(responseText) : {};
+      } catch {
+        throw new Error(`Telegram returned HTTP ${response.status} instead of JSON.`);
+      }
+    };
+
+    let data = await readTelegramJson(telegramRes);
 
     if (mediaUrl && (!telegramRes.ok || !data.ok)) {
       telegramRes = await fetch(`https://api.telegram.org/bot${token}/sendDocument`, {
@@ -80,7 +89,7 @@ export default async function handler(req, res) {
           caption: text || undefined
         })
       });
-      data = await telegramRes.json();
+      data = await readTelegramJson(telegramRes);
     }
 
     if (!telegramRes.ok || !data.ok) {

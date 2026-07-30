@@ -16,6 +16,7 @@ import { useAuth } from '../contexts/AuthContext';
 const MB = 1024 * 1024;
 const TELEGRAM_SERVER_MEDIA_LIMIT_MB = 48;
 const TELEGRAM_MEDIA_LIMIT_MB = 48;
+const DEMO_INLINE_MEDIA_LIMIT_MB = 3;
 const UPLOAD_TIMEOUT_MS = 180000;
 const LOCAL_POSTS_KEY = 'demo_scheduled_posts';
 
@@ -71,6 +72,9 @@ const SchedulerHub: React.FC = () => {
     if (file.size > TELEGRAM_MEDIA_LIMIT_MB * MB) {
       return `This file is ${formatFileSize(file.size)}. Telegram videos must be under ${TELEGRAM_MEDIA_LIMIT_MB} MB. Please choose a smaller/compressed video.`;
     }
+    if (demoMode && file.size > DEMO_INLINE_MEDIA_LIMIT_MB * MB) {
+      return `This file is ${formatFileSize(file.size)}. Try Demo Mode supports media under ${DEMO_INLINE_MEDIA_LIMIT_MB} MB. Use Continue as Guest to schedule files up to ${TELEGRAM_MEDIA_LIMIT_MB} MB.`;
+    }
     if (!demoMode && file.size > TELEGRAM_SERVER_MEDIA_LIMIT_MB * MB) {
       return `This file is ${formatFileSize(file.size)}. Telegram auto-scheduling currently supports files under ${TELEGRAM_SERVER_MEDIA_LIMIT_MB} MB. Please compress it or choose a smaller file.`;
     }
@@ -84,7 +88,13 @@ const SchedulerHub: React.FC = () => {
         Authorization: `Bearer ${idToken}`
       }
     });
-    const signatureData = await signatureResponse.json();
+    const signatureText = await signatureResponse.text();
+    let signatureData: any = {};
+    try {
+      signatureData = signatureText ? JSON.parse(signatureText) : {};
+    } catch {
+      throw new Error(`Upload service returned HTTP ${signatureResponse.status} instead of JSON.`);
+    }
     if (!signatureResponse.ok || !signatureData.ok) {
       throw new Error(signatureData.error || 'Could not prepare the media upload.');
     }
@@ -228,7 +238,13 @@ const SchedulerHub: React.FC = () => {
             mediaType: uploadedMedia?.mediaType || null
           })
         });
-        const data = await response.json();
+        const responseText = await response.text();
+        let data: any = {};
+        try {
+          data = responseText ? JSON.parse(responseText) : {};
+        } catch {
+          throw new Error(`Scheduling service returned HTTP ${response.status} instead of JSON.`);
+        }
         if (!response.ok || !data.ok) {
           throw new Error(data.error || 'Could not schedule this Telegram post.');
         }
