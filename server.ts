@@ -7,6 +7,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import admin from "firebase-admin";
 import { GoogleGenAI } from "@google/genai";
+import runScheduledHandler from "./api/telegram/run-scheduled.js";
 
 dotenv.config();
 
@@ -137,6 +138,10 @@ async function startServer() {
         isInitialized: !!firestoreDb
       }
     });
+  });
+
+  app.all("/api/telegram/run-scheduled", async (req, res) => {
+    await runScheduledHandler(req, res);
   });
 
   app.post("/api/product-research", rateLimit("product-research", 20, 60_000), async (req, res) => {
