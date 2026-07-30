@@ -7,9 +7,10 @@ import { SchedulePost } from '../types';
 import { format, isAfter, parseISO, addHours, subHours } from 'date-fns';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
-import { deleteLocalMedia, getLocalMediaDataUrl } from '../lib/localMediaStore';
+import { deleteLocalMedia, getLocalMediaBlob, getLocalMediaDataUrl } from '../lib/localMediaStore';
 
 const DEMO_DEFAULT_POST_IDS = ['1', '2'];
+const TELEGRAM_UPLOAD_TIMEOUT_MS = 180000;
 
 const getLocalScheduledPosts = (): SchedulePost[] => {
   try {
@@ -32,6 +33,22 @@ const saveLocalScheduledPosts = (posts: SchedulePost[]) => {
 
 const sortScheduledPosts = (posts: SchedulePost[]) =>
   [...posts].sort((a, b) => new Date(a.scheduledTime).getTime() - new Date(b.scheduledTime).getTime());
+
+const withUploadTimeout = async <T,>(promise: Promise<T>) => {
+  let timeoutId: number | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = window.setTimeout(
+      () => reject(new Error('Upload is taking too long. Please check your internet connection and try again.')),
+      TELEGRAM_UPLOAD_TIMEOUT_MS
+    );
+  });
+
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timeoutId) window.clearTimeout(timeoutId);
+  }
+};
 
 const Scheduler: React.FC = () => {
   const { t, language } = useLanguage();
@@ -90,7 +107,9 @@ const Scheduler: React.FC = () => {
 
         let remotePosts: SchedulePost[] = [];
         const mergeLocalAndRemotePosts = () => {
-          const localPosts = getLocalScheduledPosts().filter(post => post.localOnly && post.userId === userToUse.uid);
+          const localPosts = getLocalScheduledPosts().filter(
+            post => post.localOnly && (post.userId === userToUse.uid || post.userId === 'demo-user')
+          );
           setPosts(sortScheduledPosts([...localPosts, ...remotePosts]));
         };
 
@@ -127,6 +146,25 @@ const Scheduler: React.FC = () => {
   }, [user, isDemoMode]);
 
   useEffect(() => {
+    if (!user || isDemoMode) return;
+
+    const savedPosts = getLocalScheduledPosts();
+    let changed = false;
+    const claimedPosts = savedPosts.map((post) => {
+      if (post.localOnly && (!post.userId || post.userId === 'demo-user')) {
+        changed = true;
+        return { ...post, userId: user.uid };
+      }
+      return post;
+    });
+
+    if (changed) {
+      saveLocalScheduledPosts(claimedPosts);
+      window.dispatchEvent(new Event('demo-scheduled-posts-updated'));
+    }
+  }, [user, isDemoMode]);
+
+  useEffect(() => {
     const timer = window.setInterval(() => setNowTick(Date.now()), 5000);
     const refreshNow = () => setNowTick(Date.now());
     window.addEventListener('focus', refreshNow);
@@ -151,18 +189,80 @@ const Scheduler: React.FC = () => {
     await updateDoc(doc(db, 'scheduled_posts', post.id), { status });
   };
 
+  const uploadLegacyTelegramMedia = async (post: SchedulePost) => {
+    if (!user || isDemoMode || !post.mediaDbKey) return '';
+
+    const storedBlob = await getLocalMediaBlob(post.mediaDbKey);
+    if (!storedBlob) {
+      throw new Error('The saved media file is no longer available in this browser. Please schedule the file again.');
+    }
+
+    const idToken = await user.getIdToken();
+    const signatureResponse = await fetch('/api/telegram/run-scheduled?action=sign-upload', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${idToken}` }
+    });
+    const signatureText = await signatureResponse.text();
+    let signatureData: any = {};
+    try {
+      signatureData = signatureText ? JSON.parse(signatureText) : {};
+    } catch {
+      throw new Error(`Upload service returned HTTP ${signatureResponse.status} instead of JSON.`);
+    }
+    if (!signatureResponse.ok || !signatureData.ok) {
+      throw new Error(signatureData.error || 'Could not prepare the media upload.');
+    }
+
+    const file = storedBlob instanceof File
+      ? storedBlob
+      : new File([storedBlob], post.mediaName || `telegram-${post.id}`, {
+          type: storedBlob.type || (post.mediaType === 'video' ? 'video/mp4' : 'image/jpeg')
+        });
+    const form = new FormData();
+    form.set('file', file);
+    form.set('api_key', signatureData.apiKey);
+    form.set('timestamp', String(signatureData.timestamp));
+    form.set('signature', signatureData.signature);
+    form.set('folder', signatureData.folder);
+
+    const uploadResponse = await withUploadTimeout(fetch(signatureData.uploadUrl, {
+      method: 'POST',
+      body: form
+    }));
+    const uploadText = await uploadResponse.text();
+    let uploadData: any = {};
+    try {
+      uploadData = uploadText ? JSON.parse(uploadText) : {};
+    } catch {
+      throw new Error(`Media upload returned HTTP ${uploadResponse.status} instead of JSON.`);
+    }
+    if (!uploadResponse.ok || !uploadData.secure_url) {
+      throw new Error(uploadData?.error?.message || 'Media upload failed.');
+    }
+
+    return String(uploadData.secure_url);
+  };
+
   const sendTelegramPost = async (post: SchedulePost) => {
     if (processingTelegram.current.has(post.id)) return;
     processingTelegram.current.add(post.id);
 
     try {
-      const localMediaDataUrl = post.mediaDataUrl || await getLocalMediaDataUrl(post.mediaDbKey);
+      let mediaUrl = post.mediaUrl || '';
+      let localMediaDataUrl = post.mediaDataUrl || '';
+
+      if (!mediaUrl && post.mediaDbKey && user && !isDemoMode) {
+        mediaUrl = await uploadLegacyTelegramMedia(post);
+      } else if (!mediaUrl) {
+        localMediaDataUrl = localMediaDataUrl || await getLocalMediaDataUrl(post.mediaDbKey);
+      }
+
       const res = await fetch('/api/telegram/post', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text: post.content,
-          mediaUrl: post.mediaUrl || '',
+          mediaUrl,
           mediaDataUrl: localMediaDataUrl,
           mediaName: post.mediaName || '',
           mediaType: post.mediaType || ''

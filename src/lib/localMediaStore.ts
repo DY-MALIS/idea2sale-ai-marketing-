@@ -50,3 +50,8 @@ export const getLocalMediaDataUrl = async (key?: string | null) => {
   const blob = await runStoreRequest<Blob | undefined>('readonly', (store) => store.get(key));
   return blob ? blobToDataUrl(blob) : '';
 };
+
+export const getLocalMediaBlob = async (key?: string | null) => {
+  if (!key) return undefined;
+  return runStoreRequest<Blob | undefined>('readonly', (store) => store.get(key));
+};
