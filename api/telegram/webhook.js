@@ -6,16 +6,57 @@ const TELEGRAM_LIMIT = 3900;
 
 const LEAD_TAGS = ['interested', 'price-question', 'support', 'general'];
 
+export const splitReplyRuleTriggers = (value) => String(value || '')
+  .normalize('NFKC')
+  .split(/[,;|\n\r،，]+/u)
+  .map((trigger) => trigger
+    .trim()
+    .replace(/^["'“”‘’]+|["'“”‘’]+$/gu, '')
+    .trim()
+    .toLocaleLowerCase())
+  .filter(Boolean);
+
+const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+export const replyRuleTriggerMatches = (text, trigger) => {
+  const normalizedText = String(text || '').normalize('NFKC').toLocaleLowerCase();
+  const normalizedTrigger = String(trigger || '').normalize('NFKC').trim().toLocaleLowerCase();
+  if (!normalizedText || !normalizedTrigger) return false;
+
+  // Short Latin keywords such as "hi" must not match inside words such as "this".
+  if (/^[a-z0-9]+$/u.test(normalizedTrigger) && normalizedTrigger.length <= 3) {
+    return new RegExp(
+      `(^|[^\\p{L}\\p{N}])${escapeRegExp(normalizedTrigger)}($|[^\\p{L}\\p{N}])`,
+      'u',
+    ).test(normalizedText);
+  }
+
+  return normalizedText.includes(normalizedTrigger);
+};
+
 const findMatchingReplyRule = async (db, text) => {
-  const lowerText = text.toLowerCase();
   const snapshot = await db.collection('reply_rules').where('platform', '==', 'TELEGRAM').limit(200).get();
+  const matches = [];
+
   for (const doc of snapshot.docs) {
-    const trigger = String(doc.data()?.trigger || '').trim().toLowerCase();
-    if (trigger && lowerText.includes(trigger)) {
-      return doc.data()?.response || null;
+    const rule = doc.data() || {};
+    const triggers = splitReplyRuleTriggers(rule.trigger);
+    const matchingTrigger = triggers
+      .filter((trigger) => replyRuleTriggerMatches(text, trigger))
+      .sort((a, b) => b.length - a.length)[0];
+
+    if (matchingTrigger && String(rule.response || '').trim()) {
+      matches.push({
+        response: String(rule.response).trim(),
+        triggerLength: matchingTrigger.length,
+        createdAt: rule.createdAt?.toMillis?.() || 0,
+      });
     }
   }
-  return null;
+
+  // Prefer the most specific keyword, then the newest rule when two rules overlap.
+  matches.sort((a, b) => b.triggerLength - a.triggerLength || b.createdAt - a.createdAt);
+  return matches[0]?.response || null;
 };
 
 const logMessage = async (db, chatId, direction, text, source) => {

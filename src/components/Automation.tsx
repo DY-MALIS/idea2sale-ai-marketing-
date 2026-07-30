@@ -281,6 +281,11 @@ const Automation: React.FC = () => {
 
     const userToUse = user || (isDemoMode ? { uid: 'demo-user' } : null);
     if (!userToUse) return;
+    const normalizedTrigger = ruleTrigger
+      .split(/[,;|\n\r،，]+/u)
+      .map(keyword => keyword.trim())
+      .filter(Boolean)
+      .join(', ');
 
     setIsCreatingRule(true);
     setErrorMsg(null);
@@ -289,8 +294,8 @@ const Automation: React.FC = () => {
       setTimeout(() => {
         setReplyRules(prev => [...prev, {
           id: Date.now().toString(),
-          trigger: ruleTrigger,
-          response: ruleResponse,
+          trigger: normalizedTrigger,
+          response: ruleResponse.trim(),
           platform: 'TELEGRAM',
           userId: 'demo-user'
         }]);
@@ -304,8 +309,8 @@ const Automation: React.FC = () => {
 
     try {
       await addDoc(collection(db, 'reply_rules'), {
-        trigger: ruleTrigger,
-        response: ruleResponse,
+        trigger: normalizedTrigger,
+        response: ruleResponse.trim(),
         platform: 'TELEGRAM',
         userId: userToUse.uid,
         createdAt: serverTimestamp()
@@ -695,6 +700,11 @@ const Automation: React.FC = () => {
                     placeholder={language === 'km' ? 'ឧទាហរណ៍៖ តម្លៃ, ប៉ុន្មាន...' : 'e.g. price, how much...'} 
                     className="w-full px-4 py-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 ring-brand-500/20" 
                   />
+                  <p className="mt-2 text-xs text-slate-500">
+                    {language === 'km'
+                      ? 'បំបែកពាក្យគន្លឹះនីមួយៗដោយសញ្ញាក្បៀស។ ឧទាហរណ៍៖ សួស្ដី, hello, hi'
+                      : 'Separate each keyword with a comma. Example: hello, hi, good morning'}
+                  </p>
                 </div>
 
                 <div>
