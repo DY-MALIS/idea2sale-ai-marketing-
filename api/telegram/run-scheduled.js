@@ -1,6 +1,6 @@
 import admin from 'firebase-admin';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
-import { createHash, randomBytes } from 'crypto';
+import { createHash } from 'crypto';
 
 const initFirebaseAdmin = () => {
   const projectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID;
@@ -51,11 +51,73 @@ const verifyUser = async (req) => {
   return admin.auth().verifyIdToken(token, true);
 };
 
-const createGuestToken = async (res) => {
-  const uid = `guest_${randomBytes(18).toString('hex')}`;
+const USER_DATA_COLLECTIONS = [
+  'scheduled_posts',
+  'audience_activity',
+  'campaigns',
+  'reply_rules'
+];
+
+const getStableGuestUid = (installationId) => {
+  const normalizedId = String(installationId || '').trim();
+  if (!normalizedId || normalizedId.length > 200 || !/^[a-zA-Z0-9_-]+$/.test(normalizedId)) {
+    const error = new Error('A valid guest installation ID is required.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const digest = createHash('sha256')
+    .update(`aime.angkorgate:${normalizedId}`)
+    .digest('hex')
+    .slice(0, 40);
+  return `guest_device_${digest}`;
+};
+
+const createGuestToken = async (req, res) => {
+  const uid = getStableGuestUid(req.body?.installationId);
   const token = await admin.auth().createCustomToken(uid, { guest: true });
   res.setHeader('Cache-Control', 'no-store');
   return res.status(200).json({ ok: true, token });
+};
+
+const migrateGuestData = async (req, res) => {
+  const decoded = await verifyUser(req);
+  if (decoded.guest !== true) {
+    return res.status(403).json({ error: 'Only guest sessions can be migrated.' });
+  }
+
+  const targetUid = getStableGuestUid(req.body?.installationId);
+  const db = initFirebaseAdmin();
+  const migrated = {};
+
+  if (decoded.uid !== targetUid) {
+    for (const collectionName of USER_DATA_COLLECTIONS) {
+      let migratedCount = 0;
+
+      while (true) {
+        const snapshot = await db
+          .collection(collectionName)
+          .where('userId', '==', decoded.uid)
+          .limit(400)
+          .get();
+
+        if (snapshot.empty) break;
+
+        const batch = db.batch();
+        snapshot.docs.forEach((document) => {
+          batch.update(document.ref, { userId: targetUid });
+        });
+        await batch.commit();
+        migratedCount += snapshot.size;
+      }
+
+      migrated[collectionName] = migratedCount;
+    }
+  }
+
+  const token = await admin.auth().createCustomToken(targetUid, { guest: true });
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(200).json({ ok: true, token, migrated });
 };
 
 const createSignedUpload = async (req, res) => {
@@ -257,11 +319,23 @@ export default async function handler(req, res) {
   if (req.method === 'POST' && req.query?.action === 'guest-token') {
     try {
       initFirebaseAdmin();
-      return await createGuestToken(res);
+      return await createGuestToken(req, res);
     } catch (error) {
-      return res.status(500).json({
+      return res.status(error?.statusCode || 500).json({
         ok: false,
         error: error?.message || 'Could not start a guest session.'
+      });
+    }
+  }
+
+  if (req.method === 'POST' && req.query?.action === 'migrate-guest') {
+    try {
+      initFirebaseAdmin();
+      return await migrateGuestData(req, res);
+    } catch (error) {
+      return res.status(error?.statusCode || 500).json({
+        ok: false,
+        error: error?.message || 'Could not preserve this guest account.'
       });
     }
   }

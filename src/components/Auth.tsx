@@ -6,9 +6,10 @@ import {
   Loader2
 } from 'lucide-react';
 
-import { signInWithGoogle, auth } from '../lib/firebase';
+import { signInWithGoogle, auth, authPersistenceReady } from '../lib/firebase';
 import { signInWithCustomToken } from 'firebase/auth';
 import { useLanguage } from '../contexts/LanguageContext';
+import { getGuestInstallationId } from '../lib/guestIdentity';
 
 interface AuthProps {
   onDemoMode?: () => void;
@@ -66,8 +67,15 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
     setError(null);
     setErrorCode(null);
     try {
+      await authPersistenceReady;
       const response = await fetch('/api/telegram/run-scheduled?action=guest-token', {
-        method: 'POST'
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          installationId: getGuestInstallationId()
+        })
       });
       const responseText = await response.text();
       let data: any = {};

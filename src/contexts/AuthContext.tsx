@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { auth } from '../lib/firebase';
-import { User } from 'firebase/auth';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import { auth, authPersistenceReady } from '../lib/firebase';
+import { signInWithCustomToken, User } from 'firebase/auth';
+import { getGuestInstallationId, isStableGuestUid } from '../lib/guestIdentity';
 
 interface AuthContextType {
   user: User | null;
@@ -16,6 +17,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [loading, setLoading] = useState(true);
+  const stabilizingGuestUid = useRef<string | null>(null);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -24,8 +26,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }, 8000);
 
     const unsubscribe = auth.onAuthStateChanged(
-      (u) => {
+      async (u) => {
         window.clearTimeout(timeoutId);
+
+        if (u && !isStableGuestUid(u.uid) && stabilizingGuestUid.current !== u.uid) {
+          try {
+            const tokenResult = await u.getIdTokenResult();
+            if (tokenResult.claims.guest === true) {
+              stabilizingGuestUid.current = u.uid;
+              const idToken = await u.getIdToken();
+              const response = await fetch('/api/telegram/run-scheduled?action=migrate-guest', {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${idToken}`,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  installationId: getGuestInstallationId()
+                })
+              });
+              const data = await response.json().catch(() => ({}));
+
+              if (!response.ok || !data.ok || !data.token) {
+                throw new Error(data.error || 'Could not preserve the guest account.');
+              }
+
+              await authPersistenceReady;
+              await signInWithCustomToken(auth, data.token);
+              return;
+            }
+          } catch (error) {
+            console.error('Guest account migration failed; keeping the current session:', error);
+          }
+        }
+
         setUser(u);
         if (u) setIsDemoMode(false);
         setLoading(false);
