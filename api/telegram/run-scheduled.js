@@ -30,6 +30,46 @@ const initFirebaseAdmin = () => {
   return databaseId ? getFirestore(app, databaseId) : getFirestore(app);
 };
 
+const getCloudinaryConfig = () => {
+  const cloudName = (process.env.CLOUDINARY_CLOUD_NAME || '').trim();
+  const apiKey = (process.env.CLOUDINARY_API_KEY || '').trim();
+  const apiSecret = (process.env.CLOUDINARY_API_SECRET || '').trim();
+  if (!cloudName || !apiKey || !apiSecret) {
+    throw new Error('Cloudinary is not configured (CLOUDINARY_CLOUD_NAME / CLOUDINARY_API_KEY / CLOUDINARY_API_SECRET).');
+  }
+  return { cloudName, apiKey, apiSecret };
+};
+
+const verifyUser = async (req) => {
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  if (!token) {
+    const error = new Error('Please sign in before scheduling auto-posts.');
+    error.statusCode = 401;
+    throw error;
+  }
+  return admin.auth().verifyIdToken(token, true);
+};
+
+const createSignedUpload = async (req, res) => {
+  const decoded = await verifyUser(req);
+  const { cloudName, apiKey, apiSecret } = getCloudinaryConfig();
+  const timestamp = Math.floor(Date.now() / 1000);
+  const folder = `telegram-media/${decoded.uid}`;
+  const paramsToSign = `folder=${folder}&timestamp=${timestamp}`;
+  const signature = createHash('sha1').update(paramsToSign + apiSecret).digest('hex');
+
+  return res.status(200).json({
+    ok: true,
+    apiKey,
+    timestamp,
+    signature,
+    folder,
+    uploadUrl: `https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`,
+    maxBytes: 48 * 1024 * 1024
+  });
+};
+
 const uploadMediaDataUrl = async ({ mediaDataUrl, mediaType }) => {
   if (!mediaDataUrl) return { mediaUrl: '', mediaType: null };
 
@@ -45,12 +85,7 @@ const uploadMediaDataUrl = async ({ mediaDataUrl, mediaType }) => {
     throw new Error('This media file is too large for web scheduling. Please use a file under 48 MB.');
   }
 
-  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
-  const apiKey = process.env.CLOUDINARY_API_KEY;
-  const apiSecret = process.env.CLOUDINARY_API_SECRET;
-  if (!cloudName || !apiKey || !apiSecret) {
-    throw new Error('Cloudinary is not configured (CLOUDINARY_CLOUD_NAME / CLOUDINARY_API_KEY / CLOUDINARY_API_SECRET).');
-  }
+  const { cloudName, apiKey, apiSecret } = getCloudinaryConfig();
 
   const timestamp = Math.floor(Date.now() / 1000);
   const paramsToSign = `folder=telegram-media&timestamp=${timestamp}`;
@@ -79,20 +114,15 @@ const uploadMediaDataUrl = async ({ mediaDataUrl, mediaType }) => {
 };
 
 const createScheduledTelegramPost = async (req, res) => {
-  const authHeader = req.headers.authorization || '';
-  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
-  if (!token) {
-    return res.status(401).json({ error: 'Please sign in before scheduling auto-posts.' });
-  }
-
-  const decoded = await admin.auth().verifyIdToken(token, true);
+  const decoded = await verifyUser(req);
   const content = String(req.body?.content || '').trim();
   const scheduledTime = String(req.body?.scheduledTime || '').trim();
   const mediaDataUrl = String(req.body?.mediaDataUrl || '').trim();
+  const mediaUrl = String(req.body?.mediaUrl || '').trim();
   const mediaName = String(req.body?.mediaName || '').trim();
   const requestedMediaType = String(req.body?.mediaType || '').trim().toLowerCase();
 
-  if (!content && !mediaDataUrl) {
+  if (!content && !mediaDataUrl && !mediaUrl) {
     return res.status(400).json({ error: 'Text or media is required.' });
   }
 
@@ -102,12 +132,35 @@ const createScheduledTelegramPost = async (req, res) => {
   }
 
   const db = initFirebaseAdmin();
-  const uploaded = await uploadMediaDataUrl({
-    userId: decoded.uid,
-    mediaDataUrl,
-    mediaName,
-    mediaType: requestedMediaType
-  });
+  let uploaded;
+  if (mediaUrl) {
+    const { cloudName } = getCloudinaryConfig();
+    let parsedUrl;
+    try {
+      parsedUrl = new URL(mediaUrl);
+    } catch {
+      return res.status(400).json({ error: 'Invalid media URL.' });
+    }
+    const expectedPathPrefix = `/${cloudName}/`;
+    if (parsedUrl.protocol !== 'https:' || parsedUrl.hostname !== 'res.cloudinary.com' || !parsedUrl.pathname.startsWith(expectedPathPrefix)) {
+      return res.status(400).json({ error: 'Only media uploaded to the app storage can be scheduled.' });
+    }
+    uploaded = {
+      mediaUrl,
+      mediaType: requestedMediaType === 'video' || requestedMediaType === 'photo'
+        ? requestedMediaType
+        : parsedUrl.pathname.includes('/video/upload/')
+          ? 'video'
+          : 'photo'
+    };
+  } else {
+    uploaded = await uploadMediaDataUrl({
+      userId: decoded.uid,
+      mediaDataUrl,
+      mediaName,
+      mediaType: requestedMediaType
+    });
+  }
 
   const docRef = await db.collection('scheduled_posts').add({
     content,
@@ -199,9 +252,21 @@ export default async function handler(req, res) {
       initFirebaseAdmin();
       return await createScheduledTelegramPost(req, res);
     } catch (error) {
-      return res.status(500).json({
+      return res.status(error?.statusCode || 500).json({
         ok: false,
         error: error?.message || 'Could not schedule this Telegram post.'
+      });
+    }
+  }
+
+  if (req.method === 'POST' && req.query?.action === 'sign-upload') {
+    try {
+      initFirebaseAdmin();
+      return await createSignedUpload(req, res);
+    } catch (error) {
+      return res.status(error?.statusCode || 500).json({
+        ok: false,
+        error: error?.message || 'Could not prepare the media upload.'
       });
     }
   }

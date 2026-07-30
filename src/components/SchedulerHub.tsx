@@ -15,9 +15,9 @@ import { useAuth } from '../contexts/AuthContext';
 
 const MB = 1024 * 1024;
 const DEMO_MEDIA_LIMIT_MB = 4;
-const TELEGRAM_SERVER_MEDIA_LIMIT_MB = 4;
+const TELEGRAM_SERVER_MEDIA_LIMIT_MB = 48;
 const TELEGRAM_MEDIA_LIMIT_MB = 48;
-const UPLOAD_TIMEOUT_MS = 60000;
+const UPLOAD_TIMEOUT_MS = 180000;
 const LOCAL_POSTS_KEY = 'demo_scheduled_posts';
 
 const getCompactLocalPosts = () => {
@@ -81,12 +81,39 @@ const SchedulerHub: React.FC = () => {
     return null;
   };
 
-  const fileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(reader.error || new Error('Could not read media file.'));
-    reader.readAsDataURL(file);
-  });
+  const uploadTelegramMedia = async (file: File, idToken: string) => {
+    const signatureResponse = await fetch('/api/telegram/run-scheduled?action=sign-upload', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${idToken}`
+      }
+    });
+    const signatureData = await signatureResponse.json();
+    if (!signatureResponse.ok || !signatureData.ok) {
+      throw new Error(signatureData.error || 'Could not prepare the media upload.');
+    }
+
+    const form = new FormData();
+    form.set('file', file);
+    form.set('api_key', signatureData.apiKey);
+    form.set('timestamp', String(signatureData.timestamp));
+    form.set('signature', signatureData.signature);
+    form.set('folder', signatureData.folder);
+
+    const uploadResponse = await withUploadTimeout(fetch(signatureData.uploadUrl, {
+      method: 'POST',
+      body: form
+    }));
+    const uploadData = await uploadResponse.json().catch(() => ({}));
+    if (!uploadResponse.ok || !uploadData.secure_url) {
+      throw new Error(uploadData?.error?.message || 'Media upload failed.');
+    }
+
+    return {
+      mediaUrl: String(uploadData.secure_url),
+      mediaType: uploadData.resource_type === 'video' || file.type.startsWith('video/') ? 'video' : 'photo'
+    };
+  };
 
   const withUploadTimeout = async <T,>(promise: Promise<T>) => {
     let timeoutId: number | undefined;
@@ -188,7 +215,9 @@ const SchedulerHub: React.FC = () => {
       if (platform === 'TELEGRAM') {
         if (!user) throw new Error('Please sign in first.');
         const idToken = await user.getIdToken();
-        const mediaDataUrl = telegramMediaFile ? await fileToDataUrl(telegramMediaFile) : '';
+        const uploadedMedia = telegramMediaFile
+          ? await uploadTelegramMedia(telegramMediaFile, idToken)
+          : null;
         const response = await fetch('/api/telegram/run-scheduled?action=create', {
           method: 'POST',
           headers: {
@@ -198,9 +227,9 @@ const SchedulerHub: React.FC = () => {
           body: JSON.stringify({
             content: content.trim(),
             scheduledTime: scheduledDate.toISOString(),
-            mediaDataUrl,
+            mediaUrl: uploadedMedia?.mediaUrl || '',
             mediaName: telegramMediaFile?.name || null,
-            mediaType: telegramMediaFile?.type.startsWith('video/') ? 'video' : telegramMediaFile ? 'photo' : null
+            mediaType: uploadedMedia?.mediaType || null
           })
         });
         const data = await response.json();
