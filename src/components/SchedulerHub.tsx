@@ -14,7 +14,6 @@ import { saveLocalMedia } from '../lib/localMediaStore';
 import { useAuth } from '../contexts/AuthContext';
 
 const MB = 1024 * 1024;
-const DEMO_MEDIA_LIMIT_MB = 4;
 const TELEGRAM_SERVER_MEDIA_LIMIT_MB = 48;
 const TELEGRAM_MEDIA_LIMIT_MB = 48;
 const UPLOAD_TIMEOUT_MS = 180000;
@@ -71,9 +70,6 @@ const SchedulerHub: React.FC = () => {
     if (!file) return null;
     if (file.size > TELEGRAM_MEDIA_LIMIT_MB * MB) {
       return `This file is ${formatFileSize(file.size)}. Telegram videos must be under ${TELEGRAM_MEDIA_LIMIT_MB} MB. Please choose a smaller/compressed video.`;
-    }
-    if (demoMode && file.size > DEMO_MEDIA_LIMIT_MB * MB) {
-      return `This video is ${formatFileSize(file.size)} and is too large for local demo scheduling. Please sign in before scheduling media, or choose a file under ${DEMO_MEDIA_LIMIT_MB} MB.`;
     }
     if (!demoMode && file.size > TELEGRAM_SERVER_MEDIA_LIMIT_MB * MB) {
       return `This file is ${formatFileSize(file.size)}. Telegram auto-scheduling currently supports files under ${TELEGRAM_SERVER_MEDIA_LIMIT_MB} MB. Please compress it or choose a smaller file.`;
