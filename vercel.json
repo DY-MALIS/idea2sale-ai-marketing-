@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/telegram/run-scheduled",
-      "schedule": "*/5 * * * *"
+      "schedule": "0 0 * * *"
     }
   ],
   "rewrites": [
