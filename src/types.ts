@@ -62,6 +62,18 @@ export interface SchedulePost {
   createdAt?: any;
 }
 
+export interface BusinessDirectoryEntry {
+  id: string;
+  name: string;
+  type: 'COMPANY' | 'INDIVIDUAL';
+}
+
+export interface BusinessProfileData {
+  businessName: string;
+  logoDataUrl: string;
+  directory: BusinessDirectoryEntry[];
+}
+
 export interface AudienceActivity {
   id: string;
   dayOfWeek: string;

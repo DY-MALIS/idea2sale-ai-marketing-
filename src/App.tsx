@@ -16,6 +16,7 @@ import Automation from './components/Automation';
 import Auth from './components/Auth';
 import LegalPage from './components/LegalPage';
 import SecurityCenter from './components/SecurityCenter';
+import BusinessProfile from './components/BusinessProfile';
 import { CreativeAutomationRequest, TabType } from './types';
 import { useLanguage } from './contexts/LanguageContext';
 import { useAuth } from './contexts/AuthContext';
@@ -27,6 +28,7 @@ export default function App() {
   const { user, isDemoMode, loading: authLoading, setDemoMode, logout } = useAuth();
   const [configInfo, setConfigInfo] = useState<any>(null);
   const [showLanguageMenu, setShowLanguageMenu] = useState(false);
+  const [showBusinessProfile, setShowBusinessProfile] = useState(false);
   const [creativeAutomation, setCreativeAutomation] = useState<CreativeAutomationRequest | null>(null);
 
   const { language, setLanguage, t } = useLanguage();
@@ -160,11 +162,21 @@ export default function App() {
         </div>
 
         {effectivelyAuthenticated && (
-          <button className="p-2 bg-white/80 backdrop-blur-md border border-white/50 rounded-full shadow-lg text-slate-400 hover:text-slate-600 transition-colors dark:bg-slate-800/80 dark:border-white/10 dark:text-slate-500 dark:hover:text-slate-300">
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => setShowBusinessProfile(true)}
+            title={t('businessProfileTitle')}
+            className="p-2 bg-white/80 backdrop-blur-md border border-white/50 rounded-full shadow-lg text-slate-400 hover:text-slate-600 transition-colors dark:bg-slate-800/80 dark:border-white/10 dark:text-slate-500 dark:hover:text-slate-300"
+          >
             <Settings size={20} />
-          </button>
+          </motion.button>
         )}
       </div>
+
+      <AnimatePresence>
+        {showBusinessProfile && <BusinessProfile onClose={() => setShowBusinessProfile(false)} />}
+      </AnimatePresence>
 
       {authLoading && !isDemoMode ? (
         <div className="flex flex-1 items-center justify-center">
