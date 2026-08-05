@@ -8,8 +8,44 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 import { useLanguage } from '../contexts/LanguageContext';
-import { CreativeAutomationRequest } from '../types';
+import { useAuth } from '../contexts/AuthContext';
+import { BusinessProfileData, CreativeAutomationRequest } from '../types';
+
+const LOGO_MARGIN_RATIO = 0.04;
+const LOGO_WIDTH_RATIO = 0.16;
+
+const applyLogoWatermark = (baseDataUrl: string, logoDataUrl: string): Promise<string> => {
+  if (!logoDataUrl) return Promise.resolve(baseDataUrl);
+  return new Promise((resolve) => {
+    const base = new Image();
+    base.onload = () => {
+      const logo = new Image();
+      logo.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = base.width;
+        canvas.height = base.height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(baseDataUrl);
+          return;
+        }
+        ctx.drawImage(base, 0, 0);
+        const margin = Math.round(base.width * LOGO_MARGIN_RATIO);
+        const logoWidth = Math.round(base.width * LOGO_WIDTH_RATIO);
+        const logoHeight = Math.round(logoWidth * (logo.height / logo.width));
+        ctx.drawImage(logo, margin, base.height - logoHeight - margin, logoWidth, logoHeight);
+        resolve(canvas.toDataURL('image/png'));
+      };
+      logo.onerror = () => resolve(baseDataUrl);
+      logo.src = logoDataUrl;
+    };
+    base.onerror = () => resolve(baseDataUrl);
+    base.src = baseDataUrl;
+  });
+};
 
 type ToolType = 'poster' | 'visual';
 
@@ -20,6 +56,8 @@ interface PosterGenProps {
 
 const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationConsumed }) => {
   const { t, language } = useLanguage();
+  const { user, isDemoMode } = useAuth();
+  const [logoDataUrl, setLogoDataUrl] = useState('');
   const [activeTool, setActiveTool] = useState<ToolType>('poster');
   const [posterPrompt, setPosterPrompt] = useState('A real product photo in a Cambodian cafe setting, warm sunlight, premium commercial photography, natural shadows, realistic texture, lifestyle background');
   const [visualPrompt, setVisualPrompt] = useState('A photorealistic product advertisement scene, real camera photo, premium lighting, natural shadows, detailed texture, cinematic depth of field, TikTok-ready composition');
@@ -36,6 +74,23 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
   const [needsApiKey, setNeedsApiKey] = useState(false);
   const [automationNotice, setAutomationNotice] = useState<string | null>(null);
   const handledAutomationRef = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    const loadLogo = async () => {
+      try {
+        if (isDemoMode || !user) {
+          const saved = JSON.parse(localStorage.getItem('demo_business_profile') || 'null');
+          setLogoDataUrl(saved?.logoDataUrl || '');
+          return;
+        }
+        const snap = await getDoc(doc(db, 'business_profiles', user.uid));
+        setLogoDataUrl((snap.data() as BusinessProfileData | undefined)?.logoDataUrl || '');
+      } catch {
+        setLogoDataUrl('');
+      }
+    };
+    void loadLogo();
+  }, [user, isDemoMode]);
 
   React.useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -123,7 +178,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Image generation failed.');
-      setGeneratedImage(data.imageUrl);
+      setGeneratedImage(await applyLogoWatermark(data.imageUrl, logoDataUrl));
     } catch (error: any) {
       console.error(error);
       if (/OPEN_ROUTER_API_KEY|api key/i.test(error.message || '')) {
@@ -149,7 +204,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Image generation failed.');
-      setGeneratedImage(data.imageUrl);
+      setGeneratedImage(await applyLogoWatermark(data.imageUrl, logoDataUrl));
     } catch (error: any) {
       console.error(error);
       if (/OPEN_ROUTER_API_KEY|api key/i.test(error.message || '')) {
