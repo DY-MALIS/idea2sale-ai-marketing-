@@ -125,6 +125,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
             ? data.automation.aspectRatio
             : (kind === 'video' ? '9:16' : '1:1'),
           language: detectMessageLanguage(message),
+          voiceOverText: kind === 'video' ? String(data.automation.voiceOverText || '').trim() : undefined,
         });
       }
     } catch (error: any) {

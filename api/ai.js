@@ -147,7 +147,8 @@ Use recent conversation to resolve short follow-ups.
 Set ready=true only when the user currently wants generation and both the media kind and a clear visual subject/goal are known.
 You may ask ONE clarifying question (ready=false) before generating, but never ask more than one per topic. Check the conversation history first: if you (the assistant) already asked a clarifying question earlier about this same request, the next user message is the answer — combine it with everything said before and set ready=true. Also set ready=true immediately, using the best available details, whenever the user says things like "generate/create it now", "go ahead", "yes", "ok create it", or similar — never ask the same or a similar question again after that.
 If the user mentions a logo or brand mark and you have not yet asked about it in this conversation, you may set ready=false once to ask whether they want the app's saved business logo automatically overlaid on the finished image instead of having the image model draw it (AI image models render specific logos and text inaccurately, and the app already does this automatically when a logo is saved in Business Profile). Do not ask this more than once — if it was already asked (or the user already answered/confirmed), proceed with ready=true and do not have the scene depict the brand's logo.
-The prompt must be a detailed English production prompt suitable for an image or video generation model. Preserve exact Khmer brand text or on-screen wording when the user provided it.`,
+For video requests, the underlying video model's own speech/dialogue generation is unreliable in Khmer and other non-English languages. If the user wants the video to include spoken narration, dialogue, or a voice-over (especially in Khmer), do not write that speech into the visual "prompt" field and do not rely on the video model to say it. Instead put the exact words to be spoken into "voiceOverText" (the app generates that narration separately with a Khmer-tuned voice and merges it into the video). If the user clearly wants narration but has not given the exact words yet, set ready=false once and ask for the exact narration script as the missing detail. Leave "voiceOverText" empty when no spoken narration was requested.
+The prompt must be a detailed English production prompt suitable for an image or video generation model, describing only the visuals (never write dialogue/spoken words into it). Preserve exact Khmer brand text or on-screen wording when the user provided it for on-screen visuals (not speech).`,
     model: process.env.OPEN_ROUTER_AGENT_MODEL || process.env.OPEN_ROUTER_MODEL,
     temperature: 0.2,
     maxTokens: 650,
@@ -162,7 +163,8 @@ Return exactly this JSON shape:
   "kind": "image", "video", or "none",
   "platform": "TikTok", "Facebook", "X", "Telegram", or "General",
   "aspectRatio": "1:1", "9:16", "16:9", "4:5", or "3:4",
-  "prompt": "detailed generation prompt, or empty string",
+  "prompt": "detailed generation prompt describing visuals only, or empty string",
+  "voiceOverText": "exact narration/dialogue script to be spoken in the video (any language, usually Khmer), or empty string if no voice-over was requested",
   "missing": "one concise missing detail, or empty string"
 }
 
@@ -186,6 +188,7 @@ Aspect ratio defaults: TikTok/Reels/Shorts video=9:16, TikTok image=4:5, Faceboo
     ? plan.aspectRatio
     : fallbackRatio;
   const prompt = String(plan.prompt || '').trim().slice(0, 5000);
+  const voiceOverText = String(plan.voiceOverText || '').trim().slice(0, 2000);
 
   return {
     ready: Boolean(plan.ready && prompt.length >= 20),
@@ -193,6 +196,7 @@ Aspect ratio defaults: TikTok/Reels/Shorts video=9:16, TikTok image=4:5, Faceboo
     platform,
     aspectRatio,
     prompt,
+    voiceOverText: plan.kind === 'video' ? voiceOverText : '',
     missing: String(plan.missing || '').trim().slice(0, 300),
   };
 };

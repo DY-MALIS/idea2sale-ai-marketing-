@@ -38,6 +38,7 @@ export interface CreativeAutomationRequest {
   platform: 'TikTok' | 'Facebook' | 'X' | 'Telegram' | 'General';
   aspectRatio: '1:1' | '9:16' | '16:9' | '4:5' | '3:4';
   language: 'km' | 'en';
+  voiceOverText?: string;
 }
 
 export interface SchedulePost {

@@ -324,9 +324,11 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   const handleGenerateVideo = async (
     promptOverride?: string,
     languageOverride?: 'Khmer' | 'English',
+    voiceOverTextOverride?: string,
   ) => {
     const promptText = typeof promptOverride === 'string' ? promptOverride.trim() : videoPrompt.trim();
     const generationLanguage = languageOverride || videoLanguage;
+    const voiceOverContent = (typeof voiceOverTextOverride === 'string' ? voiceOverTextOverride : (voiceOverEnabled ? voiceOverText : '')).trim();
     if (!promptText && !videoImage) return;
 
     setLoading(true);
@@ -367,17 +369,17 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
             }
           }
 
-          if (voiceOverEnabled && voiceOverText.trim()) {
+          if (voiceOverContent) {
             setAddingVoiceOver(true);
             try {
               const persona = voicePersonas[voicePersona];
-              const hasKhmerText = /[ក-៿]/.test(voiceOverText);
+              const hasKhmerText = /[ក-៿]/.test(voiceOverContent);
               const ttsResponse = await fetch('/api/ai', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   action: 'ttsGenerate',
-                  input: voiceOverText,
+                  input: voiceOverContent,
                   voice: persona.openRouterVoice,
                   languageHint: hasKhmerText ? 'Khmer' : 'English',
                   performanceStyle: `${persona.style} Read the exact provided text like you are speaking in a real conversation, not reading a script. Use human emotion, natural rhythm, clear consonants, natural pacing. Avoid robotic or AI narration.`,
@@ -416,18 +418,23 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     if (handledAutomationRef.current === automationRequest.id) return;
 
     const generationLanguage = automationRequest.language === 'km' ? 'Khmer' : 'English';
+    const requestedVoiceOver = (automationRequest.voiceOverText || '').trim();
     handledAutomationRef.current = automationRequest.id;
     setActiveTool('video');
     setVideoPrompt(automationRequest.prompt);
     setVideoLanguage(generationLanguage);
     setCaptionLanguage(generationLanguage);
+    if (requestedVoiceOver) {
+      setVoiceOverEnabled(true);
+      setVoiceOverText(requestedVoiceOver);
+    }
     setAutomationNotice(
       language === 'km'
-        ? `Agent បានរៀប brief សម្រាប់ ${automationRequest.platform} ហើយកំពុងបង្កើតវីដេអូស្វ័យប្រវត្តិ។`
-        : `The agent prepared a ${automationRequest.platform} brief and started automatic video creation.`,
+        ? `Agent បានរៀប brief សម្រាប់ ${automationRequest.platform} ហើយកំពុងបង្កើតវីដេអូស្វ័យប្រវត្តិ${requestedVoiceOver ? ' ជាមួយសំឡេងខ្មែរ' : ''}។`
+        : `The agent prepared a ${automationRequest.platform} brief and started automatic video creation${requestedVoiceOver ? ' with a Khmer voice-over' : ''}.`,
     );
     onAutomationConsumed?.(automationRequest.id);
-    void handleGenerateVideo(automationRequest.prompt, generationLanguage);
+    void handleGenerateVideo(automationRequest.prompt, generationLanguage, requestedVoiceOver);
   }, [automationRequest?.id]);
 
   const handleGenerateAudio = async () => {
