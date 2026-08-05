@@ -23,9 +23,10 @@ interface SidebarProps {
   activeTab: TabType;
   setActiveTab: (tab: TabType) => void;
   onLogout: () => void;
+  onOpenBusinessProfile: () => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onLogout }) => {
+const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onLogout, onOpenBusinessProfile }) => {
   const { t } = useLanguage();
 
   const sections = [
@@ -129,9 +130,9 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onLogout }) 
           </button>
         </div>
         
-        <motion.button 
+        <motion.button
           whileTap={{ scale: 0.98 }}
-          onClick={() => alert('Settings opened')}
+          onClick={onOpenBusinessProfile}
           className="w-full flex items-center gap-3 px-4 py-3 text-brand-300/70 hover:bg-white/5 hover:text-white rounded-xl transition-all"
         >
           <Settings size={18} />

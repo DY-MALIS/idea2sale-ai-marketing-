@@ -189,7 +189,12 @@ export default function App() {
         <Auth onDemoMode={handleDemoMode} />
       ) : (
         <div className="flex flex-1 relative">
-          <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} onLogout={logout} />
+          <Sidebar
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            onLogout={logout}
+            onOpenBusinessProfile={() => setShowBusinessProfile(true)}
+          />
           
           <main className="flex-1 ml-72 p-10">
             <div className="max-w-7xl mx-auto">
