@@ -121,6 +121,17 @@ const upsertTelegramLead = async (db, message, text) => {
   }
 };
 
+const getBusinessName = async (db) => {
+  try {
+    const snapshot = await db.collection('business_profiles').orderBy('updatedAt', 'desc').limit(1).get();
+    const name = String(snapshot.docs[0]?.data()?.businessName || '').trim();
+    return name || null;
+  } catch (error) {
+    console.error('Business profile lookup failed:', error?.message || error);
+    return null;
+  }
+};
+
 const containsKhmer = (text) => /[\u1780-\u17FF]/.test(text || '');
 
 const telegramApi = async (token, method, payload) => {
@@ -160,28 +171,34 @@ const chunkMessage = (text) => {
   return chunks;
 };
 
-const welcomeMessage = (isKhmer) => isKhmer
-  ? [
-      'សួស្តី! ខ្ញុំជា Telegram chatbot របស់ aime.angkorgate។',
-      'អ្នកអាចសួរខ្ញុំអំពី TikTok, Facebook, X, គំនិត content, caption, hashtag, video script, ឬយុទ្ធសាស្ត្រ marketing។',
-      '',
-      'ឧទាហរណ៍: បង្កើត content TikTok 10 គំនិត សម្រាប់ផលិតផល skincare។',
-    ].join('\n')
-  : [
-      'Hello! I am the Telegram chatbot for aime.angkorgate.',
-      'Ask me about TikTok, Facebook, X, content ideas, captions, hashtags, video scripts, or marketing strategy.',
-      '',
-      'Example: Create 10 TikTok content ideas for a skincare product.',
-    ].join('\n');
+const welcomeMessage = (isKhmer, businessName) => {
+  const name = businessName || 'aime.angkorgate';
+  return isKhmer
+    ? [
+        `សួស្តី! ខ្ញុំជា Telegram chatbot របស់ ${name}។`,
+        'អ្នកអាចសួរខ្ញុំអំពី TikTok, Facebook, X, គំនិត content, caption, hashtag, video script, ឬយុទ្ធសាស្ត្រ marketing។',
+        '',
+        'ឧទាហរណ៍: បង្កើត content TikTok 10 គំនិត សម្រាប់ផលិតផល skincare។',
+      ].join('\n')
+    : [
+        `Hello! I am the Telegram chatbot for ${name}.`,
+        'Ask me about TikTok, Facebook, X, content ideas, captions, hashtags, video scripts, or marketing strategy.',
+        '',
+        'Example: Create 10 TikTok content ideas for a skincare product.',
+      ].join('\n');
+};
 
-const buildSystemPrompt = () => [
-  'You are the Telegram chatbot for aime.angkorgate, an AI marketing assistant.',
+const buildSystemPrompt = (businessName) => [
+  `You are the Telegram chatbot for ${businessName || 'aime.angkorgate'}, an AI marketing assistant.`,
+  businessName
+    ? `You represent ${businessName}. When a customer asks who you are or what business this is, answer with ${businessName}, and naturally note relevant details about them if it helps the conversation.`
+    : '',
   'Answer in the same language as the user. If the user writes Khmer, reply in clear natural Khmer. If the user writes English, reply in English.',
   'Help users with TikTok, Facebook, X, Telegram content ideas, viral hooks, captions, hashtags, video scripts, content calendars, account troubleshooting, and marketing strategy.',
   'When the user asks to create content, give practical ready-to-use output: ideas, hooks, caption, hashtags, and next action.',
   'Keep Telegram replies concise, friendly, and useful. Avoid long theory unless the user asks for details.',
   'Do not claim that you posted, scheduled, or changed settings unless the user explicitly asks and an integration confirms it.',
-].join(' ');
+].filter(Boolean).join(' ');
 
 const sendManualReply = async (req, res) => {
   const token = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
@@ -273,9 +290,10 @@ export default async function handler(req, res) {
     await logMessage(db, chatId, 'in', text, 'user');
   }
 
+  const businessName = db ? await getBusinessName(db) : null;
   const isKhmer = containsKhmer(text);
   if (/^\/(start|help)\b/i.test(text)) {
-    const welcome = welcomeMessage(isKhmer);
+    const welcome = welcomeMessage(isKhmer, businessName);
     await telegramApi(token, 'sendMessage', {
       chat_id: chatId,
       text: welcome,
@@ -305,7 +323,7 @@ export default async function handler(req, res) {
     }).catch(() => {});
 
     const answer = await generateOpenRouterText({
-      system: buildSystemPrompt(),
+      system: buildSystemPrompt(businessName),
       prompt: text,
       model: process.env.OPEN_ROUTER_MODEL,
     });
