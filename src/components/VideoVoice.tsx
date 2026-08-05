@@ -13,12 +13,62 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 import { useLanguage } from '../contexts/LanguageContext';
-import { CreativeAutomationRequest } from '../types';
+import { useAuth } from '../contexts/AuthContext';
+import { BusinessProfileData, CreativeAutomationRequest } from '../types';
 
 type ToolType = 'video' | 'voice';
 type VoiceGender = 'Female' | 'Male';
 type VoicePersona = 'sreymom' | 'piseth';
+
+const FFMPEG_CORE_BASE_URL = 'https://unpkg.com/@ffmpeg/core@0.12.9/dist/esm';
+let ffmpegLoadPromise: Promise<any> | null = null;
+
+const getFFmpeg = async () => {
+  if (!ffmpegLoadPromise) {
+    ffmpegLoadPromise = (async () => {
+      const { FFmpeg } = await import('@ffmpeg/ffmpeg');
+      const { toBlobURL } = await import('@ffmpeg/util');
+      const ffmpeg = new FFmpeg();
+      await ffmpeg.load({
+        coreURL: await toBlobURL(`${FFMPEG_CORE_BASE_URL}/ffmpeg-core.js`, 'text/javascript'),
+        wasmURL: await toBlobURL(`${FFMPEG_CORE_BASE_URL}/ffmpeg-core.wasm`, 'application/wasm'),
+      });
+      return ffmpeg;
+    })();
+  }
+  return ffmpegLoadPromise;
+};
+
+const overlayLogoOnVideo = async (videoDataUrl: string, logoDataUrl: string): Promise<string> => {
+  if (!logoDataUrl) return videoDataUrl;
+  try {
+    const { fetchFile } = await import('@ffmpeg/util');
+    const ffmpeg = await getFFmpeg();
+    await ffmpeg.writeFile('input.mp4', await fetchFile(videoDataUrl));
+    await ffmpeg.writeFile('logo.jpg', await fetchFile(logoDataUrl));
+    await ffmpeg.exec([
+      '-i', 'input.mp4',
+      '-i', 'logo.jpg',
+      '-filter_complex', '[1:v]scale=205:-1[logo];[0:v][logo]overlay=x=main_w*0.04:y=main_h-overlay_h-main_h*0.04',
+      '-codec:a', 'copy',
+      'output.mp4',
+    ]);
+    const data = await ffmpeg.readFile('output.mp4');
+    const blob = new Blob([data.buffer], { type: 'video/mp4' });
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error('Could not finalize the watermarked video.'));
+      reader.readAsDataURL(blob);
+    });
+  } catch (error) {
+    console.error('Logo overlay failed, using the original video:', error);
+    return videoDataUrl;
+  }
+};
 
 interface VideoVoiceProps {
   automationRequest?: CreativeAutomationRequest | null;
@@ -27,6 +77,9 @@ interface VideoVoiceProps {
 
 const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomationConsumed }) => {
   const { t, language } = useLanguage();
+  const { user, isDemoMode } = useAuth();
+  const [logoDataUrl, setLogoDataUrl] = useState('');
+  const [watermarking, setWatermarking] = useState(false);
   const [activeTool, setActiveTool] = useState<ToolType>('video');
   const [videoPrompt, setVideoPrompt] = useState('A realistic 8-second TikTok product ad: close-up product reveal on a real table, warm natural light, slow camera push-in, hand places the product naturally, detailed texture, cinematic depth of field, clean premium brand feeling');
   const [videoLanguage, setVideoLanguage] = useState<'Khmer' | 'English'>('Khmer');
@@ -84,6 +137,23 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       style: 'Piseth persona: real Cambodian male creator voice, confident, calm, clear, emotionally grounded, natural Khmer pronunciation, quick conversational tempo, short pauses, natural emphasis, not announcer style, like a real person presenting useful advice.',
     },
   };
+
+  React.useEffect(() => {
+    const loadLogo = async () => {
+      try {
+        if (isDemoMode || !user) {
+          const saved = JSON.parse(localStorage.getItem('demo_business_profile') || 'null');
+          setLogoDataUrl(saved?.logoDataUrl || '');
+          return;
+        }
+        const snap = await getDoc(doc(db, 'business_profiles', user.uid));
+        setLogoDataUrl((snap.data() as BusinessProfileData | undefined)?.logoDataUrl || '');
+      } catch {
+        setLogoDataUrl('');
+      }
+    };
+    void loadLogo();
+  }, [user, isDemoMode]);
 
   React.useEffect(() => {
     if (!('speechSynthesis' in window)) return;
@@ -253,7 +323,16 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         const statusData = await statusResponse.json();
         if (!statusResponse.ok) throw new Error(statusData.error || 'Video generation failed.');
         if (statusData.videoUrl) {
-          setGeneratedVideo(statusData.videoUrl);
+          if (logoDataUrl) {
+            setWatermarking(true);
+            try {
+              setGeneratedVideo(await overlayLogoOnVideo(statusData.videoUrl, logoDataUrl));
+            } finally {
+              setWatermarking(false);
+            }
+          } else {
+            setGeneratedVideo(statusData.videoUrl);
+          }
           return;
         }
       }
@@ -788,7 +867,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
               {loading || audioLoading ? (
                 <div className="text-center space-y-4">
                   <Loader2 className="w-12 h-12 animate-spin text-brand-600 mx-auto" />
-                  <p className="text-brand-700 font-bold">{t('craftingContent')}</p>
+                  <p className="text-brand-700 font-bold">{watermarking ? t('addingLogo') : t('craftingContent')}</p>
                 </div>
               ) : activeTool === 'video' && generatedVideo ? (
                 <div className="w-full space-y-6">

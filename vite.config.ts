@@ -15,6 +15,12 @@ export default defineConfig(({mode}) => {
         '@': path.resolve(__dirname, '.'),
       },
     },
+    optimizeDeps: {
+      // esbuild's dep pre-bundling breaks @ffmpeg/ffmpeg's internal
+      // `new Worker(new URL('./worker.js', import.meta.url))` reference
+      // (the worker script 404s at runtime), so leave these unbundled.
+      exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/util'],
+    },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
