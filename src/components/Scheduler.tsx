@@ -354,21 +354,21 @@ const Scheduler: React.FC = () => {
     return (
       <div className="flex flex-col items-center justify-center py-20 gap-4">
         <div className="w-10 h-10 border-4 border-brand-200 border-t-brand-600 rounded-full animate-spin" />
-        <p className="text-slate-500 text-sm animate-pulse">{t('syncingTimeline')}</p>
+        <p className="text-slate-500 text-sm animate-pulse dark:text-slate-400">{t('syncingTimeline')}</p>
       </div>
     );
   }
 
   return (
     <div className="glass rounded-[2rem] overflow-hidden">
-      <div className="p-6 border-b border-brand-100 bg-brand-50 flex items-center justify-between">
+      <div className="p-6 border-b border-brand-100 bg-brand-50 flex items-center justify-between dark:border-slate-700 dark:bg-slate-800">
         <div className="flex items-center gap-3">
           <Calendar className="text-brand-500" size={20} />
-          <h2 className="text-lg font-bold text-brand-700 tracking-tight">{t('contentTimeline')}</h2>
+          <h2 className="text-lg font-bold text-brand-700 tracking-tight dark:text-brand-400">{t('contentTimeline')}</h2>
         </div>
-        <div className="flex items-center gap-2 px-3 py-1 bg-white border border-brand-100 rounded-full">
+        <div className="flex items-center gap-2 px-3 py-1 bg-white border border-brand-100 rounded-full dark:bg-slate-700 dark:border-slate-600">
            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-           <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">{t('liveQueue')}</span>
+           <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider dark:text-slate-400">{t('liveQueue')}</span>
         </div>
       </div>
 
@@ -384,19 +384,19 @@ const Scheduler: React.FC = () => {
         )}
         {posts.length === 0 ? (
           <div className="py-20 text-center px-10">
-            <div className="w-16 h-16 bg-brand-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-brand-100">
+            <div className="w-16 h-16 bg-brand-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-brand-100 dark:bg-slate-800 dark:border-slate-700">
               <Clock size={24} className="text-slate-300" />
             </div>
-            <h3 className="text-brand-700 font-bold mb-1">{t('timelineEmpty')}</h3>
-            <p className="text-sm text-slate-500">{t('scheduleFirstPost')}</p>
+            <h3 className="text-brand-700 font-bold mb-1 dark:text-brand-400">{t('timelineEmpty')}</h3>
+            <p className="text-sm text-slate-500 dark:text-slate-400">{t('scheduleFirstPost')}</p>
           </div>
         ) : (
-          <div className="divide-y divide-brand-100">
+          <div className="divide-y divide-brand-100 dark:divide-slate-700">
             <AnimatePresence mode='popLayout'>
               {posts.map((post) => {
                 const isPast = !isAfter(parseISO(post.scheduledTime), new Date());
                 const timeStr = format(parseISO(post.scheduledTime), 'MMM dd, h:mm a');
-                
+
                 return (
                   <motion.div
                     key={post.id}
@@ -404,15 +404,15 @@ const Scheduler: React.FC = () => {
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, scale: 0.95 }}
-                    className="group relative flex items-start gap-4 p-6 hover:bg-brand-50 transition-colors"
+                    className="group relative flex items-start gap-4 p-6 hover:bg-brand-50 transition-colors dark:hover:bg-slate-700"
                   >
                     <div className="flex flex-col items-center gap-1 min-w-[80px]">
                       <div className={`p-2 rounded-xl ${
-                        post.status === 'PUBLISHED' ? 'bg-emerald-50 text-emerald-600' : 'bg-brand-50 text-slate-400 border border-brand-100'
+                        post.status === 'PUBLISHED' ? 'bg-emerald-50 text-emerald-600' : 'bg-brand-50 text-slate-400 border border-brand-100 dark:bg-slate-800 dark:border-slate-700'
                       }`}>
                         {post.platform === 'INSTAGRAM' ? <Instagram size={20} /> : post.platform === 'TWITTER' ? <Twitter size={20} /> : post.platform === 'TELEGRAM' ? <Send size={20} /> : <Share2 size={20} />}
                       </div>
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter mt-1">{post.platform}</span>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter mt-1 dark:text-slate-400">{post.platform}</span>
                     </div>
 
                     <div className="flex-1 min-w-0">
@@ -422,7 +422,7 @@ const Scheduler: React.FC = () => {
                         }`}>
                           {post.status}
                         </span>
-                        <span className="text-[10px] text-slate-400 font-mono">{timeStr}</span>
+                        <span className="text-[10px] text-slate-400 font-mono dark:text-slate-400">{timeStr}</span>
                         {post.aiSuggested && (
                           <div className="flex items-center gap-1 text-[10px] text-brand-600 font-bold px-2 py-0.5 bg-brand-50 rounded border border-brand-200 uppercase">
                             <AlertCircle size={10} />
@@ -430,7 +430,7 @@ const Scheduler: React.FC = () => {
                           </div>
                         )}
                       </div>
-                      <p className="text-sm text-slate-600 leading-relaxed line-clamp-2">
+                      <p className="text-sm text-slate-600 leading-relaxed line-clamp-2 dark:text-slate-300">
                         {post.content}
                       </p>
                       {post.platform === 'TELEGRAM' && post.mediaName && (
@@ -444,16 +444,18 @@ const Scheduler: React.FC = () => {
                     </div>
 
                     <div className="flex items-center gap-2 transition-opacity">
-                      <motion.button
-                        whileHover={{ scale: 1.1 }}
-                        whileTap={{ scale: 0.9 }}
-                        onClick={() => toggleStatus(post)}
-                        className={`p-2 rounded-md transition-colors ${
-                          post.status === 'PUBLISHED' ? 'text-emerald-600 bg-emerald-50' : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50'
-                        }`}
-                      >
-                        <CheckCircle2 size={18} />
-                      </motion.button>
+                      {post.platform !== 'TELEGRAM' && (
+                        <motion.button
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.9 }}
+                          onClick={() => toggleStatus(post)}
+                          className={`p-2 rounded-md transition-colors ${
+                            post.status === 'PUBLISHED' ? 'text-emerald-600 bg-emerald-50' : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:text-slate-400'
+                          }`}
+                        >
+                          <CheckCircle2 size={18} />
+                        </motion.button>
+                      )}
                       {post.platform === 'TELEGRAM' && post.status === 'PENDING' && (
                         <motion.button
                           whileHover={{ scale: 1.1 }}
@@ -469,7 +471,7 @@ const Scheduler: React.FC = () => {
                         whileHover={{ scale: 1.1 }}
                         whileTap={{ scale: 0.9 }}
                         onClick={() => handleDelete(post.id)}
-                        className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors"
+                        className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors dark:text-slate-400"
                       >
                         <Trash2 size={18} />
                       </motion.button>

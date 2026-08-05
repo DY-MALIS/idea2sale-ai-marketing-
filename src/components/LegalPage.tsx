@@ -81,30 +81,30 @@ const LegalPage = ({ type }: LegalPageProps) => {
   const content = legalContent[type];
 
   return (
-    <main className="min-h-screen bg-mesh px-6 py-10 text-slate-700">
+    <main className="min-h-screen bg-mesh px-6 py-10 text-slate-700 dark:text-slate-300">
       <div className="mx-auto max-w-3xl">
         <a
           href="/"
-          className="mb-8 inline-flex items-center gap-2 rounded-full bg-white/80 px-4 py-2 text-sm font-bold text-brand-700 shadow-sm transition-colors hover:bg-white"
+          className="mb-8 inline-flex items-center gap-2 rounded-full bg-white/80 px-4 py-2 text-sm font-bold text-brand-700 shadow-sm transition-colors hover:bg-white dark:bg-slate-800/80 dark:text-brand-400 dark:hover:bg-slate-700"
         >
           <ArrowLeft size={16} />
           Back to aime.angkorgate
         </a>
 
-        <article className="rounded-[2rem] border border-white/60 bg-white/90 p-8 shadow-xl md:p-12">
+        <article className="rounded-[2rem] border border-white/60 bg-white/90 p-8 shadow-xl md:p-12 dark:border-slate-700 dark:bg-slate-800/90">
           <div className="mb-6 flex items-center gap-3">
             <img src="/favicon.svg" alt="aime.angkorgate icon" className="h-12 w-12 rounded-xl shadow-sm" />
             <p className="text-xs font-black uppercase tracking-[0.2em] text-brand-500">aime.angkorgate</p>
           </div>
-          <h1 className="font-display text-4xl font-bold tracking-tight text-brand-700 md:text-5xl">{content.title}</h1>
-          <p className="mt-3 text-sm font-semibold text-slate-400">{content.updated}</p>
-          <p className="mt-8 text-base leading-8 text-slate-600">{content.intro}</p>
+          <h1 className="font-display text-4xl font-bold tracking-tight text-brand-700 md:text-5xl dark:text-brand-400">{content.title}</h1>
+          <p className="mt-3 text-sm font-semibold text-slate-400 dark:text-slate-400">{content.updated}</p>
+          <p className="mt-8 text-base leading-8 text-slate-600 dark:text-slate-300">{content.intro}</p>
 
           <div className="mt-10 space-y-8">
             {content.sections.map((section) => (
               <section key={section.title}>
-                <h2 className="text-xl font-bold text-brand-700">{section.title}</h2>
-                <p className="mt-3 leading-7 text-slate-600">{section.body}</p>
+                <h2 className="text-xl font-bold text-brand-700 dark:text-brand-400">{section.title}</h2>
+                <p className="mt-3 leading-7 text-slate-600 dark:text-slate-300">{section.body}</p>
               </section>
             ))}
           </div>

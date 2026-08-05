@@ -312,7 +312,7 @@ const TikTokAnalytics: React.FC = () => {
             <div className={cn("p-3 rounded-xl w-fit mb-4", stat.bg, stat.color)}>
               <stat.icon size={24} />
             </div>
-            <p className="text-slate-500 font-bold text-xs uppercase tracking-widest mb-1">{stat.label}</p>
+            <p className="text-slate-500 dark:text-slate-400 font-bold text-xs uppercase tracking-widest mb-1">{stat.label}</p>
             <p className="text-3xl font-display font-bold text-brand-700">
               {stat.value}
             </p>
@@ -347,7 +347,10 @@ const TikTokAnalytics: React.FC = () => {
           {loading ? (
              <div className="flex justify-center p-10"><RefreshCw className="animate-spin text-brand-300" /></div>
           ) : !posts || posts.length === 0 ? (
-            <div className="text-center p-10 text-slate-400">{t('noPostsFound')}</div>
+            <div className="flex flex-col items-center justify-center gap-2 p-10 text-slate-400">
+              <AlertCircle size={24} className="text-slate-300 dark:text-slate-500" />
+              {t('noPostsFound')}
+            </div>
           ) : posts.map((post) => (
             <div key={post.id} className="flex items-center justify-between p-6 bg-brand-50/50 rounded-2xl border border-brand-100">
               <div className="flex items-center gap-4">
@@ -358,7 +361,7 @@ const TikTokAnalytics: React.FC = () => {
                  </div>
                  <div>
                     <h4 className="font-bold text-brand-700 line-clamp-1">{post.title || 'Untitled AI Generation'}</h4>
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
                       {post.timestamp?.toDate ? post.timestamp.toDate().toLocaleString() : 'Processing timestamp...'}
                     </p>
                  </div>
@@ -400,7 +403,7 @@ const TikTokAnalytics: React.FC = () => {
             { label: t('failed'), value: telegramStats.failed, color: 'text-rose-600', bg: 'bg-rose-50' },
           ].map((stat, i) => (
             <div key={i} className={cn('p-5 rounded-2xl border border-brand-100', stat.bg)}>
-              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">{stat.label}</p>
+              <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1">{stat.label}</p>
               <p className={cn('text-2xl font-bold', stat.color)}>{stat.value}</p>
             </div>
           ))}
@@ -408,7 +411,10 @@ const TikTokAnalytics: React.FC = () => {
 
         <div className="space-y-3">
           {telegramPosts.length === 0 ? (
-            <div className="text-center p-10 text-slate-400">{t('noTelegramPosts')}</div>
+            <div className="flex flex-col items-center justify-center gap-2 p-10 text-slate-400">
+              <Send size={24} className="text-slate-300 dark:text-slate-500" />
+              {t('noTelegramPosts')}
+            </div>
           ) : (
             [...telegramPosts]
               .sort((a, b) => new Date(b.scheduledTime || 0).getTime() - new Date(a.scheduledTime || 0).getTime())

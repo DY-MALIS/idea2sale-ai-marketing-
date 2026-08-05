@@ -60,7 +60,7 @@ const ActivityPulse: React.FC<ActivityPulseProps> = ({ version }) => {
         </div>
         <div className="flex gap-1 items-center">
           <div className="w-2 h-2 rounded-full bg-brand-500 animate-pulse" />
-          <span className="text-[10px] text-slate-500 uppercase font-medium">Real-time engagement map</span>
+          <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-medium">Real-time engagement map</span>
         </div>
       </div>
 

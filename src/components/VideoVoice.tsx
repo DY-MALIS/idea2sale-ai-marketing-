@@ -490,7 +490,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
             {t('videoVoiceTitle')}
             <VideoIcon className="text-brand-500" size={32} />
           </h2>
-          <p className="text-slate-500 mt-1 text-lg">{t('videoVoiceSubtitle')}</p>
+          <p className="text-slate-500 dark:text-slate-400 mt-1 text-lg">{t('videoVoiceSubtitle')}</p>
         </div>
         <div className="flex flex-col items-end gap-3">
           {needsApiKey && (
@@ -512,8 +512,8 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                 onClick={() => setActiveTool(tool.id as ToolType)}
                 className={cn(
                   "flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-300 whitespace-nowrap",
-                  activeTool === tool.id 
-                    ? "bg-white text-brand-700 shadow-md scale-105" 
+                  activeTool === tool.id
+                    ? "bg-white dark:bg-slate-800 text-brand-700 shadow-md scale-105"
                     : "text-brand-500 hover:text-brand-800"
                 )}
               >
@@ -573,7 +573,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                     <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">{t('sceneDescriptionLabel')}</label>
                     <div className="flex bg-brand-50 p-1 rounded-xl border border-brand-100">
                       {['Khmer', 'English'].map(lang => (
-                        <button key={lang} onClick={() => setVideoLanguage(lang as any)} className={cn("px-3 py-1 rounded-lg text-[10px] font-black", videoLanguage === lang ? "bg-white text-brand-700 shadow-sm" : "text-brand-400")}>{lang}</button>
+                        <button key={lang} onClick={() => setVideoLanguage(lang as any)} className={cn("px-3 py-1 rounded-lg text-[10px] font-black", videoLanguage === lang ? "bg-white dark:bg-slate-800 text-brand-700 shadow-sm" : "text-brand-400")}>{lang}</button>
                       ))}
                     </div>
                   </div>
@@ -594,7 +594,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                     </h4>
                     <div className="flex bg-brand-50 p-1 rounded-xl border border-brand-100">
                       {['Khmer', 'English'].map(lang => (
-                        <button key={lang} onClick={() => setCaptionLanguage(lang as any)} className={cn("px-3 py-1 rounded-lg text-[10px] font-black", captionLanguage === lang ? "bg-white text-brand-700 shadow-sm" : "text-brand-400")}>{lang}</button>
+                        <button key={lang} onClick={() => setCaptionLanguage(lang as any)} className={cn("px-3 py-1 rounded-lg text-[10px] font-black", captionLanguage === lang ? "bg-white dark:bg-slate-800 text-brand-700 shadow-sm" : "text-brand-400")}>{lang}</button>
                       ))}
                     </div>
                   </div>
@@ -621,7 +621,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
               <div className="space-y-6">
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">{t('scriptTextLabel')}</label>
-                  <p className="text-xs font-semibold text-slate-500">
+                  <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
                     {language === 'km'
                       ? 'សរសេរខ្មែរ អង់គ្លេស ឬលាយគ្នា។ ប្រព័ន្ធនឹងអានតាមភាសាដែលមានក្នុងអត្ថបទ។'
                       : 'Write Khmer, English, or both. The app will read each language from your text.'}
@@ -646,7 +646,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                         }}
                         className={cn(
                           "px-4 py-1.5 rounded-lg text-[10px] font-black transition-all",
-                          voiceGender === voice.id ? "bg-white text-brand-700 shadow-sm" : "text-brand-400 hover:text-brand-700"
+                          voiceGender === voice.id ? "bg-white dark:bg-slate-800 text-brand-700 shadow-sm" : "text-brand-400 hover:text-brand-700"
                         )}
                       >
                         {voice.label}
@@ -675,8 +675,8 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                         className={cn(
                           "text-left rounded-2xl border p-4 transition-all min-h-[116px]",
                           voicePersona === persona.id
-                            ? "border-brand-400 bg-white shadow-lg ring-2 ring-brand-100"
-                            : "border-brand-100 bg-brand-50/70 hover:bg-white hover:border-brand-300"
+                            ? "border-brand-400 bg-white dark:bg-slate-800 shadow-lg ring-2 ring-brand-100"
+                            : "border-brand-100 bg-brand-50/70 hover:bg-white dark:hover:bg-slate-800 hover:border-brand-300"
                         )}
                       >
                         <div className="flex items-center justify-between gap-3">
@@ -690,12 +690,12 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                           </div>
                           <div className={cn(
                             "h-9 w-9 rounded-xl flex items-center justify-center",
-                            voicePersona === persona.id ? "bg-brand-600 text-white" : "bg-white text-brand-500"
+                            voicePersona === persona.id ? "bg-brand-600 text-white" : "bg-white dark:bg-slate-800 text-brand-500"
                           )}>
                             <Mic size={18} />
                           </div>
                         </div>
-                        <p className="mt-3 text-xs leading-relaxed text-slate-500">{persona.description}</p>
+                        <p className="mt-3 text-xs leading-relaxed text-slate-500 dark:text-slate-400">{persona.description}</p>
                       </button>
                     ))}
                   </div>
@@ -849,7 +849,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                         <button
                           type="button"
                           onClick={handleDownload}
-                          className="rounded-xl border border-brand-300 bg-white px-4 py-2 text-brand-700 hover:bg-brand-50 transition-all inline-flex items-center gap-2"
+                          className="rounded-xl border border-brand-300 bg-white dark:bg-slate-800 px-4 py-2 text-brand-700 hover:bg-brand-50 dark:hover:bg-slate-700 transition-all inline-flex items-center gap-2"
                         >
                           <Download size={16} />
                           {language === 'km' ? 'ទាញយកអត្ថបទសំឡេង' : 'Download script'}
@@ -857,7 +857,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                         <button
                           type="button"
                           onClick={stopBrowserVoice}
-                          className="rounded-xl border border-amber-300 bg-white px-4 py-2 text-amber-800 hover:bg-amber-100 transition-all"
+                          className="rounded-xl border border-amber-300 bg-white dark:bg-slate-800 px-4 py-2 text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-slate-700 transition-all"
                         >
                           {language === 'km' ? 'បញ្ឈប់សំឡេង' : 'Stop voice'}
                         </button>

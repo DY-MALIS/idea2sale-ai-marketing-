@@ -72,7 +72,7 @@ const Copywriter: React.FC = () => {
           {t('aiCopywriter')}
           <Sparkles className="text-brand-500 animate-pulse" size={32} />
         </h2>
-        <p className="text-slate-500 mt-1 text-lg">{t('copywriterSubtitle')}</p>
+        <p className="text-slate-500 dark:text-slate-400 mt-1 text-lg">{t('copywriterSubtitle')}</p>
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
@@ -109,7 +109,7 @@ const Copywriter: React.FC = () => {
                 value={copyPrompt}
                 onChange={(e) => setCopyPrompt(e.target.value)}
                 placeholder={t('copyPromptPlaceholder')}
-                className="w-full h-56 p-5 rounded-2xl bg-brand-50 border border-brand-200 focus:ring-2 focus:ring-brand-500 focus:bg-white outline-none transition-all resize-none font-medium"
+                className="w-full h-56 p-5 rounded-2xl bg-brand-50 border border-brand-200 focus:ring-2 focus:ring-brand-500 focus:bg-white dark:focus:bg-slate-800 outline-none transition-all resize-none font-medium"
               />
             </div>
             
@@ -124,7 +124,7 @@ const Copywriter: React.FC = () => {
             </button>
           </div>
 
-          <div className="bg-brand-50/40 backdrop-blur-sm p-8 rounded-[2rem] border border-brand-200 shadow-sm">
+          <div className="bg-brand-50/40 dark:bg-slate-900/40 backdrop-blur-sm p-8 rounded-[2rem] border border-brand-200 shadow-sm">
             <h4 className="font-bold text-brand-700 mb-4 flex items-center gap-2 text-lg">
               <RefreshCw size={20} className="text-brand-500" />
               {t('aiProTips')}
@@ -198,7 +198,7 @@ const Copywriter: React.FC = () => {
                   <motion.div 
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="prose prose-brand max-w-none bg-brand-50/50 p-8 rounded-3xl border border-brand-100"
+                    className="prose prose-brand max-w-none bg-brand-50/50 dark:bg-slate-900/40 p-8 rounded-3xl border border-brand-100"
                   >
                     <Markdown>{result}</Markdown>
                   </motion.div>

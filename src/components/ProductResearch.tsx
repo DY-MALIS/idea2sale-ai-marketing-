@@ -115,11 +115,11 @@ const ProductResearch: React.FC = () => {
   return (
     <div className="max-w-6xl mx-auto space-y-10 pb-20">
       <header>
-        <h2 className="text-4xl font-display font-bold text-brand-700 tracking-tight flex items-center gap-3">
+        <h2 className="text-4xl font-display font-bold text-brand-700 tracking-tight flex items-center gap-3 dark:text-brand-400">
           {t('productResearchTitle')}
           <Search className="text-brand-500" size={32} />
         </h2>
-        <p className="text-slate-500 mt-1 text-lg">{t('productResearchSubtitle')}</p>
+        <p className="text-slate-500 mt-1 text-lg dark:text-slate-400">{t('productResearchSubtitle')}</p>
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -135,7 +135,7 @@ const ProductResearch: React.FC = () => {
                     onChange={(e) => setQueryInput(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
                     placeholder={t('searchPlaceholder')}
-                    className="w-full pl-14 pr-6 py-5 bg-brand-50 border border-brand-200 rounded-3xl focus:ring-2 focus:ring-brand-500 focus:bg-white outline-none transition-all text-lg font-medium"
+                    className="w-full pl-14 pr-6 py-5 bg-brand-50 border border-brand-200 rounded-3xl focus:ring-2 focus:ring-brand-500 focus:bg-white outline-none transition-all text-lg font-medium dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100 dark:focus:bg-slate-800"
                   />
                   <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-brand-400" size={24} />
                 </div>
@@ -159,7 +159,7 @@ const ProductResearch: React.FC = () => {
                 animate={{ opacity: 1, y: 0 }}
                 className="glass p-10 rounded-[2.5rem] shadow-sm prose prose-brand max-w-none"
               >
-                <div className="flex items-center gap-2 mb-6 text-brand-700">
+                <div className="flex items-center gap-2 mb-6 text-brand-700 dark:text-brand-400">
                   <BarChart2 size={24} />
                   <h3 className="text-2xl font-bold m-0">{t('aiResearchInsights')}</h3>
                 </div>
@@ -177,7 +177,7 @@ const ProductResearch: React.FC = () => {
                 animate={{ opacity: 1, y: 0 }}
                 className="glass p-10 rounded-[2.5rem] shadow-sm prose prose-brand max-w-none"
               >
-                <div className="flex items-center gap-2 mb-6 text-brand-700">
+                <div className="flex items-center gap-2 mb-6 text-brand-700 dark:text-brand-400">
                   <Radar size={24} />
                   <h3 className="text-2xl font-bold m-0">{t('competitorReportTitle')}</h3>
                 </div>
@@ -204,7 +204,7 @@ const ProductResearch: React.FC = () => {
                 animate={{ opacity: 1, y: 0 }}
                 className="glass p-10 rounded-[2.5rem] shadow-sm prose prose-brand max-w-none"
               >
-                <div className="flex items-center gap-2 mb-6 text-brand-700">
+                <div className="flex items-center gap-2 mb-6 text-brand-700 dark:text-brand-400">
                   <Heart size={24} />
                   <h3 className="text-2xl font-bold m-0">{t('sentimentReportTitle')}</h3>
                 </div>
@@ -226,17 +226,17 @@ const ProductResearch: React.FC = () => {
         </div>
 
         <div className="lg:col-span-4 space-y-8">
-          <div className="glass p-8 rounded-[2rem] border border-brand-100 shadow-sm relative overflow-hidden">
-            <h3 className="text-lg font-bold text-brand-700 mb-6 flex items-center gap-2">
+          <div className="glass p-8 rounded-[2rem] border border-brand-100 shadow-sm relative overflow-hidden dark:border-slate-700">
+            <h3 className="text-lg font-bold text-brand-700 mb-6 flex items-center gap-2 dark:text-brand-400">
               <TrendingUp size={20} className="text-emerald-500" />
               {t('tiktokTrendingNow')}
             </h3>
             <div className="space-y-4">
               {trendingProducts.map((item, i) => (
-                <div key={i} className="flex items-center justify-between p-4 bg-brand-50/50 rounded-2xl border border-brand-100 hover:border-brand-300 transition-all cursor-pointer group">
+                <div key={i} className="flex items-center justify-between p-4 bg-brand-50/50 rounded-2xl border border-brand-100 hover:border-brand-300 transition-all cursor-pointer group dark:bg-slate-700/50 dark:border-slate-700">
                   <div>
-                    <p className="font-bold text-brand-700 group-hover:text-brand-600 transition-colors">{item.name}</p>
-                    <p className="text-[10px] text-slate-500 uppercase tracking-widest">{item.category}</p>
+                    <p className="font-bold text-brand-700 group-hover:text-brand-600 transition-colors dark:text-brand-400">{item.name}</p>
+                    <p className="text-[10px] text-slate-500 uppercase tracking-widest dark:text-slate-400">{item.category}</p>
                   </div>
                   <div className="text-emerald-600 font-bold flex items-center gap-1 bg-emerald-50 px-2 py-1 rounded-lg">
                     {item.growth}
@@ -245,7 +245,7 @@ const ProductResearch: React.FC = () => {
                 </div>
               ))}
             </div>
-            <button className="w-full mt-6 py-4 bg-brand-50 text-brand-600 font-bold rounded-xl text-sm hover:bg-brand-100 transition-all border border-brand-100">
+            <button className="w-full mt-6 py-4 bg-brand-50 text-brand-600 font-bold rounded-xl text-sm hover:bg-brand-100 transition-all border border-brand-100 dark:bg-slate-700 dark:hover:bg-slate-600 dark:border-slate-600">
               {t('explorerFullList')}
             </button>
           </div>
@@ -274,19 +274,19 @@ const ProductResearch: React.FC = () => {
             </button>
           </div>
 
-          <div className="glass p-8 rounded-[2rem] border border-brand-100 shadow-sm relative overflow-hidden">
+          <div className="glass p-8 rounded-[2rem] border border-brand-100 shadow-sm relative overflow-hidden dark:border-slate-700">
             <div className="flex items-center gap-2 mb-2">
               <Heart size={20} className="text-brand-500" />
-              <h4 className="text-lg font-bold text-brand-700">{t('brandSentimentTitle')}</h4>
+              <h4 className="text-lg font-bold text-brand-700 dark:text-brand-400">{t('brandSentimentTitle')}</h4>
             </div>
-            <p className="text-slate-500 text-sm mb-6 leading-relaxed">{t('brandSentimentDesc')}</p>
+            <p className="text-slate-500 text-sm mb-6 leading-relaxed dark:text-slate-400">{t('brandSentimentDesc')}</p>
             <input
               type="text"
               value={brandInput}
               onChange={(e) => setBrandInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleCheckSentiment()}
               placeholder={t('brandNamePlaceholder')}
-              className="w-full px-4 py-3 mb-3 bg-brand-50 border border-brand-100 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all text-sm font-medium"
+              className="w-full px-4 py-3 mb-3 bg-brand-50 border border-brand-100 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none transition-all text-sm font-medium dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
             />
             <button
               onClick={handleCheckSentiment}

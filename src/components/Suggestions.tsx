@@ -92,7 +92,7 @@ const Suggestions: React.FC<SuggestionsProps> = ({ activityVersion }) => {
         >
           <Zap size={32} fill="currentColor" fillOpacity={0.2} />
         </motion.div>
-        <p className="text-sm text-slate-500">{t('calculatingSlots')}</p>
+        <p className="text-sm text-slate-500 dark:text-slate-400">{t('calculatingSlots')}</p>
       </div>
     );
   }
@@ -100,8 +100,8 @@ const Suggestions: React.FC<SuggestionsProps> = ({ activityVersion }) => {
   if (suggestions.length === 0) {
     return (
       <div className="text-center py-12 px-6 border-2 border-dashed border-brand-100 rounded-2xl bg-brand-50/50">
-        <AlertCircle size={32} className="mx-auto text-slate-300 mb-3" />
-        <p className="text-sm text-slate-500">{t('noAudienceData')}</p>
+        <AlertCircle size={32} className="mx-auto text-slate-300 dark:text-slate-500 mb-3" />
+        <p className="text-sm text-slate-500 dark:text-slate-400">{t('noAudienceData')}</p>
       </div>
     );
   }
@@ -123,7 +123,7 @@ const Suggestions: React.FC<SuggestionsProps> = ({ activityVersion }) => {
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: idx * 0.1 }}
-              className="group flex items-center justify-between p-4 bg-white border border-brand-100 rounded-2xl shadow-sm hover:border-brand-500/50 transition-all cursor-default"
+              className="group flex items-center justify-between p-4 bg-white dark:bg-slate-800 border border-brand-100 rounded-2xl shadow-sm hover:border-brand-500/50 transition-all cursor-default"
             >
               <div className="flex items-center gap-4">
                 <div className="flex flex-col items-center justify-center w-12 h-12 bg-brand-50 text-brand-600 rounded-xl border border-brand-200">

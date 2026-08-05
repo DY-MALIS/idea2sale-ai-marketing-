@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldCheck, LockKeyhole, FileWarning, DatabaseBackup, Activity, Users, Bot, AlertTriangle } from 'lucide-react';
+import { ShieldCheck, LockKeyhole, FileWarning, DatabaseBackup, Activity, Users, Bot, AlertTriangle, ListChecks } from 'lucide-react';
 
 const readiness = [
   { label: 'Authentication and server-side route protection', status: 'Required', detail: 'All protected pages and API routes must validate the session before returning company data.' },
@@ -36,8 +36,8 @@ const SecurityCenter: React.FC = () => {
       <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-sm font-bold uppercase tracking-[0.18em] text-brand-600">Admin Security</p>
-          <h2 className="mt-2 text-4xl font-display font-bold text-slate-950">Production Readiness Center</h2>
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
+          <h2 className="mt-2 text-4xl font-display font-bold text-slate-950 dark:text-slate-100">Production Readiness Center</h2>
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600 dark:text-slate-300">
             This screen tracks the security controls required before confidential company data is used in production. The app should not be marked production-ready until RLS, storage access, AI filtering, and audit logging are verified.
           </p>
         </div>
@@ -53,26 +53,27 @@ const SecurityCenter: React.FC = () => {
           { icon: Bot, label: 'AI access', value: 'Permission-filtered' },
           { icon: Activity, label: 'Audit logs', value: 'Sensitive actions' },
         ].map((item) => (
-          <div key={item.label} className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-            <item.icon className="h-5 w-5 text-brand-700" />
-            <p className="mt-4 text-xs font-bold uppercase tracking-[0.18em] text-slate-400">{item.label}</p>
-            <p className="mt-1 text-lg font-bold text-slate-950">{item.value}</p>
+          <div key={item.label} className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <item.icon className="h-5 w-5 text-brand-700 dark:text-brand-400" />
+            <p className="mt-4 text-xs font-bold uppercase tracking-[0.18em] text-slate-400 dark:text-slate-400">{item.label}</p>
+            <p className="mt-1 text-lg font-bold text-slate-950 dark:text-slate-100">{item.value}</p>
           </div>
         ))}
       </section>
 
-      <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-100 px-6 py-4">
-          <h3 className="text-lg font-bold text-slate-950">MVP Readiness Checklist</h3>
+      <section className="rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div className="border-b border-slate-100 px-6 py-4 flex items-center gap-2 dark:border-slate-700">
+          <ListChecks className="h-5 w-5 text-brand-700 dark:text-brand-400" />
+          <h3 className="text-lg font-bold text-slate-950 dark:text-slate-100">MVP Readiness Checklist</h3>
         </div>
-        <div className="divide-y divide-slate-100">
+        <div className="divide-y divide-slate-100 dark:divide-slate-700">
           {readiness.map((item) => (
             <div key={item.label} className="grid gap-3 px-6 py-4 md:grid-cols-[1fr_180px] md:items-center">
               <div>
-                <p className="font-semibold text-slate-900">{item.label}</p>
-                <p className="mt-1 text-sm text-slate-500">{item.detail}</p>
+                <p className="font-semibold text-slate-900 dark:text-slate-100">{item.label}</p>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{item.detail}</p>
               </div>
-              <span className="w-fit rounded-md bg-slate-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-slate-600">
+              <span className="w-fit rounded-md bg-slate-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-slate-600 dark:bg-slate-700 dark:text-slate-300">
                 {item.status}
               </span>
             </div>
@@ -81,42 +82,42 @@ const SecurityCenter: React.FC = () => {
       </section>
 
       <section className="grid gap-6 xl:grid-cols-3">
-        <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-          <FileWarning className="h-5 w-5 text-brand-700" />
-          <h3 className="mt-4 text-lg font-bold text-slate-950">Data Governance</h3>
+        <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+          <FileWarning className="h-5 w-5 text-brand-700 dark:text-brand-400" />
+          <h3 className="mt-4 text-lg font-bold text-slate-950 dark:text-slate-100">Data Governance</h3>
           <div className="mt-4 space-y-3">
             {governance.map((item) => (
-              <p key={item} className="text-sm leading-6 text-slate-600">{item}</p>
+              <p key={item} className="text-sm leading-6 text-slate-600 dark:text-slate-300">{item}</p>
             ))}
           </div>
         </div>
-        <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-          <DatabaseBackup className="h-5 w-5 text-brand-700" />
-          <h3 className="mt-4 text-lg font-bold text-slate-950">Backup and Recovery</h3>
-          <div className="mt-4 space-y-3 text-sm leading-6 text-slate-600">
+        <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+          <DatabaseBackup className="h-5 w-5 text-brand-700 dark:text-brand-400" />
+          <h3 className="mt-4 text-lg font-bold text-slate-950 dark:text-slate-100">Backup and Recovery</h3>
+          <div className="mt-4 space-y-3 text-sm leading-6 text-slate-600 dark:text-slate-300">
             <p>Daily database backups and storage backup policy must be configured in Supabase before production.</p>
             <p>Deleted files enter recycle bin first. Version history keeps prior storage paths for restoration.</p>
             <p>README includes restore, storage recovery, key rotation, and compromised user response steps.</p>
           </div>
         </div>
-        <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-          <Users className="h-5 w-5 text-brand-700" />
-          <h3 className="mt-4 text-lg font-bold text-slate-950">Human Approval</h3>
-          <div className="mt-4 space-y-3 text-sm leading-6 text-slate-600">
+        <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+          <Users className="h-5 w-5 text-brand-700 dark:text-brand-400" />
+          <h3 className="mt-4 text-lg font-bold text-slate-950 dark:text-slate-100">Human Approval</h3>
+          <div className="mt-4 space-y-3 text-sm leading-6 text-slate-600 dark:text-slate-300">
             <p>Human approval is required for sensitive classification, external sharing, permanent deletion, access requests, and AI-generated workflows.</p>
             <p>Approvers can set access expiry and revoke confidential file access at any time.</p>
           </div>
         </div>
       </section>
 
-      <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+      <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
         <div className="flex items-center gap-3">
           <AlertTriangle className="h-5 w-5 text-amber-600" />
-          <h3 className="text-lg font-bold text-slate-950">Monitoring Placeholders</h3>
+          <h3 className="text-lg font-bold text-slate-950 dark:text-slate-100">Monitoring Placeholders</h3>
         </div>
         <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {monitoring.map((item) => (
-            <div key={item} className="rounded-md border border-slate-100 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700">
+            <div key={item} className="rounded-md border border-slate-100 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300">
               {item}
             </div>
           ))}

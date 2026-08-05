@@ -154,7 +154,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           {text.title}
           <Sparkles className="text-brand-500" size={34} />
         </h2>
-        <p className="text-slate-500 text-lg max-w-4xl">{text.subtitle}</p>
+        <p className="text-slate-500 dark:text-slate-400 text-lg max-w-4xl">{text.subtitle}</p>
       </header>
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
@@ -171,19 +171,19 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                 }
               }}
               placeholder={text.placeholder}
-              className="w-full min-h-60 p-5 rounded-2xl bg-brand-50 border border-brand-200 focus:ring-2 focus:ring-brand-500 focus:bg-white outline-none transition-all resize-y font-medium"
+              className="w-full min-h-60 p-5 rounded-2xl bg-brand-50 border border-brand-200 focus:ring-2 focus:ring-brand-500 focus:bg-white dark:focus:bg-slate-800 outline-none transition-all resize-y font-medium"
             />
-            <p className="text-xs text-slate-400">{text.inputHint}</p>
+            <p className="text-xs text-slate-400 dark:text-slate-400">{text.inputHint}</p>
           </div>
 
-          <div className="flex items-center justify-between gap-4 rounded-2xl border border-brand-200 bg-white/70 p-4">
+          <div className="flex items-center justify-between gap-4 rounded-2xl border border-brand-200 bg-white/70 dark:bg-slate-800/70 p-4">
             <div className="flex min-w-0 items-start gap-3">
               <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600">
                 <Zap size={18} />
               </span>
               <div>
                 <p className="text-sm font-bold text-brand-700">{text.autoCreate}</p>
-                <p className="mt-1 text-xs leading-relaxed text-slate-500">{text.autoCreateHelp}</p>
+                <p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">{text.autoCreateHelp}</p>
                 <div className="mt-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-brand-400">
                   <ImageIcon size={13} />
                   <span>Image</span>
@@ -230,7 +230,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
               {messages.length > 0 && (
                 <button
                   onClick={startNewChat}
-                  className="px-4 py-3 bg-white/70 text-brand-600 hover:bg-brand-50 rounded-xl transition-all border border-brand-200 flex items-center gap-2 text-sm font-bold"
+                  className="px-4 py-3 bg-white/70 dark:bg-slate-800/70 text-brand-600 hover:bg-brand-50 dark:hover:bg-slate-700 rounded-xl transition-all border border-brand-200 flex items-center gap-2 text-sm font-bold"
                   title={text.clear}
                 >
                   <RefreshCw size={16} />
@@ -256,7 +256,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                   <Bot size={38} className="text-brand-400" />
                 </div>
                 <p className="text-lg font-bold text-brand-700">{text.emptyTitle}</p>
-                <p className="mt-2 max-w-md text-slate-500">{text.empty}</p>
+                <p className="mt-2 max-w-md text-slate-500 dark:text-slate-400">{text.empty}</p>
               </div>
             )}
 
@@ -279,7 +279,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                       className={`max-w-[88%] rounded-2xl px-5 py-4 ${
                         isUser
                           ? 'bg-brand-600 text-white rounded-br-md'
-                          : 'border border-brand-100 bg-brand-50/70 text-slate-700 rounded-bl-md'
+                          : 'border border-brand-100 bg-brand-50/70 text-slate-700 dark:text-slate-300 rounded-bl-md'
                       }`}
                     >
                       <p className={`mb-2 text-[10px] font-bold uppercase tracking-widest ${isUser ? 'text-white/70' : 'text-brand-500'}`}>
@@ -294,7 +294,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                       )}
                     </div>
                     {isUser && (
-                      <div className="mt-1 h-9 w-9 shrink-0 rounded-xl bg-white border border-brand-200 text-brand-600 flex items-center justify-center">
+                      <div className="mt-1 h-9 w-9 shrink-0 rounded-xl bg-white dark:bg-slate-800 border border-brand-200 text-brand-600 flex items-center justify-center">
                         <UserRound size={18} />
                       </div>
                     )}

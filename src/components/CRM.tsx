@@ -104,7 +104,7 @@ const CRM: React.FC = () => {
           {t('crmTitle')}
           <Users className="text-brand-500" size={32} />
         </h2>
-        <p className="text-slate-500 mt-1 text-lg">{t('crmSubtitle')}</p>
+        <p className="text-slate-500 dark:text-slate-400 mt-1 text-lg">{t('crmSubtitle')}</p>
       </header>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -115,7 +115,7 @@ const CRM: React.FC = () => {
             tagFilter === null ? 'border-brand-500 shadow-sm' : 'border-brand-100'
           )}
         >
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">{t('allLeads')}</p>
+          <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1">{t('allLeads')}</p>
           <p className="text-2xl font-bold text-brand-700">{leads.length}{hasMore ? '+' : ''}</p>
         </button>
         {['interested', 'price-question', 'support', 'general'].map((tag) => (
@@ -127,7 +127,7 @@ const CRM: React.FC = () => {
               tagFilter === tag ? 'border-brand-500 shadow-sm' : 'border-brand-100'
             )}
           >
-            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">{t(`leadTag_${tag.replace('-', '_')}` as any)}</p>
+            <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1">{t(`leadTag_${tag.replace('-', '_')}` as any)}</p>
             <p className="text-2xl font-bold text-brand-700">{tagCounts[tag] || 0}</p>
           </button>
         ))}
@@ -139,7 +139,7 @@ const CRM: React.FC = () => {
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
           placeholder={t('searchLeadsPlaceholder')}
-          className="w-full pl-12 pr-5 py-4 bg-brand-50 border border-brand-100 rounded-2xl focus:ring-2 focus:ring-brand-500 focus:bg-white outline-none transition-all font-medium"
+          className="w-full pl-12 pr-5 py-4 bg-brand-50 border border-brand-100 rounded-2xl focus:ring-2 focus:ring-brand-500 focus:bg-white dark:focus:bg-slate-800 outline-none transition-all font-medium"
         />
         <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-brand-400" size={20} />
       </div>
@@ -155,7 +155,7 @@ const CRM: React.FC = () => {
               <MessageCircle size={24} className="text-brand-300" />
             </div>
             <h3 className="text-brand-700 font-bold mb-1">{t('noLeadsYet')}</h3>
-            <p className="text-sm text-slate-500 max-w-sm mx-auto">{t('noLeadsYetDesc')}</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm mx-auto">{t('noLeadsYetDesc')}</p>
           </div>
         ) : (
           <div className="divide-y divide-brand-100">
@@ -175,14 +175,14 @@ const CRM: React.FC = () => {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
                       <span className="font-bold text-brand-700">{lead.displayName}</span>
-                      {lead.username && <span className="text-xs text-slate-400">@{lead.username}</span>}
+                      {lead.username && <span className="text-xs text-slate-400 dark:text-slate-400">@{lead.username}</span>}
                       <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider border flex items-center gap-1', TAG_STYLES[lead.tag] || TAG_STYLES.general)}>
                         <Tag size={10} />
                         {t(`leadTag_${lead.tag.replace('-', '_')}` as any)}
                       </span>
                     </div>
-                    <p className="text-sm text-slate-600 line-clamp-2">{lead.lastMessage}</p>
-                    <p className="text-[10px] text-slate-400 mt-1 font-mono">
+                    <p className="text-sm text-slate-600 dark:text-slate-300 line-clamp-2">{lead.lastMessage}</p>
+                    <p className="text-[10px] text-slate-400 dark:text-slate-400 mt-1 font-mono">
                       {t('messagesCount').replace('{count}', String(lead.messageCount || 1))}
                       {lead.lastMessageAt?.toDate ? ` • ${lead.lastMessageAt.toDate().toLocaleString()}` : ''}
                     </p>

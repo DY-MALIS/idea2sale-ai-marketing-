@@ -303,14 +303,14 @@ const SchedulerHub: React.FC = () => {
             <Sparkles size={16} />
             <span className="text-[10px] uppercase font-bold tracking-[0.2em]">{t('intelligentEngine')}</span>
           </div>
-          <h1 className="text-4xl font-display font-bold text-brand-700 tracking-tight">{t('smartScheduler')}</h1>
-          <p className="text-slate-500 mt-1 max-w-xl">{t('contentOrchestrationDesc')}</p>
+          <h1 className="text-4xl font-display font-bold text-brand-700 tracking-tight dark:text-brand-400">{t('smartScheduler')}</h1>
+          <p className="text-slate-500 mt-1 max-w-xl dark:text-slate-400">{t('contentOrchestrationDesc')}</p>
         </div>
 
         <div className="flex items-center gap-4">
           <div className="text-right">
              <p className="text-[10px] text-brand-400 font-bold uppercase tracking-widest">{t('activeModel')}</p>
-             <p className="text-sm text-brand-700 font-mono flex items-center gap-2">
+             <p className="text-sm text-brand-700 font-mono flex items-center gap-2 dark:text-brand-400">
                <Bot size={14} className="text-brand-500" />
                OpenRouter
              </p>
@@ -327,13 +327,16 @@ const SchedulerHub: React.FC = () => {
         </div>
       </header>
 
-      <div className="rounded-2xl border border-brand-200 bg-brand-50 px-5 py-4 text-sm text-brand-700">
-        <strong className="text-brand-700">
-          {t('smartScheduler')}
-        </strong>
-        <span className="ml-2 text-slate-600">
-          {t('schedulerRoleDesc')}
-        </span>
+      <div className="rounded-2xl border border-brand-200 bg-brand-50 px-5 py-4 text-sm text-brand-700 flex items-start gap-2 dark:bg-slate-800 dark:border-slate-700 dark:text-brand-400">
+        <Zap size={16} className="mt-0.5 shrink-0 text-brand-500" />
+        <div>
+          <strong className="text-brand-700 dark:text-brand-400">
+            {t('smartScheduler')}
+          </strong>
+          <span className="ml-2 text-slate-600 dark:text-slate-300">
+            {t('schedulerRoleDesc')}
+          </span>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -368,15 +371,15 @@ const SchedulerHub: React.FC = () => {
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative w-full max-w-lg bg-white border border-brand-100 rounded-3xl shadow-2xl overflow-hidden"
+              className="relative w-full max-w-lg bg-white border border-brand-100 rounded-3xl shadow-2xl overflow-hidden dark:bg-slate-800 dark:border-slate-700"
             >
-              <div className="p-8 border-b border-brand-100 flex justify-between items-center bg-brand-50">
+              <div className="p-8 border-b border-brand-100 flex justify-between items-center bg-brand-50 dark:border-slate-700 dark:bg-slate-700">
                 <div>
-                  <h3 className="text-xl font-bold text-brand-700 tracking-tight">{t('manualSchedule')}</h3>
-                  <p className="text-slate-500 text-xs mt-1">{t('bypassAiDesc')}</p>
+                  <h3 className="text-xl font-bold text-brand-700 tracking-tight dark:text-brand-400">{t('manualSchedule')}</h3>
+                  <p className="text-slate-500 text-xs mt-1 dark:text-slate-400">{t('bypassAiDesc')}</p>
                 </div>
-                <button onClick={closeModal} className="p-2 hover:bg-brand-100 rounded-xl transition-all">
-                  <X size={20} className="text-slate-500" />
+                <button onClick={closeModal} className="p-2 hover:bg-brand-100 rounded-xl transition-all dark:hover:bg-slate-600">
+                  <X size={20} className="text-slate-500 dark:text-slate-400" />
                 </button>
               </div>
 
@@ -399,7 +402,7 @@ const SchedulerHub: React.FC = () => {
                       value={content}
                       onChange={(e) => setContent(e.target.value)}
                       placeholder={t('contentPlaceholder')}
-                      className="w-full h-32 bg-brand-50 border border-brand-100 rounded-xl p-4 text-brand-700 text-sm focus:ring-2 focus:ring-brand-500 focus:outline-none transition-all resize-none"
+                      className="w-full h-32 bg-brand-50 border border-brand-100 rounded-xl p-4 text-brand-700 text-sm focus:ring-2 focus:ring-brand-500 focus:outline-none transition-all resize-none dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
                     />
                   </div>
 
@@ -419,8 +422,8 @@ const SchedulerHub: React.FC = () => {
                             onClick={() => setPlatform(p.id as any)}
                             className={`p-3 rounded-xl border flex flex-col items-center gap-1 transition-all ${
                               platform === p.id
-                                ? 'bg-brand-50 border-brand-500 text-brand-600'
-                                : 'bg-white border-brand-100 text-slate-400 hover:border-brand-200'
+                                ? 'bg-brand-50 border-brand-500 text-brand-600 dark:bg-slate-800'
+                                : 'bg-white border-brand-100 text-slate-400 hover:border-brand-200 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400'
                             }`}
                           >
                             <p.icon size={16} />
@@ -437,7 +440,7 @@ const SchedulerHub: React.FC = () => {
                         type="datetime-local"
                         value={scheduledTime}
                         onChange={(e) => setScheduledTime(e.target.value)}
-                        className="w-full p-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-700 text-sm focus:ring-2 focus:ring-brand-500 focus:outline-none transition-all"
+                        className="w-full p-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-700 text-sm focus:ring-2 focus:ring-brand-500 focus:outline-none transition-all dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
                       />
                     </div>
                   </div>
@@ -450,9 +453,9 @@ const SchedulerHub: React.FC = () => {
                         type="file"
                         accept="video/mp4,video/quicktime,video/webm"
                         onChange={(e) => setVideoFile(e.target.files?.[0] || null)}
-                        className="w-full p-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-700 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-brand-600 file:px-3 file:py-2 file:font-bold file:text-white"
+                        className="w-full p-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-700 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-brand-600 file:px-3 file:py-2 file:font-bold file:text-white dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
                       />
-                      <p className="mt-2 text-xs text-slate-500">MP4, MOV, or WebM. Auto-post starts only after TikTok approves video.publish.</p>
+                      <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">MP4, MOV, or WebM. Auto-post starts only after TikTok approves video.publish.</p>
                     </div>
                   )}
                   {platform === 'TELEGRAM' && (
@@ -463,10 +466,10 @@ const SchedulerHub: React.FC = () => {
                           type="file"
                           accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm"
                           onChange={(e) => setTelegramMediaFile(e.target.files?.[0] || null)}
-                          className="w-full p-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-700 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-sky-500 file:px-3 file:py-2 file:font-bold file:text-white"
+                          className="w-full p-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-700 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-sky-500 file:px-3 file:py-2 file:font-bold file:text-white dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
                         />
                         {telegramMediaFile && (
-                          <p className="mt-2 text-xs text-slate-500">
+                          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                             Selected: {telegramMediaFile.name} ({formatFileSize(telegramMediaFile.size)})
                           </p>
                         )}
@@ -483,7 +486,7 @@ const SchedulerHub: React.FC = () => {
                   <button
                     type="button"
                     onClick={closeModal}
-                    className="flex-1 py-4 bg-brand-50 text-brand-700 border border-brand-100 font-bold rounded-2xl hover:bg-brand-100 transition-all"
+                    className="flex-1 py-4 bg-brand-50 text-brand-700 border border-brand-100 font-bold rounded-2xl hover:bg-brand-100 transition-all dark:bg-slate-800 dark:border-slate-700 dark:text-brand-400 dark:hover:bg-slate-700"
                   >
                     {t('discard')}
                   </button>

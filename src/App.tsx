@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Info, ExternalLink, Copy, Settings, Globe, Languages, Check } from 'lucide-react';
+import { Info, ExternalLink, Copy, Settings, Globe, Languages, Check, Sun, Moon } from 'lucide-react';
 import { cn } from './lib/utils';
 import Sidebar from './components/Sidebar';
 import Copywriter from './components/Copywriter';
@@ -19,6 +19,7 @@ import SecurityCenter from './components/SecurityCenter';
 import { CreativeAutomationRequest, TabType } from './types';
 import { useLanguage } from './contexts/LanguageContext';
 import { useAuth } from './contexts/AuthContext';
+import { useTheme } from './contexts/ThemeContext';
 
 export default function App() {
   const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
@@ -29,6 +30,7 @@ export default function App() {
   const [creativeAutomation, setCreativeAutomation] = useState<CreativeAutomationRequest | null>(null);
 
   const { language, setLanguage, t } = useLanguage();
+  const { theme, toggleTheme } = useTheme();
 
   useEffect(() => {
     const handleContextmenu = (e: MouseEvent) => {
@@ -103,14 +105,24 @@ export default function App() {
     <div className="flex flex-col min-h-screen font-sans bg-mesh overflow-x-hidden">
       {/* Top Header with Language Switcher - Always Visible */}
       <div className="fixed top-4 right-4 z-[100] flex items-center gap-2">
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={toggleTheme}
+          aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          className="p-2 bg-white/80 backdrop-blur-md border border-white/50 rounded-full shadow-lg hover:shadow-xl transition-all text-brand-600 dark:bg-slate-800/80 dark:border-white/10 dark:text-brand-400"
+        >
+          {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+        </motion.button>
+
         <div className="relative">
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => setShowLanguageMenu(!showLanguageMenu)}
-            className="flex items-center gap-2 px-4 py-2 bg-white/80 backdrop-blur-md border border-white/50 rounded-full shadow-lg hover:shadow-xl transition-all text-slate-700 font-medium text-sm"
+            className="flex items-center gap-2 px-4 py-2 bg-white/80 backdrop-blur-md border border-white/50 rounded-full shadow-lg hover:shadow-xl transition-all text-slate-700 font-medium text-sm dark:bg-slate-800/80 dark:border-white/10 dark:text-slate-200"
           >
-            <Languages size={16} className="text-brand-600" />
+            <Languages size={16} className="text-brand-600 dark:text-brand-400" />
             <span>{language === 'km' ? 'ភាសាខ្មែរ' : 'English'}</span>
           </motion.button>
 
@@ -120,14 +132,14 @@ export default function App() {
                 initial={{ opacity: 0, y: 10, scale: 0.95 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                className="absolute top-full mt-2 right-0 w-40 bg-white border border-slate-100 rounded-2xl shadow-2xl overflow-hidden py-1"
+                className="absolute top-full mt-2 right-0 w-40 bg-white border border-slate-100 rounded-2xl shadow-2xl overflow-hidden py-1 dark:bg-slate-800 dark:border-slate-700"
               >
                 <button
                   onClick={() => {
                     setLanguage('en');
                     setShowLanguageMenu(false);
                   }}
-                  className={`w-full px-4 py-2.5 text-left text-sm flex items-center justify-between hover:bg-slate-50 transition-colors ${language === 'en' ? 'text-brand-700 font-bold bg-brand-50/50' : 'text-slate-600'}`}
+                  className={`w-full px-4 py-2.5 text-left text-sm flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors ${language === 'en' ? 'text-brand-700 font-bold bg-brand-50/50 dark:text-brand-400 dark:bg-slate-700/50' : 'text-slate-600 dark:text-slate-300'}`}
                 >
                   <span>English</span>
                   {language === 'en' && <Check size={14} />}
@@ -137,7 +149,7 @@ export default function App() {
                     setLanguage('km');
                     setShowLanguageMenu(false);
                   }}
-                  className={`w-full px-4 py-2.5 text-left text-sm flex items-center justify-between hover:bg-slate-50 transition-colors ${language === 'km' ? 'text-brand-700 font-bold bg-brand-50/50' : 'text-slate-600'}`}
+                  className={`w-full px-4 py-2.5 text-left text-sm flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors ${language === 'km' ? 'text-brand-700 font-bold bg-brand-50/50 dark:text-brand-400 dark:bg-slate-700/50' : 'text-slate-600 dark:text-slate-300'}`}
                 >
                   <span>ភាសាខ្មែរ</span>
                   {language === 'km' && <Check size={14} />}
@@ -148,7 +160,7 @@ export default function App() {
         </div>
 
         {effectivelyAuthenticated && (
-          <button className="p-2 bg-white/80 backdrop-blur-md border border-white/50 rounded-full shadow-lg text-slate-400 hover:text-slate-600 transition-colors">
+          <button className="p-2 bg-white/80 backdrop-blur-md border border-white/50 rounded-full shadow-lg text-slate-400 hover:text-slate-600 transition-colors dark:bg-slate-800/80 dark:border-white/10 dark:text-slate-500 dark:hover:text-slate-300">
             <Settings size={20} />
           </button>
         )}
@@ -158,7 +170,7 @@ export default function App() {
         <div className="flex flex-1 items-center justify-center">
           <div className="flex flex-col items-center gap-4">
             <div className="w-12 h-12 border-4 border-brand-200 border-t-brand-600 rounded-full animate-spin" />
-            <p className="text-slate-500 font-medium">{t('processing')}</p>
+            <p className="text-slate-500 dark:text-slate-400 font-medium">{t('processing')}</p>
           </div>
         </div>
       ) : !effectivelyAuthenticated ? (

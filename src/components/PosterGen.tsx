@@ -198,11 +198,11 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
       )}
       <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
         <div>
-          <h2 className="text-4xl font-display font-bold text-brand-700 tracking-tight flex items-center gap-3">
+          <h2 className="text-4xl font-display font-bold text-brand-700 tracking-tight flex items-center gap-3 dark:text-brand-400">
             {t('posterGenTitle')}
             <ImageIcon className="text-brand-500" size={32} />
           </h2>
-          <p className="text-slate-500 mt-1 text-lg">{t('posterGenSubtitle')}</p>
+          <p className="text-slate-500 mt-1 text-lg dark:text-slate-400">{t('posterGenSubtitle')}</p>
         </div>
         <div className="flex flex-col items-end gap-3">
           <div className="flex bg-brand-100/50 p-1.5 rounded-2xl border border-brand-200 backdrop-blur-sm">
@@ -215,8 +215,8 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
                 onClick={() => setActiveTool(tool.id as ToolType)}
                 className={cn(
                   "flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-300 whitespace-nowrap",
-                  activeTool === tool.id 
-                    ? "bg-white text-brand-700 shadow-md scale-105" 
+                  activeTool === tool.id
+                    ? "bg-white text-brand-700 shadow-md scale-105 dark:bg-slate-800 dark:text-brand-400"
                     : "text-brand-500 hover:text-brand-800"
                 )}
               >
@@ -258,7 +258,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
                       value={posterDetails.brand}
                       onChange={(e) => setPosterDetails({...posterDetails, brand: e.target.value})}
                       placeholder="e.g., Brown Coffee"
-                      className="w-full p-4 rounded-2xl bg-brand-50 border border-brand-200 text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all"
+                      className="w-full p-4 rounded-2xl bg-brand-50 border border-brand-200 text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
                     />
                   </div>
                   <div className="space-y-2">
@@ -266,7 +266,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
                     <select 
                       value={posterDetails.style}
                       onChange={(e) => setPosterDetails({...posterDetails, style: e.target.value})}
-                      className="w-full p-4 rounded-2xl bg-brand-50 border border-brand-200 text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all"
+                      className="w-full p-4 rounded-2xl bg-brand-50 border border-brand-200 text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
                     >
                       <option>Modern</option>
                       <option>Vintage</option>
@@ -302,7 +302,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
                     value={posterPrompt}
                     onChange={(e) => setPosterPrompt(e.target.value)}
                     placeholder="Describe the real product, location, lighting, camera angle, and mood..."
-                    className="w-full h-28 p-4 rounded-2xl bg-brand-50 border border-brand-200 text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all resize-none"
+                    className="w-full h-28 p-4 rounded-2xl bg-brand-50 border border-brand-200 text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all resize-none dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
                   />
                 </div>
               </div>
@@ -313,7 +313,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
                   value={visualPrompt}
                   onChange={(e) => setVisualPrompt(e.target.value)}
                   placeholder="Describe a realistic product photo: subject, setting, camera angle, lighting, background..."
-                  className="w-full h-56 p-5 rounded-2xl bg-brand-50 border border-brand-200 focus:ring-2 focus:ring-brand-500 outline-none transition-all resize-none"
+                  className="w-full h-56 p-5 rounded-2xl bg-brand-50 border border-brand-200 focus:ring-2 focus:ring-brand-500 outline-none transition-all resize-none dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
                 />
               </div>
             )}
@@ -338,7 +338,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
         <div className="lg:col-span-7">
           <div className="glass p-8 rounded-[2.5rem] min-h-[600px] flex flex-col relative overflow-hidden">
             <div className="flex justify-between items-center mb-8">
-              <h3 className="text-xl font-bold text-brand-700 flex items-center gap-2">
+              <h3 className="text-xl font-bold text-brand-700 flex items-center gap-2 dark:text-brand-400">
                 <div className="w-2 h-6 bg-brand-500 rounded-full" />
                 {t('aiGenerationResult')}
               </h3>
@@ -383,7 +383,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
                   <motion.div 
                     initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ opacity: 1, scale: 1 }}
-                    className="rounded-3xl overflow-hidden shadow-2xl border-8 border-white group relative"
+                    className="rounded-3xl overflow-hidden shadow-2xl border-8 border-white group relative dark:border-slate-700"
                   >
                     <img 
                       src={generatedImage} 

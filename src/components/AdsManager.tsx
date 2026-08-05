@@ -237,10 +237,10 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
             {t('adsManagerLite')}
             <TrendingUp className="text-brand-500" size={32} />
           </h2>
-          <p className="text-slate-500 mt-1 text-lg">{t('adsManagerSubtitle')}</p>
+          <p className="text-slate-500 dark:text-slate-400 mt-1 text-lg">{t('adsManagerSubtitle')}</p>
         </div>
         <div className="flex gap-3">
-          <div className="flex items-center gap-2 px-6 py-3 bg-white border border-brand-200 rounded-2xl shadow-sm">
+          <div className="flex items-center gap-2 px-6 py-3 bg-white dark:bg-slate-800 border border-brand-200 rounded-2xl shadow-sm">
             <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
             <span className="text-sm font-bold text-brand-700">{t('adSyncActive')}</span>
           </div>
@@ -255,7 +255,7 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
                 <Target size={20} className="text-brand-500" />
                 {t('targetAnalysis')}
               </h3>
-              <p className="text-sm text-slate-500">{t('defineSellingLabel')}</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400">{t('defineSellingLabel')}</p>
             </div>
 
             <div className="space-y-4">
@@ -275,7 +275,7 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
                         }}
                         className={cn(
                           "px-3 py-1 rounded-lg text-[10px] font-black transition-all",
-                          scanLanguage === lang ? "bg-white text-brand-700 shadow-sm" : "text-brand-400"
+                          scanLanguage === lang ? "bg-white dark:bg-slate-700 text-brand-700 shadow-sm" : "text-brand-400"
                         )}
                       >
                         {lang === 'km' ? 'ខ្មែរ' : 'English'}
@@ -301,7 +301,7 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
                       className="w-10 h-10 rounded-xl object-cover"
                       alt="Product"
                     />
-                    <span className="text-xs text-slate-500 flex-1 truncate">
+                    <span className="text-xs text-slate-500 dark:text-slate-400 flex-1 truncate">
                       {isAnalyzingImage
                         ? t('analyzingImage')
                         : imageAnalysis
@@ -344,7 +344,7 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
                  <div key={i} className="flex items-center justify-between">
                    <div className="flex items-center gap-2">
                      <stat.icon size={14} className="text-brand-400" />
-                     <span className="text-sm text-slate-500">{stat.label}</span>
+                     <span className="text-sm text-slate-500 dark:text-slate-400">{stat.label}</span>
                    </div>
                    <span className="text-sm font-bold text-brand-700">{stat.value}</span>
                  </div>
@@ -392,7 +392,7 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
                 </div>
                 <div>
                   <h3 className="text-lg font-bold text-brand-700 m-0">{t('productImageAnalysisTitle')}</h3>
-                  <p className="text-sm text-slate-500 m-0">{t('generatedByAiStrategist')}</p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 m-0">{t('generatedByAiStrategist')}</p>
                 </div>
               </div>
               {isAnalyzingImage ? (
@@ -419,7 +419,7 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
                 </div>
                 <div>
                   <h3 className="text-2xl font-bold text-brand-700">{t('noActiveStrategy')}</h3>
-                  <p className="text-slate-500 max-w-sm mx-auto mt-2">{t('enterProductDetailsDesc')}</p>
+                  <p className="text-slate-500 dark:text-slate-400 max-w-sm mx-auto mt-2">{t('enterProductDetailsDesc')}</p>
                 </div>
               </motion.div>
             ) : isGenerating ? (
@@ -450,13 +450,13 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
                     </div>
                     <div>
                       <h3 className="text-2xl font-bold text-brand-700 m-0">{t('recommendedAdStrategy')}</h3>
-                      <p className="text-sm text-slate-500 m-0">{t('generatedByAiStrategist')}</p>
+                      <p className="text-sm text-slate-500 dark:text-slate-400 m-0">{t('generatedByAiStrategist')}</p>
                     </div>
                   </div>
                   <button
                     onClick={handleCreateAd}
                     disabled={isCreatingAd}
-                    className="flex items-center gap-2 px-6 py-3 bg-brand-50 text-brand-600 rounded-2xl font-bold text-sm hover:bg-white border border-brand-100 shadow-sm transition-all group disabled:opacity-60"
+                    className="flex items-center gap-2 px-6 py-3 bg-brand-50 text-brand-600 rounded-2xl font-bold text-sm hover:bg-white dark:hover:bg-slate-700 border border-brand-100 shadow-sm transition-all group disabled:opacity-60"
                   >
                     {isCreatingAd ? (language === 'km' ? 'កំពុងបង្កើត...' : 'Creating...') : t('nextStepCreateAd')}
                     {isCreatingAd ? <Loader2 size={18} className="animate-spin" /> : <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />}
@@ -472,12 +472,13 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
                 {adCreative && (
                   <div className="rounded-[2rem] border border-brand-100 bg-brand-50/70 p-6 space-y-4">
                     <div className="flex items-center justify-between gap-4">
-                      <h4 className="text-lg font-bold text-brand-700 m-0">
+                      <h4 className="text-lg font-bold text-brand-700 m-0 flex items-center gap-2">
+                        <CheckCircle2 size={18} className="text-emerald-500" />
                         {language === 'km' ? 'Ad ដែលត្រៀមប្រើបាន' : 'Ready-to-Use Ad'}
                       </h4>
                       <button
                         onClick={() => navigator.clipboard.writeText(adCreative)}
-                        className="flex items-center gap-2 px-4 py-2 bg-white text-brand-600 rounded-xl border border-brand-100 text-sm font-bold hover:bg-brand-50 transition-all"
+                        className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-800 text-brand-600 rounded-xl border border-brand-100 text-sm font-bold hover:bg-brand-50 dark:hover:bg-slate-700 transition-all"
                       >
                         <Copy size={16} />
                         {language === 'km' ? 'ចម្លង' : 'Copy'}

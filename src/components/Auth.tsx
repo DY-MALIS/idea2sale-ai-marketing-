@@ -3,7 +3,8 @@ import { motion } from 'motion/react';
 import {
   ChevronRight,
   Sparkles,
-  Loader2
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
 
 import { signInWithGoogle, auth, authPersistenceReady } from '../lib/firebase';
@@ -133,7 +134,7 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
             className="mb-4 h-16 w-16 rounded-2xl shadow-lg"
           />
           <h1 className="text-2xl font-black text-brand-700">aime.angkorgate</h1>
-          <p className="text-slate-700 mt-2 text-lg sm:text-xl font-semibold leading-snug">
+          <p className="text-slate-700 dark:text-slate-300 mt-2 text-lg sm:text-xl font-semibold leading-snug">
             {isLogin ? t('signInToContinue') : t('joinAndGrow')}
           </p>
         </div>
@@ -142,8 +143,9 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
           <form onSubmit={handleSubmit} className="space-y-6">
             {error && (
               <div className="space-y-4">
-                <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-500 text-xs text-center leading-relaxed font-medium">
-                  {error}
+                <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-500 text-xs text-center leading-relaxed font-medium flex items-center justify-center gap-2">
+                  <AlertCircle size={14} className="shrink-0" />
+                  <span>{error}</span>
                 </div>
 
                 {isRecoverableFirebaseError(errorCode) && onDemoMode && (
@@ -177,7 +179,7 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
             </motion.button>
 
             {onDemoMode && (
-              <p className="text-center text-slate-600 text-[11px] sm:text-xs font-bold uppercase tracking-wide mt-4 leading-relaxed">
+              <p className="text-center text-slate-600 dark:text-slate-300 text-[11px] sm:text-xs font-bold uppercase tracking-wide mt-4 leading-relaxed">
                 {t('orTryDemo')} {' '}
                 <button
                   type="button"
@@ -191,10 +193,10 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
 
             <div className="relative my-8">
               <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-slate-200"></div>
+                <div className="w-full border-t border-slate-200 dark:border-slate-700"></div>
               </div>
               <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-white px-4 text-slate-600 font-bold tracking-widest">{t('orContinueWith')}</span>
+                <span className="bg-white dark:bg-slate-900 px-4 text-slate-600 dark:text-slate-300 font-bold tracking-widest">{t('orContinueWith')}</span>
               </div>
             </div>
 
@@ -204,7 +206,7 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
               type="button"
               disabled={loading}
               onClick={handleGoogleLogin}
-              className="w-full min-h-14 px-5 py-4 bg-white border border-slate-200 text-slate-800 rounded-2xl font-bold text-sm sm:text-base flex items-center justify-center gap-3 transition-all shadow-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-center"
+              className="w-full min-h-14 px-5 py-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-2xl font-bold text-sm sm:text-base flex items-center justify-center gap-3 transition-all shadow-lg hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed text-center"
             >
               <svg viewBox="0 0 24 24" className="w-5 h-5" xmlns="http://www.w3.org/2000/svg">
                 <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
@@ -219,7 +221,7 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
           {/* Account toggle hidden as only supporting Guest and Google for now */}
         </div>
 
-        <p className="text-center text-slate-600 text-[10px] sm:text-xs mt-8 sm:mt-10 leading-relaxed font-semibold uppercase tracking-[0.14em] sm:tracking-widest">
+        <p className="text-center text-slate-600 dark:text-slate-300 text-[10px] sm:text-xs mt-8 sm:mt-10 leading-relaxed font-semibold uppercase tracking-[0.14em] sm:tracking-widest">
           {t('termsAndPrivacyPrefix')} <br />
           <a href="/terms-of-service/" className="text-brand-700 font-bold hover:underline">{t('termsOfService')}</a> {t('and')}{' '}
           <a href="/privacy-policy/" className="text-brand-700 font-bold hover:underline">{t('privacyPolicy')}</a>.
