@@ -1,0 +1,13 @@
+name: Telegram scheduled posts
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  run-scheduled:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger due Telegram posts
+        run: curl -sf -X POST https://aime.angkorgate.ai/api/telegram/run-scheduled
