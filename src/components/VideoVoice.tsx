@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { 
   Sparkles, 
   Video as VideoIcon, 
@@ -109,6 +109,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   const { t, language } = useLanguage();
   const { user, isDemoMode } = useAuth();
   const [logoDataUrl, setLogoDataUrl] = useState('');
+  const logoDataUrlRef = useRef('');
   const [watermarking, setWatermarking] = useState(false);
   const [voiceOverEnabled, setVoiceOverEnabled] = useState(false);
   const [voiceOverText, setVoiceOverText] = useState('');
@@ -171,18 +172,23 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     },
   };
 
+  const updateLogoDataUrl = (value: string) => {
+    logoDataUrlRef.current = value;
+    setLogoDataUrl(value);
+  };
+
   React.useEffect(() => {
     const loadLogo = async () => {
       try {
         if (isDemoMode || !user) {
           const saved = JSON.parse(localStorage.getItem('demo_business_profile') || 'null');
-          setLogoDataUrl(saved?.logoDataUrl || '');
+          updateLogoDataUrl(saved?.logoDataUrl || '');
           return;
         }
         const snap = await getDoc(doc(db, 'business_profiles', user.uid));
-        setLogoDataUrl((snap.data() as BusinessProfileData | undefined)?.logoDataUrl || '');
+        updateLogoDataUrl((snap.data() as BusinessProfileData | undefined)?.logoDataUrl || '');
       } catch {
-        setLogoDataUrl('');
+        updateLogoDataUrl('');
       }
     };
     void loadLogo();
@@ -360,10 +366,10 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         if (statusData.videoUrl) {
           let video = statusData.videoUrl;
 
-          if (logoDataUrl) {
+          if (logoDataUrlRef.current) {
             setWatermarking(true);
             try {
-              video = await overlayLogoOnVideo(video, logoDataUrl);
+              video = await overlayLogoOnVideo(video, logoDataUrlRef.current);
             } finally {
               setWatermarking(false);
             }

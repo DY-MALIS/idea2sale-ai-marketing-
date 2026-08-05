@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { 
   Sparkles, 
   Image as ImageIcon, 
@@ -58,6 +58,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
   const { t, language } = useLanguage();
   const { user, isDemoMode } = useAuth();
   const [logoDataUrl, setLogoDataUrl] = useState('');
+  const logoDataUrlRef = useRef('');
   const [activeTool, setActiveTool] = useState<ToolType>('poster');
   const [posterPrompt, setPosterPrompt] = useState('A real product photo in a Cambodian cafe setting, warm sunlight, premium commercial photography, natural shadows, realistic texture, lifestyle background');
   const [visualPrompt, setVisualPrompt] = useState('A photorealistic product advertisement scene, real camera photo, premium lighting, natural shadows, detailed texture, cinematic depth of field, TikTok-ready composition');
@@ -75,18 +76,23 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
   const [automationNotice, setAutomationNotice] = useState<string | null>(null);
   const handledAutomationRef = React.useRef<string | null>(null);
 
+  const updateLogoDataUrl = (value: string) => {
+    logoDataUrlRef.current = value;
+    setLogoDataUrl(value);
+  };
+
   React.useEffect(() => {
     const loadLogo = async () => {
       try {
         if (isDemoMode || !user) {
           const saved = JSON.parse(localStorage.getItem('demo_business_profile') || 'null');
-          setLogoDataUrl(saved?.logoDataUrl || '');
+          updateLogoDataUrl(saved?.logoDataUrl || '');
           return;
         }
         const snap = await getDoc(doc(db, 'business_profiles', user.uid));
-        setLogoDataUrl((snap.data() as BusinessProfileData | undefined)?.logoDataUrl || '');
+        updateLogoDataUrl((snap.data() as BusinessProfileData | undefined)?.logoDataUrl || '');
       } catch {
-        setLogoDataUrl('');
+        updateLogoDataUrl('');
       }
     };
     void loadLogo();
@@ -178,7 +184,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Image generation failed.');
-      setGeneratedImage(await applyLogoWatermark(data.imageUrl, logoDataUrl));
+      setGeneratedImage(await applyLogoWatermark(data.imageUrl, logoDataUrlRef.current));
     } catch (error: any) {
       console.error(error);
       if (/OPEN_ROUTER_API_KEY|api key/i.test(error.message || '')) {
@@ -204,7 +210,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Image generation failed.');
-      setGeneratedImage(await applyLogoWatermark(data.imageUrl, logoDataUrl));
+      setGeneratedImage(await applyLogoWatermark(data.imageUrl, logoDataUrlRef.current));
     } catch (error: any) {
       console.error(error);
       if (/OPEN_ROUTER_API_KEY|api key/i.test(error.message || '')) {
