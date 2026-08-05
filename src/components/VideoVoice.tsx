@@ -42,6 +42,36 @@ const getFFmpeg = async () => {
   return ffmpegLoadPromise;
 };
 
+const applyVoiceOver = async (videoDataUrl: string, audioDataUrl: string): Promise<string> => {
+  try {
+    const { fetchFile } = await import('@ffmpeg/util');
+    const ffmpeg = await getFFmpeg();
+    await ffmpeg.writeFile('vo_input.mp4', await fetchFile(videoDataUrl));
+    await ffmpeg.writeFile('vo_audio.mp3', await fetchFile(audioDataUrl));
+    await ffmpeg.exec([
+      '-i', 'vo_input.mp4',
+      '-i', 'vo_audio.mp3',
+      '-map', '0:v:0',
+      '-map', '1:a:0',
+      '-c:v', 'copy',
+      '-c:a', 'aac',
+      '-shortest',
+      'vo_output.mp4',
+    ]);
+    const data = await ffmpeg.readFile('vo_output.mp4');
+    const blob = new Blob([data.buffer], { type: 'video/mp4' });
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error('Could not finalize the voice-over video.'));
+      reader.readAsDataURL(blob);
+    });
+  } catch (error) {
+    console.error('Voice-over merge failed, keeping the original video audio:', error);
+    return videoDataUrl;
+  }
+};
+
 const overlayLogoOnVideo = async (videoDataUrl: string, logoDataUrl: string): Promise<string> => {
   if (!logoDataUrl) return videoDataUrl;
   try {
@@ -80,6 +110,9 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   const { user, isDemoMode } = useAuth();
   const [logoDataUrl, setLogoDataUrl] = useState('');
   const [watermarking, setWatermarking] = useState(false);
+  const [voiceOverEnabled, setVoiceOverEnabled] = useState(false);
+  const [voiceOverText, setVoiceOverText] = useState('');
+  const [addingVoiceOver, setAddingVoiceOver] = useState(false);
   const [activeTool, setActiveTool] = useState<ToolType>('video');
   const [videoPrompt, setVideoPrompt] = useState('A realistic 8-second TikTok product ad: close-up product reveal on a real table, warm natural light, slow camera push-in, hand places the product naturally, detailed texture, cinematic depth of field, clean premium brand feeling');
   const [videoLanguage, setVideoLanguage] = useState<'Khmer' | 'English'>('Khmer');
@@ -323,16 +356,48 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         const statusData = await statusResponse.json();
         if (!statusResponse.ok) throw new Error(statusData.error || 'Video generation failed.');
         if (statusData.videoUrl) {
+          let video = statusData.videoUrl;
+
           if (logoDataUrl) {
             setWatermarking(true);
             try {
-              setGeneratedVideo(await overlayLogoOnVideo(statusData.videoUrl, logoDataUrl));
+              video = await overlayLogoOnVideo(video, logoDataUrl);
             } finally {
               setWatermarking(false);
             }
-          } else {
-            setGeneratedVideo(statusData.videoUrl);
           }
+
+          if (voiceOverEnabled && voiceOverText.trim()) {
+            setAddingVoiceOver(true);
+            try {
+              const persona = voicePersonas[voicePersona];
+              const hasKhmerText = /[ក-៿]/.test(voiceOverText);
+              const ttsResponse = await fetch('/api/ai', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  action: 'ttsGenerate',
+                  input: voiceOverText,
+                  voice: persona.openRouterVoice,
+                  languageHint: hasKhmerText ? 'Khmer' : 'English',
+                  performanceStyle: `${persona.style} Read the exact provided text like you are speaking in a real conversation, not reading a script. Use human emotion, natural rhythm, clear consonants, natural pacing. Avoid robotic or AI narration.`,
+                  speed: 1.6,
+                }),
+              });
+              const ttsData = await ttsResponse.json();
+              if (ttsResponse.ok && ttsData.audioUrl) {
+                video = await applyVoiceOver(video, ttsData.audioUrl);
+              } else {
+                console.error('Voice-over TTS generation failed:', ttsData.error);
+              }
+            } catch (voiceError) {
+              console.error('Voice-over generation failed, keeping the original video audio:', voiceError);
+            } finally {
+              setAddingVoiceOver(false);
+            }
+          }
+
+          setGeneratedVideo(video);
           return;
         }
       }
@@ -664,6 +729,61 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                   />
                 </div>
 
+                {/* Khmer Voice-over Section */}
+                <div className="space-y-3 pt-4 border-t border-brand-100">
+                  <button
+                    type="button"
+                    onClick={() => setVoiceOverEnabled(!voiceOverEnabled)}
+                    className="w-full flex items-center justify-between"
+                  >
+                    <h4 className="text-sm font-bold text-brand-700 flex items-center gap-2">
+                      <Mic size={16} className="text-brand-500" />
+                      {t('voiceOverLabel')}
+                    </h4>
+                    <div className={cn(
+                      "w-10 h-6 rounded-full transition-colors relative shrink-0",
+                      voiceOverEnabled ? "bg-brand-600" : "bg-brand-100"
+                    )}>
+                      <div className={cn(
+                        "absolute top-1 w-4 h-4 rounded-full bg-white transition-all",
+                        voiceOverEnabled ? "left-5" : "left-1"
+                      )} />
+                    </div>
+                  </button>
+                  {voiceOverEnabled && (
+                    <div className="space-y-3">
+                      <textarea
+                        value={voiceOverText}
+                        onChange={(e) => setVoiceOverText(e.target.value)}
+                        placeholder={t('voiceOverPlaceholder')}
+                        className="w-full h-24 p-4 rounded-xl bg-brand-50 border border-brand-200 outline-none text-sm resize-none dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
+                      />
+                      <div className="flex bg-brand-50 p-1 rounded-xl border border-brand-100 w-fit">
+                        {[
+                          { id: 'Female', label: language === 'km' ? 'សំឡេងស្រី' : 'Female' },
+                          { id: 'Male', label: language === 'km' ? 'សំឡេងប្រុស' : 'Male' },
+                        ].map((voice) => (
+                          <button
+                            key={voice.id}
+                            type="button"
+                            onClick={() => {
+                              const nextGender = voice.id as VoiceGender;
+                              setVoiceGender(nextGender);
+                              setVoicePersona(nextGender === 'Male' ? 'piseth' : 'sreymom');
+                            }}
+                            className={cn(
+                              "px-4 py-1.5 rounded-lg text-[10px] font-black transition-all",
+                              voiceGender === voice.id ? "bg-white dark:bg-slate-800 text-brand-700 shadow-sm" : "text-brand-400 hover:text-brand-700"
+                            )}
+                          >
+                            {voice.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 {/* AI Caption Generator Section */}
                 <div className="space-y-4 pt-4 border-t border-brand-100">
                   <div className="flex justify-between items-center">
@@ -867,7 +987,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
               {loading || audioLoading ? (
                 <div className="text-center space-y-4">
                   <Loader2 className="w-12 h-12 animate-spin text-brand-600 mx-auto" />
-                  <p className="text-brand-700 font-bold">{watermarking ? t('addingLogo') : t('craftingContent')}</p>
+                  <p className="text-brand-700 font-bold">{watermarking ? t('addingLogo') : addingVoiceOver ? t('addingVoiceOver') : t('craftingContent')}</p>
                 </div>
               ) : activeTool === 'video' && generatedVideo ? (
                 <div className="w-full space-y-6">
