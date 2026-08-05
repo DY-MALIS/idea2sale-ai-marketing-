@@ -1,8 +1,9 @@
 import admin from 'firebase-admin';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { createHash } from 'crypto';
+import { Client as QStashClient } from '@upstash/qstash';
 
-const initFirebaseAdmin = () => {
+export const initFirebaseAdmin = () => {
   const projectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID;
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
   const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
@@ -182,6 +183,25 @@ const uploadMediaDataUrl = async ({ mediaDataUrl, mediaType }) => {
   };
 };
 
+const scheduleQStashDelivery = async (req, postId, scheduledDate) => {
+  const token = (process.env.QSTASH_TOKEN || '').trim();
+  if (!token) return;
+
+  try {
+    const client = new QStashClient({ token, baseUrl: process.env.QSTASH_URL });
+    const host = req.headers['x-forwarded-host'] || req.headers.host;
+    await client.publishJSON({
+      url: `https://${host}/api/telegram/deliver`,
+      body: { postId },
+      notBefore: Math.floor(scheduledDate.getTime() / 1000),
+    });
+  } catch (error) {
+    // Falls back to the periodic cron/GitHub Action poller, so a QStash
+    // hiccup should never block scheduling the post itself.
+    console.error('QStash scheduling failed:', error?.message || error);
+  }
+};
+
 const createScheduledTelegramPost = async (req, res) => {
   const decoded = await verifyUser(req);
   const content = String(req.body?.content || '').trim();
@@ -245,10 +265,12 @@ const createScheduledTelegramPost = async (req, res) => {
     createdAt: FieldValue.serverTimestamp()
   });
 
+  await scheduleQStashDelivery(req, docRef.id, scheduledDate);
+
   return res.status(200).json({ ok: true, id: docRef.id });
 };
 
-const sendTelegram = async (post) => {
+export const sendTelegram = async (post) => {
   const token = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
   const chatId = (process.env.TELEGRAM_CHAT_ID || '').trim();
 
