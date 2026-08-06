@@ -104,7 +104,7 @@ Photorealistic cinematic video requirements:
 - Create a premium short-form ad style video suitable for TikTok, with a realistic product-demo feeling.`;
 
 const agentSystemPrompt = `You are aime.angkorgate AI Agent, an intelligent conversational assistant for creators, sellers, and small businesses.
-Your job is to understand the user's actual goal, preserve useful conversational context, and answer like a capable human expert who can explain, create, troubleshoot, plan, compare, rewrite, translate, and advise.
+Your job is to understand the user's actual goal, preserve useful conversational context, and answer like a capable human expert who can explain, create, troubleshoot, plan, compare, rewrite, translate, advise, and see and analyze images the user attaches (product photos, screenshots, references — describe exactly what is in them, never say you can't see an attached image).
 
 Critical language contract:
 - The language of the user's latest message is the only language that controls your reply.
@@ -304,7 +304,9 @@ export default async function handler(req, res) {
       const platform = String(req.body?.platform || 'All');
       const mode = String(req.body?.mode || 'chat');
       const history = Array.isArray(req.body?.history) ? req.body.history.slice(-14) : [];
-      if (!message) return res.status(400).json({ error: 'Please enter a question or content request.' });
+      const imageBase64 = typeof req.body?.imageBase64 === 'string' ? req.body.imageBase64 : undefined;
+      const imageMimeType = typeof req.body?.imageMimeType === 'string' ? req.body.imageMimeType : undefined;
+      if (!message && !imageBase64) return res.status(400).json({ error: 'Please enter a question or content request.' });
       const detectedLanguage = String(req.body?.detectedLanguage || '').toLowerCase();
       const responseLanguage = detectedLanguage === 'km' || /[\u1780-\u17FF]/.test(message) ? 'Khmer' : 'English';
 
@@ -320,7 +322,9 @@ export default async function handler(req, res) {
         model: process.env.OPEN_ROUTER_AGENT_MODEL || process.env.OPEN_ROUTER_MODEL,
         temperature: 0.55,
         maxTokens: 1800,
-        prompt: `Detected user message language: ${responseLanguage}
+        imageBase64,
+        imageMimeType,
+        prompt: `${imageBase64 ? 'IMPORTANT: an image is attached and already fully visible to you as part of this very message, delivered directly alongside this text \u2014 it is not a live API lookup and has nothing to do with the "X API context" mentioned further below (that is a separate, unrelated, optional data source, and its availability or lack of it says nothing about whether you can see the attached image, which you always can). Actually look at the attached image and describe exactly what is in it. Never say or imply that you cannot see, view, or access it.\n\n' : ''}Detected user message language: ${responseLanguage}
 UI language preference: ${language} (lower priority than the latest user message language)
 Platform focus: ${platform}. If this is Auto, infer the platform from the user's wording. If no platform is mentioned, do not assume content is needed unless the user asks for content.
 Mode: ${mode}. If this is auto, infer the user's intent and answer that intent only.
@@ -337,7 +341,7 @@ X API context:
 ${xContext || 'No X API context was requested or available.'}
 
 User request:
-${message}
+${message || '(No text — just the attached image. Describe what you see and offer relevant marketing help.)'}
 
 Respond in ${responseLanguage}. This is mandatory. If response language is Khmer, do not answer in English except for unavoidable product names, API names, hashtags, or code. If response language is English, do not answer in Khmer.
 

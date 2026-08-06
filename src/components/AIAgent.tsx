@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Bot, Copy, Image as ImageIcon, Loader2, RefreshCw, Send, Sparkles, UserRound, Video, Zap } from 'lucide-react';
+import { Bot, Copy, Image as ImageIcon, ImagePlus, Loader2, Mic, MicOff, RefreshCw, Send, Sparkles, UserRound, Video, X, Zap } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { AnimatePresence, motion } from 'motion/react';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -8,6 +8,12 @@ import { CreativeAutomationRequest } from '../types';
 interface AgentMessage {
   role: 'user' | 'assistant';
   content: string;
+  imageDataUrl?: string;
+}
+
+interface AttachedImage {
+  base64: string;
+  mimeType: string;
 }
 
 interface AIAgentProps {
@@ -27,14 +33,21 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const [loading, setLoading] = useState(false);
   const [autoCreateEnabled, setAutoCreateEnabled] = useState(true);
   const [messages, setMessages] = useState<AgentMessage[]>([]);
+  const [attachedImage, setAttachedImage] = useState<AttachedImage | null>(null);
+  const [isListening, setIsListening] = useState(false);
   const conversationEndRef = useRef<HTMLDivElement>(null);
   const requestControllerRef = useRef<AbortController | null>(null);
+  const recognitionRef = useRef<any>(null);
+
+  const speechRecognitionSupported = typeof window !== 'undefined'
+    && Boolean((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
 
   useEffect(() => {
     conversationEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages, loading]);
 
   useEffect(() => () => requestControllerRef.current?.abort(), []);
+  useEffect(() => () => recognitionRef.current?.stop(), []);
 
   const text = useMemo(() => ({
     title: language === 'km' ? 'AI Agent ឆ្លាតវៃ' : 'Intelligent AI Agent',
@@ -61,6 +74,10 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     autoCreateHelp: language === 'km'
       ? 'ពេលព័ត៌មានគ្រប់ Agent នឹងបើក generator និងចាប់ផ្តើមបង្កើតភ្លាម។'
       : 'When the brief is complete, the agent opens the right generator and starts creating.',
+    attachImage: language === 'km' ? 'ភ្ជាប់រូបភាព' : 'Attach image',
+    removeImage: language === 'km' ? 'ដកចេញ' : 'Remove',
+    voiceInput: language === 'km' ? 'និយាយសំណួរ' : 'Voice input',
+    listening: language === 'km' ? 'កំពុងស្តាប់...' : 'Listening...',
   }), [language]);
 
   const updateMessages = (nextMessages: AgentMessage[]) => {
@@ -74,15 +91,64 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     setLoading(false);
   };
 
+  const handleImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64 = (reader.result as string).split(',')[1];
+      if (base64) setAttachedImage({ base64, mimeType: file.type });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveImage = () => setAttachedImage(null);
+
+  const toggleVoiceInput = () => {
+    const SpeechRecognitionCtor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognitionCtor) return;
+
+    if (isListening) {
+      recognitionRef.current?.stop();
+      return;
+    }
+
+    const recognition = new SpeechRecognitionCtor();
+    recognition.lang = language === 'km' ? 'km-KH' : 'en-US';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognition.onresult = (event: any) => {
+      const transcript = Array.from(event.results as ArrayLike<any>)
+        .map((result: any) => result?.[0]?.transcript || '')
+        .join(' ')
+        .trim();
+      if (transcript) {
+        setInput((current) => (current ? `${current} ${transcript}` : transcript));
+      }
+    };
+    recognition.onerror = () => setIsListening(false);
+    recognition.onend = () => setIsListening(false);
+    recognitionRef.current = recognition;
+    setIsListening(true);
+    recognition.start();
+  };
+
   const askAgent = async () => {
     const message = input.trim();
-    if (!message || loading) return;
+    if ((!message && !attachedImage) || loading) return;
 
     const history = messages.slice(-HISTORY_MESSAGES);
-    const userMessage: AgentMessage = { role: 'user', content: message };
+    const userMessage: AgentMessage = {
+      role: 'user',
+      content: message || (language === 'km' ? '(រូបភាពភ្ជាប់)' : '(Attached image)'),
+      imageDataUrl: attachedImage ? `data:${attachedImage.mimeType};base64,${attachedImage.base64}` : undefined,
+    };
     const pendingMessages = [...messages, userMessage].slice(-MAX_MESSAGES);
+    const imageForRequest = attachedImage;
     updateMessages(pendingMessages);
     setInput('');
+    setAttachedImage(null);
     setLoading(true);
 
     requestControllerRef.current?.abort();
@@ -100,8 +166,10 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           platform: 'Auto',
           mode: 'auto',
           language,
-          detectedLanguage: detectMessageLanguage(message),
+          detectedLanguage: message ? detectMessageLanguage(message) : language,
           history,
+          imageBase64: imageForRequest?.base64,
+          imageMimeType: imageForRequest?.mimeType,
         }),
       });
       const data = await response.json();
@@ -124,7 +192,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           aspectRatio: ['1:1', '9:16', '16:9', '4:5', '3:4'].includes(data.automation.aspectRatio)
             ? data.automation.aspectRatio
             : (kind === 'video' ? '9:16' : '1:1'),
-          language: detectMessageLanguage(message),
+          language: message ? detectMessageLanguage(message) : language,
           voiceOverText: kind === 'video' ? String(data.automation.voiceOverText || '').trim() : undefined,
         });
       }
@@ -175,6 +243,52 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
               className="w-full min-h-60 p-5 rounded-2xl bg-brand-50 border border-brand-200 focus:ring-2 focus:ring-brand-500 focus:bg-white dark:focus:bg-slate-800 outline-none transition-all resize-y font-medium"
             />
             <p className="text-xs text-slate-400 dark:text-slate-400">{text.inputHint}</p>
+
+            <div className="flex items-center gap-2">
+              <label
+                className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/70 dark:bg-slate-800/70 border border-brand-200 text-brand-600 hover:bg-brand-50 dark:hover:bg-slate-700 cursor-pointer transition-all text-xs font-bold"
+                title={text.attachImage}
+              >
+                <ImagePlus size={16} />
+                {text.attachImage}
+                <input type="file" accept="image/*" className="hidden" onChange={handleImageSelect} />
+              </label>
+
+              {speechRecognitionSupported && (
+                <button
+                  type="button"
+                  onClick={toggleVoiceInput}
+                  title={isListening ? text.listening : text.voiceInput}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-bold transition-all ${
+                    isListening
+                      ? 'bg-red-500 border-red-500 text-white animate-pulse'
+                      : 'bg-white/70 dark:bg-slate-800/70 border-brand-200 text-brand-600 hover:bg-brand-50 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  {isListening ? <MicOff size={16} /> : <Mic size={16} />}
+                  {isListening ? text.listening : text.voiceInput}
+                </button>
+              )}
+            </div>
+
+            {attachedImage && (
+              <div className="flex items-center gap-3 p-2 rounded-2xl bg-brand-50 border border-brand-100">
+                <img
+                  src={`data:${attachedImage.mimeType};base64,${attachedImage.base64}`}
+                  className="w-10 h-10 rounded-xl object-cover"
+                  alt="Attached"
+                />
+                <span className="text-xs text-slate-500 dark:text-slate-400 flex-1 truncate">{text.attachImage}</span>
+                <button
+                  type="button"
+                  onClick={handleRemoveImage}
+                  title={text.removeImage}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center justify-between gap-4 rounded-2xl border border-brand-200 bg-white/70 dark:bg-slate-800/70 p-4">
@@ -213,7 +327,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
 
           <button
             onClick={() => void askAgent()}
-            disabled={loading || !input.trim()}
+            disabled={loading || (!input.trim() && !attachedImage)}
             className="w-full bg-gradient-to-r from-brand-600 to-crab-shell hover:from-brand-700 hover:to-crab-shell/90 disabled:from-brand-200 disabled:to-brand-300 text-white font-bold py-5 rounded-2xl flex items-center justify-center gap-3 transition-all shadow-xl shadow-brand-500/20"
           >
             {loading ? <Loader2 className="animate-spin" /> : <Send size={20} />}
@@ -287,7 +401,16 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                         {isUser ? text.user : text.agent}
                       </p>
                       {isUser ? (
-                        <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
+                        <>
+                          {message.imageDataUrl && (
+                            <img
+                              src={message.imageDataUrl}
+                              alt="Attached"
+                              className="mb-2 max-h-48 rounded-xl object-cover"
+                            />
+                          )}
+                          <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
+                        </>
                       ) : (
                         <div className="prose prose-brand max-w-none">
                           <Markdown>{message.content}</Markdown>
