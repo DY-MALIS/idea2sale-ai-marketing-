@@ -46,11 +46,12 @@ const applyVoiceOver = async (videoDataUrl: string, audioDataUrl: string): Promi
   try {
     const { fetchFile } = await import('@ffmpeg/util');
     const ffmpeg = await getFFmpeg();
+    const audioExt = audioDataUrl.startsWith('data:audio/wav') ? 'wav' : 'mp3';
     await ffmpeg.writeFile('vo_input.mp4', await fetchFile(videoDataUrl));
-    await ffmpeg.writeFile('vo_audio.mp3', await fetchFile(audioDataUrl));
+    await ffmpeg.writeFile(`vo_audio.${audioExt}`, await fetchFile(audioDataUrl));
     await ffmpeg.exec([
       '-i', 'vo_input.mp4',
-      '-i', 'vo_audio.mp3',
+      '-i', `vo_audio.${audioExt}`,
       '-map', '0:v:0',
       '-map', '1:a:0',
       '-c:v', 'copy',
@@ -594,9 +595,10 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       link.click();
       document.body.removeChild(link);
     } else if (activeTool === 'voice' && generatedAudio) {
+      const audioExt = generatedAudio.startsWith('data:audio/wav') ? 'wav' : 'mp3';
       const link = document.createElement('a');
       link.href = generatedAudio;
-      link.download = `idea2sale-audio-${Date.now()}.mp3`;
+      link.download = `idea2sale-audio-${Date.now()}.${audioExt}`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);

@@ -107,6 +107,30 @@ const speechModelCandidates = (model) => {
 const isMissingModelError = (message) => /model .*does not exist|not a valid model id|no endpoints found|not found|unsupported model/i.test(message || '');
 const isRetryableSpeechError = (message) => /provider returned error|did not return audio|temporarily unavailable|overloaded|rate limit/i.test(message || '');
 
+// OpenAI's realtime-style audio output streams raw signed 16-bit little-endian PCM
+// at 24kHz mono — it has no container, so it must be wrapped in a WAV header before
+// it can be played back as a file (data URL, <audio> tag, or handed to ffmpeg).
+const pcm16ChunksToWavDataUrl = (base64Chunks, sampleRate = 24000, numChannels = 1) => {
+  const pcmBuffer = Buffer.concat(base64Chunks.map((chunk) => Buffer.from(chunk, 'base64')));
+  const byteRate = sampleRate * numChannels * 2;
+  const blockAlign = numChannels * 2;
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0);
+  header.writeUInt32LE(36 + pcmBuffer.length, 4);
+  header.write('WAVE', 8);
+  header.write('fmt ', 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20); // PCM
+  header.writeUInt16LE(numChannels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(byteRate, 28);
+  header.writeUInt16LE(blockAlign, 32);
+  header.writeUInt16LE(16, 34); // bits per sample
+  header.write('data', 36);
+  header.writeUInt32LE(pcmBuffer.length, 40);
+  return fileToDataUrl(Buffer.concat([header, pcmBuffer]).toString('base64'), 'audio/wav');
+};
+
 const audioFromChatCompletion = (data) => {
   const message = data?.choices?.[0]?.message;
   const audio = message?.audio || message?.content?.find?.((item) => item?.type === 'output_audio')?.audio;
@@ -114,7 +138,9 @@ const audioFromChatCompletion = (data) => {
   if (!base64) return null;
   const format = audio?.format || 'mp3';
   return {
-    audioUrl: fileToDataUrl(base64, format === 'wav' ? 'audio/wav' : 'audio/mpeg'),
+    audioUrl: format === 'pcm16'
+      ? pcm16ChunksToWavDataUrl([base64])
+      : fileToDataUrl(base64, format === 'wav' ? 'audio/wav' : 'audio/mpeg'),
     transcript: audio?.transcript || message?.content,
   };
 };
@@ -123,6 +149,7 @@ const audioFromStreamingText = (streamText) => {
   const audioChunks = [];
   const transcriptChunks = [];
   const errors = [];
+  let format = 'pcm16';
 
   for (const line of String(streamText).split(/\r?\n/)) {
     if (!line.startsWith('data:')) continue;
@@ -138,6 +165,7 @@ const audioFromStreamingText = (streamText) => {
       const transcript = audio?.transcript || choice?.delta?.content || choice?.message?.content;
       const errorMessage = event?.error?.message || event?.error || choice?.finish_reason;
 
+      if (audio?.format) format = audio.format;
       if (audioData) audioChunks.push(audioData);
       if (typeof transcript === 'string') transcriptChunks.push(transcript);
       if (typeof errorMessage === 'string' && errorMessage && errorMessage !== 'stop') errors.push(errorMessage);
@@ -151,7 +179,9 @@ const audioFromStreamingText = (streamText) => {
   }
 
   return {
-    audioUrl: fileToDataUrl(audioChunks.join(''), 'audio/mpeg'),
+    audioUrl: format === 'pcm16'
+      ? pcm16ChunksToWavDataUrl(audioChunks)
+      : fileToDataUrl(audioChunks.join(''), 'audio/mpeg'),
     transcript: transcriptChunks.join(''),
   };
 };
@@ -291,7 +321,7 @@ export async function generateOpenRouterSpeech({
           modalities: ['text', 'audio'],
           audio: {
             voice,
-            format: 'mp3',
+            format: 'pcm16',
           },
           stream: true,
           messages: [
@@ -325,7 +355,7 @@ export async function generateOpenRouterSpeech({
         throw new Error(data?.error?.message || data?.message || 'OpenRouter speech request failed.');
       }
 
-      const audio = responseText.trim().startsWith('data:')
+      const audio = /(^|\n)data: /.test(responseText)
         ? audioFromStreamingText(responseText)
         : audioFromChatCompletion(jsonFromMaybeText(responseText));
       if (audio?.error) throw new Error(audio.error);
