@@ -1,6 +1,7 @@
 import { generateOpenRouterText } from '../_openrouter.js';
 import admin, { initFirebaseAdmin } from '../_firebaseAdmin.js';
 import { FieldValue } from 'firebase-admin/firestore';
+import { logAudit } from '../_audit.js';
 
 const TELEGRAM_LIMIT = 3900;
 
@@ -219,9 +220,10 @@ const sendManualReply = async (req, res) => {
   }
 
   let db;
+  let decoded;
   try {
     db = initFirebaseAdmin();
-    await admin.auth().verifyIdToken(idToken, true);
+    decoded = await admin.auth().verifyIdToken(idToken, true);
   } catch (error) {
     return res.status(401).json({ error: 'Sign-in verification failed.' });
   }
@@ -233,6 +235,7 @@ const sendManualReply = async (req, res) => {
       disable_web_page_preview: false,
     });
     await logMessage(db, chatId, 'out', text, 'system');
+    await logAudit(db, { action: 'telegram_manual_reply', actorUid: decoded.uid, meta: { chatId } });
     return res.status(200).json({ ok: true });
   } catch (error) {
     return res.status(502).json({ error: error?.message || 'Could not send this reply.' });

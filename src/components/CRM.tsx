@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Users, MessageCircle, Send, Loader2, Search, Tag } from 'lucide-react';
+import { Users, MessageCircle, Send, Loader2, Search, Tag, ShieldAlert } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { collection, query, orderBy, limit, startAfter, getDocs, onSnapshot, QueryDocumentSnapshot, DocumentData } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { cn } from '../lib/utils';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useIsAdmin } from '../hooks/useIsAdmin';
 
 interface TelegramLead {
   id: string;
@@ -29,6 +30,7 @@ const PAGE_SIZE = 30;
 
 const CRM: React.FC = () => {
   const { t } = useLanguage();
+  const { isAdmin, checking: checkingAdmin } = useIsAdmin();
   const [leads, setLeads] = useState<TelegramLead[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -38,6 +40,10 @@ const CRM: React.FC = () => {
   const [tagFilter, setTagFilter] = useState<string | null>(null);
 
   useEffect(() => {
+    if (checkingAdmin || !isAdmin) {
+      setLoading(false);
+      return;
+    }
     const q = query(collection(db, 'telegram_leads'), orderBy('lastMessageAt', 'desc'), limit(PAGE_SIZE));
     const unsubscribe = onSnapshot(
       q,
@@ -53,7 +59,7 @@ const CRM: React.FC = () => {
       }
     );
     return () => unsubscribe();
-  }, []);
+  }, [checkingAdmin, isAdmin]);
 
   const handleLoadMore = async () => {
     if (!lastDoc || loadingMore) return;
@@ -145,7 +151,19 @@ const CRM: React.FC = () => {
       </div>
 
       <div className="glass rounded-[2rem] overflow-hidden">
-        {loading ? (
+        {checkingAdmin ? (
+          <div className="flex justify-center p-16">
+            <Loader2 className="animate-spin text-brand-400" size={28} />
+          </div>
+        ) : !isAdmin ? (
+          <div className="text-center py-20 px-10">
+            <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-100">
+              <ShieldAlert size={24} className="text-amber-500" />
+            </div>
+            <h3 className="text-brand-700 font-bold mb-1">{t('adminOnlyTitle')}</h3>
+            <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm mx-auto">{t('adminOnlyDesc')}</p>
+          </div>
+        ) : loading ? (
           <div className="flex justify-center p-16">
             <Loader2 className="animate-spin text-brand-400" size={28} />
           </div>

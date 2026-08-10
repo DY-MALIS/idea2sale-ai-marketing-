@@ -8,6 +8,7 @@ import dotenv from "dotenv";
 import admin from "firebase-admin";
 import { GoogleGenAI } from "@google/genai";
 import runScheduledHandler from "./api/telegram/run-scheduled.js";
+import publishPhotoHandler from "./api/tiktok/publish-photo.js";
 
 dotenv.config();
 
@@ -107,21 +108,6 @@ async function startServer() {
   // Health check
   app.get("/api/health", (req, res) => {
     res.json({ status: "alive" });
-  });
-
-  app.get("/api/security/readiness", requireFirebaseSession, rateLimit("security-readiness", 60, 60_000), (req, res) => {
-    res.json({
-      productionReady: false,
-      reason: "Pilot mode until Supabase RLS, private storage, AI permission filtering, audit logs, and backup restore are verified.",
-      requiredBeforeProduction: [
-        "Run Supabase migrations and seed data",
-        "Verify RLS with cross-company tests",
-        "Use private storage bucket and signed URLs only",
-        "Filter semantic search through match_allowed_file_chunks",
-        "Log confidential view/download/AI access",
-        "Complete TESTING.md security cases",
-      ],
-    });
   });
 
   // Config check (checks if secrets are set without revealing them)
@@ -684,6 +670,12 @@ Use clear headings and practical bullet points.`;
 
       res.status(500).json({ error: apiError.message || "Publishing failed" });
     }
+  });
+
+  // Reuses the exact production handler (api/tiktok/publish-photo.js) instead of a separate
+  // reimplementation, so this route can't drift from what Vercel actually serves.
+  app.post("/api/tiktok/publish-photo", async (req, res) => {
+    await publishPhotoHandler(req, res);
   });
 
   // Vite middleware for development

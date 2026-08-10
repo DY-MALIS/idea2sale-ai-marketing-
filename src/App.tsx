@@ -24,7 +24,10 @@ import { useTheme } from './contexts/ThemeContext';
 
 export default function App() {
   const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
-  const [activeTab, setActiveTab] = useState<TabType>('scheduler');
+  const isTikTokReviewMode = pathname === '/tiktok-review';
+  const [activeTab, setActiveTab] = useState<TabType>(
+    isTikTokReviewMode ? 'video-voice' : 'scheduler'
+  );
   const { user, isDemoMode, loading: authLoading, setDemoMode, logout } = useAuth();
   const [configInfo, setConfigInfo] = useState<any>(null);
   const [showLanguageMenu, setShowLanguageMenu] = useState(false);
@@ -33,6 +36,12 @@ export default function App() {
 
   const { language, setLanguage, t } = useLanguage();
   const { theme, toggleTheme } = useTheme();
+
+  useEffect(() => {
+    if (isTikTokReviewMode && !user && !isDemoMode) {
+      setDemoMode(true);
+    }
+  }, [isTikTokReviewMode, isDemoMode, setDemoMode, user]);
 
   useEffect(() => {
     const handleContextmenu = (e: MouseEvent) => {

@@ -17,6 +17,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../hooks/useToast';
 import { BusinessProfileData, CreativeAutomationRequest } from '../types';
 
 type ToolType = 'video' | 'voice';
@@ -109,6 +110,7 @@ interface VideoVoiceProps {
 const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomationConsumed }) => {
   const { t, language } = useLanguage();
   const { user, isDemoMode } = useAuth();
+  const { notify, ToastHost } = useToast();
   const [logoDataUrl, setLogoDataUrl] = useState('');
   const logoDataUrlRef = useRef('');
   const [watermarking, setWatermarking] = useState(false);
@@ -126,6 +128,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   const [selectedEnglishVoiceURI, setSelectedEnglishVoiceURI] = useState('');
   const [loading, setLoading] = useState(false);
   const [generatedVideo, setGeneratedVideo] = useState<string | null>(null);
+  const [videoVoiceQualityNotice, setVideoVoiceQualityNotice] = useState<string | null>(null);
   const [ttsText, setTtsText] = useState('');
   const [targetDuration, setTargetDuration] = useState<number>(1);
   const [generatedAudio, setGeneratedAudio] = useState<string | null>(null);
@@ -249,7 +252,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       setAiCaption(data.text || '');
     } catch (error) {
       console.error("Caption error:", error);
-      alert("Failed to generate caption.");
+      notify("Failed to generate caption.", 'error');
     } finally {
       setIsGeneratingCaption(false);
     }
@@ -277,18 +280,18 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
           `width=${width},height=${height},top=${top},left=${left}`
         );
         if (!popup) {
-          alert(t('allowPopups'));
+          notify(t('allowPopups'), 'error');
           clearTimeout(timeout);
           setIsAuthenticating(false);
         }
       } else {
-        alert("Failed to get auth URL");
+        notify("Failed to get auth URL", 'error');
         clearTimeout(timeout);
         setIsAuthenticating(false);
       }
     } catch (err) {
       console.error("Auth error", err);
-      alert(t('authError'));
+      notify(t('authError'), 'error');
       clearTimeout(timeout);
       setIsAuthenticating(false);
     }
@@ -296,24 +299,28 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
 
   const handlePostToTikTok = async (videoUrl: string) => {
     if (!aiCaption) {
-      alert("Please generate or write a caption first.");
+      notify("Please generate or write a caption first.", 'error');
       return;
     }
     setIsPostingTikTok(true);
     try {
+      const idToken = user ? await user.getIdToken().catch(() => null) : null;
       const res = await fetch('/api/tiktok/publish', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+        },
         body: JSON.stringify({ videoUrl, title: aiCaption })
       });
       const data = await res.json();
       if (res.ok) {
-        alert(data.message || t('postedToTiktok'));
+        notify(data.message || t('postedToTiktok'), 'success');
       } else {
         throw new Error(data.error?.message || "Publishing failed");
       }
     } catch (error: any) {
-      alert(`${t('postFailed')}: ${error.message}\n\nMake sure Vercel has TIKTOK_SCOPES with video.upload/video.publish, then reconnect TikTok so the new permission is included in the access token.`);
+      notify(`${t('postFailed')}: ${error.message}\n\nMake sure Vercel has TIKTOK_SCOPES with video.upload/video.publish, then reconnect TikTok so the new permission is included in the access token.`, 'error');
     } finally {
       setIsPostingTikTok(false);
     }
@@ -340,6 +347,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
 
     setLoading(true);
     setGeneratedVideo(null);
+    setVideoVoiceQualityNotice(null);
     try {
       const prompt = `${generationLanguage === 'Khmer' ? 'Khmer/Cambodian context. ' : ''}${promptText || 'Create a realistic short marketing video from the uploaded reference image.'}`;
       const response = await fetch('/api/ai', {
@@ -396,6 +404,11 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
               const ttsData = await ttsResponse.json();
               if (ttsResponse.ok && ttsData.audioUrl) {
                 video = await applyVoiceOver(video, ttsData.audioUrl);
+                if (ttsData.fallbackReason && hasKhmerText) {
+                  setVideoVoiceQualityNotice(language === 'km'
+                    ? 'សំឡេងក្នុង video នេះបានប្រើសំឡេងបម្រុង (Google TTS) ដែលអានមិនច្បាស់ ព្រោះម៉ូដែលសំឡេងសំខាន់មិនអាចប្រើបានពេលនេះ។ សូមសាកល្បងបង្កើត video ម្តងទៀត។'
+                    : 'This video used a lower-quality backup voice (Google TTS) because the main voice model was unavailable. Try generating the video again for clearer narration.');
+                }
               } else {
                 console.error('Voice-over TTS generation failed:', ttsData.error);
               }
@@ -414,7 +427,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     } catch (error: any) {
       console.error(error);
       if (/OPEN_ROUTER_API_KEY|api key/i.test(error.message || '')) setNeedsApiKey(true);
-      alert(error.message || 'Error generating video. Please check your OpenRouter API key and credits.');
+      notify(error.message || 'Error generating video. Please check your OpenRouter API key and credits.', 'error');
     } finally {
       setLoading(false);
     }
@@ -495,7 +508,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
           ? 'សំឡេង Browser កំពុងដំណើរការ។ OpenRouter audio provider មិនអាចបង្កើតឯកសារ MP3 បាននៅពេលនេះ។'
           : 'Browser voice is active. The OpenRouter audio provider could not create an MP3 file right now.');
       } else {
-        alert(friendlyMessage || 'Error generating audio. Please check your OpenRouter API key and credits.');
+        notify(friendlyMessage || 'Error generating audio. Please check your OpenRouter API key and credits.', 'error');
       }
     } finally {
       setAudioLoading(false);
@@ -637,6 +650,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
 
   return (
     <div className="max-w-6xl mx-auto space-y-10">
+      <ToastHost />
       {automationNotice && (
         <div className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-semibold text-emerald-800">
           <Sparkles size={18} className="shrink-0" />
@@ -1006,6 +1020,11 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                 </div>
               ) : activeTool === 'video' && generatedVideo ? (
                 <div className="w-full space-y-6">
+                  {videoVoiceQualityNotice && (
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm font-semibold text-amber-800">
+                      {videoVoiceQualityNotice}
+                    </div>
+                  )}
                   <video src={generatedVideo} controls className="w-full rounded-3xl shadow-2xl" />
                   <div className="flex gap-4">
                     {tiktokUser ? (
@@ -1036,7 +1055,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                       </button>
                     )}
                     <button 
-                      onClick={() => alert('Use Smart Scheduler to schedule this video for later. Direct TikTok auto-post requires TikTok Content Posting approval.')}
+                      onClick={() => notify('Use Smart Scheduler to schedule this video for later. Direct TikTok auto-post requires TikTok Content Posting approval.', 'error')}
                       className="p-4 bg-brand-100 text-brand-700 rounded-2xl hover:bg-brand-200 transition-all border border-brand-200"
                       title="Schedule for later"
                     >

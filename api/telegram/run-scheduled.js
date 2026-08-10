@@ -2,6 +2,7 @@ import admin from 'firebase-admin';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { createHash } from 'crypto';
 import { Client as QStashClient } from '@upstash/qstash';
+import { logAudit } from '../_audit.js';
 
 export const initFirebaseAdmin = () => {
   const projectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID;
@@ -216,7 +217,11 @@ const createScheduledTelegramPost = async (req, res) => {
   }
 
   const scheduledDate = new Date(scheduledTime);
-  if (!scheduledTime || Number.isNaN(scheduledDate.getTime()) || scheduledDate < new Date()) {
+  // The client already validated this against its own clock before uploading
+  // media and calling this endpoint, which can take a while. Re-checking here
+  // with no grace period would reject times that were valid when the user
+  // picked them, so allow the same one-minute grace window as the client.
+  if (!scheduledTime || Number.isNaN(scheduledDate.getTime()) || scheduledDate.getTime() < Date.now() - 60000) {
     return res.status(400).json({ error: 'Please choose a future publish time.' });
   }
 
@@ -387,12 +392,14 @@ export default async function handler(req, res) {
   }
 
   const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret) {
-    const auth = req.headers.authorization || '';
-    const querySecret = req.query?.secret;
-    if (auth !== `Bearer ${cronSecret}` && querySecret !== cronSecret) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
+  if (!cronSecret) {
+    console.error('CRON_SECRET is not configured; refusing to run the scheduled Telegram poller.');
+    return res.status(500).json({ error: 'CRON_SECRET is not configured on the server.' });
+  }
+  const auth = req.headers.authorization || '';
+  const querySecret = req.query?.secret;
+  if (auth !== `Bearer ${cronSecret}` && querySecret !== cronSecret) {
+    return res.status(401).json({ error: 'Unauthorized' });
   }
 
   try {
@@ -438,6 +445,17 @@ export default async function handler(req, res) {
         });
         results.push({ id: doc.id, ok: false, error: message });
       }
+    }
+
+    if (results.length > 0) {
+      await logAudit(db, {
+        action: 'telegram_cron_run',
+        actorLabel: 'cron',
+        meta: {
+          processed: results.length,
+          failed: results.filter((r) => !r.ok).length
+        }
+      });
     }
 
     return res.status(200).json({

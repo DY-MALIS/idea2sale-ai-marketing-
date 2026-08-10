@@ -187,7 +187,10 @@ const SchedulerHub: React.FC = () => {
     }
 
     const scheduledDate = new Date(scheduledTime);
-    if (scheduledDate < new Date()) {
+    // datetime-local inputs only carry minute precision, so a time picked as
+    // "now" already lost its seconds by the time this check runs. Allow a
+    // one-minute grace window so that doesn't read as "in the past".
+    if (scheduledDate.getTime() < Date.now() - 60000) {
       setFormError(t('futureTimeErr'));
       return;
     }

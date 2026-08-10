@@ -35,6 +35,11 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [attachedImage, setAttachedImage] = useState<AttachedImage | null>(null);
   const [isListening, setIsListening] = useState(false);
+  // Which language the user is about to speak for voice input. Independent from the
+  // UI display language, since people often keep the interface in one language while
+  // speaking another (e.g. English UI, Khmer speech) — tying recognition to the UI
+  // language made the recognizer use the wrong locale and mangle the transcript.
+  const [voiceInputLanguage, setVoiceInputLanguage] = useState<'km' | 'en'>(language === 'km' ? 'km' : 'en');
   const conversationEndRef = useRef<HTMLDivElement>(null);
   const requestControllerRef = useRef<AbortController | null>(null);
   const recognitionRef = useRef<any>(null);
@@ -115,7 +120,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     }
 
     const recognition = new SpeechRecognitionCtor();
-    recognition.lang = language === 'km' ? 'km-KH' : 'en-US';
+    recognition.lang = voiceInputLanguage === 'km' ? 'km-KH' : 'en-US';
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
     recognition.onresult = (event: any) => {
@@ -268,6 +273,27 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                   {isListening ? <MicOff size={16} /> : <Mic size={16} />}
                   {isListening ? text.listening : text.voiceInput}
                 </button>
+              )}
+
+              {speechRecognitionSupported && (
+                <div className="flex bg-brand-50 dark:bg-slate-800/70 p-1 rounded-xl border border-brand-200">
+                  {(['km', 'en'] as const).map((lang) => (
+                    <button
+                      key={lang}
+                      type="button"
+                      disabled={isListening}
+                      onClick={() => setVoiceInputLanguage(lang)}
+                      title={language === 'km' ? 'ភាសាដែលអ្នកនឹងនិយាយ' : 'Language you will speak'}
+                      className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all disabled:opacity-50 ${
+                        voiceInputLanguage === lang
+                          ? 'bg-white dark:bg-slate-700 text-brand-700 shadow-sm'
+                          : 'text-brand-400 hover:text-brand-700'
+                      }`}
+                    >
+                      {lang === 'km' ? 'ខ្មែរ' : 'English'}
+                    </button>
+                  ))}
+                </div>
               )}
             </div>
 

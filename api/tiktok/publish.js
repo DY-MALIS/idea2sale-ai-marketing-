@@ -1,3 +1,6 @@
+import admin, { initFirebaseAdmin } from '../_firebaseAdmin.js';
+import { logAudit } from '../_audit.js';
+
 function getCookie(req, name) {
   return (req.headers.cookie || '')
     .split(';')
@@ -6,6 +9,22 @@ function getCookie(req, name) {
     ?.split('=')
     .slice(1)
     .join('=') || '';
+}
+
+// Best-effort: TikTok publishing is authenticated via the tiktok_token cookie
+// (one shared TikTok connection for the app), not Firebase Auth, so there is
+// no uid to require here. If the caller is signed in to Firebase we still
+// attach their uid to the audit log; if not, the log just has no actor.
+async function resolveActorUid(req) {
+  const authHeader = req.headers.authorization || '';
+  const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  if (!idToken) return null;
+  try {
+    const decoded = await admin.auth().verifyIdToken(idToken, true);
+    return decoded.uid;
+  } catch {
+    return null;
+  }
 }
 
 function videoFromDataUrl(videoUrl) {
@@ -139,6 +158,18 @@ export default async function handler(req, res) {
 
     if (video && uploadUrl) {
       await uploadVideo(uploadUrl, token, video);
+    }
+
+    try {
+      const actorUid = await resolveActorUid(req);
+      const db = initFirebaseAdmin();
+      await logAudit(db, {
+        action: 'tiktok_publish_video',
+        actorUid,
+        meta: { publishId, mode: directPost ? 'direct' : 'inbox' },
+      });
+    } catch (auditError) {
+      console.error('Audit log failed for tiktok_publish_video:', auditError?.message || auditError);
     }
 
     return res.status(200).json({

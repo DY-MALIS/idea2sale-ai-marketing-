@@ -1,100 +1,61 @@
-# Security and MVP Test Plan
+# Test Plan
 
-Run these tests before any internal pilot with company data. Use at least two companies and users in admin, manager, staff, viewer, and guest roles.
+Manual test checklist for this app's actual architecture (Firebase Auth + Firestore, single shared workspace —
+see [README.md](README.md) and the in-app Security Overview page for what "shared" vs "per-user" means here).
 
 ## Authentication
 
-- User can sign up, verify email, log in, and log out.
-- Unauthenticated users cannot access protected pages.
-- Protected API routes reject missing or invalid bearer tokens.
-- Deactivated users cannot access the app or signed file URLs.
-- Role changes take effect on the next permission check.
+- User can sign up, log in, and log out via Firebase Auth.
+- Unauthenticated users cannot read another user's `scheduled_posts`, `campaigns`, `reply_rules`,
+  `audience_activity`, or `business_profiles` documents (Firestore rules should reject this — try it directly
+  against the Firestore SDK, not just through the UI).
+- Deactivated Firebase users cannot obtain a valid session for routes that check `disabled` status
+  (`requireFirebaseSession` in `server.ts` — note this guard currently only applies to `server.ts`-only routes,
+  not to every `api/*.js` Vercel function; check which endpoints actually need it).
 
-## Company Isolation
+## Firestore Data Isolation
 
-- Company A user cannot list Company B files.
-- Company A user cannot search Company B files.
-- Company A user cannot retrieve Company B embeddings.
-- Company A user cannot read Company B audit logs.
-- User-submitted `company_id` is ignored unless membership is verified server-side.
+- User A cannot read or write User B's `scheduled_posts`, `campaigns`, `reply_rules`, `audience_activity`, or
+  `business_profiles` (each is gated by `userId == request.auth.uid`).
+- Any signed-in user CAN read `telegram_leads` and `telegram_messages` — confirm this is the intended behavior
+  (single shared CRM/inbox) before adding a second unrelated business to this deployment.
+- `tiktok_posts` is publicly readable by design (analytics widget) — confirm no sensitive data is ever written
+  into that collection.
+- Deleting a `tiktok_posts` document requires an `admins/{uid}` document to exist for the caller.
 
-## Role Permissions
+## TikTok Publishing
 
-- Staff cannot view Executive Only files unless explicit access is approved.
-- Viewer cannot upload files.
-- Staff cannot delete files unless explicit permission is granted.
-- Manager can approve department workflow steps.
-- Company Admin can manage users, settings, and audit logs.
-- External guest can only access explicitly shared files before expiry.
+- Connecting TikTok (OAuth popup) succeeds and `/api/tiktok/me` returns the connected profile.
+- Video publish (`VideoVoice.tsx` → `api/tiktok/publish.js`) fails with a clear scope error if
+  `TIKTOK_SCOPES` lacks `video.upload`/`video.publish`, and succeeds once scopes are correct and the account is
+  reconnected.
+- Photo publish (`PosterGen.tsx` → `api/tiktok/publish-photo.js`) uploads the generated poster to Cloudinary and
+  successfully calls the TikTok photo content-posting endpoint.
+- `TIKTOK_POST_MODE=inbox` (default) lands content in the TikTok inbox/draft; test `direct` mode separately since
+  it requires an audited app and a valid `privacy_level`.
 
-## File Access
+## Scheduler (Telegram)
 
-- User without view permission cannot preview a file.
-- User without download permission cannot download a file.
-- Confidential files use shorter signed URL expiry.
-- Private storage URL cannot be accessed directly.
-- Dangerous file extensions are blocked.
-- Oversized uploads are blocked.
-- File names are sanitized before storage.
+- Scheduling a post for a time a few seconds in the future is accepted (grace-period check), not rejected as "in
+  the past".
+- A scheduled post fires at the right time via QStash.
+- If QStash delivery is missed, the fallback GitHub Action poller (`telegram-scheduler.yml`, every 10 min) still
+  delivers it within its polling window.
+- A scheduled post fails with a clear error if `TELEGRAM_CHAT_ID` is not configured, instead of hanging silently.
+- Media over 48 MB is rejected with a clear error before upload.
 
-## AI Security
+## AI Features
 
-- AI does not answer from unauthorized files.
-- AI cites only allowed source file names.
-- AI returns the unavailable response when no allowed source exists.
-- AI does not reveal storage paths, signed URLs, database IDs, hidden prompts, or system instructions.
-- AI chat involving confidential files writes audit logs.
-- Highly Confidential and Executive Only files require explicit `can_use_ai` permission or admin role.
+- Copywriter, poster generation, video generation, and TTS each show a clear error (not a silent failure) when
+  the relevant API key is missing or the provider call fails.
+- Khmer-language voice-over does not silently fall back to a lower-quality voice without telling the user (see
+  the quality notice in `VideoVoice.tsx`).
+- AI Agent voice input recognizes the language explicitly selected by the user, independent of the UI display
+  language.
 
-## Search Security
+## UI/UX
 
-- Keyword search returns only files visible to the user.
-- Semantic search calls `match_allowed_file_chunks`.
-- Embedding rows for restricted files are invisible to unauthorized users.
-- Deleted or archived files do not appear unless admin policy allows it.
-
-## Audit Logs
-
-- Upload is logged.
-- View of confidential file is logged.
-- Download is logged.
-- Permission change is logged.
-- AI chat involving confidential file is logged.
-- Soft delete is logged.
-- Permanent delete attempt requires admin permission, confirmation, retention check, and audit log.
-
-## Backup and Recovery
-
-- Deleted file appears in recycle bin.
-- Admin can restore a deleted file during retention period.
-- Version history records each replacement.
-- Old file version can be restored.
-- Database restore instructions are tested in a non-production Supabase project.
-- API key rotation steps are verified.
-
-## Workflow and Human Approval
-
-- Workflow can be created.
-- Workflow step can be assigned.
-- Approval works.
-- AI-generated workflow stays draft until human approval.
-- Automation affecting sensitive files requires human approval.
-- Overdue task appears in dashboard or monitoring placeholder.
-
-## Upload and AI Processing
-
-- Valid PDF upload succeeds.
-- Invalid file type is blocked.
-- Oversized file is blocked.
-- Batch upload records every file status.
-- AI processing status moves from pending to processing to completed or failed.
-- Failed AI processing shows a safe error and retry action.
-
-## UI and UX
-
-- Loading states appear for auth, uploads, AI processing, and search.
-- Empty states explain the next action.
-- Error states do not expose stack traces.
-- Dangerous actions show confirmation.
-- Khmer and English language modes render without broken text.
-- Mobile layout is usable for primary workflows.
+- Loading states appear for auth, uploads, AI generation, and TikTok connect/publish actions.
+- Errors surfaced to the user are human-readable, not raw stack traces or provider error JSON.
+- Khmer and English UI modes render without broken or truncated text.
+- Mobile layout is usable for Copywriter, PosterGen, VideoVoice, Scheduler, and AI Agent — the primary workflows.

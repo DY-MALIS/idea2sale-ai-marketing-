@@ -1,15 +1,30 @@
-# aime.angkorgate / Malis Internal AI Workspace
+# aime.angkorgate: AI Marketing Hub
 
-This repository is being hardened from an AI marketing tool into an internal company SaaS workspace. The current build is suitable for pilot development only. Do not use it with confidential production data until Supabase RLS, private storage, AI permission filtering, audit logs, backups, and the security test plan are verified.
+AI marketing automation for TikTok/Facebook/Instagram sellers — copywriting, poster/video generation, TikTok
+auto-post, a Telegram-based CRM/scheduler, ad strategy generation, and an AI agent, built as a single shared
+workspace (see [PRD.md](PRD.md) for the full feature scope).
+
+This is a single-tenant workspace app: there is one shared Telegram bot for every business using the deployment, so
+the Telegram CRM/inbox is one shared workspace, readable only by admins (`admins/{uid}` — see "Firebase Setup"
+below). Most other data (scheduled posts, campaigns, business profile) is scoped per Firebase user. There is no
+multi-company/RLS layer — see [`src/components/SecurityCenter.tsx`](src/components/SecurityCenter.tsx) (in-app
+"Security Overview" page) for the current, accurate state of access control, and [firestore.rules](firestore.rules)
+for the source of truth.
 
 ## Tech Stack
 
-- Vite, React, TypeScript, Tailwind CSS
-- Express API server
-- Firebase auth currently used by the existing app
-- Supabase target for database, auth, storage, RLS, and pgvector
-- Gemini/OpenAI-ready AI configuration
-- Vercel deployment target
+- Vite, React 19, TypeScript, Tailwind CSS
+- Express dev server (`server.ts`, used by `npm run dev`)
+- **Production runs on Vercel serverless functions** under `api/*.js` — `server.ts` is local-dev-only and does not
+  fully mirror what's deployed. `/api/tiktok/publish` has a separate, older implementation in `server.ts` and can
+  drift from `api/tiktok/publish.js` (production) — check both if you change TikTok video publishing behavior.
+  `/api/tiktok/publish-photo` and `/api/telegram/run-scheduled` avoid this by having `server.ts` import and mount
+  the same handler used in production, so those two can't drift.
+- Firebase (Auth + Firestore) for data and auth
+- Cloudinary for media hosting (Telegram-scheduled media, TikTok photo posts)
+- Upstash QStash for precise-time scheduled delivery
+- Gemini / OpenRouter for AI generation (copy, images, video, TTS)
+- TikTok Content Posting API for publishing
 
 ## Local Setup
 
@@ -19,154 +34,81 @@ This repository is being hardened from an AI marketing tool into an internal com
 npm install
 ```
 
-2. Copy environment variables.
+2. Copy environment variables and fill them in (see comments in the file for what each integration needs).
 
 ```bash
 cp .env.example .env
 ```
 
-3. Fill in the required values.
-
-- `GEMINI_API_KEY` or `OPENAI_API_KEY`
-- `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- Firebase keys while the current auth layer remains Firebase-backed
-- TikTok keys only if TikTok integration is enabled
-
-4. Start the app.
+3. Start the app.
 
 ```bash
 npm run dev
 ```
 
-## Supabase Setup
+## Firebase Setup
 
-1. Create a Supabase project.
-2. Enable email confirmation in Supabase Auth before production.
-3. Run `supabase/migrations/001_enterprise_security_baseline.sql`.
-4. Run `supabase/seed/001_defaults.sql`.
-5. Confirm the `company-files` storage bucket is private.
-6. Verify RLS is enabled on all sensitive tables.
-7. Run the company isolation and AI permission tests in `TESTING.md`.
+1. Create a Firebase project with Authentication and Firestore enabled.
+2. Deploy `firestore.rules` to the project.
+3. Fill in the `VITE_FIREBASE_*` client config values from the Firebase console.
+4. For server-side Firestore Admin access on Vercel, set `FIREBASE_CLIENT_EMAIL` and `FIREBASE_PRIVATE_KEY` from a
+   service account key (Project Settings → Service Accounts). Without these, the server falls back to Application
+   Default Credentials, which only works in environments that provide them.
+5. Grant a user admin rights — required both to delete `tiktok_posts` records and to view the shared Telegram
+   CRM/inbox (`crm` and `automation` tabs) — by running:
 
-## Environment Variables
+   ```bash
+   npm run grant-admin -- someone@example.com
+   # or: npm run grant-admin -- <firebase-uid>
+   # revoke with: npm run grant-admin -- someone@example.com --revoke
+   ```
 
-Required production values:
+   This needs `FIREBASE_PROJECT_ID` and (for production) `FIREBASE_CLIENT_EMAIL`/`FIREBASE_PRIVATE_KEY` set in `.env`.
+   **Grant yourself admin before deploying `firestore.rules`** — the Telegram CRM/inbox rules now require an
+   `admins/{uid}` document to exist, so without this step no one (including you) can read it.
 
-- `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `OPENAI_API_KEY`
-- `APP_URL`
-- `MAX_FILE_SIZE`
-- `DEFAULT_LANGUAGE`
-- `AI_MODEL`
-- `EMBEDDING_MODEL`
-- `SIGNED_URL_EXPIRY_SECONDS`
-- `CONFIDENTIAL_SIGNED_URL_EXPIRY_SECONDS`
-- `ENABLE_AI_PROCESSING`
-- `ENABLE_GUEST_ACCESS`
+## TikTok Setup
 
-Security rules:
+1. Create a TikTok developer app and add the Content Posting API product.
+2. Set `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`, `TIKTOK_REDIRECT_URI`.
+3. Set `TIKTOK_SCOPES` to include `video.upload` and `video.publish` — the default `user.info.basic` alone only
+   allows read-only profile lookups, not publishing. Anyone who connected TikTok before this scope was added must
+   reconnect for the new permission to apply.
+4. Leave `TIKTOK_POST_MODE=inbox` (default) until your TikTok app has been audited by TikTok — unaudited apps are
+   restricted to private viewing regardless, and `direct` mode requires a `privacy_level` that matches what
+   `/creator_info/query/` returns for the connected account.
 
-- Never expose `SUPABASE_SERVICE_ROLE_KEY` on the client.
-- Never expose `OPENAI_API_KEY` on the client.
-- Use private buckets for confidential company files.
-- Rotate keys immediately if any server secret is exposed.
+## Telegram Setup
 
-## Database and RLS
-
-The baseline migration creates:
-
-- Company, department, project, profile, and membership tables
-- File metadata, permissions, embeddings, tags, versions, and access requests
-- AI chat sessions/messages with source references
-- Audit logs
-- Workflow, task, automation, notification, report, and settings placeholders
-- Helper functions including `is_company_member`, `get_user_role`, `can_view_file`, `can_download_file`, `can_edit_file`, `can_delete_file`, `can_use_file_with_ai`
-- `match_allowed_file_chunks` for permission-filtered semantic search
-
-RLS must remain enabled in production. Cross-company access prevention must be tested before launch.
-
-## Secure File Storage
-
-All confidential company files must be uploaded to the private `company-files` bucket. Storage paths should be scoped by company ID, for example:
-
-```text
-{company_id}/{file_id}/{sanitized_file_name}
-```
-
-File access must use signed URLs only. Use shorter expiry for `confidential`, `highly_confidential`, and `executive_only` files. Never return private storage paths or signed URLs in AI answers.
-
-## AI Permission Filtering
-
-AI chat and semantic search must follow this order:
-
-1. Validate authenticated user.
-2. Resolve active company membership server-side.
-3. Check role and account status.
-4. Determine allowed files with RLS/helper functions.
-5. Search only permitted embeddings via `match_allowed_file_chunks`.
-6. Send only permitted chunks to the model.
-7. Cite source file names only.
-8. Save chat messages and source references.
-9. Write audit logs when sensitive files are used.
-
-If no permitted context exists, return:
-
-```text
-I could not find this information in the files you are allowed to access.
-```
-
-## Backup and Recovery
-
-Before production:
-
-- Enable daily Supabase database backups.
-- Document backup retention in the company security settings.
-- Use soft delete for files before permanent deletion.
-- Keep `file_versions` records for updated files.
-- Back up private storage according to the company retention policy.
-- Test restore from database backup in a non-production project.
-
-Recovery procedures:
-
-1. Restore database from the latest known-good Supabase backup.
-2. Restore storage objects from backup.
-3. Re-run RLS verification tests.
-4. Rotate `SUPABASE_SERVICE_ROLE_KEY`, OpenAI/Gemini keys, TikTok secrets, and Firebase keys if compromise is suspected.
-5. Disable compromised users in the auth provider and confirm they cannot obtain signed URLs.
-
-## Admin Account Creation
-
-Create the first admin manually after auth is connected:
-
-1. Create the user in the auth provider.
-2. Insert a `user_profiles` row.
-3. Insert a `company_members` row with role `company_admin` or `super_admin`.
-4. Verify the user can view audit logs and settings.
-5. Verify staff/viewer users cannot view admin logs.
+1. Create a bot via [@BotFather](https://t.me/BotFather) and set `TELEGRAM_BOT_TOKEN`.
+2. Set `TELEGRAM_CHAT_ID` to the chat/channel the scheduler should post to — scheduled broadcast posts fail
+   silently (status `FAILED`) without it.
+3. Register the webhook (`api/telegram/webhook.js`) with Telegram and set `TELEGRAM_WEBHOOK_SECRET`.
+4. Scheduled posts are delivered two ways: Upstash QStash for precise-time delivery, and a fallback poller
+   (`.github/workflows/telegram-scheduler.yml`, every 10 minutes) that calls `/api/telegram/run-scheduled`. Confirm
+   the GitHub Action is enabled on the repo — Vercel's own cron entry for the same endpoint only runs once a day
+   and is not sufficient on its own.
 
 ## Deployment to Vercel
 
-1. Set all server secrets in Vercel project environment variables.
+1. Set all server secrets in the Vercel project's environment variables (not just locally in `.env`).
 2. Build with `npm run build`.
-3. Deploy the Express/Vite app according to `vercel.json`.
-4. Confirm production CORS and `APP_URL`.
-5. Verify `/api/security/readiness` returns authenticated readiness status.
-6. Run the critical test cases from `TESTING.md`.
+3. Deploy — `vercel.json` handles cron scheduling and SPA rewrites; every file under `api/` is auto-deployed as a
+   serverless function.
+4. Confirm `APP_URL` matches the deployed domain (used to build TikTok/Telegram redirect and webhook URLs).
+5. Set `CRON_SECRET` in Vercel — `/api/telegram/run-scheduled` now refuses to run without it (fails closed, not
+   optional). Also add the same value as a `CRON_SECRET` secret on the GitHub repo (Settings → Secrets → Actions),
+   since `.github/workflows/telegram-scheduler.yml` sends it as a bearer token. Vercel Cron sends it automatically
+   once the env var is set; the GitHub Action needs the repo secret to match.
 
-## Production Gate
+## Known Gaps
 
-Do not call the system production-ready until all are true:
-
-- Authentication and deactivation checks work.
-- Company data is isolated by `company_id` and RLS.
-- Private storage uses signed URLs only.
-- Permission checks pass for preview, download, edit, delete, share, and AI usage.
-- AI chat and semantic search use only permitted chunks.
-- Confidential file views/downloads/AI queries are audited.
-- Recycle bin and version history are tested.
-- Backup and restore plan is tested.
-- No secret keys are exposed on the client.
+- Audit logging (`audit_logs` collection, admin-only read) covers manual Telegram replies, TikTok publish attempts,
+  and cron runs — not every write in the app. Extend `api/_audit.js` usage if you need broader coverage.
+- No verified backup/restore process for the Firebase project (see Security Overview page in-app). Enabling
+  Firestore exports and running a test restore is a manual step in the Firebase console — nothing in this repo can
+  do that for you.
+- `server.ts` (local dev) and `api/tiktok/publish.js` (production) implement TikTok video publishing separately
+  and can drift — production is the source of truth.
+- Ads Manager Lite generates AI strategy/creative/scaling guidance only; it does not connect to Meta or TikTok Ads
+  accounts, so there is no automated bid/budget management.

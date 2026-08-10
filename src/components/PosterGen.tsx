@@ -12,6 +12,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../hooks/useToast';
 import { BusinessProfileData, CreativeAutomationRequest } from '../types';
 
 const LOGO_MARGIN_RATIO = 0.04;
@@ -57,6 +58,7 @@ interface PosterGenProps {
 const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationConsumed }) => {
   const { t, language } = useLanguage();
   const { user, isDemoMode } = useAuth();
+  const { notify, ToastHost } = useToast();
   const [logoDataUrl, setLogoDataUrl] = useState('');
   const logoDataUrlRef = useRef('');
   const [activeTool, setActiveTool] = useState<ToolType>('poster');
@@ -70,6 +72,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
   });
   const [loading, setLoading] = useState(false);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [isPostingTikTok, setIsPostingTikTok] = useState(false);
   const [tiktokUser, setTiktokUser] = useState<any>(null);
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [needsApiKey, setNeedsApiKey] = useState(false);
@@ -143,20 +146,47 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
           `width=${width},height=${height},top=${top},left=${left}`
         );
         if (!popup) {
-          alert(t('allowPopups'));
+          notify(t('allowPopups'), 'error');
           clearTimeout(timeout);
           setIsAuthenticating(false);
         }
       } else {
-        alert("Failed to get auth URL");
+        notify("Failed to get auth URL", 'error');
         clearTimeout(timeout);
         setIsAuthenticating(false);
       }
     } catch (err) {
       console.error("Auth error", err);
-      alert(t('authError'));
+      notify(t('authError'), 'error');
       clearTimeout(timeout);
       setIsAuthenticating(false);
+    }
+  };
+
+  const handlePostToTikTokPhoto = async () => {
+    if (!generatedImage) return;
+    setIsPostingTikTok(true);
+    try {
+      const title = `${posterDetails.headline} — ${posterDetails.cta}`.slice(0, 90);
+      const idToken = user ? await user.getIdToken().catch(() => null) : null;
+      const res = await fetch('/api/tiktok/publish-photo', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+        },
+        body: JSON.stringify({ imageDataUrl: generatedImage, title }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        notify(data.message || t('postedToTiktok'), 'success');
+      } else {
+        throw new Error(data.error?.message || 'Publishing failed');
+      }
+    } catch (error: any) {
+      notify(`${t('postFailed')}: ${error.message}\n\nMake sure Vercel has TIKTOK_SCOPES with video.upload/video.publish, then reconnect TikTok so the new permission is included in the access token.`, 'error');
+    } finally {
+      setIsPostingTikTok(false);
     }
   };
 
@@ -190,7 +220,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
       if (/OPEN_ROUTER_API_KEY|api key/i.test(error.message || '')) {
         setNeedsApiKey(true);
       }
-      alert(t('errorGeneratingPoster'));
+      notify(t('errorGeneratingPoster'), 'error');
     } finally {
       setLoading(false);
     }
@@ -216,7 +246,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
       if (/OPEN_ROUTER_API_KEY|api key/i.test(error.message || '')) {
         setNeedsApiKey(true);
       }
-      alert(t('errorGeneratingPoster'));
+      notify(t('errorGeneratingPoster'), 'error');
     } finally {
       setLoading(false);
     }
@@ -251,6 +281,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
 
   return (
     <div className="max-w-6xl mx-auto space-y-10">
+      <ToastHost />
       {automationNotice && (
         <div className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-semibold text-emerald-800">
           <Sparkles size={18} className="shrink-0" />
@@ -458,15 +489,33 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
               
               {generatedImage && (
                 <div className="mt-6">
-                  <button 
-                    onClick={() => alert("Photo publishing to TikTok is currently not fully configured via proxy, but this serves as the hook to send to @ai.cafe4")}
-                    className="w-full bg-black text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-3 shadow-xl hover:bg-slate-900 transition-all"
-                  >
-                    <svg viewBox="0 0 24 24" className="w-5 h-5 fill-white" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.06 3.42-.01 6.83-.02 10.25-.17 4.14-4.23 7.25-8.26 6.5-3.94-.73-6.47-5.11-4.67-8.73 1.14-2.2 3.86-3.54 6.32-3.14.05 1.58 0 3.16 0 4.74-1.57-.14-3.29.35-4.23 1.71-.96 1.39-.64 3.55.75 4.53 1.38.97 3.56.64 4.53-.75.28-.38.39-.84.41-1.3.02-3.58 0-7.17.01-10.75 0-2.87 0-5.74 0-8.61z"/>
-                    </svg>
-                    {t('postToTiktok')} (@ai.cafe4)
-                  </button>
+                  {tiktokUser ? (
+                    <button
+                      onClick={handlePostToTikTokPhoto}
+                      disabled={isPostingTikTok}
+                      className="w-full bg-black text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-3 shadow-xl hover:bg-slate-900 transition-all disabled:opacity-50"
+                    >
+                      {isPostingTikTok ? <Loader2 size={20} className="animate-spin" /> : (
+                        <svg viewBox="0 0 24 24" className="w-5 h-5 fill-white" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.06 3.42-.01 6.83-.02 10.25-.17 4.14-4.23 7.25-8.26 6.5-3.94-.73-6.47-5.11-4.67-8.73 1.14-2.2 3.86-3.54 6.32-3.14.05 1.58 0 3.16 0 4.74-1.57-.14-3.29.35-4.23 1.71-.96 1.39-.64 3.55.75 4.53 1.38.97 3.56.64 4.53-.75.28-.38.39-.84.41-1.3.02-3.58 0-7.17.01-10.75 0-2.87 0-5.74 0-8.61z"/>
+                        </svg>
+                      )}
+                      {t('postToTiktok')} (@{tiktokUser.display_name || tiktokUser.username || tiktokUser.open_id})
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleTikTokAuth}
+                      disabled={isAuthenticating}
+                      className="w-full bg-brand-600 text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-3 shadow-xl hover:bg-brand-700 transition-all disabled:opacity-50"
+                    >
+                      {isAuthenticating ? <Loader2 size={20} className="animate-spin" /> : (
+                        <svg viewBox="0 0 24 24" className="w-5 h-5 fill-white" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.06 3.42-.01 6.83-.02 10.25-.17 4.14-4.23 7.25-8.26 6.5-3.94-.73-6.47-5.11-4.67-8.73 1.14-2.2 3.86-3.54 6.32-3.14.05 1.58 0 3.16 0 4.74-1.57-.14-3.29.35-4.23 1.71-.96 1.39-.64 3.55.75 4.53 1.38.97 3.56.64 4.53-.75.28-.38.39-.84.41-1.3.02-3.58 0-7.17.01-10.75 0-2.87 0-5.74 0-8.61z"/>
+                        </svg>
+                      )}
+                      {t('connectTiktok')}
+                    </button>
+                  )}
                 </div>
               )}
             </div>

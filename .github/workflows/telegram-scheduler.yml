@@ -10,4 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Trigger due Telegram posts
-        run: curl -sf -X POST https://aime.angkorgate.ai/api/telegram/run-scheduled
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -sf -X POST -H "Authorization: Bearer $CRON_SECRET" https://aime.angkorgate.ai/api/telegram/run-scheduled

@@ -1,10 +1,7 @@
 import React, { useState } from 'react';
-import { 
-  TrendingUp, 
-  Target, 
-  Users, 
-  MousePointer2, 
-  CreditCard, 
+import {
+  TrendingUp,
+  Target,
   Plus,
   Zap,
   BarChart,
@@ -29,7 +26,8 @@ const AdsManager: React.FC = () => {
   const [isCreatingAd, setIsCreatingAd] = useState(false);
   const [adCreative, setAdCreative] = useState<string | null>(() => localStorage.getItem('ads_creative'));
 
-  const [isScalingActive, setIsScalingActive] = useState(() => localStorage.getItem('ads_scaling_active') === 'true');
+  const [scalingAdvice, setScalingAdvice] = useState<string | null>(() => localStorage.getItem('ads_scaling_advice'));
+  const [isGettingScalingAdvice, setIsGettingScalingAdvice] = useState(false);
 
   const [productImageBase64, setProductImageBase64] = useState<string | null>(null);
   const [productImageMimeType, setProductImageMimeType] = useState<string | null>(null);
@@ -39,10 +37,45 @@ const AdsManager: React.FC = () => {
   const [imageAnalysisError, setImageAnalysisError] = useState<string | null>(null);
   const [scanLanguage, setScanLanguage] = useState<'km' | 'en'>(language);
 
-  const handleActivateScaling = () => {
-    const newState = !isScalingActive;
-    setIsScalingActive(newState);
-    localStorage.setItem('ads_scaling_active', newState ? 'true' : 'false');
+  const handleGetScalingAdvice = async () => {
+    if (!strategy) return;
+    setIsGettingScalingAdvice(true);
+    try {
+      const response = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'socialAgent',
+          language,
+          platform: 'Facebook/TikTok Ads',
+          mode: 'scaling-advice',
+          message: `Based on this ad strategy, give practical scaling guidance for a small business owner managing their own ad account.
+
+Product/category:
+${targetQuery || 'Use the product implied by the strategy.'}
+
+Strategy:
+${strategy}
+
+Return:
+1. The specific signal(s) that show an ad set is winning and ready to scale (e.g. CPA/ROAS thresholds, minimum spend/conversions before judging)
+2. A safe day-by-day budget increase plan (percentage per step, how often)
+3. Warning signs to pause or cut spend
+4. One sentence reminding them to apply these changes manually in Meta Ads Manager / TikTok Ads Manager, since this tool does not have ad account access.
+
+Keep it concise and practical.`,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to generate scaling guidance.');
+      const text = data.text || 'No guidance generated.';
+      setScalingAdvice(text);
+      localStorage.setItem('ads_scaling_advice', text);
+    } catch (error: any) {
+      setScalingAdvice(error.message || 'Error generating scaling guidance.');
+    } finally {
+      setIsGettingScalingAdvice(false);
+    }
   };
 
   const extractVideoFrame = (file: File): Promise<{ base64: string; mimeType: string }> => {
@@ -239,12 +272,6 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
           </h2>
           <p className="text-slate-500 dark:text-slate-400 mt-1 text-lg">{t('adsManagerSubtitle')}</p>
         </div>
-        <div className="flex gap-3">
-          <div className="flex items-center gap-2 px-6 py-3 bg-white dark:bg-slate-800 border border-brand-200 rounded-2xl shadow-sm">
-            <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-            <span className="text-sm font-bold text-brand-700">{t('adSyncActive')}</span>
-          </div>
-        </div>
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -335,21 +362,6 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
               </button>
             </div>
 
-            <div className="pt-6 border-t border-brand-100 space-y-4">
-               {[
-                 { label: t('avgCpa'), value: '$8.42', icon: MousePointer2 },
-                 { label: t('suggestedBudget'), value: '$25/day', icon: CreditCard },
-                 { label: t('audienceSize'), value: '1.2M - 4.5M', icon: Users },
-               ].map((stat, i) => (
-                 <div key={i} className="flex items-center justify-between">
-                   <div className="flex items-center gap-2">
-                     <stat.icon size={14} className="text-brand-400" />
-                     <span className="text-sm text-slate-500 dark:text-slate-400">{stat.label}</span>
-                   </div>
-                   <span className="text-sm font-bold text-brand-700">{stat.value}</span>
-                 </div>
-               ))}
-            </div>
           </div>
 
           <div className="bg-gradient-to-br from-brand-600 via-brand-700 to-brand-800 p-8 rounded-[2.5rem] text-white shadow-xl relative overflow-hidden group">
@@ -358,24 +370,22 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
             </div>
             <h4 className="text-xl font-bold mb-2">{t('automatedAdScaling')}</h4>
             <p className="text-brand-100/80 text-sm mb-6 leading-relaxed">{t('scalingDescription')}</p>
-            <button 
-              onClick={handleActivateScaling}
-              className={cn(
-                "w-full py-4 font-bold rounded-xl transition-all shadow-lg",
-                isScalingActive 
-                  ? "bg-emerald-500 text-white hover:bg-emerald-600" 
-                  : "bg-white text-brand-700 hover:bg-brand-50"
-              )}
+            <button
+              onClick={handleGetScalingAdvice}
+              disabled={!strategy || isGettingScalingAdvice}
+              className="w-full py-4 font-bold rounded-xl transition-all shadow-lg bg-white text-brand-700 hover:bg-brand-50 disabled:opacity-60 flex items-center justify-center gap-2"
             >
-              {isScalingActive ? (
-                <span className="flex items-center justify-center gap-2">
-                  <CheckCircle2 size={18} />
-                  {language === 'km' ? 'កំពុងដំណើរការ' : 'Scaling Active'}
-                </span>
-              ) : (
-                t('activateScalingBtn')
-              )}
+              {isGettingScalingAdvice ? <Loader2 size={18} className="animate-spin" /> : <Zap size={18} />}
+              {t('activateScalingBtn')}
             </button>
+            {!strategy && (
+              <p className="text-brand-100/70 text-xs mt-3">{t('scalingNeedsStrategy')}</p>
+            )}
+            {scalingAdvice && (
+              <div className="mt-6 pt-6 border-t border-white/20 whitespace-pre-wrap text-sm leading-relaxed text-brand-50">
+                {scalingAdvice}
+              </div>
+            )}
           </div>
         </div>
 

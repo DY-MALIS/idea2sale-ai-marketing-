@@ -13,13 +13,15 @@ import {
   Inbox as InboxIcon,
   Send,
   Sparkles,
-  Search
+  Search,
+  ShieldAlert
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db } from '../lib/firebase';
 import { collection, query, where, orderBy, limit, startAfter, getDocs, onSnapshot, addDoc, serverTimestamp, deleteDoc, doc, QueryDocumentSnapshot, DocumentData } from 'firebase/firestore';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useIsAdmin } from '../hooks/useIsAdmin';
 
 interface TelegramLead {
   id: string;
@@ -52,6 +54,7 @@ interface ReplyRule {
 const Automation: React.FC = () => {
   const { t, language } = useLanguage();
   const { user, isDemoMode } = useAuth();
+  const { isAdmin, checking: checkingAdmin } = useIsAdmin();
   const [activeTab, setActiveTab] = useState<'reply' | 'inbox'>('reply');
   const [isRuleModalOpen, setIsRuleModalOpen] = useState(false);
   const [replyRules, setReplyRules] = useState<ReplyRule[]>([]);
@@ -79,6 +82,10 @@ const Automation: React.FC = () => {
 
   useEffect(() => {
     if (activeTab !== 'inbox') return;
+    if (checkingAdmin || !isAdmin) {
+      setInboxLoading(false);
+      return;
+    }
     const q = query(collection(db, 'telegram_leads'), orderBy('lastMessageAt', 'desc'), limit(INBOX_PAGE_SIZE));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as TelegramLead[];
@@ -92,7 +99,7 @@ const Automation: React.FC = () => {
       setInboxLoading(false);
     });
     return () => unsubscribe();
-  }, [activeTab]);
+  }, [activeTab, checkingAdmin, isAdmin]);
 
   const handleLoadMoreInboxLeads = async () => {
     if (!inboxLastDoc || inboxLoadingMore) return;
@@ -130,7 +137,7 @@ const Automation: React.FC = () => {
   }, [inboxHasMore, inboxLastDoc, activeTab]);
 
   useEffect(() => {
-    if (!selectedChatId || activeTab !== 'inbox') return;
+    if (!selectedChatId || activeTab !== 'inbox' || checkingAdmin || !isAdmin) return;
     setMessagesLoading(true);
     // Sort client-side (not orderBy in the query) to avoid needing a composite
     // Firestore index for the chatId + createdAt combination.
@@ -148,7 +155,7 @@ const Automation: React.FC = () => {
       setMessagesLoading(false);
     });
     return () => unsubscribe();
-  }, [selectedChatId, activeTab]);
+  }, [selectedChatId, activeTab, checkingAdmin, isAdmin]);
 
   const handleSendReply = async () => {
     const text = replyText.trim();
@@ -410,7 +417,15 @@ const Automation: React.FC = () => {
         <span className="ml-2">{t('automationRoleDesc')}</span>
       </div>
 
-      {activeTab === 'inbox' ? (
+      {activeTab === 'inbox' && !checkingAdmin && !isAdmin ? (
+        <div className="glass rounded-[2rem] overflow-hidden text-center py-20 px-10">
+          <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-100">
+            <ShieldAlert size={24} className="text-amber-500" />
+          </div>
+          <h3 className="text-brand-700 font-bold mb-1">{t('adminOnlyTitle')}</h3>
+          <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm mx-auto">{t('adminOnlyDesc')}</p>
+        </div>
+      ) : activeTab === 'inbox' ? (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           <div className="lg:col-span-4 glass rounded-[2rem] overflow-hidden max-h-[70vh] flex flex-col">
             <div className="p-5 border-b border-brand-100 bg-brand-50 flex items-center justify-between shrink-0">
