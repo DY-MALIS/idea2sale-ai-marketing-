@@ -26,8 +26,33 @@ type VoicePersona = 'sreymom' | 'piseth';
 
 const MAX_VIDEO_IMAGES = 20;
 // Google Veo 3.1 (the underlying video model) only accepts these exact
-// durations — anything else risks a rejected or misbehaving generation.
-const VIDEO_DURATION_OPTIONS = [4, 6, 8] as const;
+// per-clip durations — anything else risks a rejected or misbehaving
+// generation. Lengths beyond 8s are built by chaining multiple 8s clips
+// together (see getVideoSegments) since the model has no longer single-shot option.
+const VIDEO_LENGTH_OPTIONS = [4, 6, 8, 16, 24] as const;
+
+// Splits a requested total video length into individual Veo-generation
+// segments, each capped at 8s (the model's per-clip maximum): 4/6/8 stay a
+// single clip, 16 -> [8, 8], 24 -> [8, 8, 8].
+const getVideoSegments = (totalSeconds: number): number[] => {
+  if (totalSeconds <= 8) return [totalSeconds];
+  const segments: number[] = [];
+  let remaining = totalSeconds;
+  while (remaining > 0) {
+    segments.push(Math.min(8, remaining));
+    remaining -= 8;
+  }
+  return segments;
+};
+
+const uint8ArrayToBase64 = (bytes: Uint8Array): string => {
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...Array.from(bytes.subarray(i, i + chunkSize)));
+  }
+  return btoa(binary);
+};
 
 const FFMPEG_CORE_BASE_URL = 'https://unpkg.com/@ffmpeg/core@0.12.9/dist/esm';
 let ffmpegLoadPromise: Promise<any> | null = null;
@@ -113,6 +138,71 @@ const overlayLogoOnVideo = async (videoDataUrl: string, logoDataUrl: string): Pr
   }
 };
 
+// Grabs the last frame of a generated clip so it can be handed to the next
+// segment's generation as a reference image, giving chained clips visual
+// continuity instead of jump-cutting to an unrelated scene.
+const extractLastFrame = async (videoUrl: string): Promise<{ base64: string; mimeType: string }> => {
+  const { fetchFile } = await import('@ffmpeg/util');
+  const ffmpeg = await getFFmpeg();
+  await ffmpeg.writeFile('frame_source.mp4', await fetchFile(videoUrl));
+  await ffmpeg.exec(['-sseof', '-1', '-i', 'frame_source.mp4', '-update', '1', '-q:v', '2', 'last_frame.jpg']);
+  const data = await ffmpeg.readFile('last_frame.jpg');
+  return { base64: uint8ArrayToBase64(data as Uint8Array), mimeType: 'image/jpeg' };
+};
+
+// Joins multiple generated clips (all the same resolution/codec, since they
+// all came from the same Veo request settings) into one final video via
+// ffmpeg's concat demuxer, which stream-copies instead of re-encoding.
+const concatenateVideoClips = async (clipUrls: string[]): Promise<string> => {
+  if (clipUrls.length <= 1) return clipUrls[0];
+  const { fetchFile } = await import('@ffmpeg/util');
+  const ffmpeg = await getFFmpeg();
+  const fileNames: string[] = [];
+  for (let i = 0; i < clipUrls.length; i += 1) {
+    const name = `segment_${i}.mp4`;
+    await ffmpeg.writeFile(name, await fetchFile(clipUrls[i]));
+    fileNames.push(name);
+  }
+  await ffmpeg.writeFile('concat_list.txt', fileNames.map((name) => `file '${name}'`).join('\n'));
+  await ffmpeg.exec(['-f', 'concat', '-safe', '0', '-i', 'concat_list.txt', '-c', 'copy', 'concat_output.mp4']);
+  const data = await ffmpeg.readFile('concat_output.mp4');
+  const blob = new Blob([data.buffer], { type: 'video/mp4' });
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result as string);
+    reader.onerror = () => reject(new Error('Could not merge the video segments.'));
+    reader.readAsDataURL(blob);
+  });
+};
+
+// Starts one Veo generation and polls until the clip is ready.
+const generateVideoClip = async (
+  prompt: string,
+  images: { base64: string; mimeType: string }[],
+  duration: number,
+): Promise<string> => {
+  const response = await fetch('/api/ai', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'videoGenerate', prompt, images, duration }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || 'Video generation failed.');
+  const jobId = data.jobId;
+  for (let attempt = 0; attempt < 48 && jobId; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+    const statusResponse = await fetch('/api/ai', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'videoStatus', jobId }),
+    });
+    const statusData = await statusResponse.json();
+    if (!statusResponse.ok) throw new Error(statusData.error || 'Video generation failed.');
+    if (statusData.videoUrl) return statusData.videoUrl;
+  }
+  throw new Error('Video is still processing. Please try again shortly.');
+};
+
 interface VideoVoiceProps {
   automationRequest?: CreativeAutomationRequest | null;
   onAutomationConsumed?: (requestId: string) => void;
@@ -148,6 +238,8 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   const [needsApiKey, setNeedsApiKey] = useState(false);
   const [videoImages, setVideoImages] = useState<{ base64: string; mimeType: string }[]>([]);
   const [videoDuration, setVideoDuration] = useState<number>(8);
+  const [segmentProgress, setSegmentProgress] = useState<{ current: number; total: number } | null>(null);
+  const [mergingSegments, setMergingSegments] = useState(false);
   const [automationNotice, setAutomationNotice] = useState<string | null>(null);
   const handledAutomationRef = React.useRef<string | null>(null);
 
@@ -359,32 +451,34 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     setLoading(true);
     setGeneratedVideo(null);
     setVideoVoiceQualityNotice(null);
+    setSegmentProgress(null);
+    setMergingSegments(false);
     try {
       const prompt = `${generationLanguage === 'Khmer' ? 'Khmer/Cambodian context. ' : ''}${promptText || 'Create a realistic short marketing video from the uploaded reference image.'}`;
-      const response = await fetch('/api/ai', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'videoGenerate',
-          prompt,
-          images: videoImages,
-          duration: videoDuration,
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Video generation failed.');
-      let jobId = data.jobId;
-      for (let attempt = 0; attempt < 48 && jobId; attempt += 1) {
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        const statusResponse = await fetch('/api/ai', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'videoStatus', jobId }),
-        });
-        const statusData = await statusResponse.json();
-        if (!statusResponse.ok) throw new Error(statusData.error || 'Video generation failed.');
-        if (statusData.videoUrl) {
-          let video = statusData.videoUrl;
+      const segments = getVideoSegments(videoDuration);
+      const clipUrls: string[] = [];
+      let referenceImages = videoImages;
+      for (let i = 0; i < segments.length; i += 1) {
+        setSegmentProgress(segments.length > 1 ? { current: i + 1, total: segments.length } : null);
+        if (i > 0) {
+          referenceImages = [await extractLastFrame(clipUrls[i - 1])];
+        }
+        clipUrls.push(await generateVideoClip(prompt, referenceImages, segments[i]));
+      }
+      setSegmentProgress(null);
+
+      {
+        let video: string;
+        if (clipUrls.length > 1) {
+          setMergingSegments(true);
+          try {
+            video = await concatenateVideoClips(clipUrls);
+          } finally {
+            setMergingSegments(false);
+          }
+        } else {
+          video = clipUrls[0];
+        }
 
           if (logoDataUrlRef.current) {
             setWatermarking(true);
@@ -432,9 +526,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
 
           setGeneratedVideo(video);
           return;
-        }
       }
-      throw new Error('Video is still processing. Please try again shortly.');
     } catch (error: any) {
       console.error(error);
       if (/OPEN_ROUTER_API_KEY|api key/i.test(error.message || '')) setNeedsApiKey(true);
@@ -800,7 +892,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">{t('videoDurationLabel')}</label>
                   <div className="flex bg-brand-50 p-1 rounded-xl border border-brand-100">
-                    {VIDEO_DURATION_OPTIONS.map((seconds) => (
+                    {VIDEO_LENGTH_OPTIONS.map((seconds) => (
                       <button
                         key={seconds}
                         type="button"
@@ -1076,7 +1168,17 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
               {loading || audioLoading ? (
                 <div className="text-center space-y-4">
                   <Loader2 className="w-12 h-12 animate-spin text-brand-600 mx-auto" />
-                  <p className="text-brand-700 font-bold">{watermarking ? t('addingLogo') : addingVoiceOver ? t('addingVoiceOver') : t('craftingContent')}</p>
+                  <p className="text-brand-700 font-bold">
+                    {watermarking
+                      ? t('addingLogo')
+                      : addingVoiceOver
+                        ? t('addingVoiceOver')
+                        : mergingSegments
+                          ? t('mergingSegments')
+                          : segmentProgress
+                            ? `${t('generatingSegmentPrefix')} ${segmentProgress.current} ${t('generatingSegmentJoiner')} ${segmentProgress.total}`
+                            : t('craftingContent')}
+                  </p>
                 </div>
               ) : activeTool === 'video' && generatedVideo ? (
                 <div className="w-full space-y-6">
