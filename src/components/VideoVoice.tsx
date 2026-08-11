@@ -24,6 +24,8 @@ type ToolType = 'video' | 'voice';
 type VoiceGender = 'Female' | 'Male';
 type VoicePersona = 'sreymom' | 'piseth';
 
+const MAX_VIDEO_IMAGES = 20;
+
 const FFMPEG_CORE_BASE_URL = 'https://unpkg.com/@ffmpeg/core@0.12.9/dist/esm';
 let ffmpegLoadPromise: Promise<any> | null = null;
 
@@ -135,8 +137,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   const [voiceFallbackMessage, setVoiceFallbackMessage] = useState<string | null>(null);
   const [audioLoading, setAudioLoading] = useState(false);
   const [needsApiKey, setNeedsApiKey] = useState(false);
-  const [videoImage, setVideoImage] = useState<string | null>(null);
-  const [videoImageMimeType, setVideoImageMimeType] = useState<string | null>(null);
+  const [videoImages, setVideoImages] = useState<{ base64: string; mimeType: string }[]>([]);
   const [automationNotice, setAutomationNotice] = useState<string | null>(null);
   const handledAutomationRef = React.useRef<string | null>(null);
 
@@ -343,7 +344,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     const promptText = typeof promptOverride === 'string' ? promptOverride.trim() : videoPrompt.trim();
     const generationLanguage = languageOverride || videoLanguage;
     const voiceOverContent = (typeof voiceOverTextOverride === 'string' ? voiceOverTextOverride : (voiceOverEnabled ? voiceOverText : '')).trim();
-    if (!promptText && !videoImage) return;
+    if (!promptText && !videoImages.length) return;
 
     setLoading(true);
     setGeneratedVideo(null);
@@ -356,8 +357,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         body: JSON.stringify({
           action: 'videoGenerate',
           prompt,
-          imageBase64: videoImage,
-          imageMimeType: videoImageMimeType,
+          images: videoImages,
         }),
       });
       const data = await response.json();
@@ -722,24 +722,52 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
               <div className="space-y-6">
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">{t('startingImageLabel')}</label>
-                  <label className="flex flex-col items-center justify-center h-32 border-2 border-dashed border-brand-200 rounded-2xl bg-brand-50 hover:bg-brand-100 transition-all cursor-pointer">
-                    {videoImage ? (
-                      <img src={`data:${videoImageMimeType};base64,${videoImage}`} alt="Preview" className="w-full h-full object-cover rounded-xl" />
-                    ) : (
-                      <ImageIcon className="text-brand-300" size={32} />
+                  <div className="flex flex-wrap gap-3">
+                    {videoImages.map((image, index) => (
+                      <div key={index} className="relative h-24 w-24 shrink-0">
+                        <img
+                          src={`data:${image.mimeType};base64,${image.base64}`}
+                          alt="Preview"
+                          className="h-full w-full object-cover rounded-xl"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setVideoImages((current) => current.filter((_, i) => i !== index))}
+                          className="absolute -top-2 -right-2 flex h-6 w-6 items-center justify-center rounded-full bg-slate-900/80 text-white text-xs font-bold hover:bg-red-500 transition-colors"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                    {videoImages.length < MAX_VIDEO_IMAGES && (
+                      <label className="flex h-24 w-24 shrink-0 flex-col items-center justify-center border-2 border-dashed border-brand-200 rounded-2xl bg-brand-50 hover:bg-brand-100 transition-all cursor-pointer">
+                        <ImageIcon className="text-brand-300" size={28} />
+                        <input
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          className="hidden"
+                          onChange={(e) => {
+                            const files = Array.from(e.target.files || []);
+                            e.target.value = '';
+                            const remainingSlots = MAX_VIDEO_IMAGES - videoImages.length;
+                            files.slice(0, Math.max(remainingSlots, 0)).forEach((file) => {
+                              const reader = new FileReader();
+                              reader.onloadend = () => {
+                                const base64 = (reader.result as string).split(',')[1];
+                                if (base64) {
+                                  setVideoImages((current) => (
+                                    current.length >= MAX_VIDEO_IMAGES ? current : [...current, { base64, mimeType: file.type }]
+                                  ));
+                                }
+                              };
+                              reader.readAsDataURL(file);
+                            });
+                          }}
+                        />
+                      </label>
                     )}
-                    <input type="file" accept="image/*" className="hidden" onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        const reader = new FileReader();
-                        reader.onloadend = () => {
-                          setVideoImage((reader.result as string).split(',')[1]);
-                          setVideoImageMimeType(file.type);
-                        };
-                        reader.readAsDataURL(file);
-                      }
-                    }} />
-                  </label>
+                  </div>
                 </div>
                 <div className="space-y-2">
                   <div className="flex justify-between items-center">

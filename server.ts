@@ -98,7 +98,7 @@ async function startServer() {
     res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
     next();
   });
-  app.use(express.json({ limit: "8mb" }));
+  app.use(express.json({ limit: "25mb" }));
   app.use(cookieParser());
   app.use(cors({
     origin: true,

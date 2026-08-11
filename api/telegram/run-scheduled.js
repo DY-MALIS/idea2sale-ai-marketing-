@@ -419,13 +419,25 @@ export default async function handler(req, res) {
       .slice(0, 10);
 
     for (const doc of dueDocs) {
-      const post = { id: doc.id, ...doc.data() };
-      try {
-        await doc.ref.update({
-          status: 'PROCESSING',
-          processingAt: FieldValue.serverTimestamp()
-        });
+      // Claim the post atomically: QStash's own webhook (api/telegram/deliver.js)
+      // can fire for this same post around the same due time, and a plain
+      // update() here has a window where both see status "PENDING" and both
+      // publish to Telegram. A transaction makes the PENDING -> PROCESSING
+      // claim compare-and-swap so only one caller wins.
+      const claim = await db.runTransaction(async (tx) => {
+        const snap = await tx.get(doc.ref);
+        if (!snap.exists || snap.data()?.status !== 'PENDING') return null;
+        tx.update(doc.ref, { status: 'PROCESSING', processingAt: FieldValue.serverTimestamp() });
+        return { id: snap.id, ...snap.data() };
+      });
 
+      if (!claim) {
+        results.push({ id: doc.id, ok: true, skipped: true });
+        continue;
+      }
+
+      const post = claim;
+      try {
         const messageId = await sendTelegram(post);
 
         await doc.ref.update({

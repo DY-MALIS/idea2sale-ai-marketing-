@@ -378,7 +378,7 @@ export async function generateOpenRouterSpeech({
   throw lastError || new Error('OpenRouter speech request failed.');
 }
 
-export async function startOpenRouterVideo({ prompt, imageBase64, imageMimeType, model }) {
+export async function startOpenRouterVideo({ prompt, images, model }) {
   const body = {
     model: model || process.env.OPEN_ROUTER_VIDEO_MODEL || 'google/veo-3.1',
     prompt,
@@ -387,8 +387,15 @@ export async function startOpenRouterVideo({ prompt, imageBase64, imageMimeType,
     duration: 8,
   };
 
-  if (imageBase64 && imageMimeType) {
-    body.input_references = [{ type: 'image_url', image_url: { url: fileToDataUrl(imageBase64, imageMimeType) } }];
+  const imageList = Array.isArray(images)
+    ? images.filter((image) => image?.base64 && image?.mimeType)
+    : [];
+
+  if (imageList.length) {
+    body.input_references = imageList.map((image) => ({
+      type: 'image_url',
+      image_url: { url: fileToDataUrl(image.base64, image.mimeType) },
+    }));
   }
 
   const job = await openRouterJson('/videos', body);

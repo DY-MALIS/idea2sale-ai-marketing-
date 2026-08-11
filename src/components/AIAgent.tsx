@@ -2,8 +2,14 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Bot, Copy, Image as ImageIcon, ImagePlus, Loader2, Mic, MicOff, RefreshCw, Send, Sparkles, UserRound, Video, X, Zap } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { AnimatePresence, motion } from 'motion/react';
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 import { useLanguage } from '../contexts/LanguageContext';
-import { CreativeAutomationRequest } from '../types';
+import { useAuth } from '../contexts/AuthContext';
+import { BusinessProfileData, CreativeAutomationRequest } from '../types';
+
+const DEMO_BUSINESS_PROFILE_STORAGE_KEY = 'demo_business_profile';
+const DEMO_AGENT_CONVERSATION_STORAGE_KEY = 'demo_agent_conversation';
 
 interface AgentMessage {
   role: 'user' | 'assistant';
@@ -20,22 +26,29 @@ interface AIAgentProps {
   onCreativeAutomation: (request: CreativeAutomationRequest) => void;
 }
 
-const MAX_MESSAGES = 20;
-const HISTORY_MESSAGES = 14;
+const MAX_MESSAGES = 40;
+const HISTORY_MESSAGES = 20;
 const MAX_IMAGES = 4;
 
 const detectMessageLanguage = (message: string) => (
   /[\u1780-\u17FF]/.test(message) ? 'km' : 'en'
 );
 
+interface AgentBusinessContext {
+  businessName: string;
+  directory: { name: string; type: string }[];
+}
+
 const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const { language } = useLanguage();
+  const { user, isDemoMode } = useAuth();
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [autoCreateEnabled, setAutoCreateEnabled] = useState(true);
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
   const [isListening, setIsListening] = useState(false);
+  const [businessContext, setBusinessContext] = useState<AgentBusinessContext | null>(null);
   // Which language the user is about to speak for voice input. Independent from the
   // UI display language, since people often keep the interface in one language while
   // speaking another (e.g. English UI, Khmer speech) — tying recognition to the UI
@@ -44,6 +57,9 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const conversationEndRef = useRef<HTMLDivElement>(null);
   const requestControllerRef = useRef<AbortController | null>(null);
   const recognitionRef = useRef<any>(null);
+  // Guards against overwriting the just-loaded saved conversation with an empty
+  // autosave that could otherwise fire before the initial load resolves.
+  const memoryLoadedRef = useRef(false);
 
   const speechRecognitionSupported = typeof window !== 'undefined'
     && Boolean((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
@@ -54,6 +70,66 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
 
   useEffect(() => () => requestControllerRef.current?.abort(), []);
   useEffect(() => () => recognitionRef.current?.stop(), []);
+
+  // Long-term memory: reload the saved conversation and business profile so the
+  // agent keeps context across page reloads and sessions instead of forgetting
+  // everything the moment the tab closes.
+  useEffect(() => {
+    memoryLoadedRef.current = false;
+    const loadMemory = async () => {
+      try {
+        if (isDemoMode || !user) {
+          const savedConversation = JSON.parse(localStorage.getItem(DEMO_AGENT_CONVERSATION_STORAGE_KEY) || 'null');
+          if (Array.isArray(savedConversation) && savedConversation.length) {
+            setMessages(savedConversation.slice(-MAX_MESSAGES));
+          }
+          const savedProfile = JSON.parse(localStorage.getItem(DEMO_BUSINESS_PROFILE_STORAGE_KEY) || 'null');
+          if (savedProfile) {
+            setBusinessContext({ businessName: savedProfile.businessName || '', directory: savedProfile.directory || [] });
+          }
+        } else {
+          const [conversationSnap, profileSnap] = await Promise.all([
+            getDoc(doc(db, 'agent_conversations', user.uid)),
+            getDoc(doc(db, 'business_profiles', user.uid)),
+          ]);
+          if (conversationSnap.exists()) {
+            const saved = conversationSnap.data()?.messages;
+            if (Array.isArray(saved) && saved.length) setMessages(saved.slice(-MAX_MESSAGES));
+          }
+          if (profileSnap.exists()) {
+            const data = profileSnap.data() as BusinessProfileData;
+            setBusinessContext({ businessName: data.businessName || '', directory: data.directory || [] });
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load agent memory:', error);
+      } finally {
+        memoryLoadedRef.current = true;
+      }
+    };
+    void loadMemory();
+  }, [user, isDemoMode]);
+
+  // Only the text survives into persisted memory — attached image previews are
+  // base64 data URLs that would blow past Firestore's 1MB document limit and
+  // add real storage cost within a handful of exchanges, so they stay session-only.
+  const persistConversation = (nextMessages: AgentMessage[]) => {
+    if (!memoryLoadedRef.current) return;
+    const textOnly = nextMessages.map(({ role, content }) => ({ role, content }));
+    try {
+      if (isDemoMode || !user) {
+        localStorage.setItem(DEMO_AGENT_CONVERSATION_STORAGE_KEY, JSON.stringify(textOnly));
+      } else {
+        void setDoc(doc(db, 'agent_conversations', user.uid), {
+          messages: textOnly,
+          userId: user.uid,
+          updatedAt: serverTimestamp(),
+        });
+      }
+    } catch (error) {
+      console.error('Failed to save agent memory:', error);
+    }
+  };
 
   const text = useMemo(() => ({
     title: language === 'km' ? 'AI Agent ឆ្លាតវៃ' : 'Intelligent AI Agent',
@@ -87,7 +163,9 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   }), [language]);
 
   const updateMessages = (nextMessages: AgentMessage[]) => {
-    setMessages(nextMessages.slice(-MAX_MESSAGES));
+    const trimmed = nextMessages.slice(-MAX_MESSAGES);
+    setMessages(trimmed);
+    persistConversation(trimmed);
   };
 
   const startNewChat = () => {
@@ -95,6 +173,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     setMessages([]);
     setInput('');
     setLoading(false);
+    persistConversation([]);
   };
 
   const handleImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -186,6 +265,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           detectedLanguage: message ? detectMessageLanguage(message) : language,
           history,
           images: imagesForRequest.map((image) => ({ base64: image.base64, mimeType: image.mimeType })),
+          businessContext: businessContext || undefined,
         }),
       });
       const data = await response.json();

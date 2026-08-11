@@ -182,6 +182,28 @@ service cloud.firestore {
       allow delete: if isSignedIn() && profileId == request.auth.uid;
     }
 
+    match /agent_conversations/{profileId} {
+      // AI Agent chat memory: text-only conversation history so the agent keeps
+      // context across page reloads/sessions. No images are stored here (kept
+      // client-side only), so the size cap only needs to bound message count/length.
+      allow read: if isSignedIn() && profileId == request.auth.uid;
+
+      allow create: if isSignedIn()
+        && profileId == request.auth.uid
+        && incoming().userId == request.auth.uid
+        && incoming().messages is list
+        && incoming().messages.size() <= 40;
+
+      allow update: if isSignedIn()
+        && profileId == request.auth.uid
+        && existing().userId == request.auth.uid
+        && incoming().userId == request.auth.uid
+        && incoming().messages is list
+        && incoming().messages.size() <= 40;
+
+      allow delete: if isSignedIn() && profileId == request.auth.uid;
+    }
+
     match /telegram_leads/{leadId} {
       // Written only by the server (Admin SDK bypasses these rules). Shared CRM list, restricted to admins:
       // this is one shared Telegram bot for every business using the app, so there is no per-business

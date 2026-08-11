@@ -8,6 +8,7 @@ import {
 } from './_openrouter.js';
 
 const MAX_AGENT_IMAGES = 4;
+const MAX_VIDEO_REFERENCE_IMAGES = 20;
 
 const jsonFromText = (text, fallback) => {
   try {
@@ -305,7 +306,7 @@ export default async function handler(req, res) {
       const message = String(req.body?.message || '').trim();
       const platform = String(req.body?.platform || 'All');
       const mode = String(req.body?.mode || 'chat');
-      const history = Array.isArray(req.body?.history) ? req.body.history.slice(-14) : [];
+      const history = Array.isArray(req.body?.history) ? req.body.history.slice(-20) : [];
       const images = Array.isArray(req.body?.images)
         ? req.body.images
             .filter((image) => typeof image?.base64 === 'string' && typeof image?.mimeType === 'string')
@@ -322,6 +323,22 @@ export default async function handler(req, res) {
       const automation = await buildCreativeAutomation({ message, historyText, responseLanguage });
       const xContext = await fetchXContext(message);
 
+      // Long-term memory: the user's saved Business Profile, so the agent knows the
+      // business name and directory automatically instead of the user re-explaining
+      // it every conversation. This is separate from (and persists across) the
+      // recent-conversation window above, which only covers the current chat.
+      const businessContextInput = req.body?.businessContext;
+      const businessName = String(businessContextInput?.businessName || '').trim().slice(0, 200);
+      const businessDirectory = Array.isArray(businessContextInput?.directory)
+        ? businessContextInput.directory
+            .filter((entry) => entry?.name)
+            .slice(0, 20)
+            .map((entry) => `${String(entry.name).trim().slice(0, 100)} (${entry.type === 'INDIVIDUAL' ? 'individual' : 'company'})`)
+        : [];
+      const businessContextText = businessName || businessDirectory.length
+        ? `Business name: ${businessName || 'not set'}${businessDirectory.length ? `\nKnown people/companies in the user's directory: ${businessDirectory.join(', ')}` : ''}`
+        : 'No saved business profile yet.';
+
       const text = await generateOpenRouterText({
         system: agentSystemPrompt,
         model: process.env.OPEN_ROUTER_AGENT_MODEL || process.env.OPEN_ROUTER_MODEL,
@@ -332,6 +349,10 @@ export default async function handler(req, res) {
 UI language preference: ${language} (lower priority than the latest user message language)
 Platform focus: ${platform}. If this is Auto, infer the platform from the user's wording. If no platform is mentioned, do not assume content is needed unless the user asks for content.
 Mode: ${mode}. If this is auto, infer the user's intent and answer that intent only.
+
+Saved business profile (persistent memory across all conversations — use this naturally when relevant, never ask the user to repeat information already given here):
+${businessContextText}
+
 Creative automation: ${automation
   ? automation.ready
     ? `${automation.kind} brief is complete. Automatic ${automation.kind} creation will start after this response.`
@@ -511,10 +532,14 @@ Response rules:
     if (action === 'videoGenerate') {
       const prompt = String(req.body?.prompt || '').trim();
       if (!prompt) return res.status(400).json({ error: 'Video prompt is required.' });
+      const images = Array.isArray(req.body?.images)
+        ? req.body.images
+            .filter((image) => typeof image?.base64 === 'string' && typeof image?.mimeType === 'string')
+            .slice(0, MAX_VIDEO_REFERENCE_IMAGES)
+        : [];
       const video = await startOpenRouterVideo({
         prompt: photorealVideoPrompt(prompt),
-        imageBase64: req.body?.imageBase64,
-        imageMimeType: req.body?.imageMimeType,
+        images,
       });
       return res.status(200).json(video);
     }

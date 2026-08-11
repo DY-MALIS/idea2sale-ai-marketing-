@@ -54,17 +54,26 @@ export default async function handler(req, res) {
   try {
     const db = initFirebaseAdmin();
     const ref = db.collection('scheduled_posts').doc(postId);
-    const snap = await ref.get();
-    if (!snap.exists) {
-      return res.status(200).json({ ok: true, skipped: 'not_found' });
+
+    // Claim the post atomically: the QStash webhook and the cron/GitHub Actions
+    // poller can both race to deliver the same post around its due time, and a
+    // plain get()-then-update() has a window where both see status "PENDING"
+    // and both publish to Telegram. A transaction makes the PENDING -> PROCESSING
+    // claim compare-and-swap so only one caller wins.
+    const claim = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) return { skipped: 'not_found' };
+      const data = { id: snap.id, ...snap.data() };
+      if (data.status !== 'PENDING') return { skipped: data.status };
+      tx.update(ref, { status: 'PROCESSING', processingAt: FieldValue.serverTimestamp() });
+      return { post: data };
+    });
+
+    if (claim.skipped) {
+      return res.status(200).json({ ok: true, skipped: claim.skipped });
     }
 
-    const post = { id: snap.id, ...snap.data() };
-    if (post.status !== 'PENDING') {
-      return res.status(200).json({ ok: true, skipped: post.status });
-    }
-
-    await ref.update({ status: 'PROCESSING', processingAt: FieldValue.serverTimestamp() });
+    const post = claim.post;
 
     try {
       const messageId = await sendTelegram(post);
