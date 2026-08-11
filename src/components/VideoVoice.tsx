@@ -25,8 +25,9 @@ type VoiceGender = 'Female' | 'Male';
 type VoicePersona = 'sreymom' | 'piseth';
 
 const MAX_VIDEO_IMAGES = 20;
-const MIN_VIDEO_DURATION_SECONDS = 4;
-const MAX_VIDEO_DURATION_SECONDS = 15;
+// Google Veo 3.1 (the underlying video model) only accepts these exact
+// durations — anything else risks a rejected or misbehaving generation.
+const VIDEO_DURATION_OPTIONS = [4, 6, 8] as const;
 
 const FFMPEG_CORE_BASE_URL = 'https://unpkg.com/@ffmpeg/core@0.12.9/dist/esm';
 let ffmpegLoadPromise: Promise<any> | null = null;
@@ -797,22 +798,23 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                 </div>
 
                 <div className="space-y-2">
-                  <div className="flex justify-between items-center">
-                    <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">{t('videoDurationLabel')}</label>
-                    <span className="text-xs font-bold text-brand-600">{videoDuration}s</span>
-                  </div>
-                  <input
-                    type="range"
-                    min={MIN_VIDEO_DURATION_SECONDS}
-                    max={MAX_VIDEO_DURATION_SECONDS}
-                    step={1}
-                    value={videoDuration}
-                    onChange={(e) => setVideoDuration(Number(e.target.value))}
-                    className="w-full accent-brand-600"
-                  />
-                  <div className="flex justify-between text-[10px] text-slate-400">
-                    <span>{MIN_VIDEO_DURATION_SECONDS}s</span>
-                    <span>{MAX_VIDEO_DURATION_SECONDS}s</span>
+                  <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">{t('videoDurationLabel')}</label>
+                  <div className="flex bg-brand-50 p-1 rounded-xl border border-brand-100">
+                    {VIDEO_DURATION_OPTIONS.map((seconds) => (
+                      <button
+                        key={seconds}
+                        type="button"
+                        onClick={() => setVideoDuration(seconds)}
+                        className={cn(
+                          'flex-1 px-3 py-2 rounded-lg text-xs font-black transition-all',
+                          videoDuration === seconds
+                            ? 'bg-white dark:bg-slate-800 text-brand-700 shadow-sm'
+                            : 'text-brand-400 hover:text-brand-700'
+                        )}
+                      >
+                        {seconds}s
+                      </button>
+                    ))}
                   </div>
                 </div>
 

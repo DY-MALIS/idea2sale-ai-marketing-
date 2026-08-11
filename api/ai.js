@@ -9,8 +9,9 @@ import {
 
 const MAX_AGENT_IMAGES = 4;
 const MAX_VIDEO_REFERENCE_IMAGES = 20;
-const MIN_VIDEO_DURATION_SECONDS = 4;
-const MAX_VIDEO_DURATION_SECONDS = 15;
+// Google Veo 3.1 (the underlying video model) only accepts these exact
+// durations — anything else risks a rejected or misbehaving generation.
+const VIDEO_DURATION_OPTIONS = [4, 6, 8];
 
 const jsonFromText = (text, fallback) => {
   try {
@@ -540,9 +541,11 @@ Response rules:
             .slice(0, MAX_VIDEO_REFERENCE_IMAGES)
         : [];
       const requestedDuration = Number(req.body?.duration);
-      const duration = Number.isFinite(requestedDuration)
-        ? Math.min(MAX_VIDEO_DURATION_SECONDS, Math.max(MIN_VIDEO_DURATION_SECONDS, Math.round(requestedDuration)))
-        : 8;
+      const duration = VIDEO_DURATION_OPTIONS.includes(requestedDuration)
+        ? requestedDuration
+        : VIDEO_DURATION_OPTIONS.reduce((closest, option) => (
+            Math.abs(option - requestedDuration) < Math.abs(closest - requestedDuration) ? option : closest
+          ), 8);
       const video = await startOpenRouterVideo({
         prompt: photorealVideoPrompt(prompt),
         images,
