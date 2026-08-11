@@ -24,7 +24,8 @@ import { useTheme } from './contexts/ThemeContext';
 
 export default function App() {
   const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
-  const isTikTokReviewMode = pathname === '/tiktok-review';
+  const reviewTarget = new URLSearchParams(window.location.search).get('review');
+  const isTikTokReviewMode = pathname === '/tiktok-review' || reviewTarget === 'tiktok';
   const [activeTab, setActiveTab] = useState<TabType>(
     isTikTokReviewMode ? 'video-voice' : 'scheduler'
   );

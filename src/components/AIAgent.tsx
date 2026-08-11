@@ -8,7 +8,7 @@ import { CreativeAutomationRequest } from '../types';
 interface AgentMessage {
   role: 'user' | 'assistant';
   content: string;
-  imageDataUrl?: string;
+  imageDataUrls?: string[];
 }
 
 interface AttachedImage {
@@ -22,6 +22,7 @@ interface AIAgentProps {
 
 const MAX_MESSAGES = 20;
 const HISTORY_MESSAGES = 14;
+const MAX_IMAGES = 4;
 
 const detectMessageLanguage = (message: string) => (
   /[\u1780-\u17FF]/.test(message) ? 'km' : 'en'
@@ -33,7 +34,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const [loading, setLoading] = useState(false);
   const [autoCreateEnabled, setAutoCreateEnabled] = useState(true);
   const [messages, setMessages] = useState<AgentMessage[]>([]);
-  const [attachedImage, setAttachedImage] = useState<AttachedImage | null>(null);
+  const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
   const [isListening, setIsListening] = useState(false);
   // Which language the user is about to speak for voice input. Independent from the
   // UI display language, since people often keep the interface in one language while
@@ -97,18 +98,27 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   };
 
   const handleImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+    const files = Array.from(event.target.files || []);
     event.target.value = '';
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const base64 = (reader.result as string).split(',')[1];
-      if (base64) setAttachedImage({ base64, mimeType: file.type });
-    };
-    reader.readAsDataURL(file);
+    if (!files.length) return;
+    const remainingSlots = MAX_IMAGES - attachedImages.length;
+    files.slice(0, Math.max(remainingSlots, 0)).forEach((file) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64 = (reader.result as string).split(',')[1];
+        if (base64) {
+          setAttachedImages((current) => (
+            current.length >= MAX_IMAGES ? current : [...current, { base64, mimeType: file.type }]
+          ));
+        }
+      };
+      reader.readAsDataURL(file);
+    });
   };
 
-  const handleRemoveImage = () => setAttachedImage(null);
+  const handleRemoveImage = (index: number) => {
+    setAttachedImages((current) => current.filter((_, i) => i !== index));
+  };
 
   const toggleVoiceInput = () => {
     const SpeechRecognitionCtor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -141,19 +151,21 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
 
   const askAgent = async () => {
     const message = input.trim();
-    if ((!message && !attachedImage) || loading) return;
+    if ((!message && !attachedImages.length) || loading) return;
 
     const history = messages.slice(-HISTORY_MESSAGES);
     const userMessage: AgentMessage = {
       role: 'user',
       content: message || (language === 'km' ? '(រូបភាពភ្ជាប់)' : '(Attached image)'),
-      imageDataUrl: attachedImage ? `data:${attachedImage.mimeType};base64,${attachedImage.base64}` : undefined,
+      imageDataUrls: attachedImages.length
+        ? attachedImages.map((image) => `data:${image.mimeType};base64,${image.base64}`)
+        : undefined,
     };
     const pendingMessages = [...messages, userMessage].slice(-MAX_MESSAGES);
-    const imageForRequest = attachedImage;
+    const imagesForRequest = attachedImages;
     updateMessages(pendingMessages);
     setInput('');
-    setAttachedImage(null);
+    setAttachedImages([]);
     setLoading(true);
 
     requestControllerRef.current?.abort();
@@ -173,8 +185,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           language,
           detectedLanguage: message ? detectMessageLanguage(message) : language,
           history,
-          imageBase64: imageForRequest?.base64,
-          imageMimeType: imageForRequest?.mimeType,
+          images: imagesForRequest.map((image) => ({ base64: image.base64, mimeType: image.mimeType })),
         }),
       });
       const data = await response.json();
@@ -256,7 +267,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
               >
                 <ImagePlus size={16} />
                 {text.attachImage}
-                <input type="file" accept="image/*" className="hidden" onChange={handleImageSelect} />
+                <input type="file" accept="image/*" multiple className="hidden" onChange={handleImageSelect} />
               </label>
 
               {speechRecognitionSupported && (
@@ -297,22 +308,28 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
               )}
             </div>
 
-            {attachedImage && (
-              <div className="flex items-center gap-3 p-2 rounded-2xl bg-brand-50 border border-brand-100">
-                <img
-                  src={`data:${attachedImage.mimeType};base64,${attachedImage.base64}`}
-                  className="w-10 h-10 rounded-xl object-cover"
-                  alt="Attached"
-                />
-                <span className="text-xs text-slate-500 dark:text-slate-400 flex-1 truncate">{text.attachImage}</span>
-                <button
-                  type="button"
-                  onClick={handleRemoveImage}
-                  title={text.removeImage}
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all"
-                >
-                  <X size={16} />
-                </button>
+            {attachedImages.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {attachedImages.map((image, index) => (
+                  <div
+                    key={index}
+                    className="flex items-center gap-2 p-2 rounded-2xl bg-brand-50 border border-brand-100"
+                  >
+                    <img
+                      src={`data:${image.mimeType};base64,${image.base64}`}
+                      className="w-10 h-10 rounded-xl object-cover"
+                      alt="Attached"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveImage(index)}
+                      title={text.removeImage}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -353,7 +370,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
 
           <button
             onClick={() => void askAgent()}
-            disabled={loading || (!input.trim() && !attachedImage)}
+            disabled={loading || (!input.trim() && !attachedImages.length)}
             className="w-full bg-gradient-to-r from-brand-600 to-crab-shell hover:from-brand-700 hover:to-crab-shell/90 disabled:from-brand-200 disabled:to-brand-300 text-white font-bold py-5 rounded-2xl flex items-center justify-center gap-3 transition-all shadow-xl shadow-brand-500/20"
           >
             {loading ? <Loader2 className="animate-spin" /> : <Send size={20} />}
@@ -428,12 +445,17 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                       </p>
                       {isUser ? (
                         <>
-                          {message.imageDataUrl && (
-                            <img
-                              src={message.imageDataUrl}
-                              alt="Attached"
-                              className="mb-2 max-h-48 rounded-xl object-cover"
-                            />
+                          {!!message.imageDataUrls?.length && (
+                            <div className="mb-2 flex flex-wrap gap-2">
+                              {message.imageDataUrls.map((url, index) => (
+                                <img
+                                  key={index}
+                                  src={url}
+                                  alt="Attached"
+                                  className="max-h-48 rounded-xl object-cover"
+                                />
+                              ))}
+                            </div>
                           )}
                           <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
                         </>

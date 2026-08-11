@@ -7,6 +7,8 @@ import {
   startOpenRouterVideo,
 } from './_openrouter.js';
 
+const MAX_AGENT_IMAGES = 4;
+
 const jsonFromText = (text, fallback) => {
   try {
     return JSON.parse(text);
@@ -304,9 +306,12 @@ export default async function handler(req, res) {
       const platform = String(req.body?.platform || 'All');
       const mode = String(req.body?.mode || 'chat');
       const history = Array.isArray(req.body?.history) ? req.body.history.slice(-14) : [];
-      const imageBase64 = typeof req.body?.imageBase64 === 'string' ? req.body.imageBase64 : undefined;
-      const imageMimeType = typeof req.body?.imageMimeType === 'string' ? req.body.imageMimeType : undefined;
-      if (!message && !imageBase64) return res.status(400).json({ error: 'Please enter a question or content request.' });
+      const images = Array.isArray(req.body?.images)
+        ? req.body.images
+            .filter((image) => typeof image?.base64 === 'string' && typeof image?.mimeType === 'string')
+            .slice(0, MAX_AGENT_IMAGES)
+        : [];
+      if (!message && !images.length) return res.status(400).json({ error: 'Please enter a question or content request.' });
       const detectedLanguage = String(req.body?.detectedLanguage || '').toLowerCase();
       const responseLanguage = detectedLanguage === 'km' || /[\u1780-\u17FF]/.test(message) ? 'Khmer' : 'English';
 
@@ -322,9 +327,8 @@ export default async function handler(req, res) {
         model: process.env.OPEN_ROUTER_AGENT_MODEL || process.env.OPEN_ROUTER_MODEL,
         temperature: 0.55,
         maxTokens: 1800,
-        imageBase64,
-        imageMimeType,
-        prompt: `${imageBase64 ? 'IMPORTANT: an image is attached and already fully visible to you as part of this very message, delivered directly alongside this text \u2014 it is not a live API lookup and has nothing to do with the "X API context" mentioned further below (that is a separate, unrelated, optional data source, and its availability or lack of it says nothing about whether you can see the attached image, which you always can). Actually look at the attached image and describe exactly what is in it. Never say or imply that you cannot see, view, or access it.\n\n' : ''}Detected user message language: ${responseLanguage}
+        images,
+        prompt: `${images.length ? `IMPORTANT: ${images.length > 1 ? `${images.length} images are` : 'an image is'} attached and already fully visible to you as part of this very message, delivered directly alongside this text \u2014 ${images.length > 1 ? 'they are' : 'it is'} not a live API lookup and ${images.length > 1 ? 'have' : 'has'} nothing to do with the "X API context" mentioned further below (that is a separate, unrelated, optional data source, and its availability or lack of it says nothing about whether you can see the attached ${images.length > 1 ? 'images' : 'image'}, which you always can). Actually look at the attached ${images.length > 1 ? 'images' : 'image'} and describe exactly what is in ${images.length > 1 ? 'each of them' : 'it'}. Never say or imply that you cannot see, view, or access ${images.length > 1 ? 'them' : 'it'}.\n\n` : ''}Detected user message language: ${responseLanguage}
 UI language preference: ${language} (lower priority than the latest user message language)
 Platform focus: ${platform}. If this is Auto, infer the platform from the user's wording. If no platform is mentioned, do not assume content is needed unless the user asks for content.
 Mode: ${mode}. If this is auto, infer the user's intent and answer that intent only.
@@ -341,7 +345,7 @@ X API context:
 ${xContext || 'No X API context was requested or available.'}
 
 User request:
-${message || '(No text — just the attached image. Describe what you see and offer relevant marketing help.)'}
+${message || (images.length > 1 ? '(No text — just the attached images. Describe what you see in each and offer relevant marketing help.)' : '(No text — just the attached image. Describe what you see and offer relevant marketing help.)')}
 
 Respond in ${responseLanguage}. This is mandatory. If response language is Khmer, do not answer in English except for unavoidable product names, API names, hashtags, or code. If response language is English, do not answer in Khmer.
 
@@ -387,8 +391,7 @@ Response rules:
       const text = await generateOpenRouterText({
         system: 'You are a precise visual product analyst. Always respond with valid JSON only.',
         prompt: productImageAnalysisPrompt(language, sourceType),
-        imageBase64,
-        imageMimeType,
+        images: [{ base64: imageBase64, mimeType: imageMimeType }],
       });
       const parsed = jsonFromText(text, {});
       const analysis = String(parsed.analysis || text || '').trim();

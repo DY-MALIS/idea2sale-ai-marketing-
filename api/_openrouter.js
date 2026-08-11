@@ -35,17 +35,23 @@ export async function generateOpenRouterText({
   system = 'You are a helpful marketing assistant.',
   model,
   responseFormat,
-  imageBase64,
-  imageMimeType,
+  images,
   temperature,
   maxTokens,
 }) {
   const apiKey = getApiKey();
 
-  const userContent = imageBase64 && imageMimeType
+  const imageList = Array.isArray(images)
+    ? images.filter((image) => image?.base64 && image?.mimeType)
+    : [];
+
+  const userContent = imageList.length
     ? [
         { type: 'text', text: prompt },
-        { type: 'image_url', image_url: { url: fileToDataUrl(imageBase64, imageMimeType) } },
+        ...imageList.map((image) => ({
+          type: 'image_url',
+          image_url: { url: fileToDataUrl(image.base64, image.mimeType) },
+        })),
       ]
     : prompt;
 
