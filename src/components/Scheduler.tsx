@@ -257,7 +257,7 @@ const Scheduler: React.FC = () => {
         localMediaDataUrl = localMediaDataUrl || await getLocalMediaDataUrl(post.mediaDbKey);
       }
 
-      const res = await fetch('/api/telegram/post', {
+      const res = await fetch('/api/telegram/run-scheduled?action=post', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
