@@ -89,6 +89,12 @@ const overlayLogoOnVideo = async (videoDataUrl: string, logoDataUrl: string): Pr
       '-i', 'input.mp4',
       '-i', 'logo.jpg',
       '-filter_complex', '[1:v]scale=205:-1[logo];[0:v][logo]overlay=x=main_w*0.04:y=main_h-overlay_h-main_h*0.04',
+      // Overlaying forces a video re-encode (stream copy isn't possible with a filter),
+      // and ffmpeg's default x264 preset is "medium" — noticeably slow in a single-threaded
+      // WASM build. "ultrafast" trades some file size for a much faster encode, which matters
+      // more here since this runs synchronously in the user's browser after every generation.
+      '-preset', 'ultrafast',
+      '-crf', '23',
       '-codec:a', 'copy',
       'output.mp4',
     ]);
