@@ -378,13 +378,13 @@ export async function generateOpenRouterSpeech({
   throw lastError || new Error('OpenRouter speech request failed.');
 }
 
-export async function startOpenRouterVideo({ prompt, images, model }) {
+export async function startOpenRouterVideo({ prompt, images, model, duration }) {
   const body = {
     model: model || process.env.OPEN_ROUTER_VIDEO_MODEL || 'google/veo-3.1',
     prompt,
     aspect_ratio: '16:9',
     resolution: '720p',
-    duration: 8,
+    duration: Number.isFinite(duration) && duration > 0 ? duration : 8,
   };
 
   const imageList = Array.isArray(images)

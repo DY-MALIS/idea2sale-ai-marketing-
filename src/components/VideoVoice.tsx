@@ -25,6 +25,8 @@ type VoiceGender = 'Female' | 'Male';
 type VoicePersona = 'sreymom' | 'piseth';
 
 const MAX_VIDEO_IMAGES = 20;
+const MIN_VIDEO_DURATION_SECONDS = 4;
+const MAX_VIDEO_DURATION_SECONDS = 15;
 
 const FFMPEG_CORE_BASE_URL = 'https://unpkg.com/@ffmpeg/core@0.12.9/dist/esm';
 let ffmpegLoadPromise: Promise<any> | null = null;
@@ -138,6 +140,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   const [audioLoading, setAudioLoading] = useState(false);
   const [needsApiKey, setNeedsApiKey] = useState(false);
   const [videoImages, setVideoImages] = useState<{ base64: string; mimeType: string }[]>([]);
+  const [videoDuration, setVideoDuration] = useState<number>(8);
   const [automationNotice, setAutomationNotice] = useState<string | null>(null);
   const handledAutomationRef = React.useRef<string | null>(null);
 
@@ -358,6 +361,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
           action: 'videoGenerate',
           prompt,
           images: videoImages,
+          duration: videoDuration,
         }),
       });
       const data = await response.json();
@@ -784,6 +788,26 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                     placeholder="Describe a realistic TikTok ad: product, location, camera movement, action, lighting, mood..."
                     className="w-full h-32 p-5 rounded-2xl bg-brand-50 border border-brand-200 outline-none transition-all resize-none shadow-inner"
                   />
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center">
+                    <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">{t('videoDurationLabel')}</label>
+                    <span className="text-xs font-bold text-brand-600">{videoDuration}s</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={MIN_VIDEO_DURATION_SECONDS}
+                    max={MAX_VIDEO_DURATION_SECONDS}
+                    step={1}
+                    value={videoDuration}
+                    onChange={(e) => setVideoDuration(Number(e.target.value))}
+                    className="w-full accent-brand-600"
+                  />
+                  <div className="flex justify-between text-[10px] text-slate-400">
+                    <span>{MIN_VIDEO_DURATION_SECONDS}s</span>
+                    <span>{MAX_VIDEO_DURATION_SECONDS}s</span>
+                  </div>
                 </div>
 
                 {/* Khmer Voice-over Section */}

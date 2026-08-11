@@ -9,6 +9,8 @@ import {
 
 const MAX_AGENT_IMAGES = 4;
 const MAX_VIDEO_REFERENCE_IMAGES = 20;
+const MIN_VIDEO_DURATION_SECONDS = 4;
+const MAX_VIDEO_DURATION_SECONDS = 15;
 
 const jsonFromText = (text, fallback) => {
   try {
@@ -537,9 +539,14 @@ Response rules:
             .filter((image) => typeof image?.base64 === 'string' && typeof image?.mimeType === 'string')
             .slice(0, MAX_VIDEO_REFERENCE_IMAGES)
         : [];
+      const requestedDuration = Number(req.body?.duration);
+      const duration = Number.isFinite(requestedDuration)
+        ? Math.min(MAX_VIDEO_DURATION_SECONDS, Math.max(MIN_VIDEO_DURATION_SECONDS, Math.round(requestedDuration)))
+        : 8;
       const video = await startOpenRouterVideo({
         prompt: photorealVideoPrompt(prompt),
         images,
+        duration,
       });
       return res.status(200).json(video);
     }
