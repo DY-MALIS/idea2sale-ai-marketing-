@@ -513,12 +513,11 @@ Response rules:
     if (action === 'ttsGenerate') {
       const input = String(req.body?.input || '').trim();
       const voice = String(req.body?.voice || process.env.OPEN_ROUTER_TTS_VOICE || 'alloy');
-      const speed = Number(req.body?.speed || 1);
       const languageHint = String(req.body?.languageHint || 'auto');
       const performanceStyle = String(req.body?.performanceStyle || 'warm, expressive, natural, emotional human voice with realistic pauses');
       if (!input) return res.status(400).json({ error: 'Text is required.' });
       try {
-        const audio = await generateOpenRouterSpeech({ input, voice, speed, languageHint, performanceStyle });
+        const audio = await generateOpenRouterSpeech({ input, voice, languageHint, performanceStyle });
         return res.status(200).json(audio);
       } catch (error) {
         if (/[\u1780-\u17FF]/.test(input)) {

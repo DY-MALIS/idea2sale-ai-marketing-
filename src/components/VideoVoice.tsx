@@ -73,19 +73,26 @@ const getFFmpeg = async () => {
   return ffmpegLoadPromise;
 };
 
-const applyVoiceOver = async (videoDataUrl: string, audioDataUrl: string): Promise<string> => {
+const applyVoiceOver = async (videoDataUrl: string, audioDataUrl: string, speed = 1): Promise<string> => {
   try {
     const { fetchFile } = await import('@ffmpeg/util');
     const ffmpeg = await getFFmpeg();
     const audioExt = audioDataUrl.startsWith('data:audio/wav') ? 'wav' : 'mp3';
     await ffmpeg.writeFile('vo_input.mp4', await fetchFile(videoDataUrl));
     await ffmpeg.writeFile(`vo_audio.${audioExt}`, await fetchFile(audioDataUrl));
+    // The TTS model has no reliable way to actually speak faster on request, so narration
+    // is generated at a natural pace and sped up here instead via ffmpeg's atempo filter —
+    // a real, predictable speed change that doesn't risk mangling pronunciation the way
+    // asking the model to "talk fast" did. atempo only accepts 0.5-2.0 per instance, which
+    // covers every speed this app requests.
+    const safeSpeed = Number.isFinite(speed) ? Math.min(2, Math.max(0.5, speed)) : 1;
     await ffmpeg.exec([
       '-i', 'vo_input.mp4',
       '-i', `vo_audio.${audioExt}`,
       '-map', '0:v:0',
       '-map', '1:a:0',
       '-c:v', 'copy',
+      '-filter:a', `atempo=${safeSpeed}`,
       '-c:a', 'aac',
       '-shortest',
       'vo_output.mp4',
@@ -508,12 +515,15 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                   voice: persona.openRouterVoice,
                   languageHint: hasKhmerText ? 'Khmer' : 'English',
                   performanceStyle: `${persona.style} Read the exact provided text like you are speaking in a real conversation, not reading a script. Use human emotion, natural rhythm, clear consonants, natural pacing. Avoid robotic or AI narration.`,
-                  speed: 1.6,
                 }),
               });
               const ttsData = await ttsResponse.json();
               if (ttsResponse.ok && ttsData.audioUrl) {
-                video = await applyVoiceOver(video, ttsData.audioUrl);
+                // The Google Translate fallback already renders its audio at 2x speed at the
+                // source (see generateTranslateSpeech's ttsspeed param) — only speed up the
+                // main model's natural-paced narration here, otherwise the fallback would get
+                // sped up twice and end up unintelligibly fast.
+                video = await applyVoiceOver(video, ttsData.audioUrl, ttsData.fallbackReason ? 1 : 1.6);
                 if (ttsData.fallbackReason && hasKhmerText) {
                   setVideoVoiceQualityNotice(language === 'km'
                     ? 'សំឡេងក្នុង video នេះបានប្រើសំឡេងបម្រុង (Google TTS) ដែលអានមិនច្បាស់ ព្រោះម៉ូដែលសំឡេងសំខាន់មិនអាចប្រើបានពេលនេះ។ សូមសាកល្បងបង្កើត video ម្តងទៀត។'

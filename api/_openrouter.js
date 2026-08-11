@@ -311,7 +311,6 @@ export async function generateOpenRouterSpeech({
   input,
   voice = 'alloy',
   model,
-  speed = 1,
   languageHint = 'auto',
   performanceStyle = 'real human conversational speech, natural emotion, casual warmth, not AI narration',
 }) {
@@ -334,12 +333,16 @@ export async function generateOpenRouterSpeech({
             {
               role: 'system',
               content: [
-                `You are a real person speaking naturally at about ${speed}x speed with a fast but clear human conversational tempo.`,
+                `You are a real person speaking naturally with a warm, clear human conversational tempo.`,
                 `The language mode is ${languageHint}.`,
                 `Performance style: ${performanceStyle}.`,
                 'Sound like a confident real human speaker with natural breath-like phrasing and believable emotion.',
                 'Say every word exactly once, clearly and correctly. Do not repeat, stutter, restart, or say any word or syllable twice.',
-                'Speak faster than normal narration, with casual human rhythm, clear words, short natural pauses, and emphasis only where a person would naturally emphasize.',
+                // The model has no real numeric speed control, so asking it to "speak faster"
+                // in the prompt is unenforceable and was pushing pronunciation quality down,
+                // especially for Khmer. Playback speed is now applied afterward as an actual
+                // ffmpeg audio filter instead — this prompt just asks for clear, natural pacing.
+                'Speak at a natural, unhurried pace with clear, fully-formed pronunciation of every syllable, short natural pauses, and emphasis only where a person would naturally emphasize.',
                 'Do not drag vowels, do not pause after every word, and do not use a slow audiobook or announcer cadence.',
                 'Do not sound like AI narration, a robot, a formal announcer, a newsreader, a language learner, or someone reading letter by letter.',
                 'For marketing copy, speak warmly and directly to one person, like a helpful creator explaining something in real life.',
