@@ -460,10 +460,15 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       let referenceImages = videoImages;
       for (let i = 0; i < segments.length; i += 1) {
         setSegmentProgress(segments.length > 1 ? { current: i + 1, total: segments.length } : null);
+        let segmentPrompt = prompt;
         if (i > 0) {
           referenceImages = [await extractLastFrame(clipUrls[i - 1])];
+          // The reference image alone is a soft style hint, not a hard start-frame
+          // constraint, so spell out the continuity requirement in the prompt too —
+          // otherwise chained clips can jump-cut to an unrelated scene.
+          segmentPrompt = `${prompt}\n\nThis is a direct continuation of the previous shot in the same video, picking up exactly where it left off. Keep the same subject, character appearance and outfit, location, lighting, and camera style throughout — do not cut to a different scene, restart the action, or change the setting.`;
         }
-        clipUrls.push(await generateVideoClip(prompt, referenceImages, segments[i]));
+        clipUrls.push(await generateVideoClip(segmentPrompt, referenceImages, segments[i]));
       }
       setSegmentProgress(null);
 
