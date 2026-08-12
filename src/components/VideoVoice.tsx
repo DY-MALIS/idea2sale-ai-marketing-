@@ -66,11 +66,28 @@ const getFFmpeg = async () => {
   return ffmpegLoadPromise;
 };
 
+// ffmpeg.wasm's virtual filesystem (MEMFS) keeps every written/output file in memory
+// until explicitly deleted, and getFFmpeg() reuses one singleton instance for the
+// whole page session — without this, every clip/frame/audio file from every step of
+// every video ever generated in the session stays resident, and a multi-segment
+// (16s/24s) video adds several large files at once on top of that, easily exhausting
+// the browser's WASM heap. Best-effort: a delete failing (e.g. file was never written
+// on this path) must never mask the real error from the calling step.
+const cleanupFfmpegFiles = async (ffmpeg: any, names: string[]) => {
+  await Promise.all(names.map(async (name) => {
+    try {
+      await ffmpeg.deleteFile(name);
+    } catch {
+      // ignore — file may not exist on this path
+    }
+  }));
+};
+
 const applyVoiceOver = async (videoDataUrl: string, audioDataUrl: string, speed = 1): Promise<string> => {
+  const audioExt = audioDataUrl.startsWith('data:audio/wav') ? 'wav' : 'mp3';
+  const ffmpeg = await getFFmpeg();
   try {
     const { fetchFile } = await import('@ffmpeg/util');
-    const ffmpeg = await getFFmpeg();
-    const audioExt = audioDataUrl.startsWith('data:audio/wav') ? 'wav' : 'mp3';
     await ffmpeg.writeFile('vo_input.mp4', await fetchFile(videoDataUrl));
     await ffmpeg.writeFile(`vo_audio.${audioExt}`, await fetchFile(audioDataUrl));
     // The TTS model has no reliable way to actually speak faster on request, so narration
@@ -101,14 +118,16 @@ const applyVoiceOver = async (videoDataUrl: string, audioDataUrl: string, speed 
   } catch (error) {
     console.error('Voice-over merge failed, keeping the original video audio:', error);
     return videoDataUrl;
+  } finally {
+    await cleanupFfmpegFiles(ffmpeg, ['vo_input.mp4', `vo_audio.${audioExt}`, 'vo_output.mp4']);
   }
 };
 
 const overlayLogoOnVideo = async (videoDataUrl: string, logoDataUrl: string): Promise<string> => {
   if (!logoDataUrl) return videoDataUrl;
+  const ffmpeg = await getFFmpeg();
   try {
     const { fetchFile } = await import('@ffmpeg/util');
-    const ffmpeg = await getFFmpeg();
     await ffmpeg.writeFile('input.mp4', await fetchFile(videoDataUrl));
     await ffmpeg.writeFile('logo.jpg', await fetchFile(logoDataUrl));
     await ffmpeg.exec([
@@ -135,6 +154,8 @@ const overlayLogoOnVideo = async (videoDataUrl: string, logoDataUrl: string): Pr
   } catch (error) {
     console.error('Logo overlay failed, using the original video:', error);
     return videoDataUrl;
+  } finally {
+    await cleanupFfmpegFiles(ffmpeg, ['input.mp4', 'logo.jpg', 'output.mp4']);
   }
 };
 
@@ -142,9 +163,9 @@ const overlayLogoOnVideo = async (videoDataUrl: string, logoDataUrl: string): Pr
 // segment's generation as a reference image, giving chained clips visual
 // continuity instead of jump-cutting to an unrelated scene.
 const extractLastFrame = async (videoUrl: string): Promise<{ base64: string; mimeType: string }> => {
+  const ffmpeg = await getFFmpeg();
   try {
     const { fetchFile } = await import('@ffmpeg/util');
-    const ffmpeg = await getFFmpeg();
     await ffmpeg.writeFile('frame_source.mp4', await fetchFile(videoUrl));
     await ffmpeg.exec(['-sseof', '-1', '-i', 'frame_source.mp4', '-update', '1', '-q:v', '2', 'last_frame.jpg']);
     const data = await ffmpeg.readFile('last_frame.jpg');
@@ -155,6 +176,8 @@ const extractLastFrame = async (videoUrl: string): Promise<{ base64: string; mim
     // never silently mistaken for an OpenRouter API/credits problem upstream.
     console.error('extractLastFrame failed:', error);
     throw new Error('Could not prepare the next video segment (ran out of browser memory while chaining clips). Try a shorter total duration.');
+  } finally {
+    await cleanupFfmpegFiles(ffmpeg, ['frame_source.mp4', 'last_frame.jpg']);
   }
 };
 
@@ -163,14 +186,12 @@ const extractLastFrame = async (videoUrl: string): Promise<{ base64: string; mim
 // ffmpeg's concat demuxer, which stream-copies instead of re-encoding.
 const concatenateVideoClips = async (clipUrls: string[]): Promise<string> => {
   if (clipUrls.length <= 1) return clipUrls[0];
+  const ffmpeg = await getFFmpeg();
+  const fileNames = clipUrls.map((_, i) => `segment_${i}.mp4`);
   try {
     const { fetchFile } = await import('@ffmpeg/util');
-    const ffmpeg = await getFFmpeg();
-    const fileNames: string[] = [];
     for (let i = 0; i < clipUrls.length; i += 1) {
-      const name = `segment_${i}.mp4`;
-      await ffmpeg.writeFile(name, await fetchFile(clipUrls[i]));
-      fileNames.push(name);
+      await ffmpeg.writeFile(fileNames[i], await fetchFile(clipUrls[i]));
     }
     await ffmpeg.writeFile('concat_list.txt', fileNames.map((name) => `file '${name}'`).join('\n'));
     await ffmpeg.exec(['-f', 'concat', '-safe', '0', '-i', 'concat_list.txt', '-c', 'copy', 'concat_output.mp4']);
@@ -187,6 +208,8 @@ const concatenateVideoClips = async (clipUrls: string[]): Promise<string> => {
     // ffmpeg.wasm failure surface as a misleading "check your API key" error.
     console.error('concatenateVideoClips failed:', error);
     throw new Error('Could not merge the video segments (ran out of browser memory while combining clips). Try a shorter total duration.');
+  } finally {
+    await cleanupFfmpegFiles(ffmpeg, [...fileNames, 'concat_list.txt', 'concat_output.mp4']);
   }
 };
 
