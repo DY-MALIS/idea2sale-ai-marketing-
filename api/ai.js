@@ -3,6 +3,7 @@ import {
   generateOpenRouterSpeech,
   generateOpenRouterText,
   generateTranslateSpeech,
+  getLastOpenRouterDebugInfo,
   pollOpenRouterVideo,
   startOpenRouterVideo,
   synthesizeSpeechViaOpenRouter,
@@ -170,7 +171,7 @@ CRITICAL — resolving the narration question after you've already asked it once
 The prompt must be a detailed English production prompt suitable for an image or video generation model, describing only the visuals (never write dialogue/spoken words into it). Preserve exact Khmer brand text or on-screen wording when the user provided it for on-screen visuals (not speech).`,
       model: process.env.OPEN_ROUTER_AGENT_MODEL || process.env.OPEN_ROUTER_MODEL,
       temperature: 0.2,
-      maxTokens: 1500,
+      maxTokens: 3000,
       responseFormat: { type: 'json_object' },
       prompt: `Conversation:
 ${conversation}
@@ -201,7 +202,8 @@ Aspect ratio defaults: TikTok/Reels/Shorts video=9:16, TikTok image=4:5, Faceboo
 
   const plan = jsonFromText(rawPlan, null);
   if (!plan || !['image', 'video'].includes(plan.kind)) {
-    return { __debugError: `classifier returned unusable plan. raw: ${String(rawPlan).slice(0, 500)}` };
+    const debugInfo = getLastOpenRouterDebugInfo();
+    return { __debugError: `classifier returned unusable plan. debugInfo: ${JSON.stringify(debugInfo)}. raw: ${String(rawPlan).slice(0, 500)}` };
   }
 
   const platform = ['TikTok', 'Facebook', 'X', 'Telegram', 'General'].includes(plan.platform)
