@@ -57,10 +57,13 @@ export async function transcribeAudioWithOpenRouter({ audioBase64, format = 'wav
 // models). Dedicated TTS-only models like Gemini's TTS family are exposed through
 // this endpoint instead, mirroring the same dedicated-endpoint pattern as transcription.
 export async function synthesizeSpeechViaOpenRouter({ input, model, voice, format = 'mp3' }) {
+  // See generateOpenRouterSpeech for why: spelling out English business/tech terms
+  // phonetically in Khmer script helps Khmer-script TTS avoid mispronouncing them.
+  const speechInput = containsKhmer(input) ? normalizeForKhmerSpeech(input) : input;
   const response = await fetch(`${OPENROUTER_BASE_URL}/audio/speech`, {
     method: 'POST',
     headers: headers(),
-    body: JSON.stringify({ model, input, voice, response_format: format }),
+    body: JSON.stringify({ model, input: speechInput, voice, response_format: format }),
   });
   if (!response.ok) {
     const errorText = await response.text().catch(() => '');
@@ -362,6 +365,11 @@ export async function generateOpenRouterSpeech({
   languageHint = 'auto',
   performanceStyle = 'real human conversational speech, natural emotion, casual warmth, not AI narration',
 }) {
+  // Spelling out common English business/tech terms phonetically in Khmer script
+  // (e.g. "AI" -> "អេ អាយ") measurably helps Khmer-script TTS engines, which can
+  // otherwise stumble or mispronounce English words embedded in Khmer sentences —
+  // this was previously only applied to the Google Translate fallback voice.
+  const speechInput = containsKhmer(input) ? normalizeForKhmerSpeech(input) : input;
   let lastError;
 
   for (const speechModel of speechModelCandidates(model)) {
@@ -401,7 +409,7 @@ export async function generateOpenRouterSpeech({
             },
             {
               role: 'user',
-              content: `Text to read aloud:\n${input}`,
+              content: `Text to read aloud:\n${speechInput}`,
             },
           ],
         }),
