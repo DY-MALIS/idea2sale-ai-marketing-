@@ -524,6 +524,26 @@ export default async function handler(req, res) {
   try {
     const db = initFirebaseAdmin();
     const nowIso = new Date().toISOString();
+
+    // Recover posts that got claimed (PROCESSING) but never finished — e.g. the
+    // function timed out or crashed mid-send between the atomic claim and the
+    // PUBLISHED/FAILED update. Once claimed, a post is no longer PENDING, so
+    // neither this poller's normal query nor a QStash retry would ever touch
+    // it again, leaving it stuck forever without this recovery step.
+    const STALE_PROCESSING_MS = 3 * 60 * 1000;
+    const staleCutoff = Date.now() - STALE_PROCESSING_MS;
+    const stuckSnapshot = await db
+      .collection('scheduled_posts')
+      .where('platform', '==', 'TELEGRAM')
+      .where('status', '==', 'PROCESSING')
+      .get();
+    await Promise.all(stuckSnapshot.docs.map(async (stuckDoc) => {
+      const processingAtMs = stuckDoc.data()?.processingAt?.toMillis?.();
+      if (typeof processingAtMs === 'number' && processingAtMs < staleCutoff) {
+        await stuckDoc.ref.update({ status: 'PENDING' });
+      }
+    }));
+
     const snapshot = await db
       .collection('scheduled_posts')
       .where('platform', '==', 'TELEGRAM')
