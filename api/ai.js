@@ -170,7 +170,7 @@ CRITICAL — resolving the narration question after you've already asked it once
 The prompt must be a detailed English production prompt suitable for an image or video generation model, describing only the visuals (never write dialogue/spoken words into it). Preserve exact Khmer brand text or on-screen wording when the user provided it for on-screen visuals (not speech).`,
       model: process.env.OPEN_ROUTER_AGENT_MODEL || process.env.OPEN_ROUTER_MODEL,
       temperature: 0.2,
-      maxTokens: 650,
+      maxTokens: 1500,
       responseFormat: { type: 'json_object' },
       prompt: `Conversation:
 ${conversation}

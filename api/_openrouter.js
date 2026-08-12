@@ -123,6 +123,13 @@ export async function generateOpenRouterText({
       ...(Number.isFinite(temperature) ? { temperature } : {}),
       ...(Number.isFinite(maxTokens) ? { max_tokens: maxTokens } : {}),
       ...(responseFormat ? { response_format: responseFormat } : {}),
+      // None of this app's text tasks need deep chain-of-thought reasoning, and on
+      // reasoning-capable models (e.g. the GPT-5 family) hidden reasoning tokens are
+      // drawn from the same max_tokens budget as the visible answer — without this,
+      // a small max_tokens can be entirely consumed by reasoning, leaving an empty
+      // or truncated visible response. OpenRouter ignores this for models that don't
+      // support it, so it's safe to always send.
+      reasoning: { effort: 'low' },
     }),
   });
 
