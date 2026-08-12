@@ -50,6 +50,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
   const [isListening, setIsListening] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const [businessContext, setBusinessContext] = useState<AgentBusinessContext | null>(null);
   // Which language the user is about to speak for voice input. Independent from the
   // UI display language, since people often keep the interface in one language while
@@ -58,20 +59,34 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const [voiceInputLanguage, setVoiceInputLanguage] = useState<'km' | 'en'>(language === 'km' ? 'km' : 'en');
   const conversationEndRef = useRef<HTMLDivElement>(null);
   const requestControllerRef = useRef<AbortController | null>(null);
-  const recognitionRef = useRef<any>(null);
+  // Holds the live mic recording session (raw PCM capture, not the browser's
+  // SpeechRecognition — see toggleVoiceInput for why).
+  const recordingRef = useRef<{
+    audioContext: AudioContext;
+    processor: ScriptProcessorNode;
+    source: MediaStreamAudioSourceNode;
+    stream: MediaStream;
+    chunks: Float32Array[];
+  } | null>(null);
   // Guards against overwriting the just-loaded saved conversation with an empty
   // autosave that could otherwise fire before the initial load resolves.
   const memoryLoadedRef = useRef(false);
 
-  const speechRecognitionSupported = typeof window !== 'undefined'
-    && Boolean((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
+  const micSupported = typeof navigator !== 'undefined' && Boolean(navigator.mediaDevices?.getUserMedia);
 
   useEffect(() => {
     conversationEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages, loading]);
 
   useEffect(() => () => requestControllerRef.current?.abort(), []);
-  useEffect(() => () => recognitionRef.current?.stop(), []);
+  useEffect(() => () => {
+    const recording = recordingRef.current;
+    if (!recording) return;
+    recording.processor.disconnect();
+    recording.source.disconnect();
+    recording.stream.getTracks().forEach((track) => track.stop());
+    void recording.audioContext.close();
+  }, []);
 
   // Long-term memory: reload the saved conversation and business profile so the
   // agent keeps context across page reloads and sessions instead of forgetting
@@ -162,6 +177,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     removeImage: language === 'km' ? 'ដកចេញ' : 'Remove',
     voiceInput: language === 'km' ? 'និយាយសំណួរ' : 'Voice input',
     listening: language === 'km' ? 'កំពុងស្តាប់...' : 'Listening...',
+    transcribing: language === 'km' ? 'កំពុងបំលែងជាអត្ថបទ...' : 'Transcribing...',
   }), [language]);
 
   const updateMessages = (nextMessages: AgentMessage[]) => {
@@ -201,85 +217,145 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     setAttachedImages((current) => current.filter((_, i) => i !== index));
   };
 
-  // Browsers give voice-input failures back as an opaque error code with no
-  // visible feedback by default — the mic just silently stops "listening"
-  // with no indication of why (permission blocked, no mic found, no network
-  // for the cloud recognition service, or the chosen language not supported).
-  // Surface each case with an actionable message instead of failing silently.
-  const voiceErrorMessages: Record<string, { km: string; en: string }> = {
-    'not-allowed': {
-      km: 'សូមអនុញ្ញាតការប្រើប្រាស់មីក្រូហ្វូនសម្រាប់គេហទំព័រនេះ (ចុច icon 🔒 ឬ mic ក្នុងប្រអប់អាសយដ្ឋាន browser រួចអនុញ្ញាត)។',
-      en: "Microphone access was blocked. Click the 🔒/mic icon in your browser's address bar and allow microphone access for this site.",
-    },
-    'audio-capture': {
-      km: 'រកមិនឃើញមីក្រូហ្វូនទេ។ សូមពិនិត្យមើលថាមានឧបករណ៍ភ្ជាប់ ហើយមិនកំពុងប្រើដោយកម្មវិធីផ្សេងទៀត។',
-      en: 'No microphone was found. Check that a microphone is connected and not already in use by another app.',
-    },
-    network: {
-      km: 'ការស្គាល់សំឡេងត្រូវការការតភ្ជាប់អ៊ីនធឺណិត។ សូមពិនិត្យមើលការតភ្ជាប់ រួចសាកល្បងម្តងទៀត។',
-      en: 'Voice recognition needs an internet connection. Check your connection and try again.',
-    },
-    'language-not-supported': {
-      km: 'Browser របស់អ្នកមិនគាំទ្រការស្គាល់សំឡេងភាសាខ្មែរទេ។ សូមសាកល្បងប្តូរទៅភាសាអង់គ្លេស ឬប្រើ Chrome កំណែថ្មី។',
-      en: 'Your browser does not support voice recognition for this language. Try switching the voice input language or use a recent version of Chrome.',
-    },
-    'service-not-allowed': {
-      km: 'សេវាស្គាល់សំឡេងត្រូវបានទប់ស្កាត់ (ជួនកាលដោយ browser extension ឬការកំណត់សុវត្ថិភាព)។ សូមសាកល្បងបិទ extension រួចព្យាយាមម្តងទៀត។',
-      en: 'The speech recognition service was blocked (sometimes by a browser extension or security setting). Try disabling extensions and retry.',
-    },
-    // The mic was listening but the engine never recognized any speech at all. If this
-    // keeps happening specifically for Khmer, the browser's recognizer most likely just
-    // doesn't support Khmer (km-KH) — Chrome's built-in speech service has patchy, often
-    // nonexistent Khmer support — not a permission or microphone problem.
-    'no-speech': {
-      km: 'មិនបានលឺសំឡេងអ្វីទេ។ បើអ្នកកំពុងនិយាយភាសាខ្មែរ វាអាចដោយសារ browser នេះមិនគាំទ្រការស្គាល់សំឡេងខ្មែរទាល់តែសោះ (មិនមែនបញ្ហាមីក្រូហ្វូនទេ)។ សូមសាកល្បងនិយាយភាសាអង់គ្លេសមើល ដើម្បីបញ្ជាក់ថាមីក្រូហ្វូនដំណើរការត្រឹមត្រូវ។',
-      en: "No speech was detected. If you were speaking Khmer, this browser's recognizer most likely doesn't support Khmer at all (not a microphone problem) — try speaking English to confirm the microphone itself works.",
-    },
+  // Voice input records raw audio and sends it to an AI model for transcription,
+  // instead of using the browser's built-in Web Speech API — that API's Khmer
+  // support is patchy-to-nonexistent across browsers (it would silently "hear
+  // nothing" for Khmer speech with no useful error), while a general multimodal
+  // model transcribes Khmer reliably. Audio is captured as raw PCM and wrapped
+  // in a WAV container client-side, since WAV is a format OpenRouter's audio
+  // input is guaranteed to accept (unlike MediaRecorder's default webm/opus).
+  const floatTo16BitPcm = (input: Float32Array): Int16Array => {
+    const output = new Int16Array(input.length);
+    for (let i = 0; i < input.length; i += 1) {
+      const sample = Math.max(-1, Math.min(1, input[i]));
+      output[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+    }
+    return output;
+  };
+
+  const buildWavBase64 = (samples: Int16Array, sampleRate: number): string => {
+    const buffer = new ArrayBuffer(44 + samples.length * 2);
+    const view = new DataView(buffer);
+    const writeString = (offset: number, value: string) => {
+      for (let i = 0; i < value.length; i += 1) view.setUint8(offset + i, value.charCodeAt(i));
+    };
+    writeString(0, 'RIFF');
+    view.setUint32(4, 36 + samples.length * 2, true);
+    writeString(8, 'WAVE');
+    writeString(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeString(36, 'data');
+    view.setUint32(40, samples.length * 2, true);
+    let offset = 44;
+    for (let i = 0; i < samples.length; i += 1, offset += 2) {
+      view.setInt16(offset, samples[i], true);
+    }
+    let binary = '';
+    const bytes = new Uint8Array(buffer);
+    const chunkSize = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      binary += String.fromCharCode(...Array.from(bytes.subarray(i, i + chunkSize)));
+    }
+    return btoa(binary);
+  };
+
+  const startRecording = async () => {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const AudioContextCtor = (window as any).AudioContext || (window as any).webkitAudioContext;
+    const audioContext: AudioContext = new AudioContextCtor();
+    const source = audioContext.createMediaStreamSource(stream);
+    // ScriptProcessorNode is deprecated in favor of AudioWorklet, but remains
+    // universally supported and is far simpler for a short-lived capture like this.
+    const processor = audioContext.createScriptProcessor(4096, 1, 1);
+    const chunks: Float32Array[] = [];
+    processor.onaudioprocess = (event: AudioProcessingEvent) => {
+      chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+    };
+    source.connect(processor);
+    processor.connect(audioContext.destination);
+    recordingRef.current = { audioContext, processor, source, stream, chunks };
+  };
+
+  const stopRecordingAndTranscribe = async () => {
+    const recording = recordingRef.current;
+    recordingRef.current = null;
+    if (!recording) return;
+
+    recording.processor.disconnect();
+    recording.source.disconnect();
+    recording.stream.getTracks().forEach((track) => track.stop());
+    const sampleRate = recording.audioContext.sampleRate;
+    await recording.audioContext.close();
+
+    const totalLength = recording.chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+    if (totalLength === 0) {
+      notify(language === 'km' ? 'មិនបានលឺសំឡេងអ្វីទេ។' : 'No speech was detected.', 'error');
+      return;
+    }
+
+    const merged = new Float32Array(totalLength);
+    let mergeOffset = 0;
+    for (const chunk of recording.chunks) {
+      merged.set(chunk, mergeOffset);
+      mergeOffset += chunk.length;
+    }
+    const audioBase64 = buildWavBase64(floatTo16BitPcm(merged), sampleRate);
+
+    setIsTranscribing(true);
+    try {
+      const response = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'sttTranscribe',
+          audioBase64,
+          format: 'wav',
+          languageHint: voiceInputLanguage === 'km' ? 'Khmer' : 'English',
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Transcription failed.');
+      const transcript = String(data.transcript || '').trim();
+      if (transcript) {
+        setInput((current) => (current ? `${current} ${transcript}` : transcript));
+      } else {
+        notify(language === 'km' ? 'មិនបានលឺសំឡេងអ្វីទេ។ សូមសាកល្បងម្តងទៀត។' : 'No speech was detected. Please try again.', 'error');
+      }
+    } catch (error: any) {
+      notify(error?.message || (language === 'km' ? 'ការបំលែងសំឡេងទៅជាអត្ថបទបរាជ័យ។' : 'Voice transcription failed.'), 'error');
+    } finally {
+      setIsTranscribing(false);
+    }
   };
 
   const toggleVoiceInput = () => {
-    const SpeechRecognitionCtor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognitionCtor) {
-      notify(language === 'km'
-        ? 'Browser របស់អ្នកមិនគាំទ្រការស្គាល់សំឡេងទេ។ សូមប្រើ Chrome ឬ Edge កំណែថ្មី។'
-        : 'Your browser does not support voice input. Please use a recent version of Chrome or Edge.', 'error');
-      return;
-    }
-
     if (isListening) {
-      recognitionRef.current?.stop();
+      setIsListening(false);
+      void stopRecordingAndTranscribe();
       return;
     }
 
-    const recognition = new SpeechRecognitionCtor();
-    recognition.lang = voiceInputLanguage === 'km' ? 'km-KH' : 'en-US';
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-    recognition.onresult = (event: any) => {
-      const transcript = Array.from(event.results as ArrayLike<any>)
-        .map((result: any) => result?.[0]?.transcript || '')
-        .join(' ')
-        .trim();
-      if (transcript) {
-        setInput((current) => (current ? `${current} ${transcript}` : transcript));
+    void (async () => {
+      try {
+        await startRecording();
+        setIsListening(true);
+      } catch (error: any) {
+        notify(
+          error?.name === 'NotAllowedError'
+            ? (language === 'km'
+              ? 'សូមអនុញ្ញាតការប្រើប្រាស់មីក្រូហ្វូនសម្រាប់គេហទំព័រនេះ (ចុច icon 🔒/mic ក្នុងប្រអប់អាសយដ្ឋាន browser)។'
+              : "Microphone access was blocked. Click the 🔒/mic icon in your browser's address bar and allow it for this site.")
+            : (language === 'km' ? 'មិនអាចចាប់ផ្តើមថតសំឡេងបានទេ។ សូមពិនិត្យមើលមីក្រូហ្វូនរបស់អ្នក។' : 'Could not start recording. Please check your microphone.'),
+          'error',
+        );
       }
-    };
-    recognition.onerror = (event: any) => {
-      setIsListening(false);
-      const code = String(event?.error || '');
-      // Only "aborted" is a non-failure (the user manually stopped listening themselves).
-      if (code === 'aborted') return;
-      const info = voiceErrorMessages[code];
-      notify(
-        info ? (language === 'km' ? info.km : info.en)
-          : (language === 'km' ? 'ការស្គាល់សំឡេងបរាជ័យ។ សូមសាកល្បងម្តងទៀត។' : 'Voice recognition failed. Please try again.'),
-        'error',
-      );
-    };
-    recognition.onend = () => setIsListening(false);
-    recognitionRef.current = recognition;
-    setIsListening(true);
-    recognition.start();
+    })();
   };
 
   const askAgent = async () => {
@@ -405,23 +481,24 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                 <input type="file" accept="image/*" multiple className="hidden" onChange={handleImageSelect} />
               </label>
 
-              {speechRecognitionSupported && (
+              {micSupported && (
                 <button
                   type="button"
                   onClick={toggleVoiceInput}
-                  title={isListening ? text.listening : text.voiceInput}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-bold transition-all ${
+                  disabled={isTranscribing}
+                  title={isListening ? text.listening : isTranscribing ? text.transcribing : text.voiceInput}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-bold transition-all disabled:opacity-60 ${
                     isListening
                       ? 'bg-red-500 border-red-500 text-white animate-pulse'
                       : 'bg-white/70 dark:bg-slate-800/70 border-brand-200 text-brand-600 hover:bg-brand-50 dark:hover:bg-slate-700'
                   }`}
                 >
-                  {isListening ? <MicOff size={16} /> : <Mic size={16} />}
-                  {isListening ? text.listening : text.voiceInput}
+                  {isTranscribing ? <Loader2 size={16} className="animate-spin" /> : isListening ? <MicOff size={16} /> : <Mic size={16} />}
+                  {isListening ? text.listening : isTranscribing ? text.transcribing : text.voiceInput}
                 </button>
               )}
 
-              {speechRecognitionSupported && (
+              {micSupported && (
                 <div className="flex bg-brand-50 dark:bg-slate-800/70 p-1 rounded-xl border border-brand-200">
                   {(['km', 'en'] as const).map((lang) => (
                     <button

@@ -5,6 +5,7 @@ import {
   generateTranslateSpeech,
   pollOpenRouterVideo,
   startOpenRouterVideo,
+  transcribeAudioWithOpenRouter,
 } from './_openrouter.js';
 
 const MAX_AGENT_IMAGES = 4;
@@ -532,6 +533,15 @@ Response rules:
         }
         throw error;
       }
+    }
+
+    if (action === 'sttTranscribe') {
+      const audioBase64 = String(req.body?.audioBase64 || '').trim();
+      const format = String(req.body?.format || 'wav');
+      const languageHint = String(req.body?.languageHint || 'auto');
+      if (!audioBase64) return res.status(400).json({ error: 'Audio is required.' });
+      const transcript = await transcribeAudioWithOpenRouter({ audioBase64, format, languageHint });
+      return res.status(200).json({ transcript });
     }
 
     if (action === 'videoGenerate') {

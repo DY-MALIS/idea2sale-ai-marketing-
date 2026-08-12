@@ -30,6 +30,38 @@ const openRouterJson = async (path, body) => {
 
 const fileToDataUrl = (base64, mimeType) => `data:${mimeType};base64,${base64}`;
 
+// Speech-to-text via an audio-capable chat model, used instead of the browser's
+// built-in Web Speech API (SpeechRecognition) — that API's Khmer support is
+// patchy-to-nonexistent across browsers, while a general multimodal model
+// handles Khmer transcription reliably.
+export async function transcribeAudioWithOpenRouter({ audioBase64, format = 'wav', languageHint = 'auto' }) {
+  const model = process.env.OPEN_ROUTER_STT_MODEL || process.env.OPEN_ROUTER_TTS_MODEL || 'openai/gpt-audio-mini';
+  const data = await openRouterJson('/chat/completions', {
+    model,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: `Transcribe exactly what is spoken in this audio clip, word for word, in its original language${
+              languageHint && languageHint !== 'auto' ? ` (expected language: ${languageHint})` : ''
+            }. If it is Khmer, write it in Khmer script, never as English transliteration. Return ONLY the transcript text — no quotes, labels, or commentary. If no speech is audible, return an empty response.`,
+          },
+          {
+            type: 'input_audio',
+            input_audio: { data: audioBase64, format },
+          },
+        ],
+      },
+    ],
+  });
+
+  const transcript = data?.choices?.[0]?.message?.content;
+  if (typeof transcript !== 'string') throw new Error('OpenRouter did not return a transcript.');
+  return transcript.trim();
+}
+
 export async function generateOpenRouterText({
   prompt,
   system = 'You are a helpful marketing assistant.',
