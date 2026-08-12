@@ -377,6 +377,7 @@ Respond in ${responseLanguage}. This is mandatory. If response language is Khmer
 
 Response rules:
 - Treat this as a real chat. Understand what the user wants before deciding the format.
+- Answer only what was actually asked. Do not add extra sections, alternative ideas, unrequested formats, or a "next steps" list unless the user asked for options or it directly resolves something still missing (like a Creative automation detail above) — a short, complete answer beats a long one padded with things nobody asked for.
 - If it is a question: answer the question directly, then add the most useful next step only if helpful.
 - For questions with a clear answer, do not add a generic marketing plan.
 - If it is troubleshooting: give the likely cause, exact fix, and how to verify it worked.
@@ -390,7 +391,7 @@ Response rules:
 - Before asking any clarifying question, check Recent conversation first. If it already establishes a clear topic, a short instruction like "please do it", "go ahead", or "សូមអ្នកបង្កើត" means continue that exact topic — never respond with "what do you want me to create" or "what topic" when the topic is already sitting right there in Recent conversation.
 - Do not repeat an earlier answer. Improve it or advance the conversation.
 - Do not repeat the same structure unless it fits the request.
-- End with a useful next action only when it helps the user move forward.`,
+- Do not end with a "next steps" suggestion, follow-up question, or offer to do more unless the user's request is still incomplete or they asked what comes next — a fully answered request can just end.`,
       });
 
       return res.status(200).json({
