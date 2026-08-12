@@ -131,7 +131,17 @@ export async function generateOpenRouterText({
     throw new Error(data?.error?.message || data?.message || 'OpenRouter request failed.');
   }
 
-  return data?.choices?.[0]?.message?.content || '';
+  const content = data?.choices?.[0]?.message?.content || '';
+  // A 200 OK response can still contain degenerate output — the model stuck
+  // repeating the same short chunk of text indefinitely instead of a real
+  // answer. Observed to coincide with the OpenRouter account running low on
+  // credits (likely a lower-tier/fallback route being used). Surface this as
+  // a clear error instead of showing garbled repeated text to the user.
+  if (/(.{1,12})\1{14,}/.test(content)) {
+    throw new Error('The AI response was corrupted (stuck repeating the same text). This can happen when the OpenRouter account is low on credits. Check https://openrouter.ai/settings/credits and try again.');
+  }
+
+  return content;
 }
 
 export async function generateOpenRouterImage({ prompt, aspectRatio = '1:1', model }) {
