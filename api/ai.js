@@ -91,6 +91,8 @@ Use short bold section headings with concise bullet points. Be specific and prac
 Respond with ONLY valid JSON, no markdown code fences, in exactly this shape:
 {"productSummary": "short product/category name, max 8 words, in ${language}", "analysis": "the full structured report described above, formatted as plain text with line breaks"}`;
 
+const KHMER_ATTIRE_GUIDANCE = 'If the scene includes people wearing clothing, hats, headwear, or traditional dress, and the user did not specify a particular style, default to authentic Cambodian/Khmer traditional or everyday attire (e.g. a woven Khmer palm-leaf hat, sampot, krama scarf) rather than generic Western dress or another country\'s traditional clothing — this content is for a Cambodian audience and should reflect that.';
+
 const photorealImagePrompt = (prompt) => `${prompt}
 
 Photorealistic commercial image requirements:
@@ -98,6 +100,7 @@ Photorealistic commercial image requirements:
 - Use natural realistic lighting, detailed shadows, accurate reflections, real material texture, sharp product edges, and believable depth of field.
 - Use a premium product photography style with a real environment, realistic scale, natural imperfections, and lifelike color grading.
 - If people appear, faces, hands, eyes, and skin must look anatomically correct and natural.
+- ${KHMER_ATTIRE_GUIDANCE}
 - Avoid distorted text, extra logos, malformed objects, duplicated limbs, fake watermarks, blurry details, oversaturated colors, and fantasy styling.
 - Output should be high-detail, clean, professional, TikTok/e-commerce ready, and visually convincing.`;
 
@@ -107,6 +110,7 @@ Photorealistic cinematic video requirements:
 - Make the scene look filmed with a real camera, not animation, cartoon, or 3D render.
 - Use realistic movement, natural camera motion, lifelike lighting, real shadows, accurate reflections, and believable object physics.
 - Add subtle handheld or dolly movement, cinematic depth of field, natural motion blur, and smooth subject tracking.
+- ${KHMER_ATTIRE_GUIDANCE}
 - Product, people, hands, faces, and environment must stay consistent between frames with no warping or sudden identity changes.
 - Avoid distorted text, melted objects, duplicated limbs, flickering, excessive saturation, impossible motion, and fantasy effects.
 - Create a premium short-form ad style video suitable for TikTok, with a realistic product-demo feeling.`;
