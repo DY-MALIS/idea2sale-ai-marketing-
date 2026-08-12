@@ -6,6 +6,7 @@ import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../hooks/useToast';
 import { BusinessProfileData, CreativeAutomationRequest } from '../types';
 
 const DEMO_BUSINESS_PROFILE_STORAGE_KEY = 'demo_business_profile';
@@ -42,6 +43,7 @@ interface AgentBusinessContext {
 const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const { language } = useLanguage();
   const { user, isDemoMode } = useAuth();
+  const { notify, ToastHost } = useToast();
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [autoCreateEnabled, setAutoCreateEnabled] = useState(true);
@@ -199,9 +201,42 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     setAttachedImages((current) => current.filter((_, i) => i !== index));
   };
 
+  // Browsers give voice-input failures back as an opaque error code with no
+  // visible feedback by default — the mic just silently stops "listening"
+  // with no indication of why (permission blocked, no mic found, no network
+  // for the cloud recognition service, or the chosen language not supported).
+  // Surface each case with an actionable message instead of failing silently.
+  const voiceErrorMessages: Record<string, { km: string; en: string }> = {
+    'not-allowed': {
+      km: 'សូមអនុញ្ញាតការប្រើប្រាស់មីក្រូហ្វូនសម្រាប់គេហទំព័រនេះ (ចុច icon 🔒 ឬ mic ក្នុងប្រអប់អាសយដ្ឋាន browser រួចអនុញ្ញាត)។',
+      en: "Microphone access was blocked. Click the 🔒/mic icon in your browser's address bar and allow microphone access for this site.",
+    },
+    'audio-capture': {
+      km: 'រកមិនឃើញមីក្រូហ្វូនទេ។ សូមពិនិត្យមើលថាមានឧបករណ៍ភ្ជាប់ ហើយមិនកំពុងប្រើដោយកម្មវិធីផ្សេងទៀត។',
+      en: 'No microphone was found. Check that a microphone is connected and not already in use by another app.',
+    },
+    network: {
+      km: 'ការស្គាល់សំឡេងត្រូវការការតភ្ជាប់អ៊ីនធឺណិត។ សូមពិនិត្យមើលការតភ្ជាប់ រួចសាកល្បងម្តងទៀត។',
+      en: 'Voice recognition needs an internet connection. Check your connection and try again.',
+    },
+    'language-not-supported': {
+      km: 'Browser របស់អ្នកមិនគាំទ្រការស្គាល់សំឡេងភាសាខ្មែរទេ។ សូមសាកល្បងប្តូរទៅភាសាអង់គ្លេស ឬប្រើ Chrome កំណែថ្មី។',
+      en: 'Your browser does not support voice recognition for this language. Try switching the voice input language or use a recent version of Chrome.',
+    },
+    'service-not-allowed': {
+      km: 'សេវាស្គាល់សំឡេងត្រូវបានទប់ស្កាត់ (ជួនកាលដោយ browser extension ឬការកំណត់សុវត្ថិភាព)។ សូមសាកល្បងបិទ extension រួចព្យាយាមម្តងទៀត។',
+      en: 'The speech recognition service was blocked (sometimes by a browser extension or security setting). Try disabling extensions and retry.',
+    },
+  };
+
   const toggleVoiceInput = () => {
     const SpeechRecognitionCtor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognitionCtor) return;
+    if (!SpeechRecognitionCtor) {
+      notify(language === 'km'
+        ? 'Browser របស់អ្នកមិនគាំទ្រការស្គាល់សំឡេងទេ។ សូមប្រើ Chrome ឬ Edge កំណែថ្មី។'
+        : 'Your browser does not support voice input. Please use a recent version of Chrome or Edge.', 'error');
+      return;
+    }
 
     if (isListening) {
       recognitionRef.current?.stop();
@@ -221,7 +256,18 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         setInput((current) => (current ? `${current} ${transcript}` : transcript));
       }
     };
-    recognition.onerror = () => setIsListening(false);
+    recognition.onerror = (event: any) => {
+      setIsListening(false);
+      const code = String(event?.error || '');
+      // Not real failures — the user just paused/said nothing, or manually stopped it.
+      if (code === 'no-speech' || code === 'aborted') return;
+      const info = voiceErrorMessages[code];
+      notify(
+        info ? (language === 'km' ? info.km : info.en)
+          : (language === 'km' ? 'ការស្គាល់សំឡេងបរាជ័យ។ សូមសាកល្បងម្តងទៀត។' : 'Voice recognition failed. Please try again.'),
+        'error',
+      );
+    };
     recognition.onend = () => setIsListening(false);
     recognitionRef.current = recognition;
     setIsListening(true);
@@ -314,6 +360,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
 
   return (
     <div className="max-w-7xl mx-auto space-y-8">
+      <ToastHost />
       <header className="flex flex-col gap-2">
         <h2 className="text-4xl font-display font-bold text-brand-700 tracking-tight flex items-center gap-3">
           {text.title}
