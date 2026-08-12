@@ -227,6 +227,14 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       km: 'សេវាស្គាល់សំឡេងត្រូវបានទប់ស្កាត់ (ជួនកាលដោយ browser extension ឬការកំណត់សុវត្ថិភាព)។ សូមសាកល្បងបិទ extension រួចព្យាយាមម្តងទៀត។',
       en: 'The speech recognition service was blocked (sometimes by a browser extension or security setting). Try disabling extensions and retry.',
     },
+    // The mic was listening but the engine never recognized any speech at all. If this
+    // keeps happening specifically for Khmer, the browser's recognizer most likely just
+    // doesn't support Khmer (km-KH) — Chrome's built-in speech service has patchy, often
+    // nonexistent Khmer support — not a permission or microphone problem.
+    'no-speech': {
+      km: 'មិនបានលឺសំឡេងអ្វីទេ។ បើអ្នកកំពុងនិយាយភាសាខ្មែរ វាអាចដោយសារ browser នេះមិនគាំទ្រការស្គាល់សំឡេងខ្មែរទាល់តែសោះ (មិនមែនបញ្ហាមីក្រូហ្វូនទេ)។ សូមសាកល្បងនិយាយភាសាអង់គ្លេសមើល ដើម្បីបញ្ជាក់ថាមីក្រូហ្វូនដំណើរការត្រឹមត្រូវ។',
+      en: "No speech was detected. If you were speaking Khmer, this browser's recognizer most likely doesn't support Khmer at all (not a microphone problem) — try speaking English to confirm the microphone itself works.",
+    },
   };
 
   const toggleVoiceInput = () => {
@@ -259,8 +267,8 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     recognition.onerror = (event: any) => {
       setIsListening(false);
       const code = String(event?.error || '');
-      // Not real failures — the user just paused/said nothing, or manually stopped it.
-      if (code === 'no-speech' || code === 'aborted') return;
+      // Only "aborted" is a non-failure (the user manually stopped listening themselves).
+      if (code === 'aborted') return;
       const info = voiceErrorMessages[code];
       notify(
         info ? (language === 'km' ? info.km : info.en)
