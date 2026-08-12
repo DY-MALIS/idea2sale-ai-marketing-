@@ -30,34 +30,24 @@ const openRouterJson = async (path, body) => {
 
 const fileToDataUrl = (base64, mimeType) => `data:${mimeType};base64,${base64}`;
 
-// Speech-to-text via an audio-capable chat model, used instead of the browser's
-// built-in Web Speech API (SpeechRecognition) — that API's Khmer support is
-// patchy-to-nonexistent across browsers, while a general multimodal model
-// handles Khmer transcription reliably.
+// Speech-to-text via OpenRouter's dedicated /audio/transcriptions endpoint (Whisper),
+// used instead of the browser's built-in Web Speech API (SpeechRecognition) — that
+// API's Khmer support is patchy-to-nonexistent across browsers. This is deliberately
+// NOT the chat-completions `input_audio` content block: that path is for a model to
+// *reason about* audio, not transcribe it verbatim — every chat model tried there
+// (gpt-audio-mini, gemini-2.5-flash) just replied "I can't hear audio" regardless of
+// the actual clip, since transcription isn't what that endpoint is for.
 export async function transcribeAudioWithOpenRouter({ audioBase64, format = 'wav', languageHint = 'auto', model: modelOverride }) {
-  const model = modelOverride || process.env.OPEN_ROUTER_STT_MODEL || 'google/gemini-2.5-flash';
-  const data = await openRouterJson('/chat/completions', {
+  const model = modelOverride || process.env.OPEN_ROUTER_STT_MODEL || 'openai/whisper-1';
+  const language = languageHint === 'Khmer' ? 'km' : languageHint === 'English' ? 'en' : undefined;
+
+  const data = await openRouterJson('/audio/transcriptions', {
     model,
-    messages: [
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'text',
-            text: `Transcribe exactly what is spoken in this audio clip, word for word, in its original language${
-              languageHint && languageHint !== 'auto' ? ` (expected language: ${languageHint})` : ''
-            }. If it is Khmer, write it in Khmer script, never as English transliteration. Return ONLY the transcript text — no quotes, labels, or commentary. If no speech is audible, return an empty response.`,
-          },
-          {
-            type: 'input_audio',
-            input_audio: { data: audioBase64, format },
-          },
-        ],
-      },
-    ],
+    input_audio: { data: audioBase64, format },
+    ...(language ? { language } : {}),
   });
 
-  const transcript = data?.choices?.[0]?.message?.content;
+  const transcript = data?.text;
   if (typeof transcript !== 'string') throw new Error('OpenRouter did not return a transcript.');
   return transcript.trim();
 }
