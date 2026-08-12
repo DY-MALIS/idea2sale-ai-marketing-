@@ -81,11 +81,6 @@ export async function synthesizeSpeechViaOpenRouter({ input, model, voice, forma
   };
 }
 
-let lastDebugInfo = null;
-export function getLastOpenRouterDebugInfo() {
-  return lastDebugInfo;
-}
-
 export async function generateOpenRouterText({
   prompt,
   system = 'You are a helpful marketing assistant.',
@@ -142,12 +137,6 @@ export async function generateOpenRouterText({
   if (!response.ok) {
     throw new Error(data?.error?.message || data?.message || 'OpenRouter request failed.');
   }
-
-  lastDebugInfo = {
-    model: data?.model,
-    finishReason: data?.choices?.[0]?.finish_reason,
-    usage: data?.usage,
-  };
 
   const content = data?.choices?.[0]?.message?.content || '';
   // A 200 OK response can still contain degenerate output — the model stuck

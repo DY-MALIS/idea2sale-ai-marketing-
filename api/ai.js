@@ -3,7 +3,6 @@ import {
   generateOpenRouterSpeech,
   generateOpenRouterText,
   generateTranslateSpeech,
-  getLastOpenRouterDebugInfo,
   pollOpenRouterVideo,
   startOpenRouterVideo,
   synthesizeSpeechViaOpenRouter,
@@ -197,14 +196,11 @@ Aspect ratio defaults: TikTok/Reels/Shorts video=9:16, TikTok image=4:5, Faceboo
     // the JSON response_format, or a transient OpenRouter error), fall back to
     // no automation rather than crashing the whole chat response.
     console.error('buildCreativeAutomation classifier call failed:', error?.message || error);
-    return { __debugError: error?.message || String(error) };
+    return null;
   }
 
   const plan = jsonFromText(rawPlan, null);
-  if (!plan || !['image', 'video'].includes(plan.kind)) {
-    const debugInfo = getLastOpenRouterDebugInfo();
-    return { __debugError: `classifier returned unusable plan. debugInfo: ${JSON.stringify(debugInfo)}. raw: ${String(rawPlan).slice(0, 500)}` };
-  }
+  if (!plan || !['image', 'video'].includes(plan.kind)) return null;
 
   const platform = ['TikTok', 'Facebook', 'X', 'Telegram', 'General'].includes(plan.platform)
     ? plan.platform
@@ -346,9 +342,7 @@ export default async function handler(req, res) {
         .filter((item) => item?.role === 'assistant' || item?.role === 'user')
         .map((item) => `${item.role === 'assistant' ? 'Assistant' : 'User'}: ${String(item.content || '').slice(0, 1800)}`)
         .join('\n');
-      const automationResult = await buildCreativeAutomation({ message, historyText, responseLanguage });
-      const automationDebugError = automationResult?.__debugError || null;
-      const automation = automationDebugError ? null : automationResult;
+      const automation = await buildCreativeAutomation({ message, historyText, responseLanguage });
       const xContext = await fetchXContext(message);
 
       // Long-term memory: the user's saved Business Profile, so the agent knows the
@@ -420,7 +414,6 @@ Response rules:
       return res.status(200).json({
         text: text || 'No response generated.',
         automation: automation?.ready ? automation : null,
-        ...(automationDebugError ? { automationDebugError } : {}),
       });
     }
 
