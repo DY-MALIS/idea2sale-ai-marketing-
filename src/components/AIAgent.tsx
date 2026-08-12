@@ -11,6 +11,9 @@ import { BusinessProfileData, CreativeAutomationRequest } from '../types';
 
 const DEMO_BUSINESS_PROFILE_STORAGE_KEY = 'demo_business_profile';
 const DEMO_AGENT_CONVERSATION_STORAGE_KEY = 'demo_agent_conversation';
+// A saved conversation older than this is treated as "finished" and not
+// reloaded — the agent starts fresh instead of resurrecting it forever.
+const AGENT_MEMORY_EXPIRY_MS = 24 * 60 * 60 * 1000;
 
 interface AgentMessage {
   role: 'user' | 'assistant';
@@ -96,9 +99,14 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     const loadMemory = async () => {
       try {
         if (isDemoMode || !user) {
-          const savedConversation = JSON.parse(localStorage.getItem(DEMO_AGENT_CONVERSATION_STORAGE_KEY) || 'null');
-          if (Array.isArray(savedConversation) && savedConversation.length) {
-            setMessages(savedConversation.slice(-MAX_MESSAGES));
+          const saved = JSON.parse(localStorage.getItem(DEMO_AGENT_CONVERSATION_STORAGE_KEY) || 'null');
+          const savedMessages = Array.isArray(saved) ? saved : saved?.messages;
+          const savedAt = Array.isArray(saved) ? null : saved?.updatedAt;
+          const isFresh = typeof savedAt === 'number' && Date.now() - savedAt < AGENT_MEMORY_EXPIRY_MS;
+          if (Array.isArray(savedMessages) && savedMessages.length && isFresh) {
+            setMessages(savedMessages.slice(-MAX_MESSAGES));
+          } else if (savedMessages?.length) {
+            localStorage.removeItem(DEMO_AGENT_CONVERSATION_STORAGE_KEY);
           }
           const savedProfile = JSON.parse(localStorage.getItem(DEMO_BUSINESS_PROFILE_STORAGE_KEY) || 'null');
           if (savedProfile) {
@@ -110,8 +118,13 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
             getDoc(doc(db, 'business_profiles', user.uid)),
           ]);
           if (conversationSnap.exists()) {
-            const saved = conversationSnap.data()?.messages;
-            if (Array.isArray(saved) && saved.length) setMessages(saved.slice(-MAX_MESSAGES));
+            const data = conversationSnap.data();
+            const saved = data?.messages;
+            const updatedAtMs = data?.updatedAt?.toMillis?.() ?? null;
+            const isFresh = typeof updatedAtMs === 'number' && Date.now() - updatedAtMs < AGENT_MEMORY_EXPIRY_MS;
+            if (Array.isArray(saved) && saved.length && isFresh) {
+              setMessages(saved.slice(-MAX_MESSAGES));
+            }
           }
           if (profileSnap.exists()) {
             const data = profileSnap.data() as BusinessProfileData;
@@ -135,7 +148,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     const textOnly = nextMessages.map(({ role, content }) => ({ role, content }));
     try {
       if (isDemoMode || !user) {
-        localStorage.setItem(DEMO_AGENT_CONVERSATION_STORAGE_KEY, JSON.stringify(textOnly));
+        localStorage.setItem(DEMO_AGENT_CONVERSATION_STORAGE_KEY, JSON.stringify({ messages: textOnly, updatedAt: Date.now() }));
       } else {
         void setDoc(doc(db, 'agent_conversations', user.uid), {
           messages: textOnly,
