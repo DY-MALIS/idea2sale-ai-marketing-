@@ -95,7 +95,15 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   // agent keeps context across page reloads and sessions instead of forgetting
   // everything the moment the tab closes.
   useEffect(() => {
+    let cancelled = false;
     memoryLoadedRef.current = false;
+    // Reset immediately, before the async load resolves — this is an SPA where
+    // logging out or switching accounts doesn't reload the page, so without this
+    // the previous user's conversation/profile would stay visible (or race with
+    // and get clobbered onto) the newly-signed-in user's data.
+    setMessages([]);
+    setBusinessContext(null);
+
     const loadMemory = async () => {
       try {
         if (isDemoMode || !user) {
@@ -103,13 +111,14 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           const savedMessages = Array.isArray(saved) ? saved : saved?.messages;
           const savedAt = Array.isArray(saved) ? null : saved?.updatedAt;
           const isFresh = typeof savedAt === 'number' && Date.now() - savedAt < AGENT_MEMORY_EXPIRY_MS;
+          if (cancelled) return;
           if (Array.isArray(savedMessages) && savedMessages.length && isFresh) {
             setMessages(savedMessages.slice(-MAX_MESSAGES));
           } else if (savedMessages?.length) {
             localStorage.removeItem(DEMO_AGENT_CONVERSATION_STORAGE_KEY);
           }
           const savedProfile = JSON.parse(localStorage.getItem(DEMO_BUSINESS_PROFILE_STORAGE_KEY) || 'null');
-          if (savedProfile) {
+          if (savedProfile && !cancelled) {
             setBusinessContext({ businessName: savedProfile.businessName || '', directory: savedProfile.directory || [] });
           }
         } else {
@@ -117,6 +126,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
             getDoc(doc(db, 'agent_conversations', user.uid)),
             getDoc(doc(db, 'business_profiles', user.uid)),
           ]);
+          if (cancelled) return;
           if (conversationSnap.exists()) {
             const data = conversationSnap.data();
             const saved = data?.messages;
@@ -134,10 +144,14 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       } catch (error) {
         console.error('Failed to load agent memory:', error);
       } finally {
-        memoryLoadedRef.current = true;
+        if (!cancelled) memoryLoadedRef.current = true;
       }
     };
     void loadMemory();
+
+    return () => {
+      cancelled = true;
+    };
   }, [user, isDemoMode]);
 
   // Only the text survives into persisted memory — attached image previews are
@@ -280,19 +294,28 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
 
   const startRecording = async () => {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const AudioContextCtor = (window as any).AudioContext || (window as any).webkitAudioContext;
-    const audioContext: AudioContext = new AudioContextCtor();
-    const source = audioContext.createMediaStreamSource(stream);
-    // ScriptProcessorNode is deprecated in favor of AudioWorklet, but remains
-    // universally supported and is far simpler for a short-lived capture like this.
-    const processor = audioContext.createScriptProcessor(4096, 1, 1);
-    const chunks: Float32Array[] = [];
-    processor.onaudioprocess = (event: AudioProcessingEvent) => {
-      chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
-    };
-    source.connect(processor);
-    processor.connect(audioContext.destination);
-    recordingRef.current = { audioContext, processor, source, stream, chunks };
+    try {
+      const AudioContextCtor = (window as any).AudioContext || (window as any).webkitAudioContext;
+      const audioContext: AudioContext = new AudioContextCtor();
+      const source = audioContext.createMediaStreamSource(stream);
+      // ScriptProcessorNode is deprecated in favor of AudioWorklet, but remains
+      // universally supported and is far simpler for a short-lived capture like this.
+      const processor = audioContext.createScriptProcessor(4096, 1, 1);
+      const chunks: Float32Array[] = [];
+      processor.onaudioprocess = (event: AudioProcessingEvent) => {
+        chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+      };
+      source.connect(processor);
+      processor.connect(audioContext.destination);
+      recordingRef.current = { audioContext, processor, source, stream, chunks };
+    } catch (error) {
+      // getUserMedia already succeeded by this point — if any later setup step
+      // throws (AudioContext construction, node creation), the live mic track
+      // must still be released here, otherwise the browser's mic indicator
+      // stays on indefinitely with no way to stop it short of a page reload.
+      stream.getTracks().forEach((track) => track.stop());
+      throw error;
+    }
   };
 
   const stopRecordingAndTranscribe = async () => {

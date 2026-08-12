@@ -67,6 +67,11 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     nextHour.setMinutes(0);
     return getLocalISOString(nextHour);
   });
+  // True while a handoff's generated video/image is still being converted into
+  // a File in the background — the modal opens immediately, but the media isn't
+  // attached yet, so submitting during this window would silently post with no
+  // media attached even though the user sees the generated content on screen.
+  const [isAttachingHandoffMedia, setIsAttachingHandoffMedia] = useState(false);
 
   // Consumes a "schedule this" handoff from PosterGen/VideoVoice: prefills the
   // create-post form with the generated media + caption and opens the modal,
@@ -77,6 +82,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     if (!handoffRequest || handledHandoffRef.current === handoffRequest.id) return;
     handledHandoffRef.current = handoffRequest.id;
 
+    setIsAttachingHandoffMedia(true);
     (async () => {
       try {
         const response = await fetch(handoffRequest.mediaDataUrl);
@@ -86,6 +92,8 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
         setTelegramMediaFile(file);
       } catch (error) {
         console.error('Could not attach the generated media to the scheduler:', error);
+      } finally {
+        setIsAttachingHandoffMedia(false);
       }
     })();
 
@@ -212,6 +220,11 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   const handleCreatePost = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
+
+    if (isAttachingHandoffMedia) {
+      setFormError('Still attaching the generated media — please wait a moment and try again.');
+      return;
+    }
 
     const userToUse = user || (isDemoMode ? { uid: 'demo-user' } : null);
 
@@ -529,10 +542,10 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                   </button>
                   <button
                     type="submit"
-                    disabled={isSubmitting}
-                    className="flex-1 py-4 bg-brand-700 hover:bg-brand-800 text-white font-bold rounded-2xl transition-all flex items-center justify-center gap-2 shadow-xl shadow-brand-700/20"
+                    disabled={isSubmitting || isAttachingHandoffMedia}
+                    className="flex-1 py-4 bg-brand-700 hover:bg-brand-800 text-white font-bold rounded-2xl transition-all flex items-center justify-center gap-2 shadow-xl shadow-brand-700/20 disabled:opacity-60"
                   >
-                    {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : (
+                    {isSubmitting || isAttachingHandoffMedia ? <Loader2 className="animate-spin" size={18} /> : (
                       <>
                         <Clock size={18} />
                         {t('scheduleBtn')}

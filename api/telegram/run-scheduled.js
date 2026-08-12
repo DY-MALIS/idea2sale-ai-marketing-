@@ -539,9 +539,23 @@ export default async function handler(req, res) {
       .get();
     await Promise.all(stuckSnapshot.docs.map(async (stuckDoc) => {
       const processingAtMs = stuckDoc.data()?.processingAt?.toMillis?.();
-      if (typeof processingAtMs === 'number' && processingAtMs < staleCutoff) {
-        await stuckDoc.ref.update({ status: 'PENDING' });
-      }
+      if (typeof processingAtMs !== 'number' || processingAtMs >= staleCutoff) return;
+
+      // Re-check inside a transaction immediately before resetting: the send that
+      // originally claimed this post can complete (-> PUBLISHED/FAILED) in the gap
+      // between the snapshot read above and this write. An unconditional update
+      // would clobber that outcome back to PENDING and send the post a second
+      // time — exactly the duplicate-post race the atomic claim elsewhere in this
+      // file exists to prevent. Only reset if it's still PROCESSING with the same
+      // processingAt we observed (i.e. no newer attempt has claimed it since).
+      await db.runTransaction(async (tx) => {
+        const freshSnap = await tx.get(stuckDoc.ref);
+        const freshData = freshSnap.data();
+        const freshProcessingAtMs = freshData?.processingAt?.toMillis?.();
+        if (freshData?.status === 'PROCESSING' && freshProcessingAtMs === processingAtMs) {
+          tx.update(stuckDoc.ref, { status: 'PENDING' });
+        }
+      });
     }));
 
     const snapshot = await db

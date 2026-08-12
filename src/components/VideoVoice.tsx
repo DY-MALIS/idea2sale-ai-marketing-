@@ -239,7 +239,6 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   const [generatedVideo, setGeneratedVideo] = useState<string | null>(null);
   const [videoVoiceQualityNotice, setVideoVoiceQualityNotice] = useState<string | null>(null);
   const [ttsText, setTtsText] = useState('');
-  const [targetDuration, setTargetDuration] = useState<number>(1);
   const [generatedAudio, setGeneratedAudio] = useState<string | null>(null);
   const [voiceFallbackMessage, setVoiceFallbackMessage] = useState<string | null>(null);
   const [audioLoading, setAudioLoading] = useState(false);
@@ -601,8 +600,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
           input: ttsText,
           voice: selectedPersona.openRouterVoice,
           languageHint,
-          performanceStyle: `${selectedPersona.style} Read the exact provided text like you are speaking in a real conversation, not reading a script. Keep Khmer words Khmer and English words English. Use human emotion, natural rhythm, clear consonants, fast natural pacing, short pauses, and real creator-style intonation. Avoid robotic or AI narration.`,
-          speed: targetDuration > 1 ? 1.9 : 2,
+          performanceStyle: `${selectedPersona.style} Read the exact provided text like you are speaking in a real conversation, not reading a script. Keep Khmer words Khmer and English words English. Use human emotion, natural rhythm, clear consonants, natural pacing, short pauses, and real creator-style intonation. Avoid robotic or AI narration.`,
         }),
       });
       const data = await response.json();
