@@ -26,8 +26,11 @@ const GEMINI_VOICE_BY_OPENAI_VOICE = {
 const MAX_AGENT_IMAGES = 4;
 const MAX_VIDEO_REFERENCE_IMAGES = 20;
 // Google Veo 3.1 (the underlying video model) only accepts these exact
-// durations — anything else risks a rejected or misbehaving generation.
+// per-clip durations — anything else risks a rejected or misbehaving generation.
 const VIDEO_DURATION_OPTIONS = [4, 6, 8];
+// Total video lengths the app can produce (matches VIDEO_LENGTH_OPTIONS in
+// VideoVoice.tsx) — 16/24 are built by chaining multiple 8s clips client-side.
+const TOTAL_VIDEO_DURATION_OPTIONS = [4, 6, 8, 16, 24];
 
 const jsonFromText = (text, fallback) => {
   try {
@@ -181,7 +184,8 @@ You may ask ONE clarifying question (ready=false) before generating, but never a
 When a business name is known (from Business Profile or the conversation), you may naturally work it into the scene as short, simple on-screen text — signage, a shirt/uniform print, a storefront, a badge — since the image/video model can usually render a short plain business name accurately. Keep any such text short (ideally one or two words) and mention it explicitly in the prompt (e.g. "a sign reading 'DGACADEMY'"). Separately, and regardless of any scene text, the app also automatically overlays the exact saved logo image in a corner of the finished result whenever one is saved in Business Profile — this happens automatically after generation and needs no mention in the prompt.
 For video requests, the underlying video model's own speech/dialogue generation is unreliable in Khmer and other non-English languages, so this app generates narration separately (Khmer-tuned voice) and merges it into the finished video. Do not silently default to a silent video: set "voiceOverWanted" to true or false based on the conversation, never guess it as false just because the user didn't mention it. Before asking anything, re-read the user's ORIGINAL request (not just the most recent message) for any wording that already answers this — phrases like "speaking Khmer/English", "និយាយជាភាសាខ្មែរ", "with a voice-over", "narrated in...", "no talking", "silent", "no sound/voice" all already settle voiceOverWanted (and often the language) without needing to ask; asking again after the user already said this is a real failure, not a safe default. Only if the conversation truly contains no such signal at all should you set ready=false once and ask ONE clarifying question offering narration as a choice (e.g. whether they want a voice-over, and if so whether it should speak Khmer, English, or mixed) — do not ask this same question twice. If "voiceOverWanted" is true, do not write that speech into the visual "prompt" field and do not rely on the video model to say it — instead put the exact words to be spoken into "voiceOverText", matching the language they asked for, and ready can only be true once "voiceOverText" is actually filled in (ask for the script as the missing detail if it isn't yet — still only one question total). Set "voiceOverWanted" to false, and leave "voiceOverText" empty, only when the user has explicitly said they don't want narration/voice-over (e.g. "no voice", "silent", "no narration").
 CRITICAL — resolving the narration question after you've already asked it once: if you already asked the narration question in an earlier turn and the user's reply doesn't directly say yes/no to narration but is instead a generic go-ahead ("yes", "create it", "go ahead", "ចាស", "បង្កើតមក" and similar) — do NOT ask the narration question again, and do NOT leave the request stuck unresolved or claim you are unable to proceed. Treat the generic go-ahead itself as approval for narration in whatever language the conversation already established, set voiceOverWanted=true, and write a short, natural voiceOverText yourself (1-3 sentences, in that language) directly from the scene/product/action already described in the conversation — you already have enough context to write reasonable narration without asking a third time. This must result in ready=true in that same turn; never respond by saying you cannot trigger generation yourself or by only offering to draft a script instead of completing the brief.
-The prompt must be a detailed English production prompt suitable for an image or video generation model, describing only the visuals (never write dialogue/spoken words into it). Preserve exact Khmer brand text or on-screen wording when the user provided it for on-screen visuals (not speech).`,
+The prompt must be a detailed English production prompt suitable for an image or video generation model, describing only the visuals (never write dialogue/spoken words into it). Preserve exact Khmer brand text or on-screen wording when the user provided it for on-screen visuals (not speech).
+For video requests, the app only supports these exact total durations in seconds: 4, 6, 8, 16, 24. Read the conversation for any stated or implied length (e.g. "16 seconds", "16 វិនាទី", "make it longer", "short clip") and set "duration" to the closest of those five allowed values — if nothing is stated, default to 8. If "voiceOverWanted" is true, the "voiceOverText" script's natural spoken length (at a normal, unhurried pace, roughly 2-3 spoken words per second) must fit within the chosen "duration" with a little room to spare — write a shorter script for a short duration and do not write a script that would still be talking after the video ends.`,
       model: process.env.OPEN_ROUTER_AGENT_MODEL || process.env.OPEN_ROUTER_MODEL,
       temperature: 0.2,
       maxTokens: 3000,
@@ -198,6 +202,7 @@ Return exactly this JSON shape:
   "platform": "TikTok", "Facebook", "X", "Telegram", or "General",
   "aspectRatio": "1:1", "9:16", "16:9", "4:5", or "3:4",
   "prompt": "detailed generation prompt describing visuals only, or empty string",
+  "duration": 4, 6, 8, 16, or 24 (only relevant when kind="video"; total seconds, default 8 if not stated),
   "voiceOverWanted": true, false, or null (only relevant when kind="video"; null means not yet settled),
   "voiceOverText": "exact narration/dialogue script to be spoken in the video (any language, usually Khmer), or empty string if no voice-over was requested",
   "missing": "one concise missing detail, or empty string"
@@ -230,6 +235,7 @@ Aspect ratio defaults: TikTok/Reels/Shorts video=9:16, TikTok image=4:5, Faceboo
     ? plan.aspectRatio
     : fallbackRatio;
   const prompt = String(plan.prompt || '').trim().slice(0, 5000);
+  const duration = TOTAL_VIDEO_DURATION_OPTIONS.includes(Number(plan.duration)) ? Number(plan.duration) : 8;
   const voiceOverText = String(plan.voiceOverText || '').trim().slice(0, 2000);
   // Narration must be an explicit true/false decision for video, never inferred from silence — a video
   // is only ready once that choice is made, and if narration was wanted, the script must be filled in too.
@@ -243,6 +249,7 @@ Aspect ratio defaults: TikTok/Reels/Shorts video=9:16, TikTok image=4:5, Faceboo
     platform,
     aspectRatio,
     prompt,
+    duration: plan.kind === 'video' ? duration : undefined,
     voiceOverText: plan.kind === 'video' && plan.voiceOverWanted === true ? voiceOverText : '',
     missing: String(plan.missing || '').trim().slice(0, 300),
   };

@@ -442,6 +442,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     promptOverride?: string,
     languageOverride?: 'Khmer' | 'English',
     voiceOverTextOverride?: string,
+    durationOverride?: number,
   ) => {
     const promptText = typeof promptOverride === 'string' ? promptOverride.trim() : videoPrompt.trim();
     const generationLanguage = languageOverride || videoLanguage;
@@ -455,7 +456,9 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     setMergingSegments(false);
     try {
       const prompt = `${generationLanguage === 'Khmer' ? 'Khmer/Cambodian context. ' : ''}${promptText || 'Create a realistic short marketing video from the uploaded reference image.'}`;
-      const segments = getVideoSegments(videoDuration);
+      const segments = getVideoSegments(
+        VIDEO_LENGTH_OPTIONS.includes(durationOverride as typeof VIDEO_LENGTH_OPTIONS[number]) ? (durationOverride as number) : videoDuration,
+      );
       const clipUrls: string[] = [];
       let referenceImages = videoImages;
       for (let i = 0; i < segments.length; i += 1) {
@@ -550,11 +553,15 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
 
     const generationLanguage = automationRequest.language === 'km' ? 'Khmer' : 'English';
     const requestedVoiceOver = (automationRequest.voiceOverText || '').trim();
+    const requestedDuration = VIDEO_LENGTH_OPTIONS.includes(automationRequest.duration as typeof VIDEO_LENGTH_OPTIONS[number])
+      ? (automationRequest.duration as number)
+      : 8;
     handledAutomationRef.current = automationRequest.id;
     setActiveTool('video');
     setVideoPrompt(automationRequest.prompt);
     setVideoLanguage(generationLanguage);
     setCaptionLanguage(generationLanguage);
+    setVideoDuration(requestedDuration);
     if (requestedVoiceOver) {
       setVoiceOverEnabled(true);
       setVoiceOverText(requestedVoiceOver);
@@ -565,7 +572,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         : `The agent prepared a ${automationRequest.platform} brief and started automatic video creation${requestedVoiceOver ? ' with a Khmer voice-over' : ''}.`,
     );
     onAutomationConsumed?.(automationRequest.id);
-    void handleGenerateVideo(automationRequest.prompt, generationLanguage, requestedVoiceOver);
+    void handleGenerateVideo(automationRequest.prompt, generationLanguage, requestedVoiceOver, requestedDuration);
   }, [automationRequest?.id]);
 
   const handleGenerateAudio = async () => {
@@ -711,12 +718,15 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
 
   const handleScheduleThisVideo = () => {
     if (!generatedVideo) return;
+    // Telegram (and most platforms) reject captions over ~1024 characters, and the raw
+    // generation prompt can easily run to several times that — cap the fallback so
+    // scheduling never silently fails when the user hasn't written an AI caption yet.
     onScheduleHandoff?.({
       id: `${Date.now()}-video`,
       kind: 'video',
       mediaDataUrl: generatedVideo,
       mediaName: `idea2sale-video-${Date.now()}.mp4`,
-      caption: aiCaption.trim() || videoPrompt.trim(),
+      caption: aiCaption.trim() || videoPrompt.trim().slice(0, 900),
     });
   };
 

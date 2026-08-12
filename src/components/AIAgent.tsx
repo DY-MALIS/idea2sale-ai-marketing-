@@ -440,6 +440,9 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
             : (kind === 'video' ? '9:16' : '1:1'),
           language: message ? detectMessageLanguage(message) : language,
           voiceOverText: kind === 'video' ? String(data.automation.voiceOverText || '').trim() : undefined,
+          duration: kind === 'video' && [4, 6, 8, 16, 24].includes(Number(data.automation.duration))
+            ? Number(data.automation.duration)
+            : undefined,
         });
       }
     } catch (error: any) {

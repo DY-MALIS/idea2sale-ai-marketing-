@@ -283,9 +283,12 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
 
   const handleScheduleThisImage = () => {
     if (!generatedImage) return;
+    // Telegram (and most platforms) reject captions over ~1024 characters, and the raw
+    // generation prompt can easily run to several times that — cap it so scheduling
+    // never silently fails.
     const caption = activeTool === 'poster'
       ? `${posterDetails.headline} — ${posterDetails.cta}`.slice(0, 90)
-      : visualPrompt.trim();
+      : visualPrompt.trim().slice(0, 900);
     onScheduleHandoff?.({
       id: `${Date.now()}-image`,
       kind: 'image',

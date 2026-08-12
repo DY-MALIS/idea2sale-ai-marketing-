@@ -5,6 +5,16 @@ import { Client as QStashClient } from '@upstash/qstash';
 import { logAudit } from '../_audit.js';
 import { claimPendingPost } from '../_telegramClaim.js';
 
+// Telegram rejects the whole send with "message caption is too long" if a photo/video/
+// document caption exceeds 1024 characters (sendMessage's own text has a separate, higher
+// 4096 limit) — truncate defensively so a long caption never silently blocks delivery.
+const TELEGRAM_CAPTION_LIMIT = 1024;
+const TELEGRAM_MESSAGE_LIMIT = 4096;
+const truncateForTelegram = (text, limit) => {
+  const value = String(text || '');
+  return value.length > limit ? `${value.slice(0, limit - 1)}…` : value;
+};
+
 export const initFirebaseAdmin = () => {
   const projectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID;
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
@@ -295,18 +305,19 @@ const postTelegramMessage = async (req, res) => {
     });
   }
 
-  const text = String(req.body?.text || '').trim();
+  const rawText = String(req.body?.text || '').trim();
   const mediaUrl = String(req.body?.mediaUrl || '').trim();
   const mediaDataUrl = String(req.body?.mediaDataUrl || '').trim();
   const mediaName = String(req.body?.mediaName || 'telegram-media').trim();
   const mediaType = String(req.body?.mediaType || '').trim().toLowerCase();
 
-  if (!text && !mediaUrl && !mediaDataUrl) {
+  if (!rawText && !mediaUrl && !mediaDataUrl) {
     return res.status(400).json({ error: 'Telegram text, image, or video is required.' });
   }
 
   try {
     const hasMedia = !!(mediaUrl || mediaDataUrl);
+    const text = truncateForTelegram(rawText, hasMedia ? TELEGRAM_CAPTION_LIMIT : TELEGRAM_MESSAGE_LIMIT);
     const method = hasMedia
       ? mediaType === 'video'
         ? 'sendVideo'
@@ -399,13 +410,15 @@ export const sendTelegram = async (post) => {
     throw new Error('Telegram is not configured.');
   }
 
-  const text = String(post.content || '').trim();
+  const rawText = String(post.content || '').trim();
   const mediaUrl = String(post.mediaUrl || '').trim();
   const mediaType = String(post.mediaType || '').trim().toLowerCase();
 
-  if (!text && !mediaUrl) {
+  if (!rawText && !mediaUrl) {
     throw new Error('Post has no text or media URL.');
   }
+
+  const text = truncateForTelegram(rawText, mediaUrl ? TELEGRAM_CAPTION_LIMIT : TELEGRAM_MESSAGE_LIMIT);
 
   const method = mediaUrl
     ? mediaType === 'video'
