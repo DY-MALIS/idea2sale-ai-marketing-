@@ -1,6 +1,7 @@
 import { Receiver } from '@upstash/qstash';
 import { FieldValue } from 'firebase-admin/firestore';
 import { initFirebaseAdmin, sendTelegram } from './run-scheduled.js';
+import { claimPendingPost } from '../_telegramClaim.js';
 
 export const config = {
   api: { bodyParser: false },
@@ -55,19 +56,7 @@ export default async function handler(req, res) {
     const db = initFirebaseAdmin();
     const ref = db.collection('scheduled_posts').doc(postId);
 
-    // Claim the post atomically: the QStash webhook and the cron/GitHub Actions
-    // poller can both race to deliver the same post around its due time, and a
-    // plain get()-then-update() has a window where both see status "PENDING"
-    // and both publish to Telegram. A transaction makes the PENDING -> PROCESSING
-    // claim compare-and-swap so only one caller wins.
-    const claim = await db.runTransaction(async (tx) => {
-      const snap = await tx.get(ref);
-      if (!snap.exists) return { skipped: 'not_found' };
-      const data = { id: snap.id, ...snap.data() };
-      if (data.status !== 'PENDING') return { skipped: data.status };
-      tx.update(ref, { status: 'PROCESSING', processingAt: FieldValue.serverTimestamp() });
-      return { post: data };
-    });
+    const claim = await claimPendingPost(db, ref);
 
     if (claim.skipped) {
       return res.status(200).json({ ok: true, skipped: claim.skipped });

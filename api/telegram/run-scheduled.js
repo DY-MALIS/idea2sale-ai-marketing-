@@ -3,6 +3,7 @@ import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { createHash } from 'crypto';
 import { Client as QStashClient } from '@upstash/qstash';
 import { logAudit } from '../_audit.js';
+import { claimPendingPost } from '../_telegramClaim.js';
 
 export const initFirebaseAdmin = () => {
   const projectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID;
@@ -572,24 +573,14 @@ export default async function handler(req, res) {
       .slice(0, 10);
 
     for (const doc of dueDocs) {
-      // Claim the post atomically: QStash's own webhook (api/telegram/deliver.js)
-      // can fire for this same post around the same due time, and a plain
-      // update() here has a window where both see status "PENDING" and both
-      // publish to Telegram. A transaction makes the PENDING -> PROCESSING
-      // claim compare-and-swap so only one caller wins.
-      const claim = await db.runTransaction(async (tx) => {
-        const snap = await tx.get(doc.ref);
-        if (!snap.exists || snap.data()?.status !== 'PENDING') return null;
-        tx.update(doc.ref, { status: 'PROCESSING', processingAt: FieldValue.serverTimestamp() });
-        return { id: snap.id, ...snap.data() };
-      });
+      const claim = await claimPendingPost(db, doc.ref);
 
-      if (!claim) {
+      if (!claim.post) {
         results.push({ id: doc.id, ok: true, skipped: true });
         continue;
       }
 
-      const post = claim;
+      const post = claim.post;
       try {
         const messageId = await sendTelegram(post);
 

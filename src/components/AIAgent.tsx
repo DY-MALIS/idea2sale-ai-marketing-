@@ -4,6 +4,8 @@ import Markdown from 'react-markdown';
 import { AnimatePresence, motion } from 'motion/react';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { uint8ArrayToBase64 } from '../lib/base64';
+import { readImagesIntoState } from '../lib/imageUpload';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../hooks/useToast';
@@ -225,19 +227,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     const files = Array.from(event.target.files || []);
     event.target.value = '';
     if (!files.length) return;
-    const remainingSlots = MAX_IMAGES - attachedImages.length;
-    files.slice(0, Math.max(remainingSlots, 0)).forEach((file) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64 = (reader.result as string).split(',')[1];
-        if (base64) {
-          setAttachedImages((current) => (
-            current.length >= MAX_IMAGES ? current : [...current, { base64, mimeType: file.type }]
-          ));
-        }
-      };
-      reader.readAsDataURL(file);
-    });
+    readImagesIntoState(files, MAX_IMAGES, attachedImages.length, setAttachedImages);
   };
 
   const handleRemoveImage = (index: number) => {
@@ -283,13 +273,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     for (let i = 0; i < samples.length; i += 1, offset += 2) {
       view.setInt16(offset, samples[i], true);
     }
-    let binary = '';
-    const bytes = new Uint8Array(buffer);
-    const chunkSize = 0x8000;
-    for (let i = 0; i < bytes.length; i += chunkSize) {
-      binary += String.fromCharCode(...Array.from(bytes.subarray(i, i + chunkSize)));
-    }
-    return btoa(binary);
+    return uint8ArrayToBase64(new Uint8Array(buffer));
   };
 
   const startRecording = async () => {

@@ -12,6 +12,8 @@ import {
   Calendar
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { uint8ArrayToBase64 } from '../lib/base64';
+import { readImagesIntoState } from '../lib/imageUpload';
 import { motion, AnimatePresence } from 'motion/react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -43,15 +45,6 @@ const getVideoSegments = (totalSeconds: number): number[] => {
     remaining -= 8;
   }
   return segments;
-};
-
-const uint8ArrayToBase64 = (bytes: Uint8Array): string => {
-  let binary = '';
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode(...Array.from(bytes.subarray(i, i + chunkSize)));
-  }
-  return btoa(binary);
 };
 
 const FFMPEG_CORE_BASE_URL = 'https://unpkg.com/@ffmpeg/core@0.12.9/dist/esm';
@@ -479,71 +472,69 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       }
       setSegmentProgress(null);
 
-      {
-        let video: string;
-        if (clipUrls.length > 1) {
-          setMergingSegments(true);
-          try {
-            video = await concatenateVideoClips(clipUrls);
-          } finally {
-            setMergingSegments(false);
-          }
-        } else {
-          video = clipUrls[0];
+      let video: string;
+      if (clipUrls.length > 1) {
+        setMergingSegments(true);
+        try {
+          video = await concatenateVideoClips(clipUrls);
+        } finally {
+          setMergingSegments(false);
         }
-
-          if (logoDataUrlRef.current) {
-            setWatermarking(true);
-            try {
-              video = await overlayLogoOnVideo(video, logoDataUrlRef.current);
-            } finally {
-              setWatermarking(false);
-            }
-          }
-
-          if (voiceOverContent) {
-            setAddingVoiceOver(true);
-            try {
-              const persona = voicePersonas[voicePersona];
-              const hasKhmerText = /[ក-៿]/.test(voiceOverContent);
-              const ttsResponse = await fetch('/api/ai', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  action: 'ttsGenerate',
-                  input: voiceOverContent,
-                  voice: persona.openRouterVoice,
-                  languageHint: hasKhmerText ? 'Khmer' : 'English',
-                  performanceStyle: `${persona.style} Read the exact provided text like you are speaking in a real conversation, not reading a script. Use human emotion, natural rhythm, clear consonants, natural pacing. Avoid robotic or AI narration.`,
-                }),
-              });
-              const ttsData = await ttsResponse.json();
-              if (ttsResponse.ok && ttsData.audioUrl) {
-                // No artificial speed-up: Gemini TTS (the current primary engine)
-                // already speaks at a natural human pace, and any further atempo
-                // stretch — even a mild one — trades naturalness for fitting more
-                // words into the clip, which is the wrong trade for how this
-                // narration is meant to sound. (The Google Translate fallback
-                // renders at 2x speed at its own source, unrelated to this factor.)
-                video = await applyVoiceOver(video, ttsData.audioUrl, 1);
-                if (ttsData.fallbackReason && hasKhmerText) {
-                  setVideoVoiceQualityNotice(language === 'km'
-                    ? 'សំឡេងក្នុង video នេះបានប្រើសំឡេងបម្រុង (Google TTS) ដែលអានមិនច្បាស់ ព្រោះម៉ូដែលសំឡេងសំខាន់មិនអាចប្រើបានពេលនេះ។ សូមសាកល្បងបង្កើត video ម្តងទៀត។'
-                    : 'This video used a lower-quality backup voice (Google TTS) because the main voice model was unavailable. Try generating the video again for clearer narration.');
-                }
-              } else {
-                console.error('Voice-over TTS generation failed:', ttsData.error);
-              }
-            } catch (voiceError) {
-              console.error('Voice-over generation failed, keeping the original video audio:', voiceError);
-            } finally {
-              setAddingVoiceOver(false);
-            }
-          }
-
-          setGeneratedVideo(video);
-          return;
+      } else {
+        video = clipUrls[0];
       }
+
+      if (logoDataUrlRef.current) {
+        setWatermarking(true);
+        try {
+          video = await overlayLogoOnVideo(video, logoDataUrlRef.current);
+        } finally {
+          setWatermarking(false);
+        }
+      }
+
+      if (voiceOverContent) {
+        setAddingVoiceOver(true);
+        try {
+          const persona = voicePersonas[voicePersona];
+          const hasKhmerText = /[ក-៿]/.test(voiceOverContent);
+          const ttsResponse = await fetch('/api/ai', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'ttsGenerate',
+              input: voiceOverContent,
+              voice: persona.openRouterVoice,
+              languageHint: hasKhmerText ? 'Khmer' : 'English',
+              performanceStyle: `${persona.style} Read the exact provided text like you are speaking in a real conversation, not reading a script. Use human emotion, natural rhythm, clear consonants, natural pacing. Avoid robotic or AI narration.`,
+            }),
+          });
+          const ttsData = await ttsResponse.json();
+          if (ttsResponse.ok && ttsData.audioUrl) {
+            // No artificial speed-up: Gemini TTS (the current primary engine)
+            // already speaks at a natural human pace, and any further atempo
+            // stretch — even a mild one — trades naturalness for fitting more
+            // words into the clip, which is the wrong trade for how this
+            // narration is meant to sound. (The Google Translate fallback
+            // renders at 2x speed at its own source, unrelated to this factor.)
+            video = await applyVoiceOver(video, ttsData.audioUrl, 1);
+            if (ttsData.fallbackReason && hasKhmerText) {
+              setVideoVoiceQualityNotice(language === 'km'
+                ? 'សំឡេងក្នុង video នេះបានប្រើសំឡេងបម្រុង (Google TTS) ដែលអានមិនច្បាស់ ព្រោះម៉ូដែលសំឡេងសំខាន់មិនអាចប្រើបានពេលនេះ។ សូមសាកល្បងបង្កើត video ម្តងទៀត។'
+                : 'This video used a lower-quality backup voice (Google TTS) because the main voice model was unavailable. Try generating the video again for clearer narration.');
+            }
+          } else {
+            console.error('Voice-over TTS generation failed:', ttsData.error);
+          }
+        } catch (voiceError) {
+          console.error('Voice-over generation failed, keeping the original video audio:', voiceError);
+        } finally {
+          setAddingVoiceOver(false);
+        }
+      }
+
+      setGeneratedVideo(video);
+      return;
     } catch (error: any) {
       console.error(error);
       if (/OPEN_ROUTER_API_KEY|api key/i.test(error.message || '')) setNeedsApiKey(true);
@@ -880,19 +871,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                           onChange={(e) => {
                             const files = Array.from(e.target.files || []);
                             e.target.value = '';
-                            const remainingSlots = MAX_VIDEO_IMAGES - videoImages.length;
-                            files.slice(0, Math.max(remainingSlots, 0)).forEach((file) => {
-                              const reader = new FileReader();
-                              reader.onloadend = () => {
-                                const base64 = (reader.result as string).split(',')[1];
-                                if (base64) {
-                                  setVideoImages((current) => (
-                                    current.length >= MAX_VIDEO_IMAGES ? current : [...current, { base64, mimeType: file.type }]
-                                  ));
-                                }
-                              };
-                              reader.readAsDataURL(file);
-                            });
+                            readImagesIntoState(files, MAX_VIDEO_IMAGES, videoImages.length, setVideoImages);
                           }}
                         />
                       </label>
