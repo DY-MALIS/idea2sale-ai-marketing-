@@ -333,7 +333,18 @@ export default async function handler(req, res) {
   }
 
   const update = req.body || {};
-  const message = update.message || update.edited_message || update.channel_post || update.edited_channel_post;
+
+  // Channel posts include this app's own scheduled content arriving in the
+  // channel (see api/telegram/run-scheduled.js / deliver.js) — auto-replying
+  // to those created a self-reply loop where the bot "answered" its own
+  // scheduled posts with a generic assistant greeting. Only direct
+  // messages to the bot (private/group chat) should get a conversational
+  // AI reply; channel posts are never a question that needs answering.
+  if (update.channel_post || update.edited_channel_post) {
+    return res.status(200).json({ ok: true, ignored: 'channel_post' });
+  }
+
+  const message = update.message || update.edited_message;
   const chatId = message?.chat?.id;
   const text = String(message?.text || message?.caption || '').trim();
 
