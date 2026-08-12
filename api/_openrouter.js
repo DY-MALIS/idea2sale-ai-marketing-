@@ -67,6 +67,12 @@ export async function synthesizeSpeechViaOpenRouter({ input, model, voice, forma
     throw new Error(`OpenRouter TTS failed (${response.status}): ${errorText.slice(0, 400) || response.statusText}`);
   }
   const arrayBuffer = await response.arrayBuffer();
+  // Raw pcm has no container/header at all — wrap it in a WAV header (like the
+  // chat-completions audio path already does) so it's actually playable/decodable,
+  // rather than a bare byte stream mislabeled as audio/pcm.
+  if (format === 'pcm') {
+    return { audioUrl: pcm16ChunksToWavDataUrl([Buffer.from(arrayBuffer).toString('base64')]) };
+  }
   return {
     audioUrl: fileToDataUrl(Buffer.from(arrayBuffer).toString('base64'), format === 'mp3' ? 'audio/mpeg' : 'audio/pcm'),
   };
