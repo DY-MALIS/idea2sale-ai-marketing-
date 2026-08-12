@@ -9,6 +9,20 @@ import {
   transcribeAudioWithOpenRouter,
 } from './_openrouter.js';
 
+// Gemini's TTS voice names are unrelated to gpt-audio-mini's OpenAI-style voice
+// names ('nova', 'onyx', etc.) that the frontend's Sreymom/Piseth personas send.
+// Without this mapping, the primary Gemini TTS path ignored the requested voice
+// entirely and always spoke as the same fixed voice regardless of which persona
+// (male or female) the user picked.
+const GEMINI_VOICE_BY_OPENAI_VOICE = {
+  nova: 'Kore', // Sreymom (female persona)
+  onyx: 'Puck', // Piseth (male persona)
+  alloy: 'Kore',
+  echo: 'Puck',
+  fable: 'Kore',
+  shimmer: 'Kore',
+};
+
 const MAX_AGENT_IMAGES = 4;
 const MAX_VIDEO_REFERENCE_IMAGES = 20;
 // Google Veo 3.1 (the underlying video model) only accepts these exact
@@ -544,7 +558,9 @@ Response rules:
       // to the Google Translate voice, if each preceding tier fails.
       try {
         const geminiModel = process.env.OPEN_ROUTER_TTS_GEMINI_MODEL || 'google/gemini-3.1-flash-tts-preview';
-        const geminiVoice = process.env.OPEN_ROUTER_TTS_GEMINI_VOICE || 'Kore';
+        // The persona/gender the caller actually asked for takes priority over the
+        // env var, which is only a fallback default for requests with no voice at all.
+        const geminiVoice = GEMINI_VOICE_BY_OPENAI_VOICE[voice] || process.env.OPEN_ROUTER_TTS_GEMINI_VOICE || 'Kore';
         const audio = await synthesizeSpeechViaOpenRouter({ input, model: geminiModel, voice: geminiVoice, format: 'pcm' });
         return res.status(200).json(audio);
       } catch (geminiError) {
