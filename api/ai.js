@@ -5,6 +5,7 @@ import {
   generateTranslateSpeech,
   pollOpenRouterVideo,
   startOpenRouterVideo,
+  synthesizeSpeechViaOpenRouter,
   transcribeAudioWithOpenRouter,
 } from './_openrouter.js';
 
@@ -533,6 +534,16 @@ Response rules:
         }
         throw error;
       }
+    }
+
+    if (action === 'ttsSynthesize') {
+      const input = String(req.body?.input || '').trim();
+      const model = String(req.body?.model || '').trim();
+      const voice = String(req.body?.voice || '').trim();
+      const format = String(req.body?.format || 'mp3');
+      if (!input || !model) return res.status(400).json({ error: 'input and model are required.' });
+      const audio = await synthesizeSpeechViaOpenRouter({ input, model, voice: voice || undefined, format });
+      return res.status(200).json(audio);
     }
 
     if (action === 'sttTranscribe') {

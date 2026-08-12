@@ -52,6 +52,26 @@ export async function transcribeAudioWithOpenRouter({ audioBase64, format = 'wav
   return transcript.trim();
 }
 
+// Text-to-speech via OpenRouter's dedicated /audio/speech endpoint — separate from
+// generateOpenRouterSpeech (which uses chat-completions audio output for gpt-audio
+// models). Dedicated TTS-only models like Gemini's TTS family are exposed through
+// this endpoint instead, mirroring the same dedicated-endpoint pattern as transcription.
+export async function synthesizeSpeechViaOpenRouter({ input, model, voice, format = 'mp3' }) {
+  const response = await fetch(`${OPENROUTER_BASE_URL}/audio/speech`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify({ model, input, voice, response_format: format }),
+  });
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    throw new Error(`OpenRouter TTS failed (${response.status}): ${errorText.slice(0, 400) || response.statusText}`);
+  }
+  const arrayBuffer = await response.arrayBuffer();
+  return {
+    audioUrl: fileToDataUrl(Buffer.from(arrayBuffer).toString('base64'), format === 'mp3' ? 'audio/mpeg' : 'audio/pcm'),
+  };
+}
+
 export async function generateOpenRouterText({
   prompt,
   system = 'You are a helpful marketing assistant.',
