@@ -142,12 +142,20 @@ const overlayLogoOnVideo = async (videoDataUrl: string, logoDataUrl: string): Pr
 // segment's generation as a reference image, giving chained clips visual
 // continuity instead of jump-cutting to an unrelated scene.
 const extractLastFrame = async (videoUrl: string): Promise<{ base64: string; mimeType: string }> => {
-  const { fetchFile } = await import('@ffmpeg/util');
-  const ffmpeg = await getFFmpeg();
-  await ffmpeg.writeFile('frame_source.mp4', await fetchFile(videoUrl));
-  await ffmpeg.exec(['-sseof', '-1', '-i', 'frame_source.mp4', '-update', '1', '-q:v', '2', 'last_frame.jpg']);
-  const data = await ffmpeg.readFile('last_frame.jpg');
-  return { base64: uint8ArrayToBase64(data as Uint8Array), mimeType: 'image/jpeg' };
+  try {
+    const { fetchFile } = await import('@ffmpeg/util');
+    const ffmpeg = await getFFmpeg();
+    await ffmpeg.writeFile('frame_source.mp4', await fetchFile(videoUrl));
+    await ffmpeg.exec(['-sseof', '-1', '-i', 'frame_source.mp4', '-update', '1', '-q:v', '2', 'last_frame.jpg']);
+    const data = await ffmpeg.readFile('last_frame.jpg');
+    return { base64: uint8ArrayToBase64(data as Uint8Array), mimeType: 'image/jpeg' };
+  } catch (error) {
+    // ffmpeg.wasm can reject with a bare string or an object with no readable
+    // .message (e.g. an out-of-memory abort) — normalize so the failure is
+    // never silently mistaken for an OpenRouter API/credits problem upstream.
+    console.error('extractLastFrame failed:', error);
+    throw new Error('Could not prepare the next video segment (ran out of browser memory while chaining clips). Try a shorter total duration.');
+  }
 };
 
 // Joins multiple generated clips (all the same resolution/codec, since they
@@ -155,24 +163,31 @@ const extractLastFrame = async (videoUrl: string): Promise<{ base64: string; mim
 // ffmpeg's concat demuxer, which stream-copies instead of re-encoding.
 const concatenateVideoClips = async (clipUrls: string[]): Promise<string> => {
   if (clipUrls.length <= 1) return clipUrls[0];
-  const { fetchFile } = await import('@ffmpeg/util');
-  const ffmpeg = await getFFmpeg();
-  const fileNames: string[] = [];
-  for (let i = 0; i < clipUrls.length; i += 1) {
-    const name = `segment_${i}.mp4`;
-    await ffmpeg.writeFile(name, await fetchFile(clipUrls[i]));
-    fileNames.push(name);
+  try {
+    const { fetchFile } = await import('@ffmpeg/util');
+    const ffmpeg = await getFFmpeg();
+    const fileNames: string[] = [];
+    for (let i = 0; i < clipUrls.length; i += 1) {
+      const name = `segment_${i}.mp4`;
+      await ffmpeg.writeFile(name, await fetchFile(clipUrls[i]));
+      fileNames.push(name);
+    }
+    await ffmpeg.writeFile('concat_list.txt', fileNames.map((name) => `file '${name}'`).join('\n'));
+    await ffmpeg.exec(['-f', 'concat', '-safe', '0', '-i', 'concat_list.txt', '-c', 'copy', 'concat_output.mp4']);
+    const data = await ffmpeg.readFile('concat_output.mp4');
+    const blob = new Blob([data.buffer], { type: 'video/mp4' });
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error('Could not merge the video segments.'));
+      reader.readAsDataURL(blob);
+    });
+  } catch (error) {
+    // Same rationale as extractLastFrame: never let a raw, message-less
+    // ffmpeg.wasm failure surface as a misleading "check your API key" error.
+    console.error('concatenateVideoClips failed:', error);
+    throw new Error('Could not merge the video segments (ran out of browser memory while combining clips). Try a shorter total duration.');
   }
-  await ffmpeg.writeFile('concat_list.txt', fileNames.map((name) => `file '${name}'`).join('\n'));
-  await ffmpeg.exec(['-f', 'concat', '-safe', '0', '-i', 'concat_list.txt', '-c', 'copy', 'concat_output.mp4']);
-  const data = await ffmpeg.readFile('concat_output.mp4');
-  const blob = new Blob([data.buffer], { type: 'video/mp4' });
-  return await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve(reader.result as string);
-    reader.onerror = () => reject(new Error('Could not merge the video segments.'));
-    reader.readAsDataURL(blob);
-  });
 };
 
 // Starts one Veo generation and polls until the clip is ready.
@@ -540,8 +555,17 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       return;
     } catch (error: any) {
       console.error(error);
-      if (/OPEN_ROUTER_API_KEY|api key/i.test(error.message || '')) setNeedsApiKey(true);
-      notify(error.message || 'Error generating video. Please check your OpenRouter API key and credits.', 'error');
+      // ffmpeg.wasm and other browser-side steps can reject with something
+      // that isn't a normal Error (a bare string, or an object with no usable
+      // .message) — fall back to a neutral message instead of always blaming
+      // the OpenRouter API key/credits, which is only sometimes the real cause.
+      const errorMessage = typeof error?.message === 'string' && error.message.trim()
+        ? error.message
+        : typeof error === 'string' && error.trim()
+          ? error
+          : 'Video generation failed for an unknown reason. Please try again.';
+      if (/OPEN_ROUTER_API_KEY|api key/i.test(errorMessage)) setNeedsApiKey(true);
+      notify(errorMessage, 'error');
     } finally {
       setLoading(false);
     }
