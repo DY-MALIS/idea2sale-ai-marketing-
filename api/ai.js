@@ -539,9 +539,10 @@ Response rules:
       const audioBase64 = String(req.body?.audioBase64 || '').trim();
       const format = String(req.body?.format || 'wav');
       const languageHint = String(req.body?.languageHint || 'auto');
+      const model = req.body?.model ? String(req.body.model) : undefined;
       if (!audioBase64) return res.status(400).json({ error: 'Audio is required.' });
-      const transcript = await transcribeAudioWithOpenRouter({ audioBase64, format, languageHint });
-      return res.status(200).json({ transcript });
+      const transcript = await transcribeAudioWithOpenRouter({ audioBase64, format, languageHint, model });
+      return res.status(200).json({ transcript, model: model || process.env.OPEN_ROUTER_STT_MODEL || 'google/gemini-2.5-flash' });
     }
 
     if (action === 'videoGenerate') {

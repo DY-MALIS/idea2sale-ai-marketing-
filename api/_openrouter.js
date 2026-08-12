@@ -34,8 +34,8 @@ const fileToDataUrl = (base64, mimeType) => `data:${mimeType};base64,${base64}`;
 // built-in Web Speech API (SpeechRecognition) — that API's Khmer support is
 // patchy-to-nonexistent across browsers, while a general multimodal model
 // handles Khmer transcription reliably.
-export async function transcribeAudioWithOpenRouter({ audioBase64, format = 'wav', languageHint = 'auto' }) {
-  const model = process.env.OPEN_ROUTER_STT_MODEL || process.env.OPEN_ROUTER_TTS_MODEL || 'openai/gpt-audio-mini';
+export async function transcribeAudioWithOpenRouter({ audioBase64, format = 'wav', languageHint = 'auto', model: modelOverride }) {
+  const model = modelOverride || process.env.OPEN_ROUTER_STT_MODEL || 'google/gemini-2.5-flash';
   const data = await openRouterJson('/chat/completions', {
     model,
     messages: [
