@@ -520,14 +520,13 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
               });
               const ttsData = await ttsResponse.json();
               if (ttsResponse.ok && ttsData.audioUrl) {
-                // The Google Translate fallback already renders its audio at 2x speed at the
-                // source (see generateTranslateSpeech's ttsspeed param) — only speed up the
-                // main model's narration here, otherwise the fallback would get sped up twice
-                // and end up unintelligibly fast. Gemini TTS (the current primary engine)
-                // already speaks at a brisk natural pace, so only a light nudge is applied —
-                // the old 1.6x was tuned for gpt-audio-mini's slower default cadence and made
-                // Gemini's output sound rushed.
-                video = await applyVoiceOver(video, ttsData.audioUrl, ttsData.fallbackReason ? 1 : 1.15);
+                // No artificial speed-up: Gemini TTS (the current primary engine)
+                // already speaks at a natural human pace, and any further atempo
+                // stretch — even a mild one — trades naturalness for fitting more
+                // words into the clip, which is the wrong trade for how this
+                // narration is meant to sound. (The Google Translate fallback
+                // renders at 2x speed at its own source, unrelated to this factor.)
+                video = await applyVoiceOver(video, ttsData.audioUrl, 1);
                 if (ttsData.fallbackReason && hasKhmerText) {
                   setVideoVoiceQualityNotice(language === 'km'
                     ? 'សំឡេងក្នុង video នេះបានប្រើសំឡេងបម្រុង (Google TTS) ដែលអានមិនច្បាស់ ព្រោះម៉ូដែលសំឡេងសំខាន់មិនអាចប្រើបានពេលនេះ។ សូមសាកល្បងបង្កើត video ម្តងទៀត។'
