@@ -17,7 +17,7 @@ import Auth from './components/Auth';
 import LegalPage from './components/LegalPage';
 import SecurityCenter from './components/SecurityCenter';
 import BusinessProfile from './components/BusinessProfile';
-import { CreativeAutomationRequest, TabType } from './types';
+import { CreativeAutomationRequest, ScheduleHandoffRequest, TabType } from './types';
 import { useLanguage } from './contexts/LanguageContext';
 import { useAuth } from './contexts/AuthContext';
 import { useTheme } from './contexts/ThemeContext';
@@ -34,6 +34,7 @@ export default function App() {
   const [showLanguageMenu, setShowLanguageMenu] = useState(false);
   const [showBusinessProfile, setShowBusinessProfile] = useState(false);
   const [creativeAutomation, setCreativeAutomation] = useState<CreativeAutomationRequest | null>(null);
+  const [scheduleHandoff, setScheduleHandoff] = useState<ScheduleHandoffRequest | null>(null);
 
   const { language, setLanguage, t } = useLanguage();
   const { theme, toggleTheme } = useTheme();
@@ -69,6 +70,15 @@ export default function App() {
     setCreativeAutomation((current) => current?.id === requestId ? null : current);
   };
 
+  const handleScheduleHandoff = (request: ScheduleHandoffRequest) => {
+    setScheduleHandoff(request);
+    setActiveTab('scheduler');
+  };
+
+  const consumeScheduleHandoff = (requestId: string) => {
+    setScheduleHandoff((current) => current?.id === requestId ? null : current);
+  };
+
   const renderContent = () => {
     switch (activeTab) {
       case 'copywriter': return <Copywriter />;
@@ -76,18 +86,25 @@ export default function App() {
         <PosterGen
           automationRequest={creativeAutomation?.kind === 'image' ? creativeAutomation : null}
           onAutomationConsumed={consumeCreativeAutomation}
+          onScheduleHandoff={handleScheduleHandoff}
         />
       );
       case 'video-voice': return (
         <VideoVoice
           automationRequest={creativeAutomation?.kind === 'video' ? creativeAutomation : null}
           onAutomationConsumed={consumeCreativeAutomation}
+          onScheduleHandoff={handleScheduleHandoff}
         />
       );
       case 'tiktok': return <TikTokAnalytics />;
       case 'product-research': return <ProductResearch />;
       case 'ads-manager': return <AdsManager />;
-      case 'scheduler': return <SchedulerHub />;
+      case 'scheduler': return (
+        <SchedulerHub
+          handoffRequest={scheduleHandoff}
+          onHandoffConsumed={consumeScheduleHandoff}
+        />
+      );
       case 'ai-agent': return <AIAgent onCreativeAutomation={handleCreativeAutomation} />;
       case 'crm': return <CRM />;
       case 'automation': return <Automation />;

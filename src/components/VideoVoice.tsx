@@ -18,7 +18,7 @@ import { db } from '../lib/firebase';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../hooks/useToast';
-import { BusinessProfileData, CreativeAutomationRequest } from '../types';
+import { BusinessProfileData, CreativeAutomationRequest, ScheduleHandoffRequest } from '../types';
 
 type ToolType = 'video' | 'voice';
 type VoiceGender = 'Female' | 'Male';
@@ -213,9 +213,10 @@ const generateVideoClip = async (
 interface VideoVoiceProps {
   automationRequest?: CreativeAutomationRequest | null;
   onAutomationConsumed?: (requestId: string) => void;
+  onScheduleHandoff?: (request: ScheduleHandoffRequest) => void;
 }
 
-const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomationConsumed }) => {
+const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomationConsumed, onScheduleHandoff }) => {
   const { t, language } = useLanguage();
   const { user, isDemoMode } = useAuth();
   const { notify, ToastHost } = useToast();
@@ -715,6 +716,17 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     });
 
     return segments.filter((segment) => segment.text.trim());
+  };
+
+  const handleScheduleThisVideo = () => {
+    if (!generatedVideo) return;
+    onScheduleHandoff?.({
+      id: `${Date.now()}-video`,
+      kind: 'video',
+      mediaDataUrl: generatedVideo,
+      mediaName: `idea2sale-video-${Date.now()}.mp4`,
+      caption: aiCaption.trim() || videoPrompt.trim(),
+    });
   };
 
   const handleDownload = () => {
@@ -1231,8 +1243,8 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                         {t('connectTiktok')}
                       </button>
                     )}
-                    <button 
-                      onClick={() => notify('Use Smart Scheduler to schedule this video for later. Direct TikTok auto-post requires TikTok Content Posting approval.', 'error')}
+                    <button
+                      onClick={handleScheduleThisVideo}
                       className="p-4 bg-brand-100 text-brand-700 rounded-2xl hover:bg-brand-200 transition-all border border-brand-200"
                       title="Schedule for later"
                     >

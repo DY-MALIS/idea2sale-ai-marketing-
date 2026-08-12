@@ -1,10 +1,11 @@
 import React, { useRef, useState } from 'react';
-import { 
-  Sparkles, 
-  Image as ImageIcon, 
+import {
+  Sparkles,
+  Image as ImageIcon,
   Download,
   Loader2,
-  RefreshCw
+  RefreshCw,
+  Calendar
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -13,7 +14,7 @@ import { db } from '../lib/firebase';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../hooks/useToast';
-import { BusinessProfileData, CreativeAutomationRequest } from '../types';
+import { BusinessProfileData, CreativeAutomationRequest, ScheduleHandoffRequest } from '../types';
 
 const LOGO_MARGIN_RATIO = 0.04;
 const LOGO_WIDTH_RATIO = 0.16;
@@ -53,9 +54,10 @@ type ToolType = 'poster' | 'visual';
 interface PosterGenProps {
   automationRequest?: CreativeAutomationRequest | null;
   onAutomationConsumed?: (requestId: string) => void;
+  onScheduleHandoff?: (request: ScheduleHandoffRequest) => void;
 }
 
-const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationConsumed }) => {
+const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationConsumed, onScheduleHandoff }) => {
   const { t, language } = useLanguage();
   const { user, isDemoMode } = useAuth();
   const { notify, ToastHost } = useToast();
@@ -279,6 +281,20 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
     }
   };
 
+  const handleScheduleThisImage = () => {
+    if (!generatedImage) return;
+    const caption = activeTool === 'poster'
+      ? `${posterDetails.headline} — ${posterDetails.cta}`.slice(0, 90)
+      : visualPrompt.trim();
+    onScheduleHandoff?.({
+      id: `${Date.now()}-image`,
+      kind: 'image',
+      mediaDataUrl: generatedImage,
+      mediaName: `idea2sale-image-${Date.now()}.png`,
+      caption,
+    });
+  };
+
   return (
     <div className="max-w-6xl mx-auto space-y-10">
       <ToastHost />
@@ -488,12 +504,12 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
               </AnimatePresence>
               
               {generatedImage && (
-                <div className="mt-6">
+                <div className="mt-6 flex gap-4">
                   {tiktokUser ? (
                     <button
                       onClick={handlePostToTikTokPhoto}
                       disabled={isPostingTikTok}
-                      className="w-full bg-black text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-3 shadow-xl hover:bg-slate-900 transition-all disabled:opacity-50"
+                      className="flex-1 bg-black text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-3 shadow-xl hover:bg-slate-900 transition-all disabled:opacity-50"
                     >
                       {isPostingTikTok ? <Loader2 size={20} className="animate-spin" /> : (
                         <svg viewBox="0 0 24 24" className="w-5 h-5 fill-white" xmlns="http://www.w3.org/2000/svg">
@@ -506,7 +522,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
                     <button
                       onClick={handleTikTokAuth}
                       disabled={isAuthenticating}
-                      className="w-full bg-brand-600 text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-3 shadow-xl hover:bg-brand-700 transition-all disabled:opacity-50"
+                      className="flex-1 bg-brand-600 text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-3 shadow-xl hover:bg-brand-700 transition-all disabled:opacity-50"
                     >
                       {isAuthenticating ? <Loader2 size={20} className="animate-spin" /> : (
                         <svg viewBox="0 0 24 24" className="w-5 h-5 fill-white" xmlns="http://www.w3.org/2000/svg">
@@ -516,6 +532,13 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
                       {t('connectTiktok')}
                     </button>
                   )}
+                  <button
+                    onClick={handleScheduleThisImage}
+                    className="p-4 bg-brand-100 text-brand-700 rounded-2xl hover:bg-brand-200 transition-all border border-brand-200"
+                    title="Schedule for later"
+                  >
+                    <Calendar size={24} />
+                  </button>
                 </div>
               )}
             </div>

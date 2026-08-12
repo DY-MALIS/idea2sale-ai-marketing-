@@ -12,6 +12,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { saveLocalMedia } from '../lib/localMediaStore';
 
 import { useAuth } from '../contexts/AuthContext';
+import { ScheduleHandoffRequest } from '../types';
 
 const MB = 1024 * 1024;
 const TELEGRAM_SERVER_MEDIA_LIMIT_MB = 48;
@@ -35,13 +36,19 @@ const saveCompactLocalPosts = (posts: any[]) => {
   localStorage.setItem(LOCAL_POSTS_KEY, JSON.stringify(compactPosts));
 };
 
-const SchedulerHub: React.FC = () => {
+interface SchedulerHubProps {
+  handoffRequest?: ScheduleHandoffRequest | null;
+  onHandoffConsumed?: (requestId: string) => void;
+}
+
+const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffConsumed }) => {
   const { t } = useLanguage();
   const { user, isDemoMode } = useAuth();
   const [activityVersion, setActivityVersion] = useState(0);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const handledHandoffRef = React.useRef<string | null>(null);
 
   // Helper for local datetime string
   const getLocalISOString = (date: Date) => {
@@ -60,6 +67,33 @@ const SchedulerHub: React.FC = () => {
     nextHour.setMinutes(0);
     return getLocalISOString(nextHour);
   });
+
+  // Consumes a "schedule this" handoff from PosterGen/VideoVoice: prefills the
+  // create-post form with the generated media + caption and opens the modal,
+  // defaulting to Telegram since it's the only platform this app can actually
+  // auto-publish to on a schedule (TikTok requires the user's own connected
+  // session at publish time, so it can't be pre-scheduled from a handoff).
+  React.useEffect(() => {
+    if (!handoffRequest || handledHandoffRef.current === handoffRequest.id) return;
+    handledHandoffRef.current = handoffRequest.id;
+
+    (async () => {
+      try {
+        const response = await fetch(handoffRequest.mediaDataUrl);
+        const blob = await response.blob();
+        const mimeType = handoffRequest.kind === 'video' ? 'video/mp4' : 'image/png';
+        const file = new File([blob], handoffRequest.mediaName, { type: blob.type || mimeType });
+        setTelegramMediaFile(file);
+      } catch (error) {
+        console.error('Could not attach the generated media to the scheduler:', error);
+      }
+    })();
+
+    setContent(handoffRequest.caption);
+    setPlatform('TELEGRAM');
+    setIsModalOpen(true);
+    onHandoffConsumed?.(handoffRequest.id);
+  }, [handoffRequest?.id]);
 
   const handleTrainingComplete = () => {
     setActivityVersion(v => v + 1);

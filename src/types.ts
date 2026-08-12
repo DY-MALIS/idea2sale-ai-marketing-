@@ -41,6 +41,14 @@ export interface CreativeAutomationRequest {
   voiceOverText?: string;
 }
 
+export interface ScheduleHandoffRequest {
+  id: string;
+  kind: 'image' | 'video';
+  mediaDataUrl: string;
+  mediaName: string;
+  caption: string;
+}
+
 export interface SchedulePost {
   id: string;
   content: string;
