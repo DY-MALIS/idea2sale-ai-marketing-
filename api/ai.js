@@ -521,6 +521,21 @@ Response rules:
       const languageHint = String(req.body?.languageHint || 'auto');
       const performanceStyle = String(req.body?.performanceStyle || 'warm, expressive, natural, emotional human voice with realistic pauses');
       if (!input) return res.status(400).json({ error: 'Text is required.' });
+
+      // Gemini's dedicated TTS model is tried first \u2014 it advertises much broader
+      // language coverage (70+ languages) than the general-purpose gpt-audio-mini
+      // chat model used below, which is a plausible fit for clearer Khmer narration.
+      // Falls back to the previously-default gpt-audio-mini path, then (Khmer only)
+      // to the Google Translate voice, if each preceding tier fails.
+      try {
+        const geminiModel = process.env.OPEN_ROUTER_TTS_GEMINI_MODEL || 'google/gemini-3.1-flash-tts-preview';
+        const geminiVoice = process.env.OPEN_ROUTER_TTS_GEMINI_VOICE || 'Kore';
+        const audio = await synthesizeSpeechViaOpenRouter({ input, model: geminiModel, voice: geminiVoice, format: 'pcm' });
+        return res.status(200).json(audio);
+      } catch (geminiError) {
+        console.error('Gemini TTS failed, falling back to gpt-audio-mini:', geminiError?.message);
+      }
+
       try {
         const audio = await generateOpenRouterSpeech({ input, voice, languageHint, performanceStyle });
         return res.status(200).json(audio);
