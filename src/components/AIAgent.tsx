@@ -61,7 +61,10 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   // UI display language, since people often keep the interface in one language while
   // speaking another (e.g. English UI, Khmer speech) — tying recognition to the UI
   // language made the recognizer use the wrong locale and mangle the transcript.
-  const [voiceInputLanguage, setVoiceInputLanguage] = useState<'km' | 'en'>(language === 'km' ? 'km' : 'en');
+  // Defaults to Khmer regardless of UI language, since this app's users speak Khmer
+  // far more often than the UI happens to be set to Khmer (the toggle still lets
+  // anyone switch to English before recording).
+  const [voiceInputLanguage, setVoiceInputLanguage] = useState<'km' | 'en'>('km');
   const conversationEndRef = useRef<HTMLDivElement>(null);
   const requestControllerRef = useRef<AbortController | null>(null);
   // Holds the live mic recording session (raw PCM capture, not the browser's
