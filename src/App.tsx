@@ -82,20 +82,10 @@ export default function App() {
   const renderContent = () => {
     switch (activeTab) {
       case 'copywriter': return <Copywriter />;
-      case 'poster-gen': return (
-        <PosterGen
-          automationRequest={creativeAutomation?.kind === 'image' ? creativeAutomation : null}
-          onAutomationConsumed={consumeCreativeAutomation}
-          onScheduleHandoff={handleScheduleHandoff}
-        />
-      );
-      case 'video-voice': return (
-        <VideoVoice
-          automationRequest={creativeAutomation?.kind === 'video' ? creativeAutomation : null}
-          onAutomationConsumed={consumeCreativeAutomation}
-          onScheduleHandoff={handleScheduleHandoff}
-        />
-      );
+      // poster-gen and video-voice are rendered persistently below, not here — see
+      // the comment above that block for why.
+      case 'poster-gen': return null;
+      case 'video-voice': return null;
       case 'tiktok': return <TikTokAnalytics />;
       case 'product-research': return <ProductResearch />;
       case 'ads-manager': return <AdsManager />;
@@ -236,6 +226,29 @@ export default function App() {
                   {renderContent()}
                 </motion.div>
               </AnimatePresence>
+
+              {/* PosterGen and VideoVoice stay mounted permanently instead of going through
+                  the animated/keyed switch above (which unmounts + remounts on every tab
+                  change) — both can have a generation job running in the background for
+                  minutes after the AI Agent auto-navigates here, and unmounting mid-generation
+                  (e.g. the user checks another tab while it's still running) silently loses
+                  the result forever with no error, since it finishes inside an already-dead
+                  component instance. CSS visibility keeps their state alive across tab
+                  switches instead. */}
+              <div className={activeTab === 'poster-gen' ? '' : 'hidden'}>
+                <PosterGen
+                  automationRequest={creativeAutomation?.kind === 'image' ? creativeAutomation : null}
+                  onAutomationConsumed={consumeCreativeAutomation}
+                  onScheduleHandoff={handleScheduleHandoff}
+                />
+              </div>
+              <div className={activeTab === 'video-voice' ? '' : 'hidden'}>
+                <VideoVoice
+                  automationRequest={creativeAutomation?.kind === 'video' ? creativeAutomation : null}
+                  onAutomationConsumed={consumeCreativeAutomation}
+                  onScheduleHandoff={handleScheduleHandoff}
+                />
+              </div>
             </div>
           </main>
         </div>
