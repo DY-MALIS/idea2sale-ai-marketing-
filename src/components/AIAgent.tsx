@@ -363,7 +363,12 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       if (!response.ok) throw new Error(data.error || 'Transcription failed.');
       const transcript = String(data.transcript || '').trim();
       if (transcript) {
-        setInput((current) => (current ? `${current} ${transcript}` : transcript));
+        // Auto-send right after a successful transcription, like a real voice
+        // assistant — requiring a manual click on top of speaking made voice
+        // input feel like dictation rather than an actual voice command.
+        const combinedMessage = input.trim() ? `${input.trim()} ${transcript}` : transcript;
+        setInput(combinedMessage);
+        void askAgent(combinedMessage);
       } else {
         notify(language === 'km' ? 'មិនបានលឺសំឡេងអ្វីទេ។ សូមសាកល្បងម្តងទៀត។' : 'No speech was detected. Please try again.', 'error');
       }
@@ -398,8 +403,8 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     })();
   };
 
-  const askAgent = async () => {
-    const message = input.trim();
+  const askAgent = async (messageOverride?: string) => {
+    const message = (typeof messageOverride === 'string' ? messageOverride : input).trim();
     if ((!message && !attachedImages.length) || loading) return;
 
     const history = messages.slice(-HISTORY_MESSAGES);
