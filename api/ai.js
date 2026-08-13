@@ -9,6 +9,15 @@ import {
   transcribeAudioWithOpenRouter,
 } from './_openrouter.js';
 
+// Vercel's default serverless function timeout (10s on Hobby) is too short for
+// transcribing a long voice recording (the AI Agent's voice input now allows up to
+// 10 minutes of audio) — the request to the transcription provider is a single call
+// that blocks until the whole clip is processed. 60 is the maximum allowed on Hobby
+// and comfortably within Pro's default, so it's safe regardless of plan.
+export const config = {
+  maxDuration: 60,
+};
+
 // Gemini's TTS voice names are unrelated to gpt-audio-mini's OpenAI-style voice
 // names ('nova', 'onyx', etc.) that the frontend's Sreymom/Piseth personas send.
 // Without this mapping, the primary Gemini TTS path ignored the requested voice

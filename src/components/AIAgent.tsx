@@ -67,28 +67,30 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const [voiceInputLanguage, setVoiceInputLanguage] = useState<'km' | 'en'>('km');
   const conversationEndRef = useRef<HTMLDivElement>(null);
   const requestControllerRef = useRef<AbortController | null>(null);
-  // Holds the live mic recording session (raw PCM capture, not the browser's
-  // SpeechRecognition — see toggleVoiceInput for why).
-  const recordingRef = useRef<{
-    audioContext: AudioContext;
-    processor: ScriptProcessorNode;
-    source: MediaStreamAudioSourceNode;
-    stream: MediaStream;
-    chunks: Float32Array[];
-  } | null>(null);
+  // Holds the live mic recording session (not the browser's SpeechRecognition —
+  // see toggleVoiceInput for why). 'compressed' (MediaRecorder producing webm/opus
+  // or similar) is used whenever the browser supports it, since compressed audio
+  // is roughly 10x smaller per second than raw PCM for the same speech clarity —
+  // 'raw' (manual PCM capture via ScriptProcessorNode, wrapped in a WAV container)
+  // is the fallback for browsers without usable MediaRecorder audio support.
+  const recordingRef = useRef<
+    | { kind: 'compressed'; mediaRecorder: MediaRecorder; stream: MediaStream; chunks: Blob[]; mimeType: string; startedAt: number }
+    | { kind: 'raw'; audioContext: AudioContext; processor: ScriptProcessorNode; source: MediaStreamAudioSourceNode; stream: MediaStream; chunks: Float32Array[] }
+    | null
+  >(null);
   // Guards against overwriting the just-loaded saved conversation with an empty
   // autosave that could otherwise fire before the initial load resolves.
   const memoryLoadedRef = useRef(false);
   // Auto-stops a forgotten-open recording (e.g. the mic stays on because the user
-  // didn't realize it was still listening) — without this, the raw PCM buffer keeps
-  // growing indefinitely, and a many-minutes-long recording becomes a many-megabyte
-  // upload that can stall well past Vercel's request size/duration limits, leaving
-  // the UI stuck on "Transcribing..." with no error ever surfacing. 60s of 16kHz
-  // mono audio (the rate everything gets downsampled to before upload, see
-  // downsampleTo16kHz) base64-encodes to roughly 2.6MB, comfortably under Vercel's
-  // fixed 4.5MB request body limit.
+  // didn't realize it was still listening) — without this, the buffer keeps growing
+  // indefinitely, and a many-minutes-long recording becomes an upload that can stall
+  // well past Vercel's fixed 4.5MB request body limit, leaving the UI stuck on
+  // "Transcribing..." with no error ever surfacing. Compressed audio (~32kbps opus)
+  // fits 10 minutes in well under that limit; the raw-PCM fallback path cannot
+  // safely go nearly that long even downsampled to 16kHz, so it gets a shorter cap.
   const recordingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const MAX_RECORDING_MS = 60000;
+  const MAX_RECORDING_MS_COMPRESSED = 600000;
+  const MAX_RECORDING_MS_RAW = 60000;
 
   const micSupported = typeof navigator !== 'undefined' && Boolean(navigator.mediaDevices?.getUserMedia);
 
@@ -100,10 +102,14 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   useEffect(() => () => {
     const recording = recordingRef.current;
     if (!recording) return;
-    recording.processor.disconnect();
-    recording.source.disconnect();
     recording.stream.getTracks().forEach((track) => track.stop());
-    void recording.audioContext.close();
+    if (recording.kind === 'compressed') {
+      if (recording.mediaRecorder.state !== 'inactive') recording.mediaRecorder.stop();
+    } else {
+      recording.processor.disconnect();
+      recording.source.disconnect();
+      void recording.audioContext.close();
+    }
   }, []);
 
   // Long-term memory: reload the saved conversation and business profile so the
@@ -307,31 +313,48 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     return uint8ArrayToBase64(new Uint8Array(buffer));
   };
 
+  const getSupportedRecorderMimeType = (): string | null => {
+    if (typeof MediaRecorder === 'undefined') return null;
+    const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
+    return candidates.find((type) => MediaRecorder.isTypeSupported(type)) || null;
+  };
+
   const startRecording = async () => {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     try {
-      const AudioContextCtor = (window as any).AudioContext || (window as any).webkitAudioContext;
-      const audioContext: AudioContext = new AudioContextCtor();
-      const source = audioContext.createMediaStreamSource(stream);
-      // ScriptProcessorNode is deprecated in favor of AudioWorklet, but remains
-      // universally supported and is far simpler for a short-lived capture like this.
-      const processor = audioContext.createScriptProcessor(4096, 1, 1);
-      const chunks: Float32Array[] = [];
-      processor.onaudioprocess = (event: AudioProcessingEvent) => {
-        chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
-      };
-      source.connect(processor);
-      processor.connect(audioContext.destination);
-      recordingRef.current = { audioContext, processor, source, stream, chunks };
+      const mimeType = getSupportedRecorderMimeType();
+      if (mimeType) {
+        const mediaRecorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 32000 });
+        const chunks: Blob[] = [];
+        mediaRecorder.ondataavailable = (event: BlobEvent) => {
+          if (event.data.size > 0) chunks.push(event.data);
+        };
+        mediaRecorder.start();
+        recordingRef.current = { kind: 'compressed', mediaRecorder, stream, chunks, mimeType, startedAt: Date.now() };
+      } else {
+        const AudioContextCtor = (window as any).AudioContext || (window as any).webkitAudioContext;
+        const audioContext: AudioContext = new AudioContextCtor();
+        const source = audioContext.createMediaStreamSource(stream);
+        // ScriptProcessorNode is deprecated in favor of AudioWorklet, but remains
+        // universally supported and is far simpler for a short-lived capture like this.
+        const processor = audioContext.createScriptProcessor(4096, 1, 1);
+        const chunks: Float32Array[] = [];
+        processor.onaudioprocess = (event: AudioProcessingEvent) => {
+          chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+        };
+        source.connect(processor);
+        processor.connect(audioContext.destination);
+        recordingRef.current = { kind: 'raw', audioContext, processor, source, stream, chunks };
+      }
       recordingTimeoutRef.current = setTimeout(() => {
         setIsListening(false);
         void stopRecordingAndTranscribe();
-      }, MAX_RECORDING_MS);
+      }, mimeType ? MAX_RECORDING_MS_COMPRESSED : MAX_RECORDING_MS_RAW);
     } catch (error) {
       // getUserMedia already succeeded by this point — if any later setup step
-      // throws (AudioContext construction, node creation), the live mic track
-      // must still be released here, otherwise the browser's mic indicator
-      // stays on indefinitely with no way to stop it short of a page reload.
+      // throws (AudioContext/MediaRecorder construction, node creation), the live
+      // mic track must still be released here, otherwise the browser's mic
+      // indicator stays on indefinitely with no way to stop it short of a page reload.
       stream.getTracks().forEach((track) => track.stop());
       throw error;
     }
@@ -346,50 +369,93 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     recordingRef.current = null;
     if (!recording) return;
 
-    recording.processor.disconnect();
-    recording.source.disconnect();
-    recording.stream.getTracks().forEach((track) => track.stop());
-    const sampleRate = recording.audioContext.sampleRate;
-    await recording.audioContext.close();
+    const noSpeechMessage = language === 'km' ? 'មិនបានលឺសំឡេងអ្វីទេ។' : 'No speech was detected.';
+    const speakClearlyMessage = language === 'km'
+      ? 'មិនបានលឺសំឡេងអ្វីទេ។ សូមនិយាយឲ្យបានច្បាស់ជិតមីក្រូហ្វូន។'
+      : 'No speech was detected. Please speak clearly, close to the microphone.';
 
-    const totalLength = recording.chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-    if (totalLength === 0) {
-      notify(language === 'km' ? 'មិនបានលឺសំឡេងអ្វីទេ។' : 'No speech was detected.', 'error');
-      return;
+    let audioBase64: string;
+    let format: string;
+    let recordedSeconds = 0;
+
+    if (recording.kind === 'compressed') {
+      const { mediaRecorder, stream, chunks, mimeType, startedAt } = recording;
+      const durationSeconds = (Date.now() - startedAt) / 1000;
+      recordedSeconds = durationSeconds;
+      const stopped = new Promise<void>((resolve) => { mediaRecorder.onstop = () => resolve(); });
+      if (mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+      await stopped;
+      stream.getTracks().forEach((track) => track.stop());
+
+      const blob = new Blob(chunks, { type: mimeType });
+      // Speech models (Whisper/Chirp included) are known to hallucinate plausible-sounding
+      // but entirely made-up sentences when fed audio that's mostly silence or background
+      // noise, instead of reporting "no speech" — e.g. a tap that stops recording almost
+      // immediately, or a pause with only room noise. Reject that locally before sending
+      // it anywhere, rather than showing the user a confident but fabricated transcript.
+      // Raw sample amplitude isn't available for compressed audio without decoding it, so
+      // bytes-per-second of the encoded blob is used instead: opus's VBR encoding produces
+      // very few bytes for near-silence versus real speech at the ~32kbps target bitrate.
+      const MIN_DURATION_SECONDS = 0.5;
+      const MIN_BYTES_PER_SECOND = 300;
+      if (blob.size === 0 || durationSeconds < MIN_DURATION_SECONDS) {
+        notify(noSpeechMessage, 'error');
+        return;
+      }
+      if (blob.size / durationSeconds < MIN_BYTES_PER_SECOND) {
+        notify(speakClearlyMessage, 'error');
+        return;
+      }
+
+      audioBase64 = uint8ArrayToBase64(new Uint8Array(await blob.arrayBuffer()));
+      format = mimeType.includes('mp4') ? 'm4a' : mimeType.includes('ogg') ? 'ogg' : 'webm';
+    } else {
+      recording.processor.disconnect();
+      recording.source.disconnect();
+      recording.stream.getTracks().forEach((track) => track.stop());
+      const sampleRate = recording.audioContext.sampleRate;
+      await recording.audioContext.close();
+
+      const totalLength = recording.chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+      if (totalLength === 0) {
+        notify(noSpeechMessage, 'error');
+        return;
+      }
+
+      const merged = new Float32Array(totalLength);
+      let mergeOffset = 0;
+      for (const chunk of recording.chunks) {
+        merged.set(chunk, mergeOffset);
+        mergeOffset += chunk.length;
+      }
+
+      const durationSeconds = merged.length / sampleRate;
+      recordedSeconds = durationSeconds;
+      let sumSquares = 0;
+      for (let i = 0; i < merged.length; i += 1) sumSquares += merged[i] * merged[i];
+      const rms = Math.sqrt(sumSquares / merged.length);
+      const MIN_DURATION_SECONDS = 0.5;
+      const MIN_RMS = 0.01;
+      if (durationSeconds < MIN_DURATION_SECONDS || rms < MIN_RMS) {
+        notify(speakClearlyMessage, 'error');
+        return;
+      }
+
+      const downsampled = downsampleTo16kHz(merged, sampleRate);
+      audioBase64 = buildWavBase64(floatTo16BitPcm(downsampled.samples), downsampled.sampleRate);
+      format = 'wav';
     }
-
-    const merged = new Float32Array(totalLength);
-    let mergeOffset = 0;
-    for (const chunk of recording.chunks) {
-      merged.set(chunk, mergeOffset);
-      mergeOffset += chunk.length;
-    }
-
-    // Speech models (Whisper/Chirp included) are known to hallucinate plausible-sounding
-    // but entirely made-up sentences when fed audio that's mostly silence or background
-    // noise, instead of reporting "no speech" — e.g. a tap that stops recording almost
-    // immediately, or a pause with only room noise. Reject that locally before sending
-    // it anywhere, rather than showing the user a confident but fabricated transcript.
-    const durationSeconds = merged.length / sampleRate;
-    let sumSquares = 0;
-    for (let i = 0; i < merged.length; i += 1) sumSquares += merged[i] * merged[i];
-    const rms = Math.sqrt(sumSquares / merged.length);
-    const MIN_DURATION_SECONDS = 0.5;
-    const MIN_RMS = 0.01;
-    if (durationSeconds < MIN_DURATION_SECONDS || rms < MIN_RMS) {
-      notify(language === 'km' ? 'មិនបានលឺសំឡេងអ្វីទេ។ សូមនិយាយឲ្យបានច្បាស់ជិតមីក្រូហ្វូន។' : 'No speech was detected. Please speak clearly, close to the microphone.', 'error');
-      return;
-    }
-
-    const downsampled = downsampleTo16kHz(merged, sampleRate);
-    const audioBase64 = buildWavBase64(floatTo16BitPcm(downsampled.samples), downsampled.sampleRate);
 
     setIsTranscribing(true);
     // Without a client-side timeout, a stalled request (slow upload, a hung provider
     // call server-side) leaves "Transcribing..." spinning forever with no way out
     // short of reloading the page, since fetch() itself never times out on its own.
+    // Scales with recording length since a 10-minute clip genuinely needs more upload
+    // and processing time than a 5-second one — a fixed short timeout would wrongly
+    // abort long-but-healthy transcriptions before they finish.
+    const timeoutMs = Math.min(180000, Math.max(30000, 20000 + recordedSeconds * 1500));
     const timeoutController = new AbortController();
-    const timeoutId = setTimeout(() => timeoutController.abort(), 45000);
+    const timeoutId = setTimeout(() => timeoutController.abort(), timeoutMs);
     try {
       const response = await fetch('/api/ai', {
         method: 'POST',
@@ -398,7 +464,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         body: JSON.stringify({
           action: 'sttTranscribe',
           audioBase64,
-          format: 'wav',
+          format,
           languageHint: voiceInputLanguage === 'km' ? 'Khmer' : 'English',
         }),
       });
