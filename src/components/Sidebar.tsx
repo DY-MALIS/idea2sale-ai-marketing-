@@ -133,13 +133,23 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onLogout, on
         
         <motion.a
           whileTap={{ scale: 0.98 }}
+          href="https://t.me/aime_angkorgate_auto_bot"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="w-full flex items-center gap-3 px-4 py-3 text-brand-300/70 hover:bg-white/5 hover:text-white rounded-xl transition-all"
+        >
+          <Bot size={18} />
+          <span className="text-sm font-medium">{t('openTelegramBot')}</span>
+        </motion.a>
+        <motion.a
+          whileTap={{ scale: 0.98 }}
           href="https://t.me/aime_angkorgate"
           target="_blank"
           rel="noopener noreferrer"
           className="w-full flex items-center gap-3 px-4 py-3 text-brand-300/70 hover:bg-white/5 hover:text-white rounded-xl transition-all"
         >
           <Send size={18} />
-          <span className="text-sm font-medium">{t('openTelegram')}</span>
+          <span className="text-sm font-medium">{t('openTelegramChannel')}</span>
         </motion.a>
         <motion.button
           whileTap={{ scale: 0.98 }}
