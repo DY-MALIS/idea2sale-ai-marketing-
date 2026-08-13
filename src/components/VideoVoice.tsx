@@ -66,6 +66,27 @@ const getFFmpeg = async () => {
   return ffmpegLoadPromise;
 };
 
+// deleteFile() (used throughout this file) only removes entries from ffmpeg.wasm's
+// virtual filesystem — it does NOT shrink the underlying WASM linear memory, which
+// emscripten only ever grows, never releases, for the lifetime of one loaded instance.
+// Since getFFmpeg() reuses one singleton for the whole page session, memory from every
+// past voice-over/logo/frame/concat operation this tab has ever done stays reserved.
+// A multi-segment (16s/24s) video needs several full clips resident at once on top of
+// that accumulated high-water mark, so it can fail from session bloat even though the
+// same operation would succeed in a fresh tab. Terminating and letting getFFmpeg()
+// re-create the instance is the only way to actually reclaim that memory.
+const resetFFmpeg = async () => {
+  if (!ffmpegLoadPromise) return;
+  try {
+    const ffmpeg = await ffmpegLoadPromise;
+    ffmpeg.terminate();
+  } catch {
+    // ignore — instance may already be dead
+  } finally {
+    ffmpegLoadPromise = null;
+  }
+};
+
 // ffmpeg.wasm's virtual filesystem (MEMFS) keeps every written/output file in memory
 // until explicitly deleted, and getFFmpeg() reuses one singleton instance for the
 // whole page session — without this, every clip/frame/audio file from every step of
@@ -493,6 +514,9 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     setSegmentProgress(null);
     setMergingSegments(false);
     try {
+      // Start this generation with a clean ffmpeg.wasm memory slate instead of
+      // whatever accumulated from earlier videos generated in this browser tab.
+      await resetFFmpeg();
       const prompt = `${generationLanguage === 'Khmer' ? 'Khmer/Cambodian context. ' : ''}${promptText || 'Create a realistic short marketing video from the uploaded reference image.'}`;
       const segments = getVideoSegments(
         VIDEO_LENGTH_OPTIONS.includes(durationOverride as typeof VIDEO_LENGTH_OPTIONS[number]) ? (durationOverride as number) : videoDuration,
@@ -521,6 +545,9 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         } finally {
           setMergingSegments(false);
         }
+        // Free the memory used to hold every raw segment + the merge output before
+        // the (also memory-heavy) logo/voice-over post-processing steps run.
+        await resetFFmpeg();
       } else {
         video = clipUrls[0];
       }
