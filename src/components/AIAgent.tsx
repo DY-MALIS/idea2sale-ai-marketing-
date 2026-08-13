@@ -328,6 +328,23 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       merged.set(chunk, mergeOffset);
       mergeOffset += chunk.length;
     }
+
+    // Speech models (Whisper/Chirp included) are known to hallucinate plausible-sounding
+    // but entirely made-up sentences when fed audio that's mostly silence or background
+    // noise, instead of reporting "no speech" — e.g. a tap that stops recording almost
+    // immediately, or a pause with only room noise. Reject that locally before sending
+    // it anywhere, rather than showing the user a confident but fabricated transcript.
+    const durationSeconds = merged.length / sampleRate;
+    let sumSquares = 0;
+    for (let i = 0; i < merged.length; i += 1) sumSquares += merged[i] * merged[i];
+    const rms = Math.sqrt(sumSquares / merged.length);
+    const MIN_DURATION_SECONDS = 0.5;
+    const MIN_RMS = 0.01;
+    if (durationSeconds < MIN_DURATION_SECONDS || rms < MIN_RMS) {
+      notify(language === 'km' ? 'មិនបានលឺសំឡេងអ្វីទេ។ សូមនិយាយឲ្យបានច្បាស់ជិតមីក្រូហ្វូន។' : 'No speech was detected. Please speak clearly, close to the microphone.', 'error');
+      return;
+    }
+
     const audioBase64 = buildWavBase64(floatTo16BitPcm(merged), sampleRate);
 
     setIsTranscribing(true);
