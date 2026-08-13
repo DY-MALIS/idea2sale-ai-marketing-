@@ -55,6 +55,15 @@ const transcribeOnce = async ({ audioBase64, format, language, model }) => {
   return transcript.trim();
 };
 
+// Live testing surfaced Chirp 3 occasionally hallucinating a short, fluent-sounding
+// but completely fabricated result in the WRONG script even for real, clearly-spoken
+// Khmer audio (e.g. "मैं 1.7 100 x ^ 6Y" — Hindi script with random numbers, for
+// audio that was actually Khmer) — a 200 OK response with plausible-looking text, not
+// an error, so it can't be caught by try/catch. When Khmer was requested but the
+// result has no Khmer script at all, that mismatch itself is the strongest available
+// signal of a bad transcription.
+const looksLikeScriptMismatch = (text, language) => language === 'km' && text && !/[ក-៿]/.test(text);
+
 export async function transcribeAudioWithOpenRouter({ audioBase64, format = 'wav', languageHint = 'auto', model: modelOverride }) {
   const language = languageHint === 'Khmer' ? 'km' : languageHint === 'English' ? 'en' : undefined;
 
@@ -63,12 +72,27 @@ export async function transcribeAudioWithOpenRouter({ audioBase64, format = 'wav
   }
 
   const primaryModel = process.env.OPEN_ROUTER_STT_MODEL || 'google/chirp-3';
+  let primaryResult;
   try {
-    return await transcribeOnce({ audioBase64, format, language, model: primaryModel });
+    primaryResult = await transcribeOnce({ audioBase64, format, language, model: primaryModel });
+    if (!looksLikeScriptMismatch(primaryResult, language)) return primaryResult;
+    console.error(`STT model ${primaryModel} returned a script mismatch ("${primaryResult}"), retrying with openai/whisper-1`);
   } catch (error) {
     if (primaryModel === 'openai/whisper-1') throw error;
     console.error(`STT model ${primaryModel} failed, falling back to openai/whisper-1:`, error?.message);
-    return transcribeOnce({ audioBase64, format, language, model: 'openai/whisper-1' });
+  }
+
+  if (primaryModel === 'openai/whisper-1') return primaryResult;
+  try {
+    const fallbackResult = await transcribeOnce({ audioBase64, format, language, model: 'openai/whisper-1' });
+    // Prefer the fallback unless it's ALSO a script mismatch and the primary at least
+    // produced something plausible — in that case the primary's result, while
+    // unverified, is still more likely to be real than a second bad guess.
+    if (!looksLikeScriptMismatch(fallbackResult, language) || primaryResult === undefined) return fallbackResult;
+    return primaryResult;
+  } catch (fallbackError) {
+    if (primaryResult !== undefined) return primaryResult;
+    throw fallbackError;
   }
 }
 
