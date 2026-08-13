@@ -72,28 +72,36 @@ export async function transcribeAudioWithOpenRouter({ audioBase64, format = 'wav
   }
 
   const primaryModel = process.env.OPEN_ROUTER_STT_MODEL || 'google/chirp-3';
-  let primaryResult;
-  try {
-    primaryResult = await transcribeOnce({ audioBase64, format, language, model: primaryModel });
-    if (!looksLikeScriptMismatch(primaryResult, language)) return primaryResult;
-    console.error(`STT model ${primaryModel} returned a script mismatch ("${primaryResult}"), retrying with openai/whisper-1`);
-  } catch (error) {
-    if (primaryModel === 'openai/whisper-1') throw error;
-    console.error(`STT model ${primaryModel} failed, falling back to openai/whisper-1:`, error?.message);
+  // Exhaustively tested every other transcription model OpenRouter offers (openai's
+  // whole transcribe family, deepgram/nova-3, mistralai/voxtral-mini-transcribe,
+  // qwen3-asr, microsoft/mai-transcribe) against real Khmer audio — every one of them
+  // failed outright ("Provider returned 400"), consistent with Khmer being a
+  // low-resource language most providers simply don't support; Chirp 3 is the only
+  // one that works at all. So a *different* model is rarely a useful second opinion
+  // for Khmer specifically — retrying the SAME model first is more likely to help,
+  // since the observed failure (a fluent hallucination in the wrong script) looks
+  // like occasional non-deterministic sampling rather than a deterministic gap.
+  // Whisper is still tried last, purely for the non-Khmer/mixed-language case.
+  const attempts = primaryModel === 'openai/whisper-1'
+    ? [primaryModel]
+    : [primaryModel, primaryModel, 'openai/whisper-1'];
+
+  let bestResult;
+  for (const model of attempts) {
+    let result;
+    try {
+      result = await transcribeOnce({ audioBase64, format, language, model });
+    } catch (error) {
+      console.error(`STT model ${model} failed:`, error?.message);
+      continue;
+    }
+    if (!looksLikeScriptMismatch(result, language)) return result;
+    console.error(`STT model ${model} returned a script mismatch ("${result}"), trying next option`);
+    if (bestResult === undefined) bestResult = result;
   }
 
-  if (primaryModel === 'openai/whisper-1') return primaryResult;
-  try {
-    const fallbackResult = await transcribeOnce({ audioBase64, format, language, model: 'openai/whisper-1' });
-    // Prefer the fallback unless it's ALSO a script mismatch and the primary at least
-    // produced something plausible — in that case the primary's result, while
-    // unverified, is still more likely to be real than a second bad guess.
-    if (!looksLikeScriptMismatch(fallbackResult, language) || primaryResult === undefined) return fallbackResult;
-    return primaryResult;
-  } catch (fallbackError) {
-    if (primaryResult !== undefined) return primaryResult;
-    throw fallbackError;
-  }
+  if (bestResult !== undefined) return bestResult;
+  throw new Error('Every transcription attempt failed.');
 }
 
 // Text-to-speech via OpenRouter's dedicated /audio/speech endpoint — separate from
