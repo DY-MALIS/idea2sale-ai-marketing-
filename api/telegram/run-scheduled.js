@@ -189,10 +189,28 @@ const uploadMediaDataUrl = async ({ mediaDataUrl, mediaType }) => {
     throw new Error(data?.error?.message || 'Cloudinary upload failed.');
   }
 
+  const resolvedMediaType = mediaType || (data.resource_type === 'video' ? 'video' : contentType.startsWith('video/') ? 'video' : 'photo');
+
   return {
-    mediaUrl: data.secure_url,
-    mediaType: mediaType || (data.resource_type === 'video' ? 'video' : contentType.startsWith('video/') ? 'video' : 'photo')
+    mediaUrl: applyCloudinaryDeliveryTransform(data.secure_url, resolvedMediaType),
+    mediaType: resolvedMediaType
   };
+};
+
+// AI-generated images commonly come out as multi-megabyte, full-resolution (e.g.
+// 2048x2048) PNGs — Telegram's sendPhoto/sendVideo, when given a URL rather than a
+// direct file upload, silently refuses large files with the cryptic error "Bad
+// Request: wrong type of the web page content" instead of a clear size-limit message
+// (confirmed live: a 6.5MB PNG triggered exactly this). Cloudinary can resize/
+// recompress on the fly by inserting a transformation segment into the delivery URL,
+// with no need to re-upload — cap dimensions and let it auto-pick quality/format.
+const applyCloudinaryDeliveryTransform = (secureUrl, mediaType) => {
+  const transform = mediaType === 'video' ? 'q_auto,w_1280' : 'w_1280,q_auto,f_auto';
+  const marker = mediaType === 'video' ? '/video/upload/' : '/image/upload/';
+  const index = secureUrl.indexOf(marker);
+  if (index === -1) return secureUrl;
+  const insertAt = index + marker.length;
+  return `${secureUrl.slice(0, insertAt)}${transform}/${secureUrl.slice(insertAt)}`;
 };
 
 const scheduleQStashDelivery = async (req, postId, scheduledDate) => {
