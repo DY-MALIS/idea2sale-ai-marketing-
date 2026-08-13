@@ -30,26 +30,46 @@ const openRouterJson = async (path, body) => {
 
 const fileToDataUrl = (base64, mimeType) => `data:${mimeType};base64,${base64}`;
 
-// Speech-to-text via OpenRouter's dedicated /audio/transcriptions endpoint (Whisper),
-// used instead of the browser's built-in Web Speech API (SpeechRecognition) — that
-// API's Khmer support is patchy-to-nonexistent across browsers. This is deliberately
-// NOT the chat-completions `input_audio` content block: that path is for a model to
+// Speech-to-text via OpenRouter's dedicated /audio/transcriptions endpoint, used
+// instead of the browser's built-in Web Speech API (SpeechRecognition) — that API's
+// Khmer support is patchy-to-nonexistent across browsers. This is deliberately NOT
+// the chat-completions `input_audio` content block: that path is for a model to
 // *reason about* audio, not transcribe it verbatim — every chat model tried there
 // (gpt-audio-mini, gemini-2.5-flash) just replied "I can't hear audio" regardless of
 // the actual clip, since transcription isn't what that endpoint is for.
-export async function transcribeAudioWithOpenRouter({ audioBase64, format = 'wav', languageHint = 'auto', model: modelOverride }) {
-  const model = modelOverride || process.env.OPEN_ROUTER_STT_MODEL || 'openai/whisper-1';
-  const language = languageHint === 'Khmer' ? 'km' : languageHint === 'English' ? 'en' : undefined;
-
+// Google's Chirp 3 is the default rather than openai/whisper-1: a direct live
+// comparison (round-tripping the same Khmer sentence through this app's own TTS,
+// then transcribing it with each model) showed whisper-1 outright failing on Khmer
+// audio ("Provider returned 400") while Chirp 3 transcribed it almost verbatim —
+// consistent with Google officially listing Khmer (km-KH) as a supported Chirp 3
+// language, unlike Whisper. Falls back to whisper-1 if Chirp 3 itself fails for any
+// reason (e.g. a transient outage on its preview-status endpoint).
+const transcribeOnce = async ({ audioBase64, format, language, model }) => {
   const data = await openRouterJson('/audio/transcriptions', {
     model,
     input_audio: { data: audioBase64, format },
     ...(language ? { language } : {}),
   });
-
   const transcript = data?.text;
   if (typeof transcript !== 'string') throw new Error('OpenRouter did not return a transcript.');
   return transcript.trim();
+};
+
+export async function transcribeAudioWithOpenRouter({ audioBase64, format = 'wav', languageHint = 'auto', model: modelOverride }) {
+  const language = languageHint === 'Khmer' ? 'km' : languageHint === 'English' ? 'en' : undefined;
+
+  if (modelOverride) {
+    return transcribeOnce({ audioBase64, format, language, model: modelOverride });
+  }
+
+  const primaryModel = process.env.OPEN_ROUTER_STT_MODEL || 'google/chirp-3';
+  try {
+    return await transcribeOnce({ audioBase64, format, language, model: primaryModel });
+  } catch (error) {
+    if (primaryModel === 'openai/whisper-1') throw error;
+    console.error(`STT model ${primaryModel} failed, falling back to openai/whisper-1:`, error?.message);
+    return transcribeOnce({ audioBase64, format, language, model: 'openai/whisper-1' });
+  }
 }
 
 // Text-to-speech via OpenRouter's dedicated /audio/speech endpoint — separate from
