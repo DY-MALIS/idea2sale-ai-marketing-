@@ -117,7 +117,7 @@ Use short bold section headings with concise bullet points. Be specific and prac
 Respond with ONLY valid JSON, no markdown code fences, in exactly this shape:
 {"productSummary": "short product/category name, max 8 words, in ${language}", "analysis": "the full structured report described above, formatted as plain text with line breaks"}`;
 
-const KHMER_ATTIRE_GUIDANCE = 'If the scene includes people wearing clothing, hats, headwear, or traditional dress, and the user did not specify a particular style, default to authentic Cambodian/Khmer traditional or everyday attire (e.g. a woven Khmer palm-leaf hat, sampot, krama scarf) rather than generic Western dress or another country\'s traditional clothing — this content is for a Cambodian audience and should reflect that.';
+const KHMER_ATTIRE_GUIDANCE = 'This content is for a Cambodian (Khmer) audience — CRITICAL, apply regardless of what else is specified: never render Thai script/lettering, Thai temple or architectural styles, Thai traditional clothing patterns, or any other country\'s visual identity anywhere in the scene (signage, wall art, clothing prints, decorations, subtitles, etc.) — image models frequently default to Thai styling for generic "Southeast Asian" prompts, which is wrong here and must be corrected. Any on-screen text must be in Khmer script (or plain English/numerals) only. If the scene includes people wearing clothing, hats, headwear, or traditional dress, and the user did not specify a particular style, default to authentic Cambodian/Khmer traditional or everyday attire (e.g. a woven Khmer palm-leaf hat, sampot, krama scarf) rather than generic Western dress or another country\'s traditional clothing.';
 
 const photorealImagePrompt = (prompt) => `${prompt}
 
