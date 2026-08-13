@@ -5,15 +5,18 @@ import './index.css';
 import { LanguageProvider } from './contexts/LanguageContext';
 import { AuthProvider } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
+import ErrorBoundary from './components/ErrorBoundary';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ThemeProvider>
-      <AuthProvider>
-        <LanguageProvider>
-          <App />
-        </LanguageProvider>
-      </AuthProvider>
-    </ThemeProvider>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <AuthProvider>
+          <LanguageProvider>
+            <App />
+          </LanguageProvider>
+        </AuthProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
   </StrictMode>,
 );

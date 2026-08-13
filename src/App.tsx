@@ -17,6 +17,7 @@ import Auth from './components/Auth';
 import LegalPage from './components/LegalPage';
 import SecurityCenter from './components/SecurityCenter';
 import BusinessProfile from './components/BusinessProfile';
+import ErrorBoundary from './components/ErrorBoundary';
 import { CreativeAutomationRequest, ScheduleHandoffRequest, TabType } from './types';
 import { useLanguage } from './contexts/LanguageContext';
 import { useAuth } from './contexts/AuthContext';
@@ -223,7 +224,11 @@ export default function App() {
                   exit={{ opacity: 0, y: -20 }}
                   transition={{ duration: 0.3, ease: "easeOut" }}
                 >
-                  {renderContent()}
+                  {/* key={activeTab} resets the boundary on every tab switch, so a crash in
+                      one tab doesn't permanently disable navigating to a different one. */}
+                  <ErrorBoundary key={activeTab}>
+                    {renderContent()}
+                  </ErrorBoundary>
                 </motion.div>
               </AnimatePresence>
 
