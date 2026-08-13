@@ -124,12 +124,17 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   };
 
   const uploadTelegramMedia = async (file: File, idToken: string) => {
-    const signatureResponse = await fetch('/api/telegram/run-scheduled?action=sign-upload', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${idToken}`
-      }
-    });
+    let signatureResponse: Response;
+    try {
+      signatureResponse = await fetch('/api/telegram/run-scheduled?action=sign-upload', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${idToken}`
+        }
+      });
+    } catch {
+      throw new Error('Could not reach the app server to prepare the upload. Check your internet connection and try again.');
+    }
     const signatureText = await signatureResponse.text();
     let signatureData: any = {};
     try {
@@ -141,17 +146,34 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
       throw new Error(signatureData.error || 'Could not prepare the media upload.');
     }
 
-    const form = new FormData();
-    form.set('file', file);
-    form.set('api_key', signatureData.apiKey);
-    form.set('timestamp', String(signatureData.timestamp));
-    form.set('signature', signatureData.signature);
-    form.set('folder', signatureData.folder);
+    // Sending a multi-MB file directly to Cloudinary (cross-origin, unlike the
+    // same-origin calls above) is the step most exposed to a mid-upload network
+    // drop, which surfaces as a bare "Failed to fetch" with no useful detail —
+    // one retry plus a clearer message covers the common transient case.
+    const doUpload = async () => {
+      const form = new FormData();
+      form.set('file', file);
+      form.set('api_key', signatureData.apiKey);
+      form.set('timestamp', String(signatureData.timestamp));
+      form.set('signature', signatureData.signature);
+      form.set('folder', signatureData.folder);
+      return withUploadTimeout(fetch(signatureData.uploadUrl, {
+        method: 'POST',
+        body: form
+      }));
+    };
 
-    const uploadResponse = await withUploadTimeout(fetch(signatureData.uploadUrl, {
-      method: 'POST',
-      body: form
-    }));
+    let uploadResponse: Response;
+    try {
+      uploadResponse = await doUpload();
+    } catch (error) {
+      if (error instanceof Error && /taking too long/i.test(error.message)) throw error;
+      try {
+        uploadResponse = await doUpload();
+      } catch {
+        throw new Error('The media upload was interrupted (network connection dropped). Check your internet connection and try again.');
+      }
+    }
     const uploadData = await uploadResponse.json().catch(() => ({}));
     if (!uploadResponse.ok || !uploadData.secure_url) {
       throw new Error(uploadData?.error?.message || 'Media upload failed.');
@@ -274,20 +296,25 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
         const uploadedMedia = telegramMediaFile
           ? await uploadTelegramMedia(telegramMediaFile, idToken)
           : null;
-        const response = await fetch('/api/telegram/run-scheduled?action=create', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${idToken}`
-          },
-          body: JSON.stringify({
-            content: content.trim(),
-            scheduledTime: scheduledDate.toISOString(),
-            mediaUrl: uploadedMedia?.mediaUrl || '',
-            mediaName: telegramMediaFile?.name || null,
-            mediaType: uploadedMedia?.mediaType || null
-          })
-        });
+        let response: Response;
+        try {
+          response = await fetch('/api/telegram/run-scheduled?action=create', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${idToken}`
+            },
+            body: JSON.stringify({
+              content: content.trim(),
+              scheduledTime: scheduledDate.toISOString(),
+              mediaUrl: uploadedMedia?.mediaUrl || '',
+              mediaName: telegramMediaFile?.name || null,
+              mediaType: uploadedMedia?.mediaType || null
+            })
+          });
+        } catch {
+          throw new Error('The media uploaded, but saving the post to the schedule failed (network error). Please try again.');
+        }
         const responseText = await response.text();
         let data: any = {};
         try {
