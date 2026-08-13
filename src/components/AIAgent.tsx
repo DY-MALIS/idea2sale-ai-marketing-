@@ -79,6 +79,13 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   // Guards against overwriting the just-loaded saved conversation with an empty
   // autosave that could otherwise fire before the initial load resolves.
   const memoryLoadedRef = useRef(false);
+  // Auto-stops a forgotten-open recording (e.g. the mic stays on because the user
+  // didn't realize it was still listening) — without this, the raw PCM buffer keeps
+  // growing indefinitely, and a many-minutes-long recording becomes a many-megabyte
+  // upload that can stall well past Vercel's request size/duration limits, leaving
+  // the UI stuck on "Transcribing..." with no error ever surfacing.
+  const recordingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const MAX_RECORDING_MS = 30000;
 
   const micSupported = typeof navigator !== 'undefined' && Boolean(navigator.mediaDevices?.getUserMedia);
 
@@ -295,6 +302,10 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       source.connect(processor);
       processor.connect(audioContext.destination);
       recordingRef.current = { audioContext, processor, source, stream, chunks };
+      recordingTimeoutRef.current = setTimeout(() => {
+        setIsListening(false);
+        void stopRecordingAndTranscribe();
+      }, MAX_RECORDING_MS);
     } catch (error) {
       // getUserMedia already succeeded by this point — if any later setup step
       // throws (AudioContext construction, node creation), the live mic track
@@ -306,6 +317,10 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   };
 
   const stopRecordingAndTranscribe = async () => {
+    if (recordingTimeoutRef.current) {
+      clearTimeout(recordingTimeoutRef.current);
+      recordingTimeoutRef.current = null;
+    }
     const recording = recordingRef.current;
     recordingRef.current = null;
     if (!recording) return;
@@ -348,10 +363,16 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     const audioBase64 = buildWavBase64(floatTo16BitPcm(merged), sampleRate);
 
     setIsTranscribing(true);
+    // Without a client-side timeout, a stalled request (slow upload, a hung provider
+    // call server-side) leaves "Transcribing..." spinning forever with no way out
+    // short of reloading the page, since fetch() itself never times out on its own.
+    const timeoutController = new AbortController();
+    const timeoutId = setTimeout(() => timeoutController.abort(), 45000);
     try {
       const response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: timeoutController.signal,
         body: JSON.stringify({
           action: 'sttTranscribe',
           audioBase64,
@@ -381,8 +402,12 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         notify(language === 'km' ? 'មិនបានលឺសំឡេងអ្វីទេ។ សូមសាកល្បងម្តងទៀត។' : 'No speech was detected. Please try again.', 'error');
       }
     } catch (error: any) {
-      notify(error?.message || (language === 'km' ? 'ការបំលែងសំឡេងទៅជាអត្ថបទបរាជ័យ។' : 'Voice transcription failed.'), 'error');
+      const message = error?.name === 'AbortError'
+        ? (language === 'km' ? 'ការបំលែងសំឡេងចំណាយពេលយូរពេក។ សូមសាកល្បងម្តងទៀតជាមួយសំឡេងខ្លីជាងនេះ។' : 'Transcription took too long. Please try again with a shorter recording.')
+        : (error?.message || (language === 'km' ? 'ការបំលែងសំឡេងទៅជាអត្ថបទបរាជ័យ។' : 'Voice transcription failed.'));
+      notify(message, 'error');
     } finally {
+      clearTimeout(timeoutId);
       setIsTranscribing(false);
     }
   };
