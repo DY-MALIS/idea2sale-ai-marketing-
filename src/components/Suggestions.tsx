@@ -113,7 +113,7 @@ const Suggestions: React.FC<SuggestionsProps> = ({ activityVersion }) => {
         {t('aiOptimalWindows')}
       </h3>
       <AnimatePresence>
-        {suggestions.sort((a, b) => b.score - a.score).map((s, idx) => {
+        {[...suggestions].sort((a, b) => b.score - a.score).map((s, idx) => {
           const suggestionId = `${s.dayOfWeek}-${s.hour}`;
           const isProcessing = addingPost === suggestionId;
 
@@ -127,12 +127,12 @@ const Suggestions: React.FC<SuggestionsProps> = ({ activityVersion }) => {
             >
               <div className="flex items-center gap-4">
                 <div className="flex flex-col items-center justify-center w-12 h-12 bg-brand-50 text-brand-600 rounded-xl border border-brand-200">
-                  <span className="text-[10px] uppercase font-bold leading-none">{s.dayOfWeek.slice(0, 3)}</span>
+                  <span className="text-[10px] uppercase font-bold leading-none">{s.dayOfWeek?.slice(0, 3) || '—'}</span>
                   <span className="text-lg font-bold leading-none mt-1">{s.hour}:00</span>
                 </div>
                 <div>
                   <p className="text-sm font-bold text-brand-700 group-hover:text-brand-600 transition-colors">
-                    {s.reason.split('.')[0]}
+                    {s.reason?.split('.')[0] || ''}
                   </p>
                   <div className="flex items-center gap-2 mt-1">
                     <div className="flex h-1 w-24 bg-brand-100 rounded-full overflow-hidden">

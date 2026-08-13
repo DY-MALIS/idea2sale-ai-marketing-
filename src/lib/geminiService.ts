@@ -21,7 +21,15 @@ export const geminiService = {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to generate suggestions');
-      return data.data || [];
+      // The AI's raw JSON output is trusted as-is server-side (no schema check) -- a
+      // malformed item here (missing reason/dayOfWeek/score) would crash the UI later
+      // when it calls .split()/.slice() on an undefined field, so validate shape here
+      // instead of trusting the response blindly.
+      const items = Array.isArray(data.data) ? data.data : [];
+      return items.filter((item: any): item is PostingSuggestion => (
+        item && typeof item.dayOfWeek === 'string' && typeof item.hour === 'number'
+        && typeof item.reason === 'string' && typeof item.score === 'number'
+      ));
     } catch (error) {
       console.error('Error in aiService.suggestBestPostingTimes:', error);
       return [];
