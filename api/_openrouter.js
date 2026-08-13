@@ -366,6 +366,47 @@ const speechSegmentsForTranslate = (text) => {
     .filter((segment) => segment.text.trim());
 };
 
+// Spells out numerals as Khmer words before TTS. Raw digits left in Khmer-context text
+// (e.g. "ម៉ោង 8 យប់" or a Khmer numeral like "៨") are a likely cause of unclear/mumbled
+// narration and STT mis-hearing them — Khmer TTS handles a written-out number far more
+// reliably than a bare digit. Covers 0-9999, which is every duration, time, price, and
+// count this app's content realistically uses; falls back to leaving larger numbers
+// as-is rather than risk a wrong conversion.
+const KHMER_DIGIT_WORDS = ['សូន្យ', 'មួយ', 'ពីរ', 'បី', 'បួន', 'ប្រាំ', 'ប្រាំមួយ', 'ប្រាំពីរ', 'ប្រាំបី', 'ប្រាំបួន'];
+const KHMER_TENS_WORDS = ['', '', 'ម្ភៃ', 'សាមសិប', 'សែសិប', 'ហាសិប', 'ហុកសិប', 'ចិតសិប', 'ប៉ែតសិប', 'កៅសិប'];
+
+const khmerNumberToWords = (n) => {
+  if (n === 0) return KHMER_DIGIT_WORDS[0];
+  const thousands = Math.floor(n / 1000);
+  const hundreds = Math.floor((n % 1000) / 100);
+  const tensDigit = Math.floor((n % 100) / 10);
+  const onesDigit = n % 10;
+
+  let words = '';
+  // Unlike the tens position (10 is just "ដប់", no "one" prefix), Khmer requires the
+  // digit word even for exactly one hundred/thousand ("មួយរយ", "មួយពាន់"), never a bare
+  // "រយ"/"ពាន់" on its own.
+  if (thousands) words += `${KHMER_DIGIT_WORDS[thousands]}ពាន់`;
+  if (hundreds) words += `${KHMER_DIGIT_WORDS[hundreds]}រយ`;
+  if (tensDigit === 1) {
+    words += onesDigit ? `ដប់${KHMER_DIGIT_WORDS[onesDigit]}` : 'ដប់';
+  } else if (tensDigit > 1) {
+    words += KHMER_TENS_WORDS[tensDigit] + (onesDigit ? KHMER_DIGIT_WORDS[onesDigit] : '');
+  } else if (onesDigit || !words) {
+    words += KHMER_DIGIT_WORDS[onesDigit];
+  }
+  return words;
+};
+
+const KHMER_NUMERAL_TO_ARABIC = { '០': '0', '១': '1', '២': '2', '៣': '3', '៤': '4', '៥': '5', '៦': '6', '៧': '7', '៨': '8', '៩': '9' };
+
+const spellOutNumbers = (text) => String(text || '')
+  .replace(/[០-៩]+/g, (khmerDigits) => [...khmerDigits].map((d) => KHMER_NUMERAL_TO_ARABIC[d]).join(''))
+  .replace(/\d+/g, (digits) => {
+    const n = Number(digits);
+    return Number.isFinite(n) && n <= 9999 ? khmerNumberToWords(n) : digits;
+  });
+
 const normalizeForKhmerSpeech = (text) => {
   const replacements = [
     [/\bDGACADEMY\b/gi, 'ឌីជី អាកាដេមី'],
@@ -384,9 +425,10 @@ const normalizeForKhmerSpeech = (text) => {
     [/\bbrand\b/gi, 'ប្រេន'],
   ];
 
-  return replacements.reduce((value, [pattern, replacement]) => (
+  const withWordsReplaced = replacements.reduce((value, [pattern, replacement]) => (
     value.replace(pattern, replacement)
   ), String(text || ''));
+  return spellOutNumbers(withWordsReplaced);
 };
 
 export async function generateTranslateSpeech({ input }) {
