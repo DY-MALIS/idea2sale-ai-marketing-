@@ -83,9 +83,12 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   // didn't realize it was still listening) — without this, the raw PCM buffer keeps
   // growing indefinitely, and a many-minutes-long recording becomes a many-megabyte
   // upload that can stall well past Vercel's request size/duration limits, leaving
-  // the UI stuck on "Transcribing..." with no error ever surfacing.
+  // the UI stuck on "Transcribing..." with no error ever surfacing. 60s of 16kHz
+  // mono audio (the rate everything gets downsampled to before upload, see
+  // downsampleTo16kHz) base64-encodes to roughly 2.6MB, comfortably under Vercel's
+  // fixed 4.5MB request body limit.
   const recordingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const MAX_RECORDING_MS = 30000;
+  const MAX_RECORDING_MS = 60000;
 
   const micSupported = typeof navigator !== 'undefined' && Boolean(navigator.mediaDevices?.getUserMedia);
 
@@ -251,6 +254,24 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   // model transcribes Khmer reliably. Audio is captured as raw PCM and wrapped
   // in a WAV container client-side, since WAV is a format OpenRouter's audio
   // input is guaranteed to accept (unlike MediaRecorder's default webm/opus).
+  // Speech models (Whisper, Chirp) resample everything to 16kHz internally regardless
+  // of what's sent, so recording at the mic's native rate (typically 44.1/48kHz) and
+  // sending that wastes payload size for no transcription-quality benefit — it just
+  // eats into Vercel's fixed 4.5MB request body limit, capping how long a recording
+  // can be. Downsampling here first roughly triples the seconds of audio that fit in
+  // the same size budget.
+  const TARGET_SAMPLE_RATE = 16000;
+  const downsampleTo16kHz = (input: Float32Array, inputSampleRate: number): { samples: Float32Array; sampleRate: number } => {
+    if (inputSampleRate <= TARGET_SAMPLE_RATE) return { samples: input, sampleRate: inputSampleRate };
+    const ratio = inputSampleRate / TARGET_SAMPLE_RATE;
+    const outputLength = Math.floor(input.length / ratio);
+    const output = new Float32Array(outputLength);
+    for (let i = 0; i < outputLength; i += 1) {
+      output[i] = input[Math.floor(i * ratio)];
+    }
+    return { samples: output, sampleRate: TARGET_SAMPLE_RATE };
+  };
+
   const floatTo16BitPcm = (input: Float32Array): Int16Array => {
     const output = new Int16Array(input.length);
     for (let i = 0; i < input.length; i += 1) {
@@ -360,7 +381,8 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       return;
     }
 
-    const audioBase64 = buildWavBase64(floatTo16BitPcm(merged), sampleRate);
+    const downsampled = downsampleTo16kHz(merged, sampleRate);
+    const audioBase64 = buildWavBase64(floatTo16BitPcm(downsampled.samples), downsampled.sampleRate);
 
     setIsTranscribing(true);
     // Without a client-side timeout, a stalled request (slow upload, a hung provider
