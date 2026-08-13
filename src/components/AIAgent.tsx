@@ -362,7 +362,15 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Transcription failed.');
       const transcript = String(data.transcript || '').trim();
-      if (transcript) {
+      // Speech models occasionally hallucinate a short, fluent-sounding but completely
+      // fabricated sentence in the WRONG script even on real, audible speech (observed
+      // live: "Oh, no.", "John, I'm going to.", "I'm telling you." for actual Khmer
+      // input) — not caught by the earlier silence/duration check since the audio
+      // itself was real. When Khmer was requested but the result has no Khmer script
+      // at all, that mismatch itself is the strongest available signal of a bad
+      // transcription, so refuse to auto-send it rather than act on fabricated text.
+      const looksLikeMismatchedHallucination = voiceInputLanguage === 'km' && transcript && !/[ក-៿]/.test(transcript);
+      if (transcript && !looksLikeMismatchedHallucination) {
         // Auto-send right after a successful transcription, like a real voice
         // assistant — requiring a manual click on top of speaking made voice
         // input feel like dictation rather than an actual voice command.
