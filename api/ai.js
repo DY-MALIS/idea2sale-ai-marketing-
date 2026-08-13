@@ -117,18 +117,20 @@ Use short bold section headings with concise bullet points. Be specific and prac
 Respond with ONLY valid JSON, no markdown code fences, in exactly this shape:
 {"productSummary": "short product/category name, max 8 words, in ${language}", "analysis": "the full structured report described above, formatted as plain text with line breaks"}`;
 
-// Placed as a hard constraint before the scene description (models weight earlier
-// instructions more heavily), and repeated as a bullet below, because a single
-// mention embedded only among the later style bullets was not enough to stop the
-// model from adding a shop sign anyway — live-tested twice, it defaulted to Chinese
-// characters both times despite being told to avoid on-screen lettering.
+// Placed as a hard constraint right after the scene description (a single mention
+// embedded only among the later style bullets was not enough to stop the model from
+// adding a shop sign anyway — live-tested twice, it defaulted to Chinese characters
+// both times), and repeated as a bullet below for reinforcement. Deliberately kept
+// AFTER the scene rather than before it: putting it first once caused the model to
+// under-weight the actual requested subject (a live test asking for a man using a
+// drone rendered no drone at all once this constraint led the prompt).
 const NO_FOREIGN_TEXT_CONSTRAINT = 'HARD CONSTRAINT, highest priority: this image/video must contain NO readable text, lettering, signage, shop signs, hanging plaques, banners, labels, or subtitles anywhere in the frame — none at all, even if the scene described below mentions a sign, storefront, or shop name. Image/video generation models cannot render Khmer script correctly and default to Chinese, Thai, or other foreign script instead when asked for any Cambodian/Asian signage, which is unacceptable for this Cambodian audience — the only safe option is zero on-screen text. Depict signs, storefronts, and shop fronts as physically present but with a blank, plain, or texture-only surface (wood grain, painted color) instead of any lettering.';
 
 const KHMER_ATTIRE_GUIDANCE = 'This content is for a Cambodian (Khmer) audience — CRITICAL, apply regardless of what else is specified: never render Thai, Chinese, Japanese, Vietnamese, or any other country\'s script, temple/architectural style, or clothing pattern anywhere in the scene (wall art, clothing prints, decorations, etc.) — image models frequently default to some other country\'s visual identity for generic "Southeast Asian" or "Asian" prompts, which is wrong here and must be corrected. If the scene includes people and the user did not specify a particular ethnicity or nationality, depict them with a natural Khmer/Cambodian appearance (typical Cambodian facial features, skin tone, and build) rather than a generic or ambiguous Asian look. If people are wearing clothing, hats, headwear, or traditional dress and the user did not specify a particular style, default to authentic Cambodian/Khmer traditional or everyday attire rather than generic Western dress or another country\'s traditional clothing. A generic smooth pointed/conical straw hat is NOT the correct Khmer style (that reads as Vietnamese or generic "Asian farmer" instead) — the authentic Khmer palm-leaf hat has a distinctly FLAT (not pointed) circular top, with tightly pleated/fan-folded straw-colored panels radiating from the flat top down to a wide brim with a woven zigzag/scalloped edge, and is sometimes accented with a small Cambodian flag patch or colorful ribbon band around the crown. For a krama scarf, use its real pattern: a fine, small-scale checked/gingham weave (commonly red-and-white or blue-and-white), not a generic plaid, tartan, or large-check pattern.';
 
-const photorealImagePrompt = (prompt) => `${NO_FOREIGN_TEXT_CONSTRAINT}
+const photorealImagePrompt = (prompt) => `Scene: ${prompt}
 
-Scene: ${prompt}
+${NO_FOREIGN_TEXT_CONSTRAINT}
 
 Photorealistic commercial image requirements:
 - Make it look like a real camera photo, not an illustration, cartoon, 3D render, or plastic-looking AI image.
@@ -139,9 +141,9 @@ Photorealistic commercial image requirements:
 - No readable text, lettering, or signage anywhere (see hard constraint above) — also avoid distorted/garbled text artifacts, extra logos, malformed objects, duplicated limbs, fake watermarks, blurry details, oversaturated colors, and fantasy styling.
 - Output should be high-detail, clean, professional, TikTok/e-commerce ready, and visually convincing.`;
 
-const photorealVideoPrompt = (prompt) => `${NO_FOREIGN_TEXT_CONSTRAINT}
+const photorealVideoPrompt = (prompt) => `Scene: ${prompt}
 
-Scene: ${prompt}
+${NO_FOREIGN_TEXT_CONSTRAINT}
 
 Photorealistic cinematic video requirements:
 - Make the scene look filmed with a real camera, not animation, cartoon, or 3D render.
