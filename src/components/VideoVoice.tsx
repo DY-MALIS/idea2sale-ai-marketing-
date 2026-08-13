@@ -27,7 +27,7 @@ type VoiceGender = 'Female' | 'Male';
 type VoicePersona = 'sreymom' | 'piseth';
 
 const MAX_VIDEO_IMAGES = 20;
-// Google Veo 3.1 (the underlying video model) only accepts these exact
+// Google Veo 3.1 Fast (the underlying video model) only accepts these exact
 // per-clip durations — anything else risks a rejected or misbehaving
 // generation. Lengths beyond 8s are built by chaining multiple 8s clips
 // together (see getVideoSegments) since the model has no longer single-shot option.

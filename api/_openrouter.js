@@ -550,7 +550,10 @@ export async function generateOpenRouterSpeech({
 
 export async function startOpenRouterVideo({ prompt, images, model, duration }) {
   const body = {
-    model: model || process.env.OPEN_ROUTER_VIDEO_MODEL || 'google/veo-3.1',
+    // Veo 3.1 Fast: same Google Veo family, ~4x cheaper ($0.10/s vs $0.40/s)
+    // than standard Veo 3.1, chosen to keep multi-segment (16s/24s) video
+    // generation affordable. Override via OPEN_ROUTER_VIDEO_MODEL if needed.
+    model: model || process.env.OPEN_ROUTER_VIDEO_MODEL || 'google/veo-3.1-fast',
     prompt,
     aspect_ratio: '16:9',
     resolution: '720p',

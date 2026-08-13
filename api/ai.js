@@ -34,7 +34,7 @@ const GEMINI_VOICE_BY_OPENAI_VOICE = {
 
 const MAX_AGENT_IMAGES = 4;
 const MAX_VIDEO_REFERENCE_IMAGES = 20;
-// Google Veo 3.1 (the underlying video model) only accepts these exact
+// Google Veo 3.1 Fast (the underlying video model) only accepts these exact
 // per-clip durations — anything else risks a rejected or misbehaving generation.
 const VIDEO_DURATION_OPTIONS = [4, 6, 8];
 // Total video lengths the app can produce (matches VIDEO_LENGTH_OPTIONS in
