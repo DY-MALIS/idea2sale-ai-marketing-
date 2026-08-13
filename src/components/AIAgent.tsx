@@ -487,7 +487,11 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         setInput(combinedMessage);
         void askAgent(combinedMessage);
       } else {
-        notify(language === 'km' ? 'មិនបានលឺសំឡេងអ្វីទេ។ សូមសាកល្បងម្តងទៀត។' : 'No speech was detected. Please try again.', 'error');
+        // TEMPORARY diagnostic: surfaces exactly what the server returned so a failure
+        // can be told apart from an empty transcript vs. a wrong-script hallucination,
+        // since both currently show the same generic message otherwise.
+        console.error('[voice-debug] format:', format, 'raw transcript:', JSON.stringify(transcript));
+        notify(language === 'km' ? `មិនបានលឺសំឡេងអ្វីទេ។ សូមសាកល្បងម្តងទៀត។ [debug: "${transcript}"]` : `No speech was detected. Please try again. [debug: "${transcript}"]`, 'error');
       }
     } catch (error: any) {
       const message = error?.name === 'AbortError'
