@@ -34,6 +34,17 @@ const saveLocalScheduledPosts = (posts: SchedulePost[]) => {
 const sortScheduledPosts = (posts: SchedulePost[]) =>
   [...posts].sort((a, b) => new Date(a.scheduledTime).getTime() - new Date(b.scheduledTime).getTime());
 
+// Every write path in this app stores scheduledTime as a plain ISO string, but a
+// Firestore Timestamp object (e.g. from a manual admin-side edit) or any other
+// non-string value would crash parseISO() below. Coerce to a valid ISO string, or
+// fall back to "now" so the post still renders (with a wrong-looking time) instead
+// of taking down the whole page.
+const normalizeScheduledTime = (value: unknown): string => {
+  if (typeof value === 'string') return value;
+  const asDate = value && typeof (value as any).toDate === 'function' ? (value as any).toDate() : new Date(value as any);
+  return Number.isNaN(asDate.getTime()) ? new Date().toISOString() : asDate.toISOString();
+};
+
 const withUploadTimeout = async <T,>(promise: Promise<T>) => {
   let timeoutId: number | undefined;
   const timeout = new Promise<never>((_, reject) => {
@@ -113,11 +124,16 @@ const Scheduler: React.FC = () => {
           setPosts(sortScheduledPosts([...localPosts, ...remotePosts]));
         };
 
-        const unsubscribeSnapshot = onSnapshot(q, 
+        const unsubscribeSnapshot = onSnapshot(q,
           (snapshot) => {
             remotePosts = snapshot.docs.map(doc => ({
               id: doc.id,
-              ...doc.data()
+              ...doc.data(),
+              // scheduledTime must always be a plain ISO string (every write path in
+              // this app produces one via .toISOString()) -- date-fns's parseISO()
+              // below throws "X.split is not a function" on anything else, which
+              // would otherwise crash this whole page for one malformed document.
+              scheduledTime: normalizeScheduledTime(doc.data().scheduledTime),
             })) as SchedulePost[];
             mergeLocalAndRemotePosts();
             setLoading(false);
