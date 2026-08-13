@@ -235,7 +235,7 @@ const concatenateVideoClips = async (clipUrls: string[]): Promise<string> => {
 };
 
 // Starts one Veo generation and polls until the clip is ready.
-const generateVideoClip = async (
+const attemptGenerateVideoClip = async (
   prompt: string,
   images: { base64: string; mimeType: string }[],
   duration: number,
@@ -260,6 +260,24 @@ const generateVideoClip = async (
     if (statusData.videoUrl) return statusData.videoUrl;
   }
   throw new Error('Video is still processing. Please try again shortly.');
+};
+
+// The underlying Veo model occasionally reports a job as finished but produces
+// zero video output (e.g. "Video generation completed with no output") — a
+// provider-side hiccup rather than a real problem with the prompt, so one
+// automatic retry before surfacing an error to the user is worth the cost,
+// the same resilience pattern already used for speech transcription retries.
+const generateVideoClip = async (
+  prompt: string,
+  images: { base64: string; mimeType: string }[],
+  duration: number,
+): Promise<string> => {
+  try {
+    return await attemptGenerateVideoClip(prompt, images, duration);
+  } catch (error) {
+    console.error('Video segment generation failed, retrying once:', error);
+    return await attemptGenerateVideoClip(prompt, images, duration);
+  }
 };
 
 interface VideoVoiceProps {
