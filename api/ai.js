@@ -64,6 +64,21 @@ const jsonFromText = (text, fallback) => {
   }
 };
 
+// Concrete, current Cambodian social-commerce context so generated copy/
+// strategy/analysis reads like it was written by someone who actually sells
+// here, not a generic template translated into Khmer. Reused across every
+// text-generation prompt below, not only the ones targeting Khmer output --
+// a strategy for a Cambodian seller should reflect this market even in English.
+const CAMBODIA_MARKET_CONTEXT = `Cambodian social-commerce context -- apply naturally wherever relevant, do not force every point into every response, only use what actually fits the specific request:
+- Dominant channels: Facebook (Pages + Marketplace + Groups) is still the primary social-selling channel for most Cambodian SMEs, TikTok Shop is fast-growing especially with younger buyers, Telegram is commonly used for order-taking/CRM/broadcast, Instagram is secondary/aspirational-brand-only.
+- Payment norms: Cash-on-delivery (COD) is still the trust default for new/unknown sellers, especially outside Phnom Penh. ABA PayWay and ABA KHQR are the most widely recognized digital payment rails, Wing and Ly Hour are common alternatives for customers without a bank account. Bank transfer to ABA/ACLEDA is also common for established sellers.
+- Currency: prices are quoted in USD colloquially for anything above a few dollars (Cambodia is heavily USD-dollarized), with Khmer Riel (KHR) used for small change/local transactions -- do not assume Riel-only pricing.
+- Delivery: same-day/next-day delivery within Phnom Penh is the norm and a real selling point; provincial delivery (via cargo/van services or local delivery apps) takes 1-3 days and is often flagged separately in offers.
+- Tone/register: natural conversational Khmer marketing copy mixes in English loanwords freely for brand names, tech terms, and platform features (App, Page, Live, Order, Delivery, Promotion) -- this is normal, not a language-purity issue; stiff fully-Khmer-only copy reads as unnatural or overly formal for social selling.
+- Honorifics matter in direct customer-facing copy (comments, DMs, captions addressing the buyer): "បង" (older/respect-neutral), "អូន" (younger/friendly), "លោក/លោកស្រី" (formal) -- pick a register appropriate to the brand's audience rather than defaulting to the most formal option.
+- Seasonal hooks with real commercial weight: Khmer New Year (mid-April), Pchum Ben (ancestor festival, Sept/Oct), Water Festival/Bon Om Touk (Nov), plus Western and Chinese New Year for gifting categories.
+- Trust signals that matter to Cambodian buyers: live-selling videos showing the actual product and seller's face, visible reviews/comments as social proof, a clear return/exchange policy, and a real phone number or Telegram handle for direct contact -- generic "Shop now" CTAs land weaker than these concrete trust signals.`;
+
 const copyPromptByType = {
   caption: (prompt) => `Create a compelling social media caption based on: ${prompt}. Use strong hooks, clear benefits, and relevant hashtags.`,
   salepage: (prompt) => `Write a high-converting long-form sales page for: ${prompt}. Use the AIDA framework with clear sections and a strong call to action.`,
@@ -73,11 +88,15 @@ const copyPromptByType = {
 
 const productResearchPrompt = (query, language) => `Analyze the following product, niche, or URL: "${query}".
 
-Provide a concise but useful research report including market demand, competitors, pricing, target audience, and TikTok/video ad hooks.
+${CAMBODIA_MARKET_CONTEXT}
+
+Provide a concise but useful research report including market demand, competitors, pricing, target audience, and TikTok/video ad hooks -- grounded in the Cambodian market context above where the product/niche is the kind commonly sold there (skip it if the query is clearly about a different market).
 Write in ${language === 'km' ? 'Khmer' : 'English'} when appropriate. Use clear headings and practical bullet points.`;
 
 const competitorTrackerPrompt = (competitor, language, xContext) => `You are a competitive intelligence analyst for social media and paid advertising.
 Research and summarize the current market activity, positioning, and advertising strategy of this competitor/brand/product: "${competitor}".
+
+${CAMBODIA_MARKET_CONTEXT}
 
 Public social context you can use as source material (do not copy verbatim, use as inspiration/evidence):
 ${xContext || 'No live social API context was available for this query.'}
@@ -93,6 +112,8 @@ Write entirely in ${language}. Be concise, structured, and practical with short 
 
 const brandSentimentPrompt = (brand, language, xContext) => `You are a brand reputation and social sentiment analyst.
 Analyze public sentiment for this brand/product: "${brand}".
+
+${CAMBODIA_MARKET_CONTEXT}
 
 Public social context you can use as source material (do not copy verbatim, use as evidence):
 ${xContext || 'No live social API context was available for this query.'}
@@ -165,6 +186,8 @@ Photorealistic cinematic video requirements:
 
 const agentSystemPrompt = `You are aime.angkorgate AI Agent, an intelligent conversational assistant for creators, sellers, and small businesses.
 Your job is to understand the user's actual goal, preserve useful conversational context, and answer like a capable human expert who can explain, create, troubleshoot, plan, compare, rewrite, translate, advise, and see and analyze images the user attaches (product photos, screenshots, references — describe exactly what is in them, never say you can't see an attached image).
+
+${CAMBODIA_MARKET_CONTEXT}
 
 Critical language contract:
 - The language of the user's latest message is the only language that controls your reply.
@@ -387,7 +410,7 @@ export default async function handler(req, res) {
       if (!prompt) return res.status(400).json({ error: 'Please enter a campaign goal.' });
       const contentPrompt = copyPromptByType[contentType]?.(prompt) || copyPromptByType.caption(prompt);
       const text = await generateOpenRouterText({
-        system: 'You are an expert marketing copywriter.',
+        system: `You are an expert marketing copywriter.\n\n${CAMBODIA_MARKET_CONTEXT}`,
         prompt: `${contentPrompt}\n\nWrite primarily in ${language}. Use practical, ready-to-copy formatting.`,
       });
       return res.status(200).json({ text: text || 'No response generated.' });
@@ -490,8 +513,8 @@ Response rules:
       const query = String(req.body?.query || '').trim();
       if (!query) return res.status(400).json({ error: 'Product or category is required.' });
       const strategy = await generateOpenRouterText({
-        system: 'You are a practical paid social advertising strategist.',
-        prompt: `Create a concise digital advertising strategy for: "${query}". Write entirely in ${language}. Include target audience, three-second hooks, campaign structure, and a practical test budget. Do not invent live ad-account metrics.`,
+        system: `You are a practical paid social advertising strategist.\n\n${CAMBODIA_MARKET_CONTEXT}`,
+        prompt: `Create a concise digital advertising strategy for: "${query}". Write entirely in ${language}. Include target audience, three-second hooks, campaign structure, and a practical test budget (in USD, matching how Cambodian sellers actually budget). Do not invent live ad-account metrics.`,
       });
       return res.status(200).json({ strategy: strategy || 'No strategy generated.' });
     }
@@ -576,6 +599,7 @@ Response rules:
       const platform = String(req.body?.platform || 'TikTok');
       const reason = String(req.body?.reason || '');
       const text = await generateOpenRouterText({
+        system: CAMBODIA_MARKET_CONTEXT,
         prompt: `Generate a short, viral-ready social media post for ${platform}. Reason/context: "${reason}". Write entirely in ${language}. Include relevant hashtags. Return only the post copy.`,
       });
       return res.status(200).json({ text });
@@ -585,7 +609,7 @@ Response rules:
       const prompt = String(req.body?.prompt || '').trim();
       if (!prompt) return res.status(400).json({ error: 'Scene description is required.' });
       const text = await generateOpenRouterText({
-        system: 'You are a social media expert who writes TikTok captions.',
+        system: `You are a social media expert who writes TikTok captions.\n\n${CAMBODIA_MARKET_CONTEXT}`,
         prompt: `Create a catchy TikTok caption and trending hashtags for this scene: "${prompt}". Write entirely in ${language}. Keep it ready to post.`,
       });
       return res.status(200).json({ text });
