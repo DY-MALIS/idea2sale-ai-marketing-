@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Calendar, Clock, Trash2, CheckCircle2, AlertCircle, Share2, Instagram, Twitter, X, Send } from 'lucide-react';
+import { Calendar, Clock, Trash2, CheckCircle2, AlertCircle, Share2, Instagram, Twitter, X, Send, RotateCcw } from 'lucide-react';
 import { db, auth } from '../lib/firebase';
 import { collection, query, where, onSnapshot, deleteDoc, doc, updateDoc, runTransaction, serverTimestamp, getDocs } from 'firebase/firestore';
 import { SchedulePost } from '../types';
@@ -394,6 +394,26 @@ const Scheduler: React.FC = () => {
     dueTelegramPosts.forEach((post) => sendTelegramPost(post));
   }, [posts, nowTick, isDemoMode, language]);
 
+  const handleRetryTelegram = async (post: SchedulePost) => {
+    try {
+      if (isDemoMode || post.localOnly) {
+        setPosts(prev => {
+          const next = prev.map(p => p.id === post.id ? { ...p, status: 'PENDING' as const } : p);
+          saveLocalScheduledPosts(next);
+          return next;
+        });
+        return;
+      }
+      // Flipping back to PENDING is enough -- the due-post effect below picks it
+      // straight back up (its scheduledTime is already in the past) and resends it.
+      await updateDoc(doc(db, 'scheduled_posts', post.id), { status: 'PENDING' });
+    } catch (err: any) {
+      console.error('Error retrying post:', err);
+      const msg = err.message || '';
+      setErrorMsg(language === 'km' ? 'មិនអាចព្យាយាមម្ដងទៀតបាន៖ ' + msg : 'Failed to retry: ' + msg);
+    }
+  };
+
   const handleDelete = async (id: string) => {
     try {
       const postToDelete = posts.find(p => p.id === id);
@@ -550,6 +570,17 @@ const Scheduler: React.FC = () => {
                           title="Send to Telegram now"
                         >
                           <Send size={18} />
+                        </motion.button>
+                      )}
+                      {post.platform === 'TELEGRAM' && post.status === 'FAILED' && (
+                        <motion.button
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.9 }}
+                          onClick={() => handleRetryTelegram(post)}
+                          className="p-2 text-amber-500 hover:text-amber-600 hover:bg-amber-50 rounded-md transition-colors"
+                          title="Retry sending to Telegram"
+                        >
+                          <RotateCcw size={18} />
                         </motion.button>
                       )}
                       <motion.button

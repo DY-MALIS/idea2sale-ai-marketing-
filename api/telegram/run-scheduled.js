@@ -210,7 +210,13 @@ const applyCloudinaryDeliveryTransform = (secureUrl, mediaType) => {
   const index = secureUrl.indexOf(marker);
   if (index === -1) return secureUrl;
   const insertAt = index + marker.length;
-  return `${secureUrl.slice(0, insertAt)}${transform}/${secureUrl.slice(insertAt)}`;
+  const rest = secureUrl.slice(insertAt);
+  // Safe to call unconditionally on every outgoing send (some mediaUrls already
+  // carry this transform from upload time, others -- e.g. a URL scheduled
+  // directly, or the legacy immediate-send path -- never got it applied at all).
+  // Skip re-inserting so a URL already carrying the transform isn't doubled up.
+  if (rest.startsWith(transform)) return secureUrl;
+  return `${secureUrl.slice(0, insertAt)}${transform}/${rest}`;
 };
 
 const scheduleQStashDelivery = async (req, postId, scheduledDate) => {
@@ -324,10 +330,18 @@ const postTelegramMessage = async (req, res) => {
   }
 
   const rawText = String(req.body?.text || '').trim();
-  const mediaUrl = String(req.body?.mediaUrl || '').trim();
   const mediaDataUrl = String(req.body?.mediaDataUrl || '').trim();
   const mediaName = String(req.body?.mediaName || 'telegram-media').trim();
   const mediaType = String(req.body?.mediaType || '').trim().toLowerCase();
+  // This immediate-send path (used by the legacy Scheduler.tsx polling loop and its
+  // "send now" button) historically sent whatever Cloudinary URL it was given as-is,
+  // unlike the newer action=create path, which resizes at upload time. A full-res
+  // AI-generated image/video routinely trips Telegram's "wrong type of the web page
+  // content" (its way of saying "too large"), so apply the same resize here too.
+  const mediaUrl = applyCloudinaryDeliveryTransform(
+    String(req.body?.mediaUrl || '').trim(),
+    mediaType === 'video' ? 'video' : 'photo'
+  );
 
   if (!rawText && !mediaUrl && !mediaDataUrl) {
     return res.status(400).json({ error: 'Telegram text, image, or video is required.' });
@@ -429,8 +443,14 @@ export const sendTelegram = async (post) => {
   }
 
   const rawText = String(post.content || '').trim();
-  const mediaUrl = String(post.mediaUrl || '').trim();
   const mediaType = String(post.mediaType || '').trim().toLowerCase();
+  // A post scheduled with a pre-existing mediaUrl (rather than a fresh mediaDataUrl
+  // upload) skips the resize applied in uploadMediaDataUrl -- apply it here too so
+  // every send path resizes before hitting Telegram, regardless of how the URL got here.
+  const mediaUrl = applyCloudinaryDeliveryTransform(
+    String(post.mediaUrl || '').trim(),
+    mediaType === 'video' ? 'video' : 'photo'
+  );
 
   if (!rawText && !mediaUrl) {
     throw new Error('Post has no text or media URL.');
