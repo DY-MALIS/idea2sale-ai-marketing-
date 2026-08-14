@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkRateLimit, getClientIp } from './_rateLimit.js';
+import { checkRateLimit, getClientIp } from '../../api/_rateLimit.js';
 
 const makeFakeDb = (docs = {}) => ({
   collection: () => ({

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { claimPendingPost, findRecentDuplicateTelegramPost } from './_telegramClaim.js';
+import { claimPendingPost, findRecentDuplicateTelegramPost } from '../../api/_telegramClaim.js';
 
 // Minimal fake of the Admin SDK surface claimPendingPost/findRecentDuplicateTelegramPost
 // actually touch -- just enough to exercise the claim/dedup logic without a real Firestore.

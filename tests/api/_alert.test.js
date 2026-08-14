@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { notifyAdmins } from './_alert.js';
+import { notifyAdmins } from '../../api/_alert.js';
 
 describe('notifyAdmins', () => {
   const originalEnv = { ...process.env };

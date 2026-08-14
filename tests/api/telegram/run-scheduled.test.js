@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyCloudinaryDeliveryTransform, truncateForTelegram } from './run-scheduled.js';
+import { applyCloudinaryDeliveryTransform, truncateForTelegram } from '../../../api/telegram/run-scheduled.js';
 
 describe('truncateForTelegram', () => {
   it('leaves short text untouched', () => {

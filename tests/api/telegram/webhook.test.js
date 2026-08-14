@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getAutomationActive, replyRuleTriggerMatches, splitReplyRuleTriggers } from './webhook.js';
+import { getAutomationActive, replyRuleTriggerMatches, splitReplyRuleTriggers } from '../../../api/telegram/webhook.js';
 
 describe('getAutomationActive', () => {
   const makeFakeDb = (data) => ({
