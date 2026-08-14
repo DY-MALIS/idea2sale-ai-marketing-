@@ -135,6 +135,19 @@ const getBusinessName = async (db) => {
 
 const containsKhmer = (text) => /[\u1780-\u17FF]/.test(text || '');
 
+// Backs the "ACTIVE/PAUSED" toggle in Automation.tsx (settings/automation doc).
+// Defaults to active (true) if the doc is missing or unreadable, so a Firestore
+// hiccup fails open to "keep replying" rather than silently going dark.
+export const getAutomationActive = async (db) => {
+  try {
+    const snap = await db.collection('settings').doc('automation').get();
+    return snap.exists ? snap.data()?.active !== false : true;
+  } catch (error) {
+    console.error('Automation-active lookup failed, defaulting to active:', error?.message || error);
+    return true;
+  }
+};
+
 const telegramApi = async (token, method, payload) => {
   const response = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
     method: 'POST',
@@ -385,6 +398,14 @@ export default async function handler(req, res) {
     });
     if (db) await logMessage(db, chatId, 'out', welcome, 'system');
     return res.status(200).json({ ok: true });
+  }
+
+  // Lead capture/logging above always runs (that's CRM data collection, not
+  // "automation"); only the rule-matched and AI-generated auto-replies below are
+  // gated -- this is what Automation.tsx's ACTIVE/PAUSED toggle actually controls.
+  const automationActive = db ? await getAutomationActive(db) : true;
+  if (!automationActive) {
+    return res.status(200).json({ ok: true, automationPaused: true });
   }
 
   if (db) {

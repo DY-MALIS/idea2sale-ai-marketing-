@@ -1,15 +1,6 @@
 import admin, { initFirebaseAdmin } from '../_firebaseAdmin.js';
 import { logAudit } from '../_audit.js';
-
-function getCookie(req, name) {
-  return (req.headers.cookie || '')
-    .split(';')
-    .map((cookie) => cookie.trim())
-    .find((cookie) => cookie.startsWith(`${name}=`))
-    ?.split('=')
-    .slice(1)
-    .join('=') || '';
-}
+import { getCookie } from '../_tiktok.js';
 
 // Best-effort: TikTok publishing is authenticated via the tiktok_token cookie
 // (one shared TikTok connection for the app), not Firebase Auth, so there is
@@ -33,7 +24,13 @@ function videoFromDataUrl(videoUrl) {
 
   const mimeType = match[1] || 'video/mp4';
   if (!['video/mp4', 'video/quicktime', 'video/webm'].includes(mimeType)) {
-    throw new Error('TikTok accepts MP4, MOV, or WebM videos only.');
+    const error = new Error('TikTok accepts MP4, MOV, or WebM videos only.');
+    // Without this, the catch-all handler below has no way to tell this apart
+    // from a real server-side failure and reports it as a 500, which can mislead
+    // client-side error handling/monitoring that treats 5xx as retryable/alertable.
+    error.status = 400;
+    error.code = 'unsupported_video_type';
+    throw error;
   }
 
   return {

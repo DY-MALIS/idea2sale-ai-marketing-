@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db } from '../lib/firebase';
-import { collection, query, where, orderBy, limit, startAfter, getDocs, onSnapshot, addDoc, serverTimestamp, deleteDoc, doc, QueryDocumentSnapshot, DocumentData } from 'firebase/firestore';
+import { collection, query, where, orderBy, limit, startAfter, getDocs, onSnapshot, addDoc, serverTimestamp, deleteDoc, doc, setDoc, QueryDocumentSnapshot, DocumentData } from 'firebase/firestore';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useIsAdmin } from '../hooks/useIsAdmin';
@@ -243,15 +243,39 @@ const Automation: React.FC = () => {
   }, [user, isDemoMode]);
 
   const [stats, setStats] = useState({ replies: 0, hours: 0, rate: 0 });
-  const [isAutomationActive, setIsAutomationActive] = useState(() => {
-    return localStorage.getItem('global_automation_active') !== 'false'; // Default to true if not set
-  });
+  // Shared across the whole app (one Telegram bot for every business using this
+  // deployment, see README) -- backed by settings/automation in Firestore so the
+  // server-side webhook (api/telegram/webhook.js) can actually honor it. This used
+  // to be localStorage-only, which only changed this browser's own UI and never
+  // stopped the bot from auto-replying to real customers.
+  const [isAutomationActive, setIsAutomationActive] = useState(true);
   const [isTraining, setIsTraining] = useState(false);
 
-  const toggleGlobalAutomation = () => {
+  useEffect(() => {
+    if (isDemoMode) return;
+    const unsubscribe = onSnapshot(doc(db, 'settings', 'automation'), (snap) => {
+      setIsAutomationActive(snap.data()?.active !== false);
+    }, (error) => {
+      console.error('Automation-active listener error:', error);
+    });
+    return () => unsubscribe();
+  }, [isDemoMode]);
+
+  const toggleGlobalAutomation = async () => {
     const newState = !isAutomationActive;
     setIsAutomationActive(newState);
-    localStorage.setItem('global_automation_active', newState ? 'true' : 'false');
+    if (isDemoMode) return;
+    try {
+      await setDoc(doc(db, 'settings', 'automation'), {
+        active: newState,
+        updatedAt: serverTimestamp(),
+        updatedBy: user?.uid || null,
+      }, { merge: true });
+    } catch (err: any) {
+      console.error('Error toggling automation:', err);
+      setIsAutomationActive(!newState);
+      setErrorMsg(language === 'km' ? 'មិនអាចផ្លាស់ប្តូរស្ថានភាពស្វ័យប្រវត្តិកម្មបានទេ៖ ' + (err.message || '') : 'Failed to update automation status: ' + (err.message || ''));
+    }
   };
 
   const handleTrainAI = () => {
@@ -367,15 +391,21 @@ const Automation: React.FC = () => {
               <div className={cn("w-2 h-2 rounded-full", isAutomationActive ? "bg-emerald-500 animate-pulse" : "bg-red-500")} />
               {isAutomationActive ? (language === 'km' ? 'កំពុងដំណើរការ' : 'ACTIVE') : (language === 'km' ? 'បានផ្អាក' : 'PAUSED')}
             </div>
-            <button 
-              onClick={toggleGlobalAutomation}
-              className="text-xs font-bold text-brand-600 hover:underline"
-            >
-              {isAutomationActive 
-                ? (language === 'km' ? 'ចុចទីនេះដើម្បីបិទ' : 'Click to disable') 
-                : (language === 'km' ? 'ចុចទីនេះដើម្បីបើកដំណើរការ' : 'Click to enable')
-              }
-            </button>
+            {isDemoMode || isAdmin ? (
+              <button
+                onClick={toggleGlobalAutomation}
+                className="text-xs font-bold text-brand-600 hover:underline"
+              >
+                {isAutomationActive
+                  ? (language === 'km' ? 'ចុចទីនេះដើម្បីបិទ' : 'Click to disable')
+                  : (language === 'km' ? 'ចុចទីនេះដើម្បីបើកដំណើរការ' : 'Click to enable')
+                }
+              </button>
+            ) : (
+              <span className="text-xs text-slate-400" title={language === 'km' ? 'admin ប៉ុណ្ណោះទើបផ្លាស់ប្តូរបាន' : 'Only admins can change this'}>
+                {language === 'km' ? 'សម្រាប់ admin ប៉ុណ្ណោះ' : 'Admin-only setting'}
+              </span>
+            )}
           </div>
           <p className="text-slate-500 dark:text-slate-400 mt-1 text-lg">{t('engagementTeam')}</p>
         </div>

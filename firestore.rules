@@ -220,5 +220,15 @@ service cloud.firestore {
       allow list: if isAdmin();
       allow write: if false;
     }
+
+    match /settings/automation {
+      // Shared on/off switch for the Telegram bot's auto-reply (rule-matched and AI
+      // fallback) behavior -- api/telegram/webhook.js reads this before replying.
+      // Readable by any signed-in user so the UI can show accurate ACTIVE/PAUSED
+      // status; writable by admins only since it pauses live customer-facing
+      // replies for the one shared bot every business using this deployment uses.
+      allow read: if isSignedIn();
+      allow write: if isAdmin() && incoming().active is bool;
+    }
   }
 }

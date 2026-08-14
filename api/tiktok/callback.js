@@ -1,9 +1,18 @@
-import { getRedirectUri } from '../_tiktok.js';
+import { getRedirectUri, verifyAndClearOAuthState } from '../_tiktok.js';
 
 export default async function handler(req, res) {
   const code = req.query?.code;
   if (!code) {
     return res.status(400).send('No code provided');
+  }
+
+  // Anti-CSRF check: without this, anyone who obtains a `code` from their own
+  // TikTok OAuth attempt (their own account) could get a victim's browser to
+  // exchange it here just by opening this callback URL with that code attached
+  // -- the victim's tiktok_token cookie would silently end up authenticated as
+  // the attacker's TikTok account instead of their own.
+  if (!verifyAndClearOAuthState(req, res)) {
+    return res.status(400).send('Invalid or expired TikTok login attempt. Please try connecting again.');
   }
 
   const clientKey = (process.env.TIKTOK_CLIENT_KEY || process.env.VITE_TIKTOK_CLIENT_KEY || '').trim();
@@ -32,7 +41,13 @@ export default async function handler(req, res) {
     }
 
     const token = data.access_token || '';
-    res.setHeader('Set-Cookie', `tiktok_token=${token}; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=${data.expires_in || 86400}`);
+    // Append, don't replace -- verifyAndClearOAuthState above already queued the
+    // state cookie's clearing header, and setHeader() overwrites rather than adds.
+    const existingSetCookie = res.getHeader('Set-Cookie');
+    res.setHeader('Set-Cookie', [].concat(
+      existingSetCookie || [],
+      `tiktok_token=${token}; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=${data.expires_in || 86400}`,
+    ));
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.status(200).send(`
       <!doctype html>

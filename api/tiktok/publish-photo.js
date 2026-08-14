@@ -1,6 +1,7 @@
 import { createHash } from 'crypto';
 import admin, { initFirebaseAdmin } from '../_firebaseAdmin.js';
 import { logAudit } from '../_audit.js';
+import { getCookie } from '../_tiktok.js';
 
 // Best-effort: TikTok publishing is authenticated via the tiktok_token cookie
 // (one shared TikTok connection for the app), not Firebase Auth, so there is
@@ -16,16 +17,6 @@ async function resolveActorUid(req) {
   } catch {
     return null;
   }
-}
-
-function getCookie(req, name) {
-  return (req.headers.cookie || '')
-    .split(';')
-    .map((cookie) => cookie.trim())
-    .find((cookie) => cookie.startsWith(`${name}=`))
-    ?.split('=')
-    .slice(1)
-    .join('=') || '';
 }
 
 const getCloudinaryConfig = () => {

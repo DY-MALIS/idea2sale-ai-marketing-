@@ -1,7 +1,4 @@
-function getCookie(req, name) {
-  const match = String(req.headers.cookie || '').split(';').find((item) => item.trim().startsWith(`${name}=`));
-  return match ? decodeURIComponent(match.trim().slice(name.length + 1)) : '';
-}
+import { getCookie } from '../_tiktok.js';
 
 function cleanHandle(value = '') {
   let handle = String(value || '').trim();
@@ -23,9 +20,9 @@ function fallbackStats(req, message = 'TikTok official statistics are not availa
     displayName: handle,
     avatarUrl: '',
     followers: numberFromEnv('TIKTOK_PUBLIC_FOLLOWERS', isDefaultHandle ? 3 : 0),
-    following: numberFromEnv('TIKTOK_PUBLIC_FOLLOWING', isDefaultHandle ? 0 : 0),
+    following: numberFromEnv('TIKTOK_PUBLIC_FOLLOWING', 0),
     likes: numberFromEnv('TIKTOK_PUBLIC_LIKES', isDefaultHandle ? 197 : 0),
-    videoCount: numberFromEnv('TIKTOK_PUBLIC_VIDEO_COUNT', isDefaultHandle ? 0 : 0),
+    videoCount: numberFromEnv('TIKTOK_PUBLIC_VIDEO_COUNT', 0),
     canReadStats: false,
     updatedAt: new Date().toISOString(),
     source: 'configured_public_fallback',

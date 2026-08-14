@@ -1,7 +1,4 @@
-function getCookie(req, name) {
-  const match = String(req.headers.cookie || '').split(';').find((item) => item.trim().startsWith(`${name}=`));
-  return match ? decodeURIComponent(match.trim().slice(name.length + 1)) : '';
-}
+import { getCookie } from '../_tiktok.js';
 
 export default async function handler(req, res) {
   const token = getCookie(req, 'tiktok_token');
