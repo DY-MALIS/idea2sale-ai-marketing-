@@ -639,6 +639,7 @@ export default async function handler(req, res) {
           status: 'PUBLISHED',
           telegramMessageId: null,
           publishedAt: FieldValue.serverTimestamp(),
+          duplicateSkipped: true,
           errorMessage: `Skipped -- duplicate of already-published post ${duplicateId}`
         });
         results.push({ id: doc.id, ok: true, skippedDuplicate: duplicateId });

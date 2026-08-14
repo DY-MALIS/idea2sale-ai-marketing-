@@ -244,7 +244,10 @@ export const translations = {
     tiktokActivity: 'TikTok Activity',
     viewOnTikTok: 'View on TikTok',
     telegramChannelStats: 'Telegram Channel Stats',
-    totalSent: 'Total Sent',
+    // Counts every scheduled Telegram post regardless of outcome (including ones
+    // still pending or that failed) -- "Scheduled" avoids implying all of these
+    // actually reached the channel, which only the Published count guarantees.
+    totalSent: 'Total Scheduled',
     published: 'Published',
     pending: 'Pending',
     failed: 'Failed',
@@ -566,7 +569,7 @@ export const translations = {
     tiktokActivity: 'សកម្មភាព TikTok',
     viewOnTikTok: 'មើលលើ TikTok',
     telegramChannelStats: 'ស្ថិតិឆានែល Telegram',
-    totalSent: 'ផ្ញើសរុប',
+    totalSent: 'កំណត់ពេលសរុប',
     published: 'បានបង្ហោះ',
     pending: 'កំពុងរង់ចាំ',
     failed: 'បរាជ័យ',

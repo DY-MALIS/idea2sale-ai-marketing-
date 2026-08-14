@@ -169,11 +169,16 @@ const TikTokAnalytics: React.FC = () => {
     return () => unsubscribe();
   }, [user, isDemoMode]);
 
+  // A post skipped as a duplicate (same media already delivered by another doc --
+  // see findRecentDuplicateTelegramPost) is marked PUBLISHED so it stops being
+  // retried, but no new message actually reached Telegram for it. Excluding those
+  // keeps these counts matching what's really in the channel.
+  const realTelegramPosts = telegramPosts.filter((p) => !p.duplicateSkipped);
   const telegramStats = {
-    total: telegramPosts.length,
-    published: telegramPosts.filter((p) => p.status === 'PUBLISHED').length,
-    pending: telegramPosts.filter((p) => p.status === 'PENDING').length,
-    failed: telegramPosts.filter((p) => p.status === 'FAILED').length,
+    total: realTelegramPosts.length,
+    published: realTelegramPosts.filter((p) => p.status === 'PUBLISHED').length,
+    pending: realTelegramPosts.filter((p) => p.status === 'PENDING').length,
+    failed: realTelegramPosts.filter((p) => p.status === 'FAILED').length,
   };
 
   return (

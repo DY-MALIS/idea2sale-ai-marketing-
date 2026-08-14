@@ -328,7 +328,14 @@ const Scheduler: React.FC = () => {
         const duplicateId = await findRecentDuplicateTelegramPost(post);
         if (duplicateId) {
           console.warn(`Skipping Telegram send for ${post.id}: duplicate of already-published ${duplicateId}`);
-          await markPostStatus(post, 'PUBLISHED');
+          // Marked distinctly from a real send (duplicateSkipped: true) so stats
+          // widgets counting "published" don't count a post that never actually
+          // reached Telegram -- see TikTokAnalytics.tsx's telegramStats.
+          await updateDoc(doc(db, 'scheduled_posts', post.id), {
+            status: 'PUBLISHED',
+            publishedAt: serverTimestamp(),
+            duplicateSkipped: true
+          });
           return;
         }
       }
