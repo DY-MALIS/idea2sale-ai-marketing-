@@ -2,6 +2,7 @@ import { Receiver } from '@upstash/qstash';
 import { FieldValue } from 'firebase-admin/firestore';
 import { initFirebaseAdmin, sendTelegram } from './run-scheduled.js';
 import { claimPendingPost, findRecentDuplicateTelegramPost } from '../_telegramClaim.js';
+import { notifyAdmins } from '../_alert.js';
 
 export const config = {
   api: { bodyParser: false },
@@ -88,9 +89,12 @@ export default async function handler(req, res) {
     } catch (error) {
       const message = error?.message || 'Telegram publish failed.';
       await ref.update({ status: 'FAILED', errorMessage: message, failedAt: FieldValue.serverTimestamp() });
+      await notifyAdmins(`Telegram post ${postId} failed (QStash): ${message}`);
       return res.status(200).json({ ok: false, error: message });
     }
   } catch (error) {
-    return res.status(500).json({ ok: false, error: error?.message || 'Delivery failed.' });
+    const message = error?.message || 'Delivery failed.';
+    await notifyAdmins(`Telegram QStash delivery crashed for post ${postId}: ${message}`);
+    return res.status(500).json({ ok: false, error: message });
   }
 }

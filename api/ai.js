@@ -8,6 +8,15 @@ import {
   synthesizeSpeechViaOpenRouter,
   transcribeAudioWithOpenRouter,
 } from './_openrouter.js';
+import { initFirebaseAdmin } from './_firebaseAdmin.js';
+import { checkRateLimit, getClientIp } from './_rateLimit.js';
+
+// This endpoint has no auth check (it's used from guest/demo sessions with no
+// Firebase login), so without a limit a single connection can script unlimited
+// image/video/TTS calls straight through to paid OpenRouter/Gemini API usage.
+// One shared per-IP budget across every action here, not per-action, since a
+// script abusing this endpoint would just spread calls across actions otherwise.
+const AI_RATE_LIMIT_PER_HOUR = Number(process.env.AI_RATE_LIMIT_PER_HOUR) || 60;
 
 // Vercel's default serverless function timeout (10s on Hobby) is too short for
 // transcribing a long voice recording (the AI Agent's voice input now allows up to
@@ -353,6 +362,23 @@ export default async function handler(req, res) {
   const action = String(req.body?.action || '');
   const languageCode = String(req.body?.language || 'en');
   const language = languageCode === 'km' ? 'Khmer' : 'English';
+
+  // Fails open: a rate-limit infra hiccup (Firebase misconfigured, transient
+  // error) must never block a legitimate request, only genuinely exceeding
+  // the limit does.
+  try {
+    const db = initFirebaseAdmin();
+    const { allowed } = await checkRateLimit(db, {
+      scope: 'ai',
+      key: getClientIp(req),
+      limit: AI_RATE_LIMIT_PER_HOUR,
+    });
+    if (!allowed) {
+      return res.status(429).json({ error: 'Too many AI requests from this connection. Please wait a bit and try again.' });
+    }
+  } catch (error) {
+    console.error('AI rate limit check failed, allowing request through:', error?.message || error);
+  }
 
   try {
     if (action === 'copywriter') {

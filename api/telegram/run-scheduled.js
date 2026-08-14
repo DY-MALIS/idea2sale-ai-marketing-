@@ -4,13 +4,17 @@ import { createHash } from 'crypto';
 import { Client as QStashClient } from '@upstash/qstash';
 import { logAudit } from '../_audit.js';
 import { claimPendingPost, findRecentDuplicateTelegramPost } from '../_telegramClaim.js';
+import { notifyAdmins } from '../_alert.js';
+import { checkRateLimit, getClientIp } from '../_rateLimit.js';
+
+const GUEST_TOKEN_RATE_LIMIT_PER_HOUR = Number(process.env.GUEST_TOKEN_RATE_LIMIT_PER_HOUR) || 30;
 
 // Telegram rejects the whole send with "message caption is too long" if a photo/video/
 // document caption exceeds 1024 characters (sendMessage's own text has a separate, higher
 // 4096 limit) — truncate defensively so a long caption never silently blocks delivery.
 const TELEGRAM_CAPTION_LIMIT = 1024;
 const TELEGRAM_MESSAGE_LIMIT = 4096;
-const truncateForTelegram = (text, limit) => {
+export const truncateForTelegram = (text, limit) => {
   const value = String(text || '');
   return value.length > limit ? `${value.slice(0, limit - 1)}…` : value;
 };
@@ -86,7 +90,22 @@ const getStableGuestUid = (installationId) => {
   return `guest_device_${digest}`;
 };
 
-const createGuestToken = async (req, res) => {
+const createGuestToken = async (req, res, db) => {
+  // No auth exists yet at this point (this endpoint is what *creates* a guest
+  // session) -- the client IP is the only available throttling key.
+  try {
+    const { allowed } = await checkRateLimit(db, {
+      scope: 'guest-token',
+      key: getClientIp(req),
+      limit: GUEST_TOKEN_RATE_LIMIT_PER_HOUR,
+    });
+    if (!allowed) {
+      return res.status(429).json({ ok: false, error: 'Too many guest sessions started from this connection. Please wait a bit and try again.' });
+    }
+  } catch (error) {
+    console.error('Guest-token rate limit check failed, allowing request through:', error?.message || error);
+  }
+
   const uid = getStableGuestUid(req.body?.installationId);
   const token = await admin.auth().createCustomToken(uid, { guest: true });
   res.setHeader('Cache-Control', 'no-store');
@@ -204,7 +223,7 @@ const uploadMediaDataUrl = async ({ mediaDataUrl, mediaType }) => {
 // (confirmed live: a 6.5MB PNG triggered exactly this). Cloudinary can resize/
 // recompress on the fly by inserting a transformation segment into the delivery URL,
 // with no need to re-upload — cap dimensions and let it auto-pick quality/format.
-const applyCloudinaryDeliveryTransform = (secureUrl, mediaType) => {
+export const applyCloudinaryDeliveryTransform = (secureUrl, mediaType) => {
   const transform = mediaType === 'video' ? 'q_auto,w_1280' : 'w_1280,q_auto,f_auto';
   const marker = mediaType === 'video' ? '/video/upload/' : '/image/upload/';
   const index = secureUrl.indexOf(marker);
@@ -512,8 +531,8 @@ export default async function handler(req, res) {
 
   if (req.method === 'POST' && req.query?.action === 'guest-token') {
     try {
-      initFirebaseAdmin();
-      return await createGuestToken(req, res);
+      const db = initFirebaseAdmin();
+      return await createGuestToken(req, res, db);
     } catch (error) {
       return res.status(error?.statusCode || 500).json({
         ok: false,
@@ -665,6 +684,7 @@ export default async function handler(req, res) {
           failedAt: FieldValue.serverTimestamp()
         });
         results.push({ id: doc.id, ok: false, error: message });
+        await notifyAdmins(`Telegram post ${doc.id} failed (cron): ${message}`);
       }
     }
 
@@ -686,9 +706,11 @@ export default async function handler(req, res) {
       results
     });
   } catch (error) {
+    const message = error?.message || 'Scheduled Telegram runner failed.';
+    await notifyAdmins(`Telegram cron runner crashed: ${message}`);
     return res.status(500).json({
       ok: false,
-      error: error?.message || 'Scheduled Telegram runner failed.'
+      error: message
     });
   }
 }
