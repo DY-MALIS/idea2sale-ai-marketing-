@@ -3,7 +3,7 @@ import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { createHash } from 'crypto';
 import { Client as QStashClient } from '@upstash/qstash';
 import { logAudit } from '../_audit.js';
-import { claimPendingPost } from '../_telegramClaim.js';
+import { claimPendingPost, findRecentDuplicateTelegramPost } from '../_telegramClaim.js';
 
 // Telegram rejects the whole send with "message caption is too long" if a photo/video/
 // document caption exceeds 1024 characters (sendMessage's own text has a separate, higher
@@ -612,6 +612,19 @@ export default async function handler(req, res) {
       }
 
       const post = claim.post;
+
+      const duplicateId = await findRecentDuplicateTelegramPost(db, post);
+      if (duplicateId) {
+        await doc.ref.update({
+          status: 'PUBLISHED',
+          telegramMessageId: null,
+          publishedAt: FieldValue.serverTimestamp(),
+          errorMessage: `Skipped -- duplicate of already-published post ${duplicateId}`
+        });
+        results.push({ id: doc.id, ok: true, skippedDuplicate: duplicateId });
+        continue;
+      }
+
       try {
         const messageId = await sendTelegram(post);
 

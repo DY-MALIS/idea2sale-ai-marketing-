@@ -17,3 +17,33 @@ export async function claimPendingPost(db, ref) {
     return { post: data };
   });
 }
+
+// Second, cross-document safety net: the atomic claim above only stops the
+// *same* scheduled_posts doc from being sent twice. It can't stop two
+// *different* docs that ended up holding the same media -- e.g. a
+// double-submitted schedule form, or a client retry after a network error
+// that actually reached the server. Both docs independently claim fine and
+// each publishes, so the same video/photo goes out to Telegram twice. Equality-
+// only filters (platform/mediaUrl/status) need no composite index.
+const DUPLICATE_WINDOW_MS = 15 * 60 * 1000;
+
+export async function findRecentDuplicateTelegramPost(db, post) {
+  const mediaUrl = String(post?.mediaUrl || '').trim();
+  if (!mediaUrl) return null;
+
+  const snapshot = await db
+    .collection('scheduled_posts')
+    .where('platform', '==', 'TELEGRAM')
+    .where('mediaUrl', '==', mediaUrl)
+    .where('status', '==', 'PUBLISHED')
+    .get();
+
+  const cutoff = Date.now() - DUPLICATE_WINDOW_MS;
+  const match = snapshot.docs.find((docSnap) => {
+    if (docSnap.id === post.id) return false;
+    const publishedAtMs = docSnap.data()?.publishedAt?.toMillis?.();
+    return typeof publishedAtMs === 'number' && publishedAtMs >= cutoff;
+  });
+
+  return match ? match.id : null;
+}

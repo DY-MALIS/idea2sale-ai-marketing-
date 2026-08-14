@@ -1,7 +1,7 @@
 import { Receiver } from '@upstash/qstash';
 import { FieldValue } from 'firebase-admin/firestore';
 import { initFirebaseAdmin, sendTelegram } from './run-scheduled.js';
-import { claimPendingPost } from '../_telegramClaim.js';
+import { claimPendingPost, findRecentDuplicateTelegramPost } from '../_telegramClaim.js';
 
 export const config = {
   api: { bodyParser: false },
@@ -63,6 +63,17 @@ export default async function handler(req, res) {
     }
 
     const post = claim.post;
+
+    const duplicateId = await findRecentDuplicateTelegramPost(db, post);
+    if (duplicateId) {
+      await ref.update({
+        status: 'PUBLISHED',
+        telegramMessageId: null,
+        publishedAt: FieldValue.serverTimestamp(),
+        errorMessage: `Skipped -- duplicate of already-published post ${duplicateId}`,
+      });
+      return res.status(200).json({ ok: true, skippedDuplicate: duplicateId });
+    }
 
     try {
       const messageId = await sendTelegram(post);

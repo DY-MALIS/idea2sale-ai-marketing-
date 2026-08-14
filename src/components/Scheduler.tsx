@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Calendar, Clock, Trash2, CheckCircle2, AlertCircle, Share2, Instagram, Twitter, X, Send } from 'lucide-react';
 import { db, auth } from '../lib/firebase';
-import { collection, query, where, onSnapshot, deleteDoc, doc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, deleteDoc, doc, updateDoc, runTransaction, serverTimestamp, getDocs } from 'firebase/firestore';
 import { SchedulePost } from '../types';
 import { format, isAfter, parseISO, addHours, subHours } from 'date-fns';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -202,7 +202,40 @@ const Scheduler: React.FC = () => {
       return;
     }
 
-    await updateDoc(doc(db, 'scheduled_posts', post.id), { status });
+    await updateDoc(doc(db, 'scheduled_posts', post.id), status === 'PUBLISHED'
+      ? { status, publishedAt: serverTimestamp() }
+      : { status });
+  };
+
+  // Second, cross-document safety net: the atomic claim above only stops the
+  // *same* scheduled_posts doc from being sent twice, not two *different* docs
+  // that ended up holding the same media (double-submitted form, retry after a
+  // network error that actually went through, etc). Mirrors
+  // api/_telegramClaim.js's findRecentDuplicateTelegramPost server-side.
+  const DUPLICATE_TELEGRAM_WINDOW_MS = 15 * 60 * 1000;
+  const findRecentDuplicateTelegramPost = async (post: SchedulePost) => {
+    const mediaUrl = (post.mediaUrl || '').trim();
+    if (!mediaUrl || !user) return null;
+
+    try {
+      const snap = await getDocs(query(
+        collection(db, 'scheduled_posts'),
+        where('userId', '==', user.uid),
+        where('platform', '==', 'TELEGRAM'),
+        where('mediaUrl', '==', mediaUrl),
+        where('status', '==', 'PUBLISHED')
+      ));
+      const cutoff = Date.now() - DUPLICATE_TELEGRAM_WINDOW_MS;
+      const match = snap.docs.find((d) => {
+        if (d.id === post.id) return false;
+        const publishedAtMs = d.data()?.publishedAt?.toMillis?.();
+        return typeof publishedAtMs === 'number' && publishedAtMs >= cutoff;
+      });
+      return match?.id || null;
+    } catch (err) {
+      console.error('Duplicate Telegram post check failed:', err);
+      return null;
+    }
   };
 
   const uploadLegacyTelegramMedia = async (post: SchedulePost) => {
@@ -259,11 +292,47 @@ const Scheduler: React.FC = () => {
     return String(uploadData.secure_url);
   };
 
+  // The in-memory `processingTelegram` ref above only stops this one browser tab
+  // from sending the same post twice -- it resets on every reload and doesn't
+  // know about other tabs/devices. Two tabs open on this page (or a reload
+  // mid-send) both see the same PENDING doc and both send it to Telegram. This
+  // mirrors the atomic claim api/_telegramClaim.js uses server-side: a Firestore
+  // transaction that only flips PENDING -> PROCESSING for whichever caller reads
+  // it first, so a second claimant sees PROCESSING and backs off.
+  const claimPendingTelegramPost = async (postId: string) => {
+    try {
+      return await runTransaction(db, async (tx) => {
+        const ref = doc(db, 'scheduled_posts', postId);
+        const snap = await tx.get(ref);
+        if (!snap.exists() || snap.data()?.status !== 'PENDING') return false;
+        tx.update(ref, { status: 'PROCESSING', processingAt: serverTimestamp() });
+        return true;
+      });
+    } catch (err) {
+      console.error('Failed to claim Telegram post for delivery:', err);
+      return false;
+    }
+  };
+
   const sendTelegramPost = async (post: SchedulePost) => {
     if (processingTelegram.current.has(post.id)) return;
     processingTelegram.current.add(post.id);
 
     try {
+      // Demo/local-only posts live only in this browser's localStorage, not in a
+      // shared Firestore doc, so there's no cross-tab/device race to guard against.
+      if (!isDemoMode && !post.localOnly) {
+        const claimed = await claimPendingTelegramPost(post.id);
+        if (!claimed) return;
+
+        const duplicateId = await findRecentDuplicateTelegramPost(post);
+        if (duplicateId) {
+          console.warn(`Skipping Telegram send for ${post.id}: duplicate of already-published ${duplicateId}`);
+          await markPostStatus(post, 'PUBLISHED');
+          return;
+        }
+      }
+
       let mediaUrl = post.mediaUrl || '';
       let localMediaDataUrl = post.mediaDataUrl || '';
 
