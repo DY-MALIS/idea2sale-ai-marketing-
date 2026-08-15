@@ -20,32 +20,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const stabilizingGuestUid = useRef<string | null>(null);
 
   useEffect(() => {
+    // Absolute last-resort ceiling. App.tsx gates the *entire app* behind
+    // `loading`, so if nothing else below ever settles, this is what stands
+    // between that and an infinitely stuck spinner. Should never actually need to
+    // fire in practice -- the race in the guest-migration branch below is the
+    // thing that actually bounds that work -- but it stays armed for the whole
+    // callback (not cleared until the callback truly finishes) as a structural
+    // guarantee against any future hang added here, not just the ones handled today.
     const timeoutId = window.setTimeout(() => {
       console.warn('Firebase auth state timed out. Showing the sign-in screen.');
       setLoading(false);
-    }, 8000);
-    // App.tsx gates the entire app behind `loading` -- clearing the watchdog at
-    // the very start of this callback (before the async guest-migration work
-    // below) meant that work then had nothing bounding it. If the migrate-guest
-    // fetch hung, setLoading(false) was never reached and the whole app got stuck
-    // on the full-screen spinner forever, no matter how long the user waited.
-    // Keeping the watchdog alive until this callback truly finishes means it's
-    // still a real last-resort net for that case (or any other unexpected hang
-    // added here later), on top of the fetch's own bounded timeout below.
+    }, 20000);
 
     const unsubscribe = auth.onAuthStateChanged(
       async (u) => {
         if (u && !isStableGuestUid(u.uid) && stabilizingGuestUid.current !== u.uid) {
           try {
-            const tokenResult = await u.getIdTokenResult();
-            if (tokenResult.claims.guest === true) {
-              stabilizingGuestUid.current = u.uid;
-              const idToken = await u.getIdToken();
-              const migrationController = new AbortController();
-              const migrationTimeoutId = window.setTimeout(() => migrationController.abort(), 10000);
-              let response: Response;
-              try {
-                response = await fetch('/api/telegram/run-scheduled?action=migrate-guest', {
+            // Every step here (two Firebase SDK calls, a fetch, a persistence
+            // write, a token sign-in) is awaited in sequence with no timeout of
+            // its own -- a hang in ANY of them, not just the fetch, would
+            // otherwise leave this whole branch (and the app-wide spinner above)
+            // stuck forever. Racing the whole attempt against one timeout bounds
+            // it structurally regardless of which specific step misbehaves,
+            // rather than requiring every current and future step inside to
+            // remember to add its own guard.
+            const migrated = await Promise.race([
+              (async () => {
+                const tokenResult = await u.getIdTokenResult();
+                if (tokenResult.claims.guest !== true) return false;
+
+                stabilizingGuestUid.current = u.uid;
+                const idToken = await u.getIdToken();
+                const response = await fetch('/api/telegram/run-scheduled?action=migrate-guest', {
                   method: 'POST',
                   headers: {
                     'Authorization': `Bearer ${idToken}`,
@@ -53,20 +59,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   },
                   body: JSON.stringify({
                     installationId: getGuestInstallationId()
-                  }),
-                  signal: migrationController.signal
+                  })
                 });
-              } finally {
-                window.clearTimeout(migrationTimeoutId);
-              }
-              const data = await response.json().catch(() => ({}));
+                const data = await response.json().catch(() => ({}));
 
-              if (!response.ok || !data.ok || !data.token) {
-                throw new Error(data.error || 'Could not preserve the guest account.');
-              }
+                if (!response.ok || !data.ok || !data.token) {
+                  throw new Error(data.error || 'Could not preserve the guest account.');
+                }
 
-              await authPersistenceReady;
-              await signInWithCustomToken(auth, data.token);
+                await authPersistenceReady;
+                await signInWithCustomToken(auth, data.token);
+                return true;
+              })(),
+              new Promise<boolean>((_, reject) => {
+                window.setTimeout(() => reject(new Error('Guest account migration timed out.')), 12000);
+              }),
+            ]);
+
+            if (migrated) {
               window.clearTimeout(timeoutId);
               return;
             }
