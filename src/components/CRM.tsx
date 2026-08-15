@@ -31,26 +31,54 @@ const PAGE_SIZE = 30;
 const CRM: React.FC = () => {
   const { t } = useLanguage();
   const { isAdmin, checking: checkingAdmin } = useIsAdmin();
-  const [leads, setLeads] = useState<TelegramLead[]>([]);
+  // Split into the realtime-tracked first page and manually-paginated pages
+  // beyond it: the onSnapshot listener below used to overwrite one combined
+  // `leads` array outright, so any live update to the top page (e.g. a new
+  // inbound message reordering it) silently truncated back to page 1 whatever
+  // extra pages the admin had loaded via "load more" -- the data was still in
+  // Firestore, it just vanished from the UI. Keeping them separate means a live
+  // update can only ever replace the first page.
+  const [liveLeads, setLiveLeads] = useState<TelegramLead[]>([]);
+  const [extraLeads, setExtraLeads] = useState<TelegramLead[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [lastDoc, setLastDoc] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
   const [searchInput, setSearchInput] = useState('');
   const [tagFilter, setTagFilter] = useState<string | null>(null);
+  // Once the admin has paged past the live-tracked first page, a realtime
+  // reorder of that first page must not reset lastDoc/hasMore back to it --
+  // that would desync the "next page" cursor from what's actually been loaded.
+  const hasLoadedMoreRef = useRef(false);
+  // Synchronous re-entrancy guard for handleLoadMore, independent of React's
+  // state-update timing -- the IntersectionObserver effect below only recreates
+  // its observer (and the handleLoadMore closure it captured) when hasMore/
+  // lastDoc change, not when loadingMore changes, so a closure from an earlier
+  // render can see a stale (false) loadingMore and let a duplicate call through
+  // if the observer fires more than once before React re-renders.
+  const loadingMoreRef = useRef(false);
+
+  const leads = React.useMemo(() => {
+    const liveIds = new Set(liveLeads.map((lead) => lead.id));
+    return [...liveLeads, ...extraLeads.filter((lead) => !liveIds.has(lead.id))];
+  }, [liveLeads, extraLeads]);
 
   useEffect(() => {
     if (checkingAdmin || !isAdmin) {
       setLoading(false);
       return;
     }
+    hasLoadedMoreRef.current = false;
+    setExtraLeads([]);
     const q = query(collection(db, 'telegram_leads'), orderBy('lastMessageAt', 'desc'), limit(PAGE_SIZE));
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
-        setLeads(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as TelegramLead[]);
-        setLastDoc(snapshot.docs[snapshot.docs.length - 1] || null);
-        setHasMore(snapshot.docs.length === PAGE_SIZE);
+        setLiveLeads(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as TelegramLead[]);
+        if (!hasLoadedMoreRef.current) {
+          setLastDoc(snapshot.docs[snapshot.docs.length - 1] || null);
+          setHasMore(snapshot.docs.length === PAGE_SIZE);
+        }
         setLoading(false);
       },
       (error) => {
@@ -62,18 +90,21 @@ const CRM: React.FC = () => {
   }, [checkingAdmin, isAdmin]);
 
   const handleLoadMore = async () => {
-    if (!lastDoc || loadingMore) return;
+    if (!lastDoc || loadingMoreRef.current) return;
+    loadingMoreRef.current = true;
+    hasLoadedMoreRef.current = true;
     setLoadingMore(true);
     try {
       const q = query(collection(db, 'telegram_leads'), orderBy('lastMessageAt', 'desc'), startAfter(lastDoc), limit(PAGE_SIZE));
       const snapshot = await getDocs(q);
       const nextLeads = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as TelegramLead[];
-      setLeads((prev) => [...prev, ...nextLeads]);
+      setExtraLeads((prev) => [...prev, ...nextLeads]);
       setLastDoc(snapshot.docs[snapshot.docs.length - 1] || null);
       setHasMore(snapshot.docs.length === PAGE_SIZE);
     } catch (error) {
       console.error('CRM load more error:', error);
     } finally {
+      loadingMoreRef.current = false;
       setLoadingMore(false);
     }
   };
@@ -201,7 +232,7 @@ const CRM: React.FC = () => {
                     </div>
                     <p className="text-sm text-slate-600 dark:text-slate-300 line-clamp-2">{lead.lastMessage}</p>
                     <p className="text-[10px] text-slate-400 dark:text-slate-400 mt-1 font-mono">
-                      {t('messagesCount').replace('{count}', String(lead.messageCount || 1))}
+                      {t('messagesCount').replace('{count}', String(lead.messageCount ?? 1))}
                       {lead.lastMessageAt?.toDate ? ` • ${lead.lastMessageAt.toDate().toLocaleString()}` : ''}
                     </p>
                   </div>

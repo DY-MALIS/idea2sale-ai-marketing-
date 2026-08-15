@@ -512,9 +512,13 @@ Response rules:
     if (action === 'adsStrategy') {
       const query = String(req.body?.query || '').trim();
       if (!query) return res.status(400).json({ error: 'Product or category is required.' });
+      // The UI language toggle alone isn't enough: a user can leave the app in
+      // English but type the product/category in Khmer, and the strategy should
+      // still come back in Khmer for that case.
+      const outputLanguage = language === 'Khmer' || /[ក-៿]/.test(query) ? 'Khmer' : 'English';
       const strategy = await generateOpenRouterText({
         system: `You are a practical paid social advertising strategist.\n\n${CAMBODIA_MARKET_CONTEXT}`,
-        prompt: `Create a concise digital advertising strategy for: "${query}". Write entirely in ${language}. Include target audience, three-second hooks, campaign structure, and a practical test budget (in USD, matching how Cambodian sellers actually budget). Do not invent live ad-account metrics.`,
+        prompt: `Create a concise digital advertising strategy for: "${query}". Write entirely in ${outputLanguage}. Include target audience, three-second hooks, campaign structure, and a practical test budget (in USD, matching how Cambodian sellers actually budget). Do not invent live ad-account metrics.`,
       });
       return res.status(200).json({ strategy: strategy || 'No strategy generated.' });
     }

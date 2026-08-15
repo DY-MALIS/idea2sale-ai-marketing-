@@ -26,20 +26,31 @@ const applyLogoWatermark = (baseDataUrl: string, logoDataUrl: string): Promise<s
     base.onload = () => {
       const logo = new Image();
       logo.onload = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = base.width;
-        canvas.height = base.height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
+        // ctx.drawImage/canvas.toDataURL can throw (a tainted canvas from a
+        // cross-origin/CORS-disallowed image source) -- that throw happens inside
+        // this onload callback, not the Promise executor's synchronous body, so it
+        // is never caught by the Promise machinery. Without this try/catch the
+        // promise would just hang forever instead of resolving/rejecting, leaving
+        // the caller's `await` -- and the whole generation UI -- stuck indefinitely.
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = base.width;
+          canvas.height = base.height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve(baseDataUrl);
+            return;
+          }
+          ctx.drawImage(base, 0, 0);
+          const margin = Math.round(base.width * LOGO_MARGIN_RATIO);
+          const logoWidth = Math.round(base.width * LOGO_WIDTH_RATIO);
+          const logoHeight = Math.round(logoWidth * (logo.height / logo.width));
+          ctx.drawImage(logo, margin, base.height - logoHeight - margin, logoWidth, logoHeight);
+          resolve(canvas.toDataURL('image/png'));
+        } catch (error) {
+          console.error('Logo watermark failed, using the unwatermarked image:', error);
           resolve(baseDataUrl);
-          return;
         }
-        ctx.drawImage(base, 0, 0);
-        const margin = Math.round(base.width * LOGO_MARGIN_RATIO);
-        const logoWidth = Math.round(base.width * LOGO_WIDTH_RATIO);
-        const logoHeight = Math.round(logoWidth * (logo.height / logo.width));
-        ctx.drawImage(logo, margin, base.height - logoHeight - margin, logoWidth, logoHeight);
-        resolve(canvas.toDataURL('image/png'));
       };
       logo.onerror = () => resolve(baseDataUrl);
       logo.src = logoDataUrl;
@@ -109,7 +120,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
         setIsAuthenticating(false);
         fetch('/api/tiktok/me')
           .then(res => res.json())
-          .then(data => setTiktokUser(data))
+          .then(data => { if (!data.error) setTiktokUser(data); })
           .catch(err => console.error("Failed to fetch user after auth", err));
       }
     };
@@ -193,6 +204,11 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
   };
 
   const handleGeneratePoster = async () => {
+    // Without this, a manual click while an automation-triggered generation (or
+    // another manual click) is still in flight starts a second concurrent
+    // request; whichever resolves last silently wins setGeneratedImage, with no
+    // indication the other request was superseded.
+    if (loading) return;
     setLoading(true);
     setGeneratedImage(null);
     try {
@@ -229,6 +245,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
   };
 
   const handleGenerateImage = async (promptOverride?: string, aspectRatioOverride?: string) => {
+    if (loading) return;
     const prompt = typeof promptOverride === 'string' ? promptOverride.trim() : visualPrompt.trim();
     const aspectRatio = typeof aspectRatioOverride === 'string' ? aspectRatioOverride : '1:1';
     if (!prompt) return;
@@ -437,7 +454,9 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
                   void handleGenerateImage();
                 }
               }}
-              disabled={loading || (activeTool === 'visual' && !visualPrompt)}
+              disabled={loading || (activeTool === 'visual'
+                ? !visualPrompt.trim()
+                : !posterDetails.brand.trim() || !posterDetails.headline.trim() || !posterDetails.cta.trim())}
               className="w-full bg-gradient-to-r from-brand-600 to-crab-shell hover:from-brand-700 hover:to-crab-shell/90 text-white font-bold py-5 rounded-2xl flex items-center justify-center gap-3 transition-all shadow-xl shadow-brand-500/20"
             >
               {loading ? <Loader2 className="animate-spin" /> : <Sparkles size={22} />}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   TrendingUp,
   Target,
@@ -36,6 +36,10 @@ const AdsManager: React.FC = () => {
   const [imageAnalysis, setImageAnalysis] = useState<string | null>(null);
   const [imageAnalysisError, setImageAnalysisError] = useState<string | null>(null);
   const [scanLanguage, setScanLanguage] = useState<'km' | 'en'>(language);
+  // Guards against a stale analysis response (from an earlier image/video, or an
+  // earlier scan-language selection) landing after a newer one and overwriting
+  // imageAnalysis/targetQuery with data tied to the wrong upload.
+  const analysisRequestIdRef = useRef(0);
 
   const handleGetScalingAdvice = async () => {
     if (!strategy) return;
@@ -87,7 +91,22 @@ Keep it concise and practical.`,
       const url = URL.createObjectURL(file);
       video.src = url;
 
-      const cleanup = () => URL.revokeObjectURL(url);
+      // A video with an unsupported/stalling codec can leave onloadedmetadata and
+      // onseeked both never firing -- without this, the promise never settles,
+      // isAnalyzingImage stays true forever, and the spinner/file input are stuck
+      // until a page reload.
+      const timeoutId = window.setTimeout(() => {
+        settle(() => reject(new Error('This video took too long to read. Please try a different file.')));
+      }, 15000);
+
+      let settled = false;
+      const settle = (run: () => void) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeoutId);
+        URL.revokeObjectURL(url);
+        run();
+      };
 
       video.onloadedmetadata = () => {
         video.currentTime = Math.min(1, (video.duration || 1) / 2);
@@ -98,23 +117,21 @@ Keep it concise and practical.`,
         canvas.height = video.videoHeight;
         const ctx = canvas.getContext('2d');
         if (!ctx || !canvas.width || !canvas.height) {
-          cleanup();
-          reject(new Error('Could not read a frame from this video.'));
+          settle(() => reject(new Error('Could not read a frame from this video.')));
           return;
         }
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
-        cleanup();
-        resolve({ base64: dataUrl.split(',')[1], mimeType: 'image/jpeg' });
+        settle(() => resolve({ base64: dataUrl.split(',')[1], mimeType: 'image/jpeg' }));
       };
       video.onerror = () => {
-        cleanup();
-        reject(new Error('Could not read this video file.'));
+        settle(() => reject(new Error('Could not read this video file.')));
       };
     });
   };
 
   const handleAnalyzeImage = async (base64: string, mimeType: string, sourceType: 'image' | 'video', lang: 'km' | 'en') => {
+    const requestId = ++analysisRequestIdRef.current;
     setIsAnalyzingImage(true);
     setImageAnalysis(null);
     setImageAnalysisError(null);
@@ -125,13 +142,15 @@ Keep it concise and practical.`,
         body: JSON.stringify({ action: 'productImageAnalyze', imageBase64: base64, imageMimeType: mimeType, sourceType, language: lang }),
       });
       const data = await response.json();
+      if (requestId !== analysisRequestIdRef.current) return;
       if (!response.ok) throw new Error(data.error || 'Failed to analyze media.');
       setImageAnalysis(data.analysis || null);
       if (data.productSummary) setTargetQuery(data.productSummary);
     } catch (error: any) {
+      if (requestId !== analysisRequestIdRef.current) return;
       setImageAnalysisError(error.message || 'Error analyzing media.');
     } finally {
-      setIsAnalyzingImage(false);
+      if (requestId === analysisRequestIdRef.current) setIsAnalyzingImage(false);
     }
   };
 
@@ -178,26 +197,15 @@ Keep it concise and practical.`,
   };
 
   const handleGenerateStrategy = async () => {
-    if (!targetQuery) return;
+    if (!targetQuery.trim()) return;
     setIsGenerating(true);
     setStrategy(null);
+    setScalingAdvice(null);
     try {
-      const prompt = `You are a high-level digital ads strategist. 
-      The user wants to run ads for: "${targetQuery}".
-      
-      CRITICAL INSTRUCTION: 
-      - The current application language is set to: ${language === 'km' ? 'Khmer' : 'English'}.
-      - Detect the language of the user's input: "${targetQuery}".
-      - If either the input is in Khmer OR the application language is Khmer, you MUST provide the strategy ENTIRELY in Khmer.
-      - Otherwise, provide it in English.
-      
-      Structure the response as:
-      ### 1. 🎯 Winning Audience Persona (Age, Interests, Behaviors)
-      ### 2. ⚡ Hook Ideas (The first 3 seconds of the ad)
-      ### 3. 🚀 Campaign Structure (ABO vs CBO)
-      ### 4. 💰 Estimated Budgeting
-      Keep it concise, high-impact, and professional. Use emojis.`;
-
+      // Khmer-detection-in-query and the Khmer-output decision now live
+      // server-side (api/ai.js's adsStrategy handler) so they actually run --
+      // this used to build an equivalent prompt with the same instructions but
+      // never sent it, silently discarding the language-detection logic.
       const response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -294,6 +302,7 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
                       <button
                         key={lang}
                         type="button"
+                        disabled={isAnalyzingImage}
                         onClick={() => {
                           setScanLanguage(lang);
                           if (productImageBase64 && productImageMimeType) {
@@ -301,7 +310,7 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
                           }
                         }}
                         className={cn(
-                          "px-3 py-1 rounded-lg text-[10px] font-black transition-all",
+                          "px-3 py-1 rounded-lg text-[10px] font-black transition-all disabled:opacity-50 disabled:cursor-not-allowed",
                           scanLanguage === lang ? "bg-white dark:bg-slate-700 text-brand-700 shadow-sm" : "text-brand-400"
                         )}
                       >
@@ -354,7 +363,7 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
               </div>
               <button 
                 onClick={handleGenerateStrategy}
-                disabled={isGenerating || !targetQuery}
+                disabled={isGenerating || !targetQuery.trim()}
                 className="w-full py-5 bg-brand-700 hover:bg-brand-800 disabled:bg-brand-200 text-white font-bold rounded-2xl flex items-center justify-center gap-2 shadow-xl shadow-brand-700/20 transition-all"
               >
                 {isGenerating ? <Loader2 className="animate-spin" /> : <Zap size={18} />}

@@ -54,7 +54,7 @@ interface BusinessProfileProps {
 
 const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
   const { t } = useLanguage();
-  const { user, isDemoMode } = useAuth();
+  const { user, isDemoMode, loading: authLoading } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [loading, setLoading] = useState(true);
@@ -70,16 +70,26 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
   const [entryType, setEntryType] = useState<'COMPANY' | 'INDIVIDUAL'>('COMPANY');
 
   useEffect(() => {
+    // Waiting for Firebase auth to actually settle avoids a load-then-reload: this
+    // modal can open before auth resolves, so `user` reads null for a moment even
+    // for a signed-in visitor. Loading the demo/local profile during that window,
+    // then re-loading real Firestore data once auth resolves a beat later, would
+    // silently discard anything the user typed in between.
+    if (authLoading) return;
+
+    let cancelled = false;
     const load = async () => {
       setLoading(true);
       try {
         if (isDemoMode || !user) {
           const local = getLocalProfile();
+          if (cancelled) return;
           setBusinessName(local.businessName);
           setLogoDataUrl(local.logoDataUrl);
           setDirectory(local.directory || []);
         } else {
           const snap = await getDoc(doc(db, 'business_profiles', user.uid));
+          if (cancelled) return;
           if (snap.exists()) {
             const data = snap.data() as BusinessProfileData;
             setBusinessName(data.businessName || '');
@@ -88,14 +98,16 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
           }
         }
       } catch (err) {
+        if (cancelled) return;
         console.error('Failed to load business profile:', err);
         setError(t('businessProfileLoadError'));
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
     load();
-  }, [user, isDemoMode]);
+    return () => { cancelled = true; };
+  }, [user, isDemoMode, authLoading]);
 
   const handleLogoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

@@ -18,6 +18,7 @@ const ProductResearch: React.FC = () => {
     const [queryInput, setQueryInput] = useState(() => localStorage.getItem('research_query') || '');
     const [isSearching, setIsSearching] = useState(false);
     const [analysis, setAnalysis] = useState<string | null>(() => localStorage.getItem('research_analysis'));
+    const [researchError, setResearchError] = useState<string | null>(null);
 
     const [competitorInput, setCompetitorInput] = useState('');
     const [isTrackingCompetitor, setIsTrackingCompetitor] = useState(false);
@@ -34,6 +35,7 @@ const ProductResearch: React.FC = () => {
       if (!query) return;
       setIsSearching(true);
       setAnalysis(null);
+      setResearchError(null);
       try {
       const response = await fetch('/api/ai', {
         method: 'POST',
@@ -53,7 +55,11 @@ const ProductResearch: React.FC = () => {
     } catch (error) {
       console.error(error);
       const message = error instanceof Error ? error.message : t('errorPerformingResearch');
-      setAnalysis(message);
+      // A dedicated error state (matching competitorError/sentimentError below)
+      // instead of reusing `analysis` -- otherwise a fetch failure renders the raw
+      // error string inside the "AI Research Insights" panel styled as if it were
+      // a real result, with no red error styling to distinguish it.
+      setResearchError(message);
     } finally {
       setIsSearching(false);
     }
@@ -143,7 +149,7 @@ const ProductResearch: React.FC = () => {
 
               <button
                 onClick={handleSearch}
-                disabled={isSearching || !queryInput}
+                disabled={isSearching || !queryInput.trim()}
                 className="w-full bg-brand-700 hover:bg-brand-800 disabled:bg-brand-200 text-white font-bold py-5 rounded-2xl flex items-center justify-center gap-3 shadow-xl transition-all"
               >
                 {isSearching ? <Loader2 className="animate-spin" /> : <Target size={20} />}
@@ -153,7 +159,7 @@ const ProductResearch: React.FC = () => {
           </div>
 
           <AnimatePresence>
-            {analysis && (
+            {(analysis || researchError) && (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -163,9 +169,13 @@ const ProductResearch: React.FC = () => {
                   <BarChart2 size={24} />
                   <h3 className="text-2xl font-bold m-0">{t('aiResearchInsights')}</h3>
                 </div>
-                <div className="whitespace-pre-wrap text-brand-600 leading-relaxed font-sans">
-                  {analysis}
-                </div>
+                {researchError ? (
+                  <p className="text-sm text-red-500">{researchError}</p>
+                ) : (
+                  <div className="whitespace-pre-wrap text-brand-600 leading-relaxed font-sans">
+                    {analysis}
+                  </div>
+                )}
               </motion.div>
             )}
           </AnimatePresence>

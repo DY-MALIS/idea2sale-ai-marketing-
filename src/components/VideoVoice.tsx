@@ -521,6 +521,11 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     voiceOverTextOverride?: string,
     durationOverride?: number,
   ) => {
+    // A second call while one is already running would call resetFFmpeg() (which
+    // terminates the shared ffmpeg.wasm singleton) out from under the first call's
+    // still-in-flight exec/writeFile/readFile calls, corrupting or crashing it with
+    // confusing low-level ffmpeg errors instead of just being a no-op.
+    if (loading || audioLoading) return;
     const promptText = typeof promptOverride === 'string' ? promptOverride.trim() : videoPrompt.trim();
     const generationLanguage = languageOverride || videoLanguage;
     const voiceOverContent = (typeof voiceOverTextOverride === 'string' ? voiceOverTextOverride : (voiceOverEnabled ? voiceOverText : '')).trim();
@@ -573,7 +578,15 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       if (logoDataUrlRef.current) {
         setWatermarking(true);
         try {
+          // overlayLogoOnVideo's own try/catch only guards the ffmpeg exec/read
+          // steps -- getFFmpeg() itself runs before that, so a WASM load failure
+          // there throws uncaught here. Without this catch, an optional cosmetic
+          // step failing would discard the whole successfully-generated video
+          // (setGeneratedVideo below never runs) instead of falling back to the
+          // unwatermarked result.
           video = await overlayLogoOnVideo(video, logoDataUrlRef.current);
+        } catch (watermarkError) {
+          console.error('Logo watermark step failed, using the unwatermarked video:', watermarkError);
         } finally {
           setWatermarking(false);
         }
@@ -611,9 +624,15 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
             }
           } else {
             console.error('Voice-over TTS generation failed:', ttsData.error);
+            setVideoVoiceQualityNotice(language === 'km'
+              ? 'មិនអាចបន្ថែមសំឡេងនិទានទៅវីដេអូនេះបានទេ។ វីដេអូនៅមានប៉ុន្តែគ្មានសំឡេងនិទាន។'
+              : 'Could not add narration to this video. The video was still created, just without a voice-over.');
           }
         } catch (voiceError) {
           console.error('Voice-over generation failed, keeping the original video audio:', voiceError);
+          setVideoVoiceQualityNotice(language === 'km'
+            ? 'មិនអាចបន្ថែមសំឡេងនិទានទៅវីដេអូនេះបានទេ។ វីដេអូនៅមានប៉ុន្តែគ្មានសំឡេងនិទាន។'
+            : 'Could not add narration to this video. The video was still created, just without a voice-over.');
         } finally {
           setAddingVoiceOver(false);
         }
@@ -668,6 +687,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   }, [automationRequest?.id]);
 
   const handleGenerateAudio = async () => {
+    if (loading || audioLoading) return;
     if (!ttsText) return;
 
     setAudioLoading(true);
@@ -1251,7 +1271,8 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                   void handleGenerateAudio();
                 }
               }}
-              className="w-full bg-gradient-to-r from-brand-600 to-crab-shell text-white font-bold py-5 rounded-2xl flex items-center justify-center gap-3 shadow-xl"
+              disabled={loading || audioLoading}
+              className="w-full bg-gradient-to-r from-brand-600 to-crab-shell text-white font-bold py-5 rounded-2xl flex items-center justify-center gap-3 shadow-xl disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {loading || audioLoading ? <Loader2 className="animate-spin" /> : <Sparkles size={22} />}
               <span className="text-lg">{loading || audioLoading ? t('generating') : t('generateWithAi')}</span>

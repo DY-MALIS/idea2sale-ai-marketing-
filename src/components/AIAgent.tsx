@@ -81,6 +81,13 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   // Guards against overwriting the just-loaded saved conversation with an empty
   // autosave that could otherwise fire before the initial load resolves.
   const memoryLoadedRef = useRef(false);
+  // The voice-transcription fetch (stopRecordingAndTranscribe) can take up to
+  // 180s and isn't tied to requestControllerRef's unmount-abort above -- without
+  // this, a user who navigates away mid-transcription gets state updates (and an
+  // unexpected new askAgent() chat request) fired against an unmounted component
+  // once that fetch eventually resolves.
+  const isMountedRef = useRef(true);
+  useEffect(() => () => { isMountedRef.current = false; }, []);
   // Auto-stops a forgotten-open recording (e.g. the mic stays on because the user
   // didn't realize it was still listening) — without this, the buffer keeps growing
   // indefinitely, and a many-minutes-long recording becomes an upload that can stall
@@ -469,6 +476,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         }),
       });
       const data = await response.json();
+      if (!isMountedRef.current) return;
       if (!response.ok) throw new Error(data.error || 'Transcription failed.');
       const transcript = String(data.transcript || '').trim();
       // Speech models occasionally hallucinate a short, fluent-sounding but completely
@@ -769,7 +777,8 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
               {messages.length > 0 && (
                 <button
                   onClick={startNewChat}
-                  className="px-4 py-3 bg-white/70 dark:bg-slate-800/70 text-brand-600 hover:bg-brand-50 dark:hover:bg-slate-700 rounded-xl transition-all border border-brand-200 flex items-center gap-2 text-sm font-bold"
+                  disabled={loading}
+                  className="px-4 py-3 bg-white/70 dark:bg-slate-800/70 text-brand-600 hover:bg-brand-50 dark:hover:bg-slate-700 rounded-xl transition-all border border-brand-200 flex items-center gap-2 text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed"
                   title={text.clear}
                 >
                   <RefreshCw size={16} />

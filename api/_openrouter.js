@@ -97,7 +97,11 @@ export async function transcribeAudioWithOpenRouter({ audioBase64, format = 'wav
     }
     if (!looksLikeScriptMismatch(result, language)) return result;
     console.error(`STT model ${model} returned a script mismatch ("${result}"), trying next option`);
-    if (bestResult === undefined) bestResult = result;
+    // Keep the most recent mismatch, not the first -- there's no reason attempt 1
+    // is more trustworthy than a later one (including the whisper fallback, tried
+    // specifically for the non-Khmer/mixed-language case), and the old `=== undefined`
+    // check locked this in permanently after the first failure.
+    bestResult = result;
   }
 
   if (bestResult !== undefined) return bestResult;
@@ -185,7 +189,12 @@ export async function generateOpenRouterText({
     }),
   });
 
-  const data = await response.json();
+  // A non-2xx response can come back with a non-JSON body (HTML error page during
+  // an outage, empty body, etc) -- without the fallback, response.json() throws a
+  // raw SyntaxError that masks the intended friendly error message below, for
+  // every one of this heavily-used function's ~14+ callers across api/ai.js and
+  // api/telegram/webhook.js.
+  const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(data?.error?.message || data?.message || 'OpenRouter request failed.');
   }
@@ -229,9 +238,6 @@ const speechModelCandidates = (model) => {
     'openai/gpt-audio',
   ].filter(Boolean).filter((item, index, list) => list.indexOf(item) === index);
 };
-
-const isMissingModelError = (message) => /model .*does not exist|not a valid model id|no endpoints found|not found|unsupported model/i.test(message || '');
-const isRetryableSpeechError = (message) => /provider returned error|did not return audio|temporarily unavailable|overloaded|rate limit/i.test(message || '');
 
 // OpenAI's realtime-style audio output streams raw signed 16-bit little-endian PCM
 // at 24kHz mono — it has no container, so it must be wrapped in a WAV header before
@@ -541,7 +547,13 @@ export async function generateOpenRouterSpeech({
       return { ...audio, model: speechModel };
     } catch (error) {
       lastError = error;
-      if (!isMissingModelError(error?.message) && !isRetryableSpeechError(error?.message)) break;
+      // Always try the next candidate rather than only on specific known-retryable
+      // messages -- a plain transient network failure (fetch throwing "fetch
+      // failed"/ECONNRESET/a timeout) matches neither isMissingModelError nor
+      // isRetryableSpeechError, so the old narrow allowlist gave up after just one
+      // attempt on exactly the class of error this per-model fallback exists to
+      // survive. Only 2-3 candidates ever exist (speechModelCandidates), so trying
+      // them all even on a fatal error (e.g. a bad API key) costs little.
     }
   }
 
