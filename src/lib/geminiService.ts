@@ -55,7 +55,17 @@ export const geminiService = {
       const response = await fetchAiWithTimeout({ action: 'schedulerTrain', description: rawDescription });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to train AI');
-      return data.data || [];
+      // Same reasoning as suggestBestPostingTimes above: the AI's raw JSON is
+      // untrusted. AITrainer.tsx spreads each item straight into a Firestore
+      // write with no shape check of its own -- Firestore's security rules do
+      // still reject a malformed doc (dayOfWeek/hour/intensity are validated
+      // there too), but catching it here gives a clean empty result instead of
+      // a failed batch write with a generic error.
+      const items = Array.isArray(data.data) ? data.data : [];
+      return items.filter((item: any): item is ActivityData => (
+        item && typeof item.dayOfWeek === 'string' && typeof item.hour === 'number'
+        && typeof item.intensity === 'number'
+      ));
     } catch (error) {
       console.error('Error in aiService.trainAIOnActivity:', error);
       return [];

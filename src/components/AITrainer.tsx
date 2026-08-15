@@ -51,6 +51,15 @@ const AITrainer: React.FC<AITrainerProps> = ({ onTrainingComplete }) => {
 
     try {
       const dataPoints = await geminiService.trainAIOnActivity(description);
+      // geminiService.trainAIOnActivity resolves to [] both when the AI call
+      // outright failed and when it succeeded but extracted nothing usable --
+      // without this check, an empty result still fell through to batch.commit()
+      // on an empty batch (a trivial no-op success) and unconditionally showed
+      // "Training successful," discarding the user's description with nothing
+      // actually saved and no indication anything went wrong.
+      if (dataPoints.length === 0) {
+        throw new Error('No activity data could be extracted from this description.');
+      }
 
       const batch = writeBatch(db);
       const activityRef = collection(db, 'audience_activity');
