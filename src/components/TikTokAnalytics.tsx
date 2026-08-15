@@ -49,8 +49,14 @@ const TikTokAnalytics: React.FC = () => {
     setSyncing(true);
     setStatsError(null);
     setStatsErrorCode(null);
+    // Without a bound, a hung response leaves `syncing` stuck true forever -- the
+    // refresh button stays disabled/spinning and every stat tile shows "..."
+    // indefinitely, with the 60s auto-refresh interval never able to recover
+    // since each tick awaits the same unbounded fetch.
+    const statsController = new AbortController();
+    const statsTimeoutId = window.setTimeout(() => statsController.abort(), 15000);
     try {
-      const response = await fetch(`/api/tiktok/stats?handle=${encodeURIComponent(handle)}&t=${Date.now()}`, { credentials: 'include' });
+      const response = await fetch(`/api/tiktok/stats?handle=${encodeURIComponent(handle)}&t=${Date.now()}`, { credentials: 'include', signal: statsController.signal });
       const data = await response.json();
       if (!response.ok) {
         setStatsErrorCode(data.code || 'sync_error');
@@ -67,6 +73,7 @@ const TikTokAnalytics: React.FC = () => {
       console.error("Fetch stats error:", err);
       setStatsError(err.message || 'Unable to sync TikTok statistics.');
     } finally {
+      window.clearTimeout(statsTimeoutId);
       setSyncing(false);
     }
   };

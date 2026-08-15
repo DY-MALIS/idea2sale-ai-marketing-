@@ -126,12 +126,16 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   const uploadTelegramMedia = async (file: File, idToken: string) => {
     let signatureResponse: Response;
     try {
-      signatureResponse = await fetch('/api/telegram/run-scheduled?action=sign-upload', {
+      // Unlike doUpload() below (the actual Cloudinary upload, already
+      // timeout-wrapped), this same-origin call had no timeout at all -- a hung
+      // response left isSubmitting stuck true forever, since the finally block
+      // that resets it never runs until this await settles.
+      signatureResponse = await withUploadTimeout(fetch('/api/telegram/run-scheduled?action=sign-upload', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${idToken}`
         }
-      });
+      }));
     } catch {
       throw new Error('Could not reach the app server to prepare the upload. Check your internet connection and try again.');
     }
@@ -298,7 +302,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
           : null;
         let response: Response;
         try {
-          response = await fetch('/api/telegram/run-scheduled?action=create', {
+          response = await withUploadTimeout(fetch('/api/telegram/run-scheduled?action=create', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -311,7 +315,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
               mediaName: telegramMediaFile?.name || null,
               mediaType: uploadedMedia?.mediaType || null
             })
-          });
+          }));
         } catch {
           throw new Error('The media uploaded, but saving the post to the schedule failed (network error). Please try again.');
         }
@@ -370,6 +374,11 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   const closeModal = () => {
     setIsModalOpen(false);
     setFormError(null);
+    // An in-flight submit that's stuck (or just slow) shouldn't keep the button
+    // permanently disabled/spinning the next time this modal opens -- if the
+    // stale request eventually does resolve after this, its own finally block
+    // harmlessly resets isSubmitting again on an already-closed modal.
+    setIsSubmitting(false);
   };
 
   return (

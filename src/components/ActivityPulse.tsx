@@ -2,24 +2,35 @@ import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Activity, Thermometer } from 'lucide-react';
-import { db, auth } from '../lib/firebase';
+import { db } from '../lib/firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { AudienceActivity } from '../types';
+import { useAuth } from '../contexts/AuthContext';
 
 interface ActivityPulseProps {
   version: number;
 }
 
 const ActivityPulse: React.FC<ActivityPulseProps> = ({ version }) => {
+  const { user } = useAuth();
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchData = async () => {
-      if (!auth.currentUser) return;
+      // Reading auth.currentUser directly (instead of this context's `user`) meant
+      // this ran once on mount, often before Firebase auth had resolved yet -- the
+      // early return below then skipped setLoading(false) entirely, leaving
+      // `loading` stuck at its initial `true` and this widget permanently hidden
+      // for the rest of the session (the effect otherwise only re-runs on
+      // `version`, which changes on training completion, not on auth resolving).
+      if (!user) {
+        setLoading(false);
+        return;
+      }
       setLoading(true);
       try {
-        const q = query(collection(db, 'audience_activity'), where('userId', '==', auth.currentUser.uid));
+        const q = query(collection(db, 'audience_activity'), where('userId', '==', user.uid));
         const snapshot = await getDocs(q);
         const activities = snapshot.docs.map(doc => doc.data() as AudienceActivity);
 
@@ -46,7 +57,7 @@ const ActivityPulse: React.FC<ActivityPulseProps> = ({ version }) => {
     };
 
     fetchData();
-  }, [version]);
+  }, [version, user]);
 
   if (loading) return null;
   if (data.every(d => d.intensity === 0)) return null;

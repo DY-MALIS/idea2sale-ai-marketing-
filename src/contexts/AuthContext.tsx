@@ -24,27 +24,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.warn('Firebase auth state timed out. Showing the sign-in screen.');
       setLoading(false);
     }, 8000);
+    // App.tsx gates the entire app behind `loading` -- clearing the watchdog at
+    // the very start of this callback (before the async guest-migration work
+    // below) meant that work then had nothing bounding it. If the migrate-guest
+    // fetch hung, setLoading(false) was never reached and the whole app got stuck
+    // on the full-screen spinner forever, no matter how long the user waited.
+    // Keeping the watchdog alive until this callback truly finishes means it's
+    // still a real last-resort net for that case (or any other unexpected hang
+    // added here later), on top of the fetch's own bounded timeout below.
 
     const unsubscribe = auth.onAuthStateChanged(
       async (u) => {
-        window.clearTimeout(timeoutId);
-
         if (u && !isStableGuestUid(u.uid) && stabilizingGuestUid.current !== u.uid) {
           try {
             const tokenResult = await u.getIdTokenResult();
             if (tokenResult.claims.guest === true) {
               stabilizingGuestUid.current = u.uid;
               const idToken = await u.getIdToken();
-              const response = await fetch('/api/telegram/run-scheduled?action=migrate-guest', {
-                method: 'POST',
-                headers: {
-                  'Authorization': `Bearer ${idToken}`,
-                  'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                  installationId: getGuestInstallationId()
-                })
-              });
+              const migrationController = new AbortController();
+              const migrationTimeoutId = window.setTimeout(() => migrationController.abort(), 10000);
+              let response: Response;
+              try {
+                response = await fetch('/api/telegram/run-scheduled?action=migrate-guest', {
+                  method: 'POST',
+                  headers: {
+                    'Authorization': `Bearer ${idToken}`,
+                    'Content-Type': 'application/json'
+                  },
+                  body: JSON.stringify({
+                    installationId: getGuestInstallationId()
+                  }),
+                  signal: migrationController.signal
+                });
+              } finally {
+                window.clearTimeout(migrationTimeoutId);
+              }
               const data = await response.json().catch(() => ({}));
 
               if (!response.ok || !data.ok || !data.token) {
@@ -53,6 +67,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
               await authPersistenceReady;
               await signInWithCustomToken(auth, data.token);
+              window.clearTimeout(timeoutId);
               return;
             }
           } catch (error) {
@@ -60,6 +75,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         }
 
+        window.clearTimeout(timeoutId);
         setUser(u);
         if (u) setIsDemoMode(false);
         setLoading(false);

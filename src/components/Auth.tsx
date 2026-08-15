@@ -69,15 +69,26 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
     setErrorCode(null);
     try {
       await authPersistenceReady;
-      const response = await fetch('/api/telegram/run-scheduled?action=guest-token', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          installationId: getGuestInstallationId()
-        })
-      });
+      // Without a bound, a hung response here leaves `loading` stuck true forever
+      // (the finally below never runs until this await settles) -- the Continue
+      // as Guest button would stay disabled with a permanent spinner.
+      const guestTokenController = new AbortController();
+      const guestTokenTimeoutId = window.setTimeout(() => guestTokenController.abort(), 15000);
+      let response: Response;
+      try {
+        response = await fetch('/api/telegram/run-scheduled?action=guest-token', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            installationId: getGuestInstallationId()
+          }),
+          signal: guestTokenController.signal
+        });
+      } finally {
+        window.clearTimeout(guestTokenTimeoutId);
+      }
       const responseText = await response.text();
       let data: any = {};
       try {

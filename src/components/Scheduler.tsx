@@ -349,7 +349,13 @@ const Scheduler: React.FC = () => {
         localMediaDataUrl = localMediaDataUrl || await getLocalMediaDataUrl(post.mediaDbKey);
       }
 
-      const res = await fetch('/api/telegram/run-scheduled?action=post', {
+      // Without a timeout, a hung response here never reaches the finally block
+      // below (processingTelegram.current keeps blocking retries of this post for
+      // the rest of the tab session) and leaves the post's Firestore status stuck
+      // at PROCESSING -- a state the UI shows no Send/Retry button for at all, so
+      // there'd be no visible way to un-stick it short of the server's separate
+      // 3-minute stale-claim recovery (api/telegram/run-scheduled.js) kicking in.
+      const res = await withUploadTimeout(fetch('/api/telegram/run-scheduled?action=post', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -359,7 +365,7 @@ const Scheduler: React.FC = () => {
           mediaName: post.mediaName || '',
           mediaType: post.mediaType || ''
         })
-      });
+      }));
       const responseText = await res.text();
       let data: any = {};
       try {
