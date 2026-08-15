@@ -27,11 +27,23 @@ const Copywriter: React.FC = () => {
       setResult(null);
       setNeedsApiKey(false);
       try {
-      const response = await fetch('/api/ai', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'copywriter', prompt: copyPrompt, contentType, language })
-      });
+      // Without a bound, a hung response leaves `loading` stuck true forever (the
+      // finally below never runs until this await settles) -- the Generate button
+      // stays disabled with a permanent spinner. Same fix already applied to
+      // geminiService.ts and AIAgent.tsx's /api/ai calls earlier this session.
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 30000);
+      let response: Response;
+      try {
+        response = await fetch('/api/ai', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'copywriter', prompt: copyPrompt, contentType, language }),
+          signal: controller.signal
+        });
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Error generating content.');
       

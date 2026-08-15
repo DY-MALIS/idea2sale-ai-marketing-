@@ -18,7 +18,16 @@ export const readImagesIntoState = (
   files.slice(0, remainingSlots).forEach((file) => {
     const reader = new FileReader();
     reader.onloadend = () => {
-      const base64 = (reader.result as string).split(',')[1];
+      // onloadend fires on error/abort too, not just success -- reader.result is
+      // null in those cases. Without this guard, `.split(',')` on null threw an
+      // uncaught TypeError inside this event handler (not caught by React's
+      // ErrorBoundary, since it's outside React's render/lifecycle), silently
+      // dropping the file with zero feedback to the user.
+      if (typeof reader.result !== 'string') {
+        console.error('Could not read this file:', file.name);
+        return;
+      }
+      const base64 = reader.result.split(',')[1];
       if (base64) {
         setImages((current) => (
           current.length >= maxCount ? current : [...current, { base64, mimeType: file.type }]
