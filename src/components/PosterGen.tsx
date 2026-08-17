@@ -45,7 +45,11 @@ const applyLogoWatermark = (baseDataUrl: string, logoDataUrl: string): Promise<s
           const margin = Math.round(base.width * LOGO_MARGIN_RATIO);
           const logoWidth = Math.round(base.width * LOGO_WIDTH_RATIO);
           const logoHeight = Math.round(logoWidth * (logo.height / logo.width));
-          ctx.drawImage(logo, margin, base.height - logoHeight - margin, logoWidth, logoHeight);
+          // Top-left, not bottom-left: overlayPosterText (headline/CTA) owns the
+          // full-width bottom band of the poster now -- a bottom-anchored logo
+          // would sit right under that gradient/CTA pill and get covered or
+          // visually clash with it. The top corner is never touched by that text.
+          ctx.drawImage(logo, margin, margin, logoWidth, logoHeight);
           resolve(canvas.toDataURL('image/png'));
         } catch (error) {
           console.error('Logo watermark failed, using the unwatermarked image:', error);
