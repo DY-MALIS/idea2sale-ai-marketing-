@@ -156,18 +156,19 @@ Respond with ONLY valid JSON, no markdown code fences, in exactly this shape:
 // drone rendered no drone at all once this constraint led the prompt).
 const NO_FOREIGN_TEXT_CONSTRAINT = 'HARD CONSTRAINT, highest priority: this image/video must contain NO readable text, lettering, signage, shop signs, hanging plaques, banners, labels, or subtitles anywhere in the frame — none at all, even if the scene described below mentions a sign, storefront, or shop name. Image/video generation models cannot render Khmer script correctly and default to Chinese, Thai, or other foreign script instead when asked for any Cambodian/Asian signage, which is unacceptable for this Cambodian audience — the only safe option is zero on-screen text. Depict signs, storefronts, and shop fronts as physically present but with a blank, plain, or texture-only surface (wood grain, painted color) instead of any lettering.';
 
-const KHMER_ATTIRE_GUIDANCE = 'This content is for a Cambodian (Khmer) audience — CRITICAL, apply regardless of what else is specified: never render Thai, Chinese, Japanese, Vietnamese, or any other country\'s script, temple/architectural style, or clothing pattern anywhere in the scene (wall art, clothing prints, decorations, etc.) — image models frequently default to some other country\'s visual identity for generic "Southeast Asian" or "Asian" prompts, which is wrong here and must be corrected. If the scene includes people and the user did not specify a particular ethnicity or nationality, depict them with a natural Khmer/Cambodian appearance (typical Cambodian facial features, skin tone, and build) rather than a generic or ambiguous Asian look. If people are wearing clothing, hats, headwear, or traditional dress and the user did not specify a particular style, default to authentic Cambodian/Khmer traditional or everyday attire rather than generic Western dress or another country\'s traditional clothing. A generic smooth pointed/conical straw hat is NOT the correct Khmer style (that reads as Vietnamese or generic "Asian farmer" instead) — the authentic Khmer palm-leaf hat has a distinctly FLAT (not pointed) circular top, with tightly pleated/fan-folded straw-colored panels radiating from the flat top down to a wide brim with a woven zigzag/scalloped edge, and is sometimes accented with a small Cambodian flag patch or colorful ribbon band around the crown. For a krama scarf, use its real pattern: a fine, small-scale checked/gingham weave (commonly red-and-white or blue-and-white), not a generic plaid, tartan, or large-check pattern.';
+const KHMER_ATTIRE_GUIDANCE = 'If a conical Asian farmer hat with a smooth pointed peak (Vietnamese nón lá style) comes to mind, that is WRONG for this scene — do not render it. This content is for a Cambodian (Khmer) audience — CRITICAL, apply regardless of what else is specified: never render Thai, Chinese, Japanese, Vietnamese, or any other country\'s script, temple/architectural style, or clothing pattern anywhere in the scene (wall art, clothing prints, decorations, etc.) — image models frequently default to some other country\'s visual identity for generic "Southeast Asian" or "Asian" prompts, which is wrong here and must be corrected. If the scene includes people and the user did not specify a particular ethnicity or nationality, depict them with a natural Khmer/Cambodian appearance (typical Cambodian facial features, skin tone, and build) rather than a generic or ambiguous Asian look. If people are wearing clothing, hats, headwear, or traditional dress and the user did not specify a particular style, default to authentic Cambodian/Khmer traditional or everyday attire rather than generic Western dress or another country\'s traditional clothing. A generic smooth pointed/conical straw hat is NOT the correct Khmer style (that reads as Vietnamese or generic "Asian farmer" instead) — the authentic Khmer palm-leaf hat has a distinctly FLAT (not pointed) circular top, like a shallow wide disc, with tightly pleated/fan-folded straw-colored panels radiating from the flat top down to a wide brim with a woven zigzag/scalloped edge, and is sometimes accented with a small Cambodian flag patch or colorful ribbon band around the crown. For a krama scarf, use its real pattern: a fine, small-scale checked/gingham weave (commonly red-and-white or blue-and-white), not a generic plaid, tartan, large-check, or striped fringe pattern.';
 
 const photorealImagePrompt = (prompt) => `Scene: ${prompt}
 
 ${NO_FOREIGN_TEXT_CONSTRAINT}
+
+HARD CONSTRAINT, highest priority: ${KHMER_ATTIRE_GUIDANCE}
 
 Photorealistic commercial image requirements:
 - Make it look like a real camera photo, not an illustration, cartoon, 3D render, or plastic-looking AI image.
 - Use natural realistic lighting, detailed shadows, accurate reflections, real material texture, sharp product edges, and believable depth of field.
 - Use a premium product photography style with a real environment, realistic scale, natural imperfections, and lifelike color grading.
 - If people appear, faces, hands, eyes, and skin must look anatomically correct and natural.
-- ${KHMER_ATTIRE_GUIDANCE}
 - No readable text, lettering, or signage anywhere (see hard constraint above) — also avoid distorted/garbled text artifacts, extra logos, malformed objects, duplicated limbs, fake watermarks, blurry details, oversaturated colors, and fantasy styling.
 - Output should be high-detail, clean, professional, TikTok/e-commerce ready, and visually convincing.`;
 
@@ -175,11 +176,12 @@ const photorealVideoPrompt = (prompt) => `Scene: ${prompt}
 
 ${NO_FOREIGN_TEXT_CONSTRAINT}
 
+HARD CONSTRAINT, highest priority: ${KHMER_ATTIRE_GUIDANCE}
+
 Photorealistic cinematic video requirements:
 - Make the scene look filmed with a real camera, not animation, cartoon, or 3D render.
 - Use realistic movement, natural camera motion, lifelike lighting, real shadows, accurate reflections, and believable object physics.
 - Add subtle handheld or dolly movement, cinematic depth of field, natural motion blur, and smooth subject tracking.
-- ${KHMER_ATTIRE_GUIDANCE}
 - Product, people, hands, faces, and environment must stay consistent between frames with no warping or sudden identity changes.
 - No readable text, lettering, or signage anywhere (see hard constraint above) — also avoid distorted/garbled text artifacts, melted objects, duplicated limbs, flickering, excessive saturation, impossible motion, and fantasy effects.
 - Create a premium short-form ad style video suitable for TikTok, with a realistic product-demo feeling.`;
