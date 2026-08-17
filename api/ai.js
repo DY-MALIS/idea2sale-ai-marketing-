@@ -164,6 +164,8 @@ ${NO_FOREIGN_TEXT_CONSTRAINT}
 
 HARD CONSTRAINT, highest priority: ${KHMER_ATTIRE_GUIDANCE}
 
+HARD CONSTRAINT: Render every subject, person, and action explicitly named in the Scene above -- if the Scene describes a person doing something (e.g. holding an item, smiling, standing somewhere), that person must actually appear performing that action, not be replaced with a people-free product/still-life shot. Do not invent extra decorative props, furniture, books, framed art, or figurines that were not mentioned in the Scene, especially text-bearing objects (books, magazines, menus, signs) -- these are exactly where foreign-script text keeps leaking in when the model adds them unprompted.
+
 Photorealistic commercial image requirements:
 - Make it look like a real camera photo, not an illustration, cartoon, 3D render, or plastic-looking AI image.
 - Use natural realistic lighting, detailed shadows, accurate reflections, real material texture, sharp product edges, and believable depth of field.
@@ -177,6 +179,8 @@ const photorealVideoPrompt = (prompt) => `Scene: ${prompt}
 ${NO_FOREIGN_TEXT_CONSTRAINT}
 
 HARD CONSTRAINT, highest priority: ${KHMER_ATTIRE_GUIDANCE}
+
+HARD CONSTRAINT: Render every subject, person, and action explicitly named in the Scene above -- if the Scene describes a person doing something (e.g. holding an item, smiling, standing somewhere), that person must actually appear performing that action, not be replaced with a people-free product/still-life shot. Do not invent extra decorative props, furniture, books, framed art, or figurines that were not mentioned in the Scene, especially text-bearing objects (books, magazines, menus, signs) -- these are exactly where foreign-script text keeps leaking in when the model adds them unprompted.
 
 Photorealistic cinematic video requirements:
 - Make the scene look filmed with a real camera, not animation, cartoon, or 3D render.

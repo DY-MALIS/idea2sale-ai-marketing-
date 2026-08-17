@@ -212,18 +212,25 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
     setLoading(true);
     setGeneratedImage(null);
     try {
-      const fullPrompt = `Create a professional marketing poster for a brand named "${posterDetails.brand}". 
-      The main headline is "${posterDetails.headline}". 
-      The call to action is "${posterDetails.cta}". 
-      Style: ${posterDetails.style}. 
-      Visual description: ${posterPrompt}. 
-      The poster should have clear, readable text for the brand and headline.
+      // Only mention headline/CTA when actually filled in -- sending literal
+      // `The main headline is ""` noise for an empty field confuses the prompt.
+      // Framed as "creative concept/mood" rather than literal text to render:
+      // asking for "clear, readable text" here directly contradicted the
+      // NO_FOREIGN_TEXT_CONSTRAINT hard constraint that photorealImagePrompt adds
+      // server-side (api/ai.js) -- two opposite instructions in the same final
+      // prompt, which is a very plausible reason foreign-script text kept leaking
+      // through despite that constraint.
+      const headlineNote = posterDetails.headline.trim() ? ` The creative concept/theme is "${posterDetails.headline.trim()}".` : '';
+      const ctaNote = posterDetails.cta.trim() ? ` The call-to-action mood is "${posterDetails.cta.trim()}".` : '';
+      const fullPrompt = `Create a professional marketing poster scene for a brand named "${posterDetails.brand}".${headlineNote}${ctaNote} Style: ${posterDetails.style}.
+      Visual description: ${posterPrompt}.
       Make the scene look like a real commercial photoshoot with a physical product, real environment, real light, realistic surfaces, and premium camera quality.
-      
+
       CRITICAL INSTRUCTION:
       - The current UI language is: ${language === 'km' ? 'Khmer' : 'English'}.
-      - If the UI language is Khmer, ensure the visual style reflects a Cambodian/Khmer aesthetic and any text on the poster is correctly rendered or inspired by Khmer culture.
-      - If the brand/headline/visual description is in Khmer, prioritize the Khmer aesthetic.`;
+      - If the UI language is Khmer, ensure the visual style and mood reflect a Cambodian/Khmer aesthetic.
+      - If the brand/headline/visual description is in Khmer, prioritize the Khmer aesthetic.
+      - Do NOT render the brand name, headline, or call-to-action as literal on-image text -- treat them only as creative direction for the mood, subject, and styling of the photo.`;
 
       const response = await fetch('/api/ai', {
         method: 'POST',
