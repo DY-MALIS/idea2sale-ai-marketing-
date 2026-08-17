@@ -10,7 +10,8 @@
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "test": "vitest run",
-    "grant-admin": "node scripts/grant-admin.js"
+    "grant-admin": "node scripts/grant-admin.js",
+    "migrate-user-data": "node scripts/migrate-user-data.js"
   },
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.15",
