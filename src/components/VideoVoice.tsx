@@ -292,6 +292,12 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   const { notify, ToastHost } = useToast();
   const [logoDataUrl, setLogoDataUrl] = useState('');
   const logoDataUrlRef = useRef('');
+  // See the identical comment in PosterGen.tsx: the business-profile logo fetch
+  // below is async, but generation (especially the AI-Agent automation handoff)
+  // can fire before it resolves -- logoDataUrlRef.current would still read ''
+  // at that point, silently skipping the watermark for that one video. Awaiting
+  // this promise before every watermark call closes that race.
+  const logoLoadPromiseRef = useRef<Promise<void>>(Promise.resolve());
   const [watermarking, setWatermarking] = useState(false);
   const [voiceOverEnabled, setVoiceOverEnabled] = useState(false);
   const [voiceOverText, setVoiceOverText] = useState('');
@@ -375,7 +381,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         updateLogoDataUrl('');
       }
     };
-    void loadLogo();
+    logoLoadPromiseRef.current = loadLogo();
   }, [user, isDemoMode]);
 
   React.useEffect(() => {
@@ -575,6 +581,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         video = clipUrls[0];
       }
 
+      await logoLoadPromiseRef.current;
       if (logoDataUrlRef.current) {
         setWatermarking(true);
         try {

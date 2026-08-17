@@ -213,6 +213,16 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
   const { notify, ToastHost } = useToast();
   const [logoDataUrl, setLogoDataUrl] = useState('');
   const logoDataUrlRef = useRef('');
+  // Logo watermarking used to be a straight race: the business-profile logo
+  // fetch below is async (a Firestore getDoc), but generation could fire before
+  // it resolved -- fast manual clicks, and especially the AI-Agent automation
+  // handoff effect further down, which calls handleGenerateImage immediately on
+  // mount with no dependency on this load finishing. logoDataUrlRef.current
+  // would still read '' at that point, so applyLogoWatermark silently skipped
+  // the logo for that one generation -- "sometimes it's there, sometimes it's
+  // not" depending purely on which finished first. Awaiting this promise right
+  // before every watermark call closes that window.
+  const logoLoadPromiseRef = useRef<Promise<void>>(Promise.resolve());
   const [activeTool, setActiveTool] = useState<ToolType>('poster');
   const [posterPrompt, setPosterPrompt] = useState('A real product photo in a Cambodian cafe setting, warm sunlight, premium commercial photography, natural shadows, realistic texture, lifestyle background');
   const [visualPrompt, setVisualPrompt] = useState('A photorealistic product advertisement scene, real camera photo, premium lighting, natural shadows, detailed texture, cinematic depth of field, TikTok-ready composition');
@@ -250,7 +260,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
         updateLogoDataUrl('');
       }
     };
-    void loadLogo();
+    logoLoadPromiseRef.current = loadLogo();
   }, [user, isDemoMode]);
 
   React.useEffect(() => {
@@ -378,6 +388,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Image generation failed.');
+      await logoLoadPromiseRef.current;
       const withLogo = await applyLogoWatermark(data.imageUrl, logoDataUrlRef.current);
       setGeneratedImage(await overlayPosterText(withLogo, posterDetails.headline, posterDetails.cta));
     } catch (error: any) {
@@ -406,6 +417,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Image generation failed.');
+      await logoLoadPromiseRef.current;
       setGeneratedImage(await applyLogoWatermark(data.imageUrl, logoDataUrlRef.current));
     } catch (error: any) {
       console.error(error);
