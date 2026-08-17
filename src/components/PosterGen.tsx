@@ -60,6 +60,101 @@ const applyLogoWatermark = (baseDataUrl: string, logoDataUrl: string): Promise<s
   });
 };
 
+// AI image models cannot reliably render Khmer script at all (see
+// NO_FOREIGN_TEXT_CONSTRAINT in api/ai.js -- confirmed live, it defaults to
+// Thai/Chinese/garbled text every time). The only way to get real, correct
+// Khmer headline text on a poster is to never ask the AI to render it and
+// draw it ourselves afterward with an actual Khmer font -- "Kantumruy Pro"
+// is already loaded app-wide (src/index.css) for the UI itself.
+const HEADLINE_FONT_FAMILY = '"Kantumruy Pro", sans-serif';
+const HEADLINE_FONT_SIZE_RATIO = 0.052;
+const HEADLINE_MARGIN_RATIO = 0.06;
+const HEADLINE_LINE_HEIGHT_RATIO = 1.28;
+
+const wrapCanvasText = (ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] => {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let current = '';
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (ctx.measureText(candidate).width > maxWidth && current) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+};
+
+const overlayHeadlineText = async (baseDataUrl: string, headline: string): Promise<string> => {
+  const text = headline.trim();
+  if (!text) return baseDataUrl;
+
+  try {
+    const fontSpec = `700 48px ${HEADLINE_FONT_FAMILY}`;
+    if (typeof document !== 'undefined' && (document as any).fonts?.load) {
+      await (document as any).fonts.load(fontSpec);
+    }
+  } catch {
+    // Font Loading API not available/failed -- proceed anyway, the browser
+    // falls back to its default font rather than failing the whole overlay.
+  }
+
+  return new Promise((resolve) => {
+    const base = new Image();
+    base.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = base.width;
+        canvas.height = base.height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(baseDataUrl);
+          return;
+        }
+        ctx.drawImage(base, 0, 0);
+
+        const margin = Math.round(base.width * HEADLINE_MARGIN_RATIO);
+        const fontSize = Math.round(base.width * HEADLINE_FONT_SIZE_RATIO);
+        const lineHeight = Math.round(fontSize * HEADLINE_LINE_HEIGHT_RATIO);
+        ctx.font = `700 ${fontSize}px ${HEADLINE_FONT_FAMILY}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'alphabetic';
+
+        const maxTextWidth = base.width - margin * 2;
+        const lines = wrapCanvasText(ctx, text, maxTextWidth).slice(0, 3);
+        const blockHeight = lines.length * lineHeight + margin * 1.5;
+
+        // Dark gradient behind the text (not a flat bar) so it reads clearly over
+        // any part of the photo without looking like a pasted-on rectangle.
+        const gradient = ctx.createLinearGradient(0, base.height - blockHeight, 0, base.height);
+        gradient.addColorStop(0, 'rgba(0, 0, 0, 0)');
+        gradient.addColorStop(1, 'rgba(0, 0, 0, 0.72)');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, base.height - blockHeight, base.width, blockHeight);
+
+        ctx.fillStyle = '#ffffff';
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+        ctx.shadowBlur = fontSize * 0.15;
+        let y = base.height - margin - (lines.length - 1) * lineHeight;
+        for (const line of lines) {
+          ctx.fillText(line, base.width / 2, y, maxTextWidth);
+          y += lineHeight;
+        }
+
+        resolve(canvas.toDataURL('image/png'));
+      } catch (error) {
+        console.error('Headline text overlay failed, using the image without it:', error);
+        resolve(baseDataUrl);
+      }
+    };
+    base.onerror = () => resolve(baseDataUrl);
+    base.src = baseDataUrl;
+  });
+};
+
 type ToolType = 'poster' | 'visual';
 
 interface PosterGenProps {
@@ -239,7 +334,8 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Image generation failed.');
-      setGeneratedImage(await applyLogoWatermark(data.imageUrl, logoDataUrlRef.current));
+      const withLogo = await applyLogoWatermark(data.imageUrl, logoDataUrlRef.current);
+      setGeneratedImage(await overlayHeadlineText(withLogo, posterDetails.headline));
     } catch (error: any) {
       console.error(error);
       if (/OPEN_ROUTER_API_KEY|api key/i.test(error.message || '')) {
