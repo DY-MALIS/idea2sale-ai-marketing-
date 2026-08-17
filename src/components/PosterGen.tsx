@@ -63,13 +63,15 @@ const applyLogoWatermark = (baseDataUrl: string, logoDataUrl: string): Promise<s
 // AI image models cannot reliably render Khmer script at all (see
 // NO_FOREIGN_TEXT_CONSTRAINT in api/ai.js -- confirmed live, it defaults to
 // Thai/Chinese/garbled text every time). The only way to get real, correct
-// Khmer headline text on a poster is to never ask the AI to render it and
-// draw it ourselves afterward with an actual Khmer font -- "Kantumruy Pro"
-// is already loaded app-wide (src/index.css) for the UI itself.
-const HEADLINE_FONT_FAMILY = '"Kantumruy Pro", sans-serif';
+// Khmer headline/CTA text on a poster is to never ask the AI to render it
+// and draw it ourselves afterward with an actual Khmer font -- "Kantumruy
+// Pro" is already loaded app-wide (src/index.css) for the UI itself.
+const POSTER_TEXT_FONT_FAMILY = '"Kantumruy Pro", sans-serif';
 const HEADLINE_FONT_SIZE_RATIO = 0.052;
-const HEADLINE_MARGIN_RATIO = 0.06;
-const HEADLINE_LINE_HEIGHT_RATIO = 1.28;
+const CTA_FONT_SIZE_RATIO = 0.03;
+const TEXT_MARGIN_RATIO = 0.06;
+const LINE_HEIGHT_RATIO = 1.28;
+const CTA_ACCENT_COLOR = '#f97316';
 
 const wrapCanvasText = (ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] => {
   const words = text.split(/\s+/).filter(Boolean);
@@ -88,14 +90,17 @@ const wrapCanvasText = (ctx: CanvasRenderingContext2D, text: string, maxWidth: n
   return lines;
 };
 
-const overlayHeadlineText = async (baseDataUrl: string, headline: string): Promise<string> => {
-  const text = headline.trim();
-  if (!text) return baseDataUrl;
+const overlayPosterText = async (baseDataUrl: string, headline: string, cta: string): Promise<string> => {
+  const headlineText = headline.trim();
+  const ctaText = cta.trim();
+  if (!headlineText && !ctaText) return baseDataUrl;
 
   try {
-    const fontSpec = `700 48px ${HEADLINE_FONT_FAMILY}`;
     if (typeof document !== 'undefined' && (document as any).fonts?.load) {
-      await (document as any).fonts.load(fontSpec);
+      await Promise.all([
+        (document as any).fonts.load(`700 48px ${POSTER_TEXT_FONT_FAMILY}`),
+        (document as any).fonts.load(`700 24px ${POSTER_TEXT_FONT_FAMILY}`),
+      ]);
     }
   } catch {
     // Font Loading API not available/failed -- proceed anyway, the browser
@@ -116,16 +121,32 @@ const overlayHeadlineText = async (baseDataUrl: string, headline: string): Promi
         }
         ctx.drawImage(base, 0, 0);
 
-        const margin = Math.round(base.width * HEADLINE_MARGIN_RATIO);
-        const fontSize = Math.round(base.width * HEADLINE_FONT_SIZE_RATIO);
-        const lineHeight = Math.round(fontSize * HEADLINE_LINE_HEIGHT_RATIO);
-        ctx.font = `700 ${fontSize}px ${HEADLINE_FONT_FAMILY}`;
+        const margin = Math.round(base.width * TEXT_MARGIN_RATIO);
+        const maxTextWidth = base.width - margin * 2;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'alphabetic';
 
-        const maxTextWidth = base.width - margin * 2;
-        const lines = wrapCanvasText(ctx, text, maxTextWidth).slice(0, 3);
-        const blockHeight = lines.length * lineHeight + margin * 1.5;
+        const headlineFontSize = Math.round(base.width * HEADLINE_FONT_SIZE_RATIO);
+        const headlineLineHeight = Math.round(headlineFontSize * LINE_HEIGHT_RATIO);
+        let headlineLines: string[] = [];
+        if (headlineText) {
+          ctx.font = `700 ${headlineFontSize}px ${POSTER_TEXT_FONT_FAMILY}`;
+          headlineLines = wrapCanvasText(ctx, headlineText, maxTextWidth).slice(0, 3);
+        }
+
+        const ctaFontSize = Math.round(base.width * CTA_FONT_SIZE_RATIO);
+        const ctaPaddingX = Math.round(ctaFontSize * 1.1);
+        const ctaPaddingY = Math.round(ctaFontSize * 0.7);
+        let ctaPillWidth = 0;
+        let ctaPillHeight = 0;
+        if (ctaText) {
+          ctx.font = `700 ${ctaFontSize}px ${POSTER_TEXT_FONT_FAMILY}`;
+          ctaPillWidth = Math.min(ctx.measureText(ctaText).width + ctaPaddingX * 2, maxTextWidth);
+          ctaPillHeight = ctaFontSize + ctaPaddingY * 2;
+        }
+
+        const gapBetween = headlineLines.length && ctaText ? Math.round(margin * 0.6) : 0;
+        const blockHeight = headlineLines.length * headlineLineHeight + gapBetween + ctaPillHeight + margin * 1.5;
 
         // Dark gradient behind the text (not a flat bar) so it reads clearly over
         // any part of the photo without looking like a pasted-on rectangle.
@@ -135,18 +156,41 @@ const overlayHeadlineText = async (baseDataUrl: string, headline: string): Promi
         ctx.fillStyle = gradient;
         ctx.fillRect(0, base.height - blockHeight, base.width, blockHeight);
 
-        ctx.fillStyle = '#ffffff';
-        ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-        ctx.shadowBlur = fontSize * 0.15;
-        let y = base.height - margin - (lines.length - 1) * lineHeight;
-        for (const line of lines) {
-          ctx.fillText(line, base.width / 2, y, maxTextWidth);
-          y += lineHeight;
+        let y = base.height - margin - ctaPillHeight - gapBetween - (headlineLines.length - 1) * headlineLineHeight;
+        if (headlineLines.length) {
+          ctx.font = `700 ${headlineFontSize}px ${POSTER_TEXT_FONT_FAMILY}`;
+          ctx.fillStyle = '#ffffff';
+          ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+          ctx.shadowBlur = headlineFontSize * 0.15;
+          for (const line of headlineLines) {
+            ctx.fillText(line, base.width / 2, y, maxTextWidth);
+            y += headlineLineHeight;
+          }
+          ctx.shadowBlur = 0;
+        }
+
+        if (ctaText) {
+          const pillX = (base.width - ctaPillWidth) / 2;
+          const pillY = base.height - margin - ctaPillHeight;
+          const radius = ctaPillHeight / 2;
+          ctx.fillStyle = CTA_ACCENT_COLOR;
+          ctx.beginPath();
+          ctx.moveTo(pillX + radius, pillY);
+          ctx.arcTo(pillX + ctaPillWidth, pillY, pillX + ctaPillWidth, pillY + ctaPillHeight, radius);
+          ctx.arcTo(pillX + ctaPillWidth, pillY + ctaPillHeight, pillX, pillY + ctaPillHeight, radius);
+          ctx.arcTo(pillX, pillY + ctaPillHeight, pillX, pillY, radius);
+          ctx.arcTo(pillX, pillY, pillX + ctaPillWidth, pillY, radius);
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.font = `700 ${ctaFontSize}px ${POSTER_TEXT_FONT_FAMILY}`;
+          ctx.fillStyle = '#ffffff';
+          ctx.fillText(ctaText, base.width / 2, pillY + ctaPillHeight / 2 + ctaFontSize * 0.35, ctaPillWidth - ctaPaddingX);
         }
 
         resolve(canvas.toDataURL('image/png'));
       } catch (error) {
-        console.error('Headline text overlay failed, using the image without it:', error);
+        console.error('Poster text overlay failed, using the image without it:', error);
         resolve(baseDataUrl);
       }
     };
@@ -335,7 +379,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Image generation failed.');
       const withLogo = await applyLogoWatermark(data.imageUrl, logoDataUrlRef.current);
-      setGeneratedImage(await overlayHeadlineText(withLogo, posterDetails.headline));
+      setGeneratedImage(await overlayPosterText(withLogo, posterDetails.headline, posterDetails.cta));
     } catch (error: any) {
       console.error(error);
       if (/OPEN_ROUTER_API_KEY|api key/i.test(error.message || '')) {
