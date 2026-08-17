@@ -1013,7 +1013,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                     value={videoPrompt}
                     onChange={(e) => setVideoPrompt(e.target.value)}
                     placeholder="Describe a realistic TikTok ad: product, location, camera movement, action, lighting, mood..."
-                    className="w-full h-32 p-5 rounded-2xl bg-brand-50 border border-brand-200 outline-none transition-all resize-none shadow-inner"
+                    className="w-full h-32 p-5 rounded-2xl bg-brand-50 border border-brand-200 outline-none transition-all resize-none shadow-inner dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
                   />
                 </div>
 
@@ -1112,7 +1112,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                       value={aiCaption} 
                       onChange={(e) => setAiCaption(e.target.value)} 
                       placeholder={t('captionPlaceholderVideoVoice')}
-                      className="w-full h-24 p-4 rounded-xl bg-brand-50/50 border border-brand-100 outline-none text-sm resize-none italic text-brand-600"
+                      className="w-full h-24 p-4 rounded-xl bg-brand-50/50 border border-brand-100 outline-none text-sm resize-none italic text-brand-600 dark:bg-slate-800/50 dark:border-slate-600 dark:text-brand-300"
                     />
                     <button 
                       onClick={handleGenerateCaption}
@@ -1216,7 +1216,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                     <select
                       value={selectedKhmerVoiceURI}
                       onChange={(event) => setSelectedKhmerVoiceURI(event.target.value)}
-                      className="w-full rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-xs font-semibold text-brand-700 outline-none"
+                      className="w-full rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-xs font-semibold text-brand-700 outline-none dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
                     >
                       <option value="">
                         {khmerVoices.length
@@ -1237,7 +1237,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                     <select
                       value={selectedEnglishVoiceURI}
                       onChange={(event) => setSelectedEnglishVoiceURI(event.target.value)}
-                      className="w-full rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-xs font-semibold text-brand-700 outline-none"
+                      className="w-full rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-xs font-semibold text-brand-700 outline-none dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
                     >
                       <option value="">{language === 'km' ? 'ជ្រើសដោយស្វ័យប្រវត្តិ' : 'Auto select'}</option>
                       {englishVoices.map((voice) => (
@@ -1248,7 +1248,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                     </select>
                   </label>
                 </div>
-                <textarea value={ttsText} onChange={(e) => setTtsText(e.target.value)} className="w-full h-48 p-4 rounded-2xl bg-brand-50 border border-brand-200 outline-none transition-all resize-none" />
+                <textarea value={ttsText} onChange={(e) => setTtsText(e.target.value)} className="w-full h-48 p-4 rounded-2xl bg-brand-50 border border-brand-200 outline-none transition-all resize-none dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100" />
                 <p className="rounded-2xl border border-brand-100 bg-brand-50 px-4 py-3 text-xs font-semibold text-brand-700">
                   {language === 'km'
                     ? 'បញ្ចូលអត្ថបទខ្មែរ ឬអង់គ្លេស។ App នឹងព្យាយាមអានតាមភាសានៅក្នុងអត្ថបទដោយសំឡេងមនុស្សធម្មជាតិ។'

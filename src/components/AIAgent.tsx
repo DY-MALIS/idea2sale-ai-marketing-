@@ -644,7 +644,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                 }
               }}
               placeholder={text.placeholder}
-              className="w-full min-h-60 p-5 rounded-2xl bg-brand-50 border border-brand-200 focus:ring-2 focus:ring-brand-500 focus:bg-white dark:focus:bg-slate-800 outline-none transition-all resize-y font-medium"
+              className="w-full min-h-60 p-5 rounded-2xl bg-brand-50 border border-brand-200 focus:ring-2 focus:ring-brand-500 focus:bg-white outline-none transition-all resize-y font-medium dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100 dark:focus:bg-slate-800"
             />
             <p className="text-xs text-slate-400 dark:text-slate-400">{text.inputHint}</p>
 

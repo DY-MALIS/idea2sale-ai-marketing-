@@ -558,7 +558,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
                     value={posterDetails.headline}
                     onChange={(e) => setPosterDetails({...posterDetails, headline: e.target.value})}
                     placeholder="e.g., Best Coffee in Town"
-                    className="w-full p-4 rounded-2xl bg-brand-50 border border-brand-200 text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all"
+                    className="w-full p-4 rounded-2xl bg-brand-50 border border-brand-200 text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
                   />
                 </div>
                 <div className="space-y-2">
@@ -568,7 +568,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
                     value={posterDetails.cta}
                     onChange={(e) => setPosterDetails({...posterDetails, cta: e.target.value})}
                     placeholder="e.g., Order Now"
-                    className="w-full p-4 rounded-2xl bg-brand-50 border border-brand-200 text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all"
+                    className="w-full p-4 rounded-2xl bg-brand-50 border border-brand-200 text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
                   />
                 </div>
                 <div className="space-y-2">
