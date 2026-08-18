@@ -766,6 +766,55 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         <p className="text-slate-500 dark:text-slate-400 text-lg max-w-4xl">{text.subtitle}</p>
       </header>
 
+      <section className="glass rounded-2xl p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-lg font-bold text-brand-700">
+            <History size={20} />
+            <span>{text.historyTitle}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => void restoreOldHistory()}
+            className="flex items-center gap-2 rounded-xl border border-brand-200 bg-brand-50 px-4 py-2 text-sm font-bold text-brand-700 transition hover:border-brand-300 hover:bg-white"
+            title={text.restoreHistory}
+          >
+            <RefreshCw size={15} />
+            {text.restoreHistory}
+          </button>
+        </div>
+        {conversationHistory.length ? (
+          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {conversationHistory.slice(0, 4).map((session) => (
+              <button
+                key={`top-${session.id}`}
+                type="button"
+                onClick={() => openConversationSession(session)}
+                title={text.reusePrompt}
+                className={`rounded-xl border p-4 text-left transition ${
+                  session.id === activeSessionId
+                    ? 'border-brand-300 bg-brand-50 text-slate-900 ring-1 ring-brand-200'
+                    : 'border-slate-200 bg-white text-slate-700 hover:border-brand-300 hover:bg-brand-50/60'
+                }`}
+              >
+                <span className="mb-2 flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-brand-500">
+                    {session.messages.length} messages
+                  </span>
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-widest ${
+                    session.id === activeSessionId ? 'bg-brand-600 text-white' : 'bg-white text-brand-600 border border-brand-100'
+                  }`}>
+                    {session.id === activeSessionId ? text.currentStory : text.openStory}
+                  </span>
+                </span>
+                <span className="line-clamp-2 text-sm font-bold">{session.title}</span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-3 text-sm leading-relaxed text-slate-600">{text.historyEmpty}</p>
+        )}
+      </section>
+
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
         <section className="xl:col-span-4 glass rounded-[2rem] p-7 space-y-5 self-start">
           <div className="space-y-2">
@@ -902,56 +951,6 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
             <span>{loading ? text.thinking : text.send}</span>
           </button>
 
-          <div className="rounded-2xl border border-brand-200 bg-white/75 p-4 dark:bg-white/95 dark:border-slate-300">
-            <div className="mb-3 flex items-center gap-2 text-sm font-bold text-brand-700 dark:text-brand-700">
-              <History size={16} />
-              <span>{text.historyTitle}</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => void restoreOldHistory()}
-              className="mb-3 flex w-full items-center justify-center gap-2 rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-xs font-bold text-brand-700 transition hover:border-brand-300 hover:bg-white"
-              title={text.restoreHistory}
-            >
-              <RefreshCw size={14} />
-              {text.restoreHistory}
-            </button>
-            {conversationHistory.length ? (
-              <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
-                {conversationHistory.map((session) => (
-                  <button
-                    key={session.id}
-                    type="button"
-                    onClick={() => openConversationSession(session)}
-                    title={text.reusePrompt}
-                    className={`w-full rounded-xl border px-3 py-2 text-left text-xs leading-relaxed transition ${
-                      session.id === activeSessionId
-                        ? 'border-brand-300 bg-brand-50/80 text-slate-800 ring-1 ring-brand-200 hover:border-brand-400 hover:bg-white dark:border-brand-300 dark:bg-brand-50 dark:text-slate-900'
-                        : 'border-slate-200 bg-white/80 text-slate-600 dark:border-slate-300 dark:bg-slate-50 dark:text-slate-700'
-                    }`}
-                  >
-                    <span className="mb-1 flex items-center justify-between gap-2">
-                      <span className={`text-[9px] font-black uppercase tracking-widest ${
-                        session.id === activeSessionId ? 'text-brand-600' : 'text-slate-400'
-                      }`}>
-                        {session.messages.length} messages
-                      </span>
-                      <span className={`rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${
-                        session.id === activeSessionId
-                          ? 'bg-brand-600 text-white'
-                          : 'bg-white text-brand-600 border border-brand-100'
-                      }`}>
-                        {session.id === activeSessionId ? text.currentStory : text.openStory}
-                      </span>
-                    </span>
-                    <span className="line-clamp-3 font-semibold">{session.title}</span>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-600">{text.historyEmpty}</p>
-            )}
-          </div>
         </section>
 
         <section className="xl:col-span-8 glass rounded-[2rem] p-7 min-h-[650px] flex flex-col">

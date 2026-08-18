@@ -28,7 +28,7 @@ export default function App() {
   const reviewTarget = new URLSearchParams(window.location.search).get('review');
   const isTikTokReviewMode = pathname === '/tiktok-review' || reviewTarget === 'tiktok';
   const [activeTab, setActiveTab] = useState<TabType>(
-    isTikTokReviewMode ? 'video-voice' : 'scheduler'
+    isTikTokReviewMode ? 'video-voice' : 'ai-agent'
   );
   const { user, isDemoMode, loading: authLoading, setDemoMode, logout } = useAuth();
   const [configInfo, setConfigInfo] = useState<any>(null);
@@ -214,7 +214,7 @@ export default function App() {
             onOpenBusinessProfile={() => setShowBusinessProfile(true)}
           />
           
-          <main className="flex-1 ml-72 p-10">
+          <main className="flex-1 ml-72 p-6 lg:p-8">
             <div className="max-w-7xl mx-auto">
               <AnimatePresence mode="wait">
                 <motion.div
