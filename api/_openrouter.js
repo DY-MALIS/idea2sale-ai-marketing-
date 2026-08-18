@@ -30,6 +30,20 @@ const openRouterJson = async (path, body) => {
 
 const fileToDataUrl = (base64, mimeType) => `data:${mimeType};base64,${base64}`;
 
+const DEFAULT_REASONING_MODEL = 'openai/gpt-5.6-luna';
+const DEFAULT_IMAGE_MODEL = 'bytedance-seed/seedream-5-0-pro';
+const LEGACY_MINI_MODEL_PATTERN = /(?:^|\/)(?:gpt-)?(?:4o-mini|5-mini|gpt-5-mini)$/i;
+
+export const resolveOpenRouterTextModel = (model) => {
+  const selected = String(model || process.env.OPEN_ROUTER_AGENT_MODEL || process.env.OPEN_ROUTER_MODEL || DEFAULT_REASONING_MODEL).trim();
+  return LEGACY_MINI_MODEL_PATTERN.test(selected) ? DEFAULT_REASONING_MODEL : selected;
+};
+
+export const resolveOpenRouterImageModel = (model) => {
+  const selected = String(model || process.env.OPEN_ROUTER_IMAGE_MODEL || DEFAULT_IMAGE_MODEL).trim();
+  return selected || DEFAULT_IMAGE_MODEL;
+};
+
 // Speech-to-text via OpenRouter's dedicated /audio/transcriptions endpoint, used
 // instead of the browser's built-in Web Speech API (SpeechRecognition) — that API's
 // Khmer support is patchy-to-nonexistent across browsers. This is deliberately NOT
@@ -171,7 +185,7 @@ export async function generateOpenRouterText({
       'X-Title': 'aime.angkorgate',
     },
     body: JSON.stringify({
-      model: model || process.env.OPEN_ROUTER_MODEL || 'openai/gpt-4o-mini',
+      model: resolveOpenRouterTextModel(model),
       messages: [
         { role: 'system', content: system },
         { role: 'user', content: userContent },
@@ -185,7 +199,7 @@ export async function generateOpenRouterText({
       // a small max_tokens can be entirely consumed by reasoning, leaving an empty
       // or truncated visible response. OpenRouter ignores this for models that don't
       // support it, so it's safe to always send.
-      reasoning: { effort: 'low' },
+      reasoning: { effort: 'high' },
     }),
   });
 
@@ -214,7 +228,7 @@ export async function generateOpenRouterText({
 
 export async function generateOpenRouterImage({ prompt, aspectRatio = '1:1', model }) {
   const data = await openRouterJson('/images', {
-    model: model || process.env.OPEN_ROUTER_IMAGE_MODEL || 'bytedance-seed/seedream-4.5',
+    model: resolveOpenRouterImageModel(model),
     prompt,
     aspect_ratio: aspectRatio,
     output_format: 'png',

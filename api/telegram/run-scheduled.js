@@ -19,6 +19,18 @@ export const truncateForTelegram = (text, limit) => {
   return value.length > limit ? `${value.slice(0, limit - 1)}…` : value;
 };
 
+const escapeTelegramHtml = (value = '') => String(value || '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;');
+
+const formatTelegramHtml = (value = '') => escapeTelegramHtml(value)
+  .replace(/^#{1,6}\s+(.+)$/gm, '<b>$1</b>')
+  .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+  .replace(/`([^`]+)`/g, '<code>$1</code>');
+
+const telegramTextFor = (text, limit) => formatTelegramHtml(truncateForTelegram(text, limit));
+
 export const initFirebaseAdmin = () => {
   const projectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID;
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
@@ -368,7 +380,7 @@ const postTelegramMessage = async (req, res) => {
 
   try {
     const hasMedia = !!(mediaUrl || mediaDataUrl);
-    const text = truncateForTelegram(rawText, hasMedia ? TELEGRAM_CAPTION_LIMIT : TELEGRAM_MESSAGE_LIMIT);
+    const text = telegramTextFor(rawText, hasMedia ? TELEGRAM_CAPTION_LIMIT : TELEGRAM_MESSAGE_LIMIT);
     const method = hasMedia
       ? mediaType === 'video'
         ? 'sendVideo'
@@ -388,7 +400,10 @@ const postTelegramMessage = async (req, res) => {
       const buffer = Buffer.from(match[2], 'base64');
       const form = new FormData();
       form.append('chat_id', chatId);
-      if (text) form.append('caption', text);
+      if (text) {
+        form.append('caption', text);
+        form.append('parse_mode', 'HTML');
+      }
       form.append(mediaType === 'video' ? 'video' : 'photo', new Blob([buffer], { type: contentType }), mediaName);
       payload = form;
       headers = undefined;
@@ -397,11 +412,13 @@ const postTelegramMessage = async (req, res) => {
         ? {
             chat_id: chatId,
             [mediaType === 'video' ? 'video' : 'photo']: mediaUrl,
-            caption: text || undefined
+            caption: text || undefined,
+            parse_mode: text ? 'HTML' : undefined
           }
         : {
             chat_id: chatId,
             text,
+            parse_mode: 'HTML',
             disable_web_page_preview: false
           };
     }
@@ -430,7 +447,8 @@ const postTelegramMessage = async (req, res) => {
         body: JSON.stringify({
           chat_id: chatId,
           document: mediaUrl,
-          caption: text || undefined
+          caption: text || undefined,
+          parse_mode: text ? 'HTML' : undefined
         })
       });
       data = await readTelegramJson(telegramRes);
@@ -475,7 +493,7 @@ export const sendTelegram = async (post) => {
     throw new Error('Post has no text or media URL.');
   }
 
-  const text = truncateForTelegram(rawText, mediaUrl ? TELEGRAM_CAPTION_LIMIT : TELEGRAM_MESSAGE_LIMIT);
+  const text = telegramTextFor(rawText, mediaUrl ? TELEGRAM_CAPTION_LIMIT : TELEGRAM_MESSAGE_LIMIT);
 
   const method = mediaUrl
     ? mediaType === 'video'
@@ -487,11 +505,13 @@ export const sendTelegram = async (post) => {
     ? {
         chat_id: chatId,
         [mediaType === 'video' ? 'video' : 'photo']: mediaUrl,
-        caption: text || undefined
+        caption: text || undefined,
+        parse_mode: text ? 'HTML' : undefined
       }
     : {
         chat_id: chatId,
         text,
+        parse_mode: 'HTML',
         disable_web_page_preview: false
       };
 
@@ -510,7 +530,8 @@ export const sendTelegram = async (post) => {
       body: JSON.stringify({
         chat_id: chatId,
         document: mediaUrl,
-        caption: text || undefined
+        caption: text || undefined,
+        parse_mode: text ? 'HTML' : undefined
       })
     });
     data = await response.json();

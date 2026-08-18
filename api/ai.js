@@ -7,6 +7,7 @@ import {
   startOpenRouterVideo,
   synthesizeSpeechViaOpenRouter,
   transcribeAudioWithOpenRouter,
+  resolveOpenRouterTextModel,
 } from './_openrouter.js';
 import { initFirebaseAdmin } from './_firebaseAdmin.js';
 import { checkRateLimit, getClientIp } from './_rateLimit.js';
@@ -246,7 +247,7 @@ For video requests, the underlying video model's own speech/dialogue generation 
 CRITICAL — resolving the narration question after you've already asked it once: if you already asked the narration question in an earlier turn and the user's reply doesn't directly say yes/no to narration but is instead a generic go-ahead ("yes", "create it", "go ahead", "ចាស", "បង្កើតមក" and similar) — do NOT ask the narration question again, and do NOT leave the request stuck unresolved or claim you are unable to proceed. Treat the generic go-ahead itself as approval for narration in whatever language the conversation already established, set voiceOverWanted=true, and write a short, natural voiceOverText yourself (1-3 sentences, in that language) directly from the scene/product/action already described in the conversation — you already have enough context to write reasonable narration without asking a third time. This must result in ready=true in that same turn; never respond by saying you cannot trigger generation yourself or by only offering to draft a script instead of completing the brief.
 The prompt must be a detailed English production prompt suitable for an image or video generation model, describing only the visuals (never write dialogue/spoken words into it, and never ask for specific on-screen text/lettering/signage wording — describe signs and surfaces as blank or generic instead, per the no-on-screen-text rule above).
 For video requests, the app only supports these exact total durations in seconds: 4, 6, 8, 16, 24. Read the conversation for any stated or implied length (e.g. "16 seconds", "16 វិនាទី", "make it longer", "short clip") and set "duration" to the closest of those five allowed values — if nothing is stated, default to 8. If "voiceOverWanted" is true, the "voiceOverText" script's natural spoken length (at a normal, unhurried pace, roughly 2-3 spoken words per second) must fit within the chosen "duration" with a little room to spare — write a shorter script for a short duration and do not write a script that would still be talking after the video ends.`,
-      model: process.env.OPEN_ROUTER_AGENT_MODEL || process.env.OPEN_ROUTER_MODEL,
+      model: resolveOpenRouterTextModel(),
       temperature: 0.2,
       maxTokens: 3000,
       responseFormat: { type: 'json_object' },
@@ -461,7 +462,7 @@ export default async function handler(req, res) {
 
       const text = await generateOpenRouterText({
         system: agentSystemPrompt,
-        model: process.env.OPEN_ROUTER_AGENT_MODEL || process.env.OPEN_ROUTER_MODEL,
+        model: resolveOpenRouterTextModel(),
         temperature: 0.55,
         maxTokens: 1800,
         images,

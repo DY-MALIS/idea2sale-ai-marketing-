@@ -185,6 +185,23 @@ const chunkMessage = (text) => {
   return chunks;
 };
 
+const escapeTelegramHtml = (value = '') => String(value || '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;');
+
+const formatTelegramHtml = (value = '') => escapeTelegramHtml(value)
+  .replace(/^#{1,6}\s+(.+)$/gm, '<b>$1</b>')
+  .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+  .replace(/`([^`]+)`/g, '<code>$1</code>');
+
+const sendTelegramHtmlMessage = (token, chatId, text, options = {}) => telegramApi(token, 'sendMessage', {
+  chat_id: chatId,
+  text: formatTelegramHtml(text),
+  parse_mode: 'HTML',
+  disable_web_page_preview: Boolean(options.disableWebPagePreview),
+});
+
 const welcomeMessage = (isKhmer, businessName) => {
   const name = businessName || 'aime.angkorgate';
   return isKhmer
@@ -242,11 +259,7 @@ const sendManualReply = async (req, res) => {
   }
 
   try {
-    await telegramApi(token, 'sendMessage', {
-      chat_id: chatId,
-      text,
-      disable_web_page_preview: false,
-    });
+    await sendTelegramHtmlMessage(token, chatId, text);
     await logMessage(db, chatId, 'out', text, 'system');
     await logAudit(db, { action: 'telegram_manual_reply', actorUid: decoded.uid, meta: { chatId } });
     return res.status(200).json({ ok: true });
@@ -366,12 +379,13 @@ export default async function handler(req, res) {
   }
 
   if (!text) {
-    await telegramApi(token, 'sendMessage', {
-      chat_id: chatId,
-      text: containsKhmer(message?.chat?.first_name)
+    await sendTelegramHtmlMessage(
+      token,
+      chatId,
+      containsKhmer(message?.chat?.first_name)
         ? 'សូមផ្ញើសំណួរ ឬអត្ថបទដែលអ្នកចង់ឲ្យខ្ញុំជួយបង្កើត content។'
         : 'Please send a question or a content request for me to help with.',
-    });
+    );
     return res.status(200).json({ ok: true });
   }
 
@@ -391,11 +405,7 @@ export default async function handler(req, res) {
   const isKhmer = containsKhmer(text);
   if (/^\/(start|help)\b/i.test(text)) {
     const welcome = welcomeMessage(isKhmer, businessName);
-    await telegramApi(token, 'sendMessage', {
-      chat_id: chatId,
-      text: welcome,
-      disable_web_page_preview: true,
-    });
+    await sendTelegramHtmlMessage(token, chatId, welcome, { disableWebPagePreview: true });
     if (db) await logMessage(db, chatId, 'out', welcome, 'system');
     return res.status(200).json({ ok: true });
   }
@@ -411,11 +421,7 @@ export default async function handler(req, res) {
   if (db) {
     const ruleResponse = await findMatchingReplyRule(db, text).catch(() => null);
     if (ruleResponse) {
-      await telegramApi(token, 'sendMessage', {
-        chat_id: chatId,
-        text: ruleResponse,
-        disable_web_page_preview: false,
-      });
+      await sendTelegramHtmlMessage(token, chatId, ruleResponse);
       await logMessage(db, chatId, 'out', ruleResponse, 'rule');
       return res.status(200).json({ ok: true, matchedRule: true });
     }
@@ -438,11 +444,7 @@ export default async function handler(req, res) {
       : 'Sorry, I could not generate a reply right now. Please try again.');
 
     for (const chunk of chunkMessage(reply)) {
-      await telegramApi(token, 'sendMessage', {
-        chat_id: chatId,
-        text: chunk,
-        disable_web_page_preview: false,
-      });
+      await sendTelegramHtmlMessage(token, chatId, chunk);
     }
 
     if (db) await logMessage(db, chatId, 'out', reply, 'ai');
@@ -453,10 +455,7 @@ export default async function handler(req, res) {
       ? `មានបញ្ហាពេលឆ្លើយតប: ${error?.message || 'Unknown error'}`
       : `There was a problem replying: ${error?.message || 'Unknown error'}`;
 
-    await telegramApi(token, 'sendMessage', {
-      chat_id: chatId,
-      text: fallback.slice(0, TELEGRAM_LIMIT),
-    }).catch(() => {});
+    await sendTelegramHtmlMessage(token, chatId, fallback.slice(0, TELEGRAM_LIMIT)).catch(() => {});
 
     return res.status(200).json({ ok: false, error: error?.message || 'Telegram chatbot failed.' });
   }

@@ -25,17 +25,17 @@
 
 @layer base {
   body {
-    @apply bg-brand-50 text-slate-900 font-sans antialiased dark:bg-slate-950 dark:text-slate-100;
+    @apply bg-brand-50 text-slate-900 font-sans antialiased dark:bg-slate-100 dark:text-slate-900;
   }
 
   h1, h2, h3, h4, h5, h6 {
-    @apply font-display tracking-tight text-brand-700 dark:text-brand-400;
+    @apply font-display tracking-tight text-brand-700 dark:text-brand-700;
   }
 }
 
 @layer utilities {
   .glass {
-    @apply bg-white/80 backdrop-blur-md border border-brand-200/30 shadow-xl shadow-brand-500/10 dark:bg-slate-900/80 dark:border-white/10 dark:shadow-black/20;
+    @apply bg-white/85 backdrop-blur-md border border-brand-200/30 shadow-xl shadow-brand-500/10 dark:bg-white/95 dark:border-slate-300/80 dark:shadow-slate-400/20;
   }
 
   .glass-dark {
@@ -56,11 +56,36 @@
   }
 
   .dark .bg-mesh {
-    background-color: #0f172a;
+    background-color: #f8fafc;
     background-image:
-      radial-gradient(at 0% 0%, rgba(245, 158, 11, 0.12) 0px, transparent 50%),
-      radial-gradient(at 100% 0%, rgba(153, 27, 27, 0.1) 0px, transparent 50%),
-      radial-gradient(at 100% 100%, rgba(245, 158, 11, 0.08) 0px, transparent 50%),
-      radial-gradient(at 0% 100%, rgba(153, 27, 27, 0.12) 0px, transparent 50%);
+      radial-gradient(at 0% 0%, rgba(245, 158, 11, 0.12) 0px, transparent 48%),
+      radial-gradient(at 100% 0%, rgba(15, 118, 110, 0.08) 0px, transparent 48%),
+      radial-gradient(at 100% 100%, rgba(153, 27, 27, 0.06) 0px, transparent 48%),
+      radial-gradient(at 0% 100%, rgba(245, 158, 11, 0.08) 0px, transparent 48%);
+  }
+
+  .dark input,
+  .dark textarea,
+  .dark select {
+    color: #0f172a;
+    background-color: rgba(255, 255, 255, 0.98);
+    border-color: rgba(180, 83, 9, 0.35);
+  }
+
+  .dark input::placeholder,
+  .dark textarea::placeholder {
+    color: #64748b;
+    opacity: 1;
+  }
+
+  .dark .prose,
+  .dark .prose p,
+  .dark .prose li {
+    color: #334155;
+  }
+
+  .dark .prose strong,
+  .dark .prose b {
+    color: #92400e;
   }
 }

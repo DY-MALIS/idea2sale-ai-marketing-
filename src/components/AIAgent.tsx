@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Bot, Copy, Image as ImageIcon, ImagePlus, Loader2, Mic, MicOff, RefreshCw, Send, Sparkles, UserRound, Video, X, Zap } from 'lucide-react';
+import { Bot, Copy, History, Image as ImageIcon, ImagePlus, Loader2, Mic, MicOff, RefreshCw, Send, Sparkles, UserRound, Video, X, Zap } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { AnimatePresence, motion } from 'motion/react';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
@@ -13,9 +13,8 @@ import { BusinessProfileData, CreativeAutomationRequest } from '../types';
 
 const DEMO_BUSINESS_PROFILE_STORAGE_KEY = 'demo_business_profile';
 const DEMO_AGENT_CONVERSATION_STORAGE_KEY = 'demo_agent_conversation';
-// A saved conversation older than this is treated as "finished" and not
-// reloaded — the agent starts fresh instead of resurrecting it forever.
-const AGENT_MEMORY_EXPIRY_MS = 24 * 60 * 60 * 1000;
+// Keep recent agent work visible long enough for users to return and reuse it.
+const AGENT_MEMORY_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000;
 
 interface AgentMessage {
   role: 'user' | 'assistant';
@@ -221,6 +220,9 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       : 'Ask a question, request content, or describe a problem you want to solve.',
     copy: language === 'km' ? 'ចម្លងចម្លើយចុងក្រោយ' : 'Copy latest answer',
     clear: language === 'km' ? 'សន្ទនាថ្មី' : 'New chat',
+    historyTitle: language === 'km' ? 'ប្រវត្តិសន្ទនា' : 'Conversation history',
+    historyEmpty: language === 'km' ? 'សារដែលអ្នកនិយាយជាមួយ Agent នឹងបង្ហាញនៅទីនេះ។' : 'Messages you exchange with the agent will appear here.',
+    reusePrompt: language === 'km' ? 'ចុចដើម្បីយកសំណួរនេះមកប្រើវិញ' : 'Click to reuse this question',
     user: language === 'km' ? 'អ្នក' : 'You',
     agent: language === 'km' ? 'AI Agent' : 'AI Agent',
     inputHint: language === 'km' ? 'ចុច Enter ដើម្បីផ្ញើ · Shift + Enter ដើម្បីចុះបន្ទាត់' : 'Enter to send · Shift + Enter for a new line',
@@ -618,6 +620,10 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   };
 
   const latestAnswer = [...messages].reverse().find((message) => message.role === 'assistant')?.content || '';
+  const conversationHistory = useMemo(() => messages
+    .map((message, index) => ({ message, index }))
+    .slice(-16)
+    .reverse(), [messages]);
 
   return (
     <div className="max-w-7xl mx-auto space-y-8">
@@ -644,7 +650,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                 }
               }}
               placeholder={text.placeholder}
-              className="w-full min-h-60 p-5 rounded-2xl bg-brand-50 border border-brand-200 focus:ring-2 focus:ring-brand-500 focus:bg-white outline-none transition-all resize-y font-medium dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100 dark:focus:bg-slate-800"
+              className="w-full min-h-60 p-5 rounded-2xl bg-brand-50 border border-brand-200 focus:ring-2 focus:ring-brand-500 focus:bg-white dark:bg-slate-900/80 dark:text-slate-50 dark:border-brand-400/40 dark:placeholder:text-slate-300 dark:focus:bg-slate-800 outline-none transition-all resize-y font-medium"
             />
             <p className="text-xs text-slate-400 dark:text-slate-400">{text.inputHint}</p>
 
@@ -765,6 +771,39 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
             {loading ? <Loader2 className="animate-spin" /> : <Send size={20} />}
             <span>{loading ? text.thinking : text.send}</span>
           </button>
+
+          <div className="rounded-2xl border border-brand-200 bg-white/75 p-4 dark:bg-white/95 dark:border-slate-300">
+            <div className="mb-3 flex items-center gap-2 text-sm font-bold text-brand-700 dark:text-brand-700">
+              <History size={16} />
+              <span>{text.historyTitle}</span>
+            </div>
+            {conversationHistory.length ? (
+              <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
+                {conversationHistory.map(({ message, index }) => (
+                  <button
+                    key={`history-${index}`}
+                    type="button"
+                    onClick={() => message.role === 'user' && setInput(message.content)}
+                    title={message.role === 'user' ? text.reusePrompt : undefined}
+                    className={`w-full rounded-xl border px-3 py-2 text-left text-xs leading-relaxed transition ${
+                      message.role === 'user'
+                        ? 'border-brand-100 bg-brand-50/80 text-slate-800 hover:border-brand-300 hover:bg-white dark:border-brand-200 dark:bg-brand-50 dark:text-slate-900'
+                        : 'border-slate-200 bg-white/80 text-slate-600 dark:border-slate-300 dark:bg-slate-50 dark:text-slate-700'
+                    }`}
+                  >
+                    <span className={`mb-1 block text-[9px] font-black uppercase tracking-widest ${
+                      message.role === 'user' ? 'text-brand-600' : 'text-slate-400'
+                    }`}>
+                      {message.role === 'user' ? text.user : text.agent}
+                    </span>
+                    <span className="line-clamp-3 font-semibold">{message.content}</span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-600">{text.historyEmpty}</p>
+            )}
+          </div>
         </section>
 
         <section className="xl:col-span-8 glass rounded-[2rem] p-7 min-h-[650px] flex flex-col">
@@ -827,7 +866,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                       className={`max-w-[88%] rounded-2xl px-5 py-4 ${
                         isUser
                           ? 'bg-brand-600 text-white rounded-br-md'
-                          : 'border border-brand-100 bg-brand-50/70 text-slate-700 dark:text-slate-300 rounded-bl-md'
+                          : 'border border-brand-100 bg-brand-50/70 text-slate-700 dark:bg-white/90 dark:border-brand-200 dark:text-slate-800 rounded-bl-md'
                       }`}
                     >
                       <p className={`mb-2 text-[10px] font-bold uppercase tracking-widest ${isUser ? 'text-white/70' : 'text-brand-500'}`}>
