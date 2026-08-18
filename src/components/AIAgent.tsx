@@ -291,6 +291,9 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     reusePrompt: language === 'km' ? 'ចុចដើម្បីបើក story នេះ' : 'Open this story',
     currentStory: language === 'km' ? 'កំពុងបើក' : 'Current',
     openStory: language === 'km' ? 'បើកមើល' : 'Open',
+    restoreHistory: language === 'km' ? 'Restore old history' : 'Restore old history',
+    restoredHistory: language === 'km' ? 'រកឃើញ history ចាស់ ហើយបើកជូនរួច។' : 'Old history was found and opened.',
+    noOldHistory: language === 'km' ? 'រកមិនឃើញ history ចាស់នៅក្នុង storage ទេ។' : 'No old history was found in storage.',
     user: language === 'km' ? 'អ្នក' : 'You',
     agent: language === 'km' ? 'AI Agent' : 'AI Agent',
     inputHint: language === 'km' ? 'ចុច Enter ដើម្បីផ្ញើ · Shift + Enter ដើម្បីចុះបន្ទាត់' : 'Enter to send · Shift + Enter for a new line',
@@ -337,6 +340,42 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     setAttachedImages([]);
     setLoading(false);
     persistConversation(openedMessages, nextSessions, session.id);
+  };
+
+  const restoreOldHistory = async () => {
+    try {
+      let legacyMessages: AgentMessage[] = [];
+      if (isDemoMode || !user) {
+        const saved = JSON.parse(localStorage.getItem(DEMO_AGENT_CONVERSATION_STORAGE_KEY) || 'null');
+        legacyMessages = Array.isArray(saved) ? saved : Array.isArray(saved?.messages) ? saved.messages : [];
+      } else {
+        const conversationSnap = await getDoc(doc(db, 'agent_conversations', user.uid));
+        const data = conversationSnap.exists() ? conversationSnap.data() : null;
+        legacyMessages = Array.isArray(data?.messages) ? data.messages : [];
+      }
+
+      const restoredSession = buildSession(legacyMessages, `restored-${Date.now()}`);
+      if (!restoredSession) {
+        notify(text.noOldHistory, 'error');
+        return;
+      }
+
+      const nextSessions = upsertSession(conversationSessions, {
+        ...restoredSession,
+        title: `${text.historyTitle}: ${restoredSession.title}`,
+      });
+      setConversationSessions(nextSessions);
+      setActiveSessionId(restoredSession.id);
+      setMessages(restoredSession.messages);
+      setInput('');
+      setAttachedImages([]);
+      setLoading(false);
+      persistConversation(restoredSession.messages, nextSessions, restoredSession.id);
+      notify(text.restoredHistory, 'success');
+    } catch (error) {
+      console.error('Failed to restore old agent history:', error);
+      notify(language === 'km' ? 'Restore old history បរាជ័យ។' : 'Restore old history failed.', 'error');
+    }
   };
 
   const handleImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -868,6 +907,15 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
               <History size={16} />
               <span>{text.historyTitle}</span>
             </div>
+            <button
+              type="button"
+              onClick={() => void restoreOldHistory()}
+              className="mb-3 flex w-full items-center justify-center gap-2 rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-xs font-bold text-brand-700 transition hover:border-brand-300 hover:bg-white"
+              title={text.restoreHistory}
+            >
+              <RefreshCw size={14} />
+              {text.restoreHistory}
+            </button>
             {conversationHistory.length ? (
               <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
                 {conversationHistory.map((session) => (
