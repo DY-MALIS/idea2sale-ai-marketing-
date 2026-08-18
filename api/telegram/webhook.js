@@ -185,12 +185,12 @@ const chunkMessage = (text) => {
   return chunks;
 };
 
-const escapeTelegramHtml = (value = '') => String(value || '')
+export const escapeTelegramHtml = (value = '') => String(value || '')
   .replace(/&/g, '&amp;')
   .replace(/</g, '&lt;')
   .replace(/>/g, '&gt;');
 
-const formatTelegramHtml = (value = '') => escapeTelegramHtml(value)
+export const formatTelegramHtml = (value = '') => escapeTelegramHtml(value)
   .replace(/^#{1,6}\s+(.+)$/gm, '<b>$1</b>')
   .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2">$1</a>')
   .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')

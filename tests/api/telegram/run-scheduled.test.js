@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyCloudinaryDeliveryTransform, truncateForTelegram } from '../../../api/telegram/run-scheduled.js';
+import { applyCloudinaryDeliveryTransform, escapeTelegramHtml, formatTelegramHtml, truncateForTelegram } from '../../../api/telegram/run-scheduled.js';
 
 describe('truncateForTelegram', () => {
   it('leaves short text untouched', () => {
@@ -50,5 +50,34 @@ describe('applyCloudinaryDeliveryTransform', () => {
 
   it('leaves an empty string unchanged', () => {
     expect(applyCloudinaryDeliveryTransform('', 'photo')).toBe('');
+  });
+});
+
+// Same regression coverage as tests/api/telegram/webhook.test.js -- this file
+// has its own copy of the same formatting functions for the scheduled/send-now
+// paths, so a fix applied to one without the other would otherwise go unnoticed.
+describe('escapeTelegramHtml', () => {
+  it('escapes &, <, > so a stray one never breaks parse_mode=HTML', () => {
+    expect(escapeTelegramHtml('AT&T <script> a>b')).toBe('AT&amp;T &lt;script&gt; a&gt;b');
+  });
+});
+
+describe('formatTelegramHtml', () => {
+  it('converts bold, italic, inline code, and headings', () => {
+    expect(formatTelegramHtml('## Hook\n**bold** and *italic* and `code`'))
+      .toBe('<b>Hook</b>\n<b>bold</b> and <i>italic</i> and <code>code</code>');
+  });
+
+  it('converts markdown links', () => {
+    expect(formatTelegramHtml('See [our site](https://example.com) now'))
+      .toBe('See <a href="https://example.com">our site</a> now');
+  });
+
+  it('converts list markers to bullets without touching numbered lists', () => {
+    expect(formatTelegramHtml('- one\n- two\n1. three')).toBe('• one\n• two\n1. three');
+  });
+
+  it('does not misread a spaced multiplication sign as italic emphasis', () => {
+    expect(formatTelegramHtml('Price: $5 * 2 = $10')).toBe('Price: $5 * 2 = $10');
   });
 });
