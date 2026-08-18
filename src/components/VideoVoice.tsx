@@ -9,8 +9,7 @@ import {
   Volume2,
   Lock,
   Image as ImageIcon,
-  Calendar,
-  Stamp
+  Calendar
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { uint8ArrayToBase64 } from '../lib/base64';
@@ -839,34 +838,6 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     });
   };
 
-  // Lets someone who generated a video *before* saving their logo (or who
-  // changed the logo since) stamp the current result with today's logo
-  // without a brand-new AI generation -- re-runs just the ffmpeg overlay step
-  // against the already-generated video.
-  const handleApplyLogoNow = async () => {
-    if (!generatedVideo || watermarking) return;
-    setWatermarking(true);
-    try {
-      const latestLogoDataUrl = await fetchLatestLogoDataUrl();
-      if (!latestLogoDataUrl) {
-        notify(
-          language === 'km'
-            ? 'មិនទាន់មាន logo ក្នុង Business Profile ទេ។ សូមដាក់ logo សិន។'
-            : 'No logo is saved in Business Profile yet. Add one first.',
-          'error',
-        );
-        return;
-      }
-      setGeneratedVideo(await overlayLogoOnVideo(generatedVideo, latestLogoDataUrl));
-      notify(language === 'km' ? 'បានដាក់ logo ថ្មីរួចហើយ។' : 'Logo applied.', 'success');
-    } catch (error) {
-      console.error('Failed to apply logo to the existing video:', error);
-      notify(language === 'km' ? 'ដាក់ logo មិនបានទេ។' : 'Could not apply the logo.', 'error');
-    } finally {
-      setWatermarking(false);
-    }
-  };
-
   const handleDownload = () => {
     if (activeTool === 'video' && generatedVideo) {
       const link = document.createElement('a');
@@ -1313,28 +1284,14 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                 {t('aiGenerationResult')}
               </h3>
               {(generatedVideo || generatedAudio || voiceFallbackMessage) && (
-                <div className="flex items-center gap-2">
-                  {activeTool === 'video' && generatedVideo && (
-                    <motion.button
-                      whileHover={{ scale: 1.06 }}
-                      whileTap={{ scale: 0.94 }}
-                      onClick={() => void handleApplyLogoNow()}
-                      disabled={watermarking}
-                      title={language === 'km' ? 'ដាក់ logo ថ្មីលើវីដេអូនេះ' : 'Stamp the current logo onto this video'}
-                      className="p-3 bg-brand-50 text-brand-500 hover:bg-brand-100 rounded-xl transition-all border border-brand-200 disabled:opacity-50"
-                    >
-                      {watermarking ? <Loader2 size={20} className="animate-spin" /> : <Stamp size={20} />}
-                    </motion.button>
-                  )}
-                  <motion.button
-                    whileHover={{ scale: 1.06 }}
-                    whileTap={{ scale: 0.94 }}
-                    onClick={handleDownload}
-                    className="p-3 bg-brand-50 text-brand-500 hover:bg-brand-100 rounded-xl transition-all border border-brand-200"
-                  >
-                    <Download size={20} />
-                  </motion.button>
-                </div>
+                <motion.button
+                  whileHover={{ scale: 1.06 }}
+                  whileTap={{ scale: 0.94 }}
+                  onClick={handleDownload}
+                  className="p-3 bg-brand-50 text-brand-500 hover:bg-brand-100 rounded-xl transition-all border border-brand-200"
+                >
+                  <Download size={20} />
+                </motion.button>
               )}
             </div>
             <div className="flex-1 flex flex-col items-center justify-center">

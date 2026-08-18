@@ -5,8 +5,7 @@ import {
   Download,
   Loader2,
   RefreshCw,
-  Calendar,
-  Stamp
+  Calendar
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -441,35 +440,6 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
     void handleGenerateImage(automationRequest.prompt, automationRequest.aspectRatio);
   }, [automationRequest?.id]);
 
-  const [applyingLogo, setApplyingLogo] = useState(false);
-
-  // Lets someone who generated an image *before* saving their logo (or who
-  // changed the logo since) stamp the current result with today's logo
-  // without paying for/waiting on a brand-new AI generation -- just re-runs
-  // the same client-side watermark step against the already-generated image.
-  const handleApplyLogoNow = async () => {
-    if (!generatedImage || applyingLogo) return;
-    setApplyingLogo(true);
-    try {
-      const latestLogoDataUrl = await fetchLatestLogoDataUrl();
-      if (!latestLogoDataUrl) {
-        notify(
-          language === 'km'
-            ? 'មិនទាន់មាន logo ក្នុង Business Profile ទេ។ សូមដាក់ logo សិន។'
-            : 'No logo is saved in Business Profile yet. Add one first.',
-          'error',
-        );
-        return;
-      }
-      setGeneratedImage(await applyLogoWatermark(generatedImage, latestLogoDataUrl));
-      notify(language === 'km' ? 'បានដាក់ logo ថ្មីរួចហើយ។' : 'Logo applied.', 'success');
-    } catch (error) {
-      console.error('Failed to apply logo to the existing image:', error);
-      notify(language === 'km' ? 'ដាក់ logo មិនបានទេ។' : 'Could not apply the logo.', 'error');
-    } finally {
-      setApplyingLogo(false);
-    }
-  };
 
   const handleDownload = () => {
     if (generatedImage) {
@@ -657,26 +627,14 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
                 {t('aiGenerationResult')}
               </h3>
               {generatedImage && (
-                <div className="flex items-center gap-2">
-                  <motion.button
-                    whileHover={{ scale: 1.06 }}
-                    whileTap={{ scale: 0.94 }}
-                    onClick={() => void handleApplyLogoNow()}
-                    disabled={applyingLogo}
-                    title={language === 'km' ? 'ដាក់ logo ថ្មីលើរូបនេះ' : 'Stamp the current logo onto this image'}
-                    className="p-3 bg-brand-50 text-brand-500 hover:bg-brand-100 rounded-xl transition-all border border-brand-200 disabled:opacity-50"
-                  >
-                    {applyingLogo ? <Loader2 size={20} className="animate-spin" /> : <Stamp size={20} />}
-                  </motion.button>
-                  <motion.button
-                    whileHover={{ scale: 1.06 }}
-                    whileTap={{ scale: 0.94 }}
-                    onClick={handleDownload}
-                    className="p-3 bg-brand-50 text-brand-500 hover:bg-brand-100 rounded-xl transition-all border border-brand-200"
-                  >
-                    <Download size={20} />
-                  </motion.button>
-                </div>
+                <motion.button
+                  whileHover={{ scale: 1.06 }}
+                  whileTap={{ scale: 0.94 }}
+                  onClick={handleDownload}
+                  className="p-3 bg-brand-50 text-brand-500 hover:bg-brand-100 rounded-xl transition-all border border-brand-200"
+                >
+                  <Download size={20} />
+                </motion.button>
               )}
             </div>
 
