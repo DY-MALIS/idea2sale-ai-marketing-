@@ -249,7 +249,12 @@ The prompt must be a detailed English production prompt suitable for an image or
 For video requests, the app only supports these exact total durations in seconds: 4, 6, 8, 16, 24. Read the conversation for any stated or implied length (e.g. "16 seconds", "16 វិនាទី", "make it longer", "short clip") and set "duration" to the closest of those five allowed values — if nothing is stated, default to 8. If "voiceOverWanted" is true, the "voiceOverText" script's natural spoken length (at a normal, unhurried pace, roughly 2-3 spoken words per second) must fit within the chosen "duration" with a little room to spare — write a shorter script for a short duration and do not write a script that would still be talking after the video ends.`,
       model: resolveOpenRouterTextModel(),
       temperature: 0.2,
-      maxTokens: 3000,
+      // Reasoning-capable models draw hidden reasoning tokens from this same
+      // budget before writing the visible JSON (see api/_openrouter.js) -- 'high'
+      // reasoning effort can otherwise leave too little room for the JSON itself,
+      // making jsonFromText() below silently fail to parse and automation quietly
+      // never trigger.
+      maxTokens: 6000,
       responseFormat: { type: 'json_object' },
       prompt: `Conversation:
 ${conversation}
@@ -464,7 +469,10 @@ export default async function handler(req, res) {
         system: agentSystemPrompt,
         model: resolveOpenRouterTextModel(),
         temperature: 0.55,
-        maxTokens: 1800,
+        // See the matching comment on buildCreativeAutomation's maxTokens above --
+        // 'high' reasoning effort needs headroom beyond the old ceiling or the
+        // visible reply itself can come back truncated or empty.
+        maxTokens: 4000,
         images,
         prompt: `${images.length ? `IMPORTANT: ${images.length > 1 ? `${images.length} images are` : 'an image is'} attached and already fully visible to you as part of this very message, delivered directly alongside this text \u2014 ${images.length > 1 ? 'they are' : 'it is'} not a live API lookup and ${images.length > 1 ? 'have' : 'has'} nothing to do with the "X API context" mentioned further below (that is a separate, unrelated, optional data source, and its availability or lack of it says nothing about whether you can see the attached ${images.length > 1 ? 'images' : 'image'}, which you always can). Actually look at the attached ${images.length > 1 ? 'images' : 'image'} and describe exactly what is in ${images.length > 1 ? 'each of them' : 'it'}. Never say or imply that you cannot see, view, or access ${images.length > 1 ? 'them' : 'it'}.\n\n` : ''}Detected user message language: ${responseLanguage}
 UI language preference: ${language} (lower priority than the latest user message language)

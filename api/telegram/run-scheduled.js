@@ -26,8 +26,16 @@ const escapeTelegramHtml = (value = '') => String(value || '')
 
 const formatTelegramHtml = (value = '') => escapeTelegramHtml(value)
   .replace(/^#{1,6}\s+(.+)$/gm, '<b>$1</b>')
+  .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2">$1</a>')
   .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
-  .replace(/`([^`]+)`/g, '<code>$1</code>');
+  .replace(/`([^`]+)`/g, '<code>$1</code>')
+  // Single-marker italic, run after ** is already consumed above -- requires a
+  // non-space character on both sides of the marker so things like "5 * 2" or a
+  // lone bullet dash never get misread as the start of emphasis.
+  .replace(/(?<![*\w])\*([^\s*][^*\n]*?[^\s*]|[^\s*])\*(?!\*)/g, '<i>$1</i>')
+  .replace(/(?<![_\w])_([^\s_][^_\n]*?[^\s_]|[^\s_])_(?!_)/g, '<i>$1</i>')
+  // Telegram has no <ul>/<li> -- the closest visual equivalent is a plain bullet.
+  .replace(/^\s*[-*]\s+/gm, '• ');
 
 const telegramTextFor = (text, limit) => formatTelegramHtml(truncateForTelegram(text, limit));
 

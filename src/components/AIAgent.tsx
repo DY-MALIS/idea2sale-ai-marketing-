@@ -43,6 +43,12 @@ const HISTORY_MESSAGES = 20;
 const MAX_SESSIONS = 20;
 const MAX_IMAGES = 4;
 
+// A plain `session-${Date.now()}` id collides whenever two sessions are created
+// within the same millisecond (e.g. a fast click, or automation firing right after
+// "New chat") -- upsertSession then silently merges the two into one, which looks
+// like a story going missing. The random suffix makes that practically impossible.
+const newSessionId = () => `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
 const detectMessageLanguage = (message: string) => (
   /[\u1780-\u17FF]/.test(message) ? 'km' : 'en'
 );
@@ -59,7 +65,7 @@ const buildSession = (messages: AgentMessage[], existingId?: string): AgentConve
     .filter((message) => message.content.trim());
   if (!textOnly.length) return null;
   return {
-    id: existingId || `session-${Date.now()}`,
+    id: existingId || newSessionId(),
     title: sessionTitleFromMessages(textOnly),
     messages: textOnly.slice(-MAX_MESSAGES),
     updatedAt: Date.now(),
@@ -95,7 +101,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const [autoCreateEnabled, setAutoCreateEnabled] = useState(true);
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [conversationSessions, setConversationSessions] = useState<AgentConversationSession[]>([]);
-  const [activeSessionId, setActiveSessionId] = useState<string>(() => `session-${Date.now()}`);
+  const [activeSessionId, setActiveSessionId] = useState<string>(() => newSessionId());
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
   const [isListening, setIsListening] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
@@ -174,7 +180,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     // and get clobbered onto) the newly-signed-in user's data.
     setMessages([]);
     setConversationSessions([]);
-    setActiveSessionId(`session-${Date.now()}`);
+    setActiveSessionId(newSessionId());
     setBusinessContext(null);
 
     const loadMemory = async () => {
@@ -189,7 +195,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           setConversationSessions(savedSessions.slice(0, MAX_SESSIONS));
           if (Array.isArray(savedMessages) && savedMessages.length && isFresh) {
             setMessages(savedMessages.slice(-MAX_MESSAGES));
-            setActiveSessionId(String(saved?.activeSessionId || `session-${Date.now()}`));
+            setActiveSessionId(String(saved?.activeSessionId || newSessionId()));
           } else if (savedMessages?.length) {
             localStorage.removeItem(DEMO_AGENT_CONVERSATION_STORAGE_KEY);
           }
@@ -212,7 +218,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
             setConversationSessions(savedSessions.slice(0, MAX_SESSIONS));
             if (Array.isArray(saved) && saved.length && isFresh) {
               setMessages(saved.slice(-MAX_MESSAGES));
-              setActiveSessionId(String(data?.activeSessionId || `session-${Date.now()}`));
+              setActiveSessionId(String(data?.activeSessionId || newSessionId()));
             }
           }
           if (profileSnap.exists()) {
@@ -319,7 +325,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
 
   const startNewChat = () => {
     requestControllerRef.current?.abort();
-    const nextSessionId = `session-${Date.now()}`;
+    const nextSessionId = newSessionId();
     const nextSessions = upsertSession(conversationSessions, buildSession(messages, activeSessionId));
     setMessages([]);
     setInput('');
