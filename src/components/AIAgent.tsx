@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Bot, Copy, History, Image as ImageIcon, ImagePlus, Loader2, Mic, MicOff, RefreshCw, Send, Sparkles, UserRound, Video, X, Zap } from 'lucide-react';
+import { Bot, Copy, History, Image as ImageIcon, ImagePlus, Loader2, Mic, MicOff, RefreshCw, Send, Sparkles, Trash2, UserRound, Video, X, Zap } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { AnimatePresence, motion } from 'motion/react';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
@@ -297,6 +297,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     reusePrompt: language === 'km' ? 'ចុចដើម្បីបើក story នេះ' : 'Open this story',
     currentStory: language === 'km' ? 'កំពុងបើក' : 'Current',
     openStory: language === 'km' ? 'បើកមើល' : 'Open',
+    historyDelete: language === 'km' ? 'លុប story នេះ' : 'Delete this story',
     restoreHistory: language === 'km' ? 'Restore old history' : 'Restore old history',
     restoredHistory: language === 'km' ? 'រកឃើញ history ចាស់ ហើយបើកជូនរួច។' : 'Old history was found and opened.',
     noOldHistory: language === 'km' ? 'រកមិនឃើញ history ចាស់នៅក្នុង storage ទេ។' : 'No old history was found in storage.',
@@ -346,6 +347,26 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     setAttachedImages([]);
     setLoading(false);
     persistConversation(openedMessages, nextSessions, session.id);
+  };
+
+  const deleteConversationSession = (sessionId: string) => {
+    const nextSessions = conversationSessions.filter((session) => session.id !== sessionId);
+    setConversationSessions(nextSessions);
+
+    if (sessionId === activeSessionId) {
+      // Deleting the session currently on screen -- there's nothing left to
+      // show, so start a fresh chat rather than leaving stale messages
+      // visible for a session that no longer exists in history.
+      requestControllerRef.current?.abort();
+      const nextSessionId = newSessionId();
+      setMessages([]);
+      setInput('');
+      setLoading(false);
+      setActiveSessionId(nextSessionId);
+      persistConversation([], nextSessions, nextSessionId);
+    } else {
+      persistConversation(messages, nextSessions, activeSessionId);
+    }
   };
 
   const restoreOldHistory = async () => {
@@ -791,18 +812,36 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         {conversationHistory.length ? (
           <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
             {conversationHistory.slice(0, 4).map((session) => (
-              <button
+              <div
                 key={`top-${session.id}`}
-                type="button"
+                role="button"
+                tabIndex={0}
                 onClick={() => openConversationSession(session)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    openConversationSession(session);
+                  }
+                }}
                 title={text.reusePrompt}
-                className={`rounded-xl border p-4 text-left transition ${
+                className={`group relative rounded-xl border p-4 text-left transition cursor-pointer ${
                   session.id === activeSessionId
                     ? 'border-brand-300 bg-brand-50 text-slate-900 ring-1 ring-brand-200'
                     : 'border-slate-200 bg-white text-slate-700 hover:border-brand-300 hover:bg-brand-50/60'
                 }`}
               >
-                <span className="mb-2 flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    deleteConversationSession(session.id);
+                  }}
+                  title={text.historyDelete}
+                  className="absolute right-2 top-2 rounded-lg p-1.5 text-slate-400 opacity-0 transition hover:bg-red-50 hover:text-red-500 group-hover:opacity-100 dark:hover:bg-red-900/30"
+                >
+                  <Trash2 size={13} />
+                </button>
+                <span className="mb-2 flex items-center justify-between gap-2 pr-6">
                   <span className="text-[10px] font-black uppercase tracking-widest text-brand-500">
                     {session.messages.length} messages
                   </span>
@@ -813,7 +852,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                   </span>
                 </span>
                 <span className="line-clamp-2 text-sm font-bold">{session.title}</span>
-              </button>
+              </div>
             ))}
           </div>
         ) : (
