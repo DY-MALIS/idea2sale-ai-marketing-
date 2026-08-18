@@ -213,7 +213,7 @@ interface PosterGenProps {
 
 const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationConsumed, onScheduleHandoff }) => {
   const { t, language } = useLanguage();
-  const { user, isDemoMode } = useAuth();
+  const { user, isDemoMode, loading: authLoading } = useAuth();
   const { notify, ToastHost } = useToast();
   const [logoDataUrl, setLogoDataUrl] = useState('');
   const logoDataUrlRef = useRef('');
@@ -251,6 +251,20 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
   };
 
   React.useEffect(() => {
+    // While Firebase Auth is still restoring the session (fresh page load/reload),
+    // `user` reads as null exactly the same as a genuinely signed-out guest -- so
+    // without this guard, a generation fired in that window (e.g. a fast click, or
+    // the automation handoff below) would take the "no user" branch, resolve the
+    // logo promise to '' almost instantly, and permanently miss a signed-in user's
+    // real saved logo, since that resolved promise is what any in-flight generation
+    // is awaiting. Deliberately not resolving here while auth is unsettled -- the
+    // effect re-runs and replaces this promise once `authLoading` flips false (and
+    // AuthContext itself guarantees that happens within a bounded time even if
+    // auth hangs), so nothing can wait on this forever.
+    if (authLoading) {
+      logoLoadPromiseRef.current = new Promise(() => {});
+      return;
+    }
     const loadLogo = async () => {
       try {
         if (isDemoMode || !user) {
@@ -260,12 +274,13 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
         }
         const snap = await getDoc(doc(db, 'business_profiles', user.uid));
         updateLogoDataUrl((snap.data() as BusinessProfileData | undefined)?.logoDataUrl || '');
-      } catch {
+      } catch (error) {
+        console.error('Failed to load business profile logo for watermarking:', error);
         updateLogoDataUrl('');
       }
     };
     logoLoadPromiseRef.current = loadLogo();
-  }, [user, isDemoMode]);
+  }, [user, isDemoMode, authLoading]);
 
   React.useEffect(() => {
     const handleMessage = (event: MessageEvent) => {

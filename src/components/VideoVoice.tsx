@@ -288,7 +288,7 @@ interface VideoVoiceProps {
 
 const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomationConsumed, onScheduleHandoff }) => {
   const { t, language } = useLanguage();
-  const { user, isDemoMode } = useAuth();
+  const { user, isDemoMode, loading: authLoading } = useAuth();
   const { notify, ToastHost } = useToast();
   const [logoDataUrl, setLogoDataUrl] = useState('');
   const logoDataUrlRef = useRef('');
@@ -368,6 +368,16 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   };
 
   React.useEffect(() => {
+    // See the matching comment in PosterGen.tsx: while auth is still restoring the
+    // session, `user` is indistinguishable from a real signed-out guest, so this
+    // must not resolve the logo promise to '' yet -- that would permanently miss a
+    // signed-in user's saved logo for any generation already in flight. The effect
+    // re-runs and replaces this promise once `authLoading` settles (bounded by
+    // AuthContext's own hard timeout, so this can never hang forever).
+    if (authLoading) {
+      logoLoadPromiseRef.current = new Promise(() => {});
+      return;
+    }
     const loadLogo = async () => {
       try {
         if (isDemoMode || !user) {
@@ -377,12 +387,13 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         }
         const snap = await getDoc(doc(db, 'business_profiles', user.uid));
         updateLogoDataUrl((snap.data() as BusinessProfileData | undefined)?.logoDataUrl || '');
-      } catch {
+      } catch (error) {
+        console.error('Failed to load business profile logo for watermarking:', error);
         updateLogoDataUrl('');
       }
     };
     logoLoadPromiseRef.current = loadLogo();
-  }, [user, isDemoMode]);
+  }, [user, isDemoMode, authLoading]);
 
   React.useEffect(() => {
     if (!('speechSynthesis' in window)) return;
