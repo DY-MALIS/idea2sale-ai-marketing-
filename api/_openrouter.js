@@ -6,6 +6,32 @@ const getApiKey = () => {
   return apiKey;
 };
 
+// Defense-in-depth against a real incident: a secret pasted into the wrong
+// Vercel env var (e.g. an API key value landing in a model-name field) gets
+// sent to OpenRouter as if it were that field, and the provider's own error
+// response can echo the bad value back verbatim ("X is not a valid model
+// ID"). This app shows backend error messages directly to users for
+// debuggability -- including inside AI Agent chat replies, which get
+// persisted to Firestore -- so that echoed value would otherwise leak the
+// live secret into a chat transcript. Scrubbing anything that looks like a
+// secret token out of every thrown error message closes that leak at the
+// source, regardless of which env var it ended up in or which call site hit
+// the bad value first.
+const SECRET_LIKE_PATTERNS = [
+  /sk-or-v1-[a-f0-9]{16,}/gi,
+  /sk-[A-Za-z0-9_-]{20,}/g,
+  /AIza[A-Za-z0-9_-]{20,}/g,
+  /\d{6,12}:[A-Za-z0-9_-]{30,}/g,
+  /[A-Za-z0-9+/=_-]{40,}/g,
+];
+export const redactSecrets = (message) => {
+  let text = String(message ?? '');
+  for (const pattern of SECRET_LIKE_PATTERNS) {
+    text = text.replace(pattern, '[redacted]');
+  }
+  return text;
+};
+
 const headers = (contentType = 'application/json') => ({
   Authorization: `Bearer ${getApiKey()}`,
   ...(contentType ? { 'Content-Type': contentType } : {}),
@@ -22,7 +48,7 @@ const openRouterJson = async (path, body) => {
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data?.error?.message || data?.message || 'OpenRouter request failed.');
+    throw new Error(redactSecrets(data?.error?.message || data?.message || 'OpenRouter request failed.'));
   }
 
   return data;
@@ -137,7 +163,7 @@ export async function synthesizeSpeechViaOpenRouter({ input, model, voice, forma
   });
   if (!response.ok) {
     const errorText = await response.text().catch(() => '');
-    throw new Error(`OpenRouter TTS failed (${response.status}): ${errorText.slice(0, 400) || response.statusText}`);
+    throw new Error(`OpenRouter TTS failed (${response.status}): ${redactSecrets(errorText.slice(0, 400)) || response.statusText}`);
   }
   const arrayBuffer = await response.arrayBuffer();
   // Raw pcm has no container/header at all — wrap it in a WAV header (like the
@@ -210,7 +236,7 @@ export async function generateOpenRouterText({
   // api/telegram/webhook.js.
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data?.error?.message || data?.message || 'OpenRouter request failed.');
+    throw new Error(redactSecrets(data?.error?.message || data?.message || 'OpenRouter request failed.'));
   }
 
   const content = data?.choices?.[0]?.message?.content || '';
@@ -567,13 +593,13 @@ export async function generateOpenRouterSpeech({
       const responseText = await response.text();
       if (!response.ok) {
         const data = jsonFromMaybeText(responseText);
-        throw new Error(data?.error?.message || data?.message || 'OpenRouter speech request failed.');
+        throw new Error(redactSecrets(data?.error?.message || data?.message || 'OpenRouter speech request failed.'));
       }
 
       const audio = /(^|\n)data: /.test(responseText)
         ? audioFromStreamingText(responseText)
         : audioFromChatCompletion(jsonFromMaybeText(responseText));
-      if (audio?.error) throw new Error(audio.error);
+      if (audio?.error) throw new Error(redactSecrets(audio.error));
       if (!audio?.audioUrl) throw new Error('OpenRouter did not return audio.');
 
       return { ...audio, model: speechModel };
@@ -628,10 +654,10 @@ export async function pollOpenRouterVideo({ jobId }) {
   });
   const status = await statusResponse.json().catch(() => ({}));
   if (!statusResponse.ok) {
-    throw new Error(status?.error?.message || status?.message || 'OpenRouter video polling failed.');
+    throw new Error(redactSecrets(status?.error?.message || status?.message || 'OpenRouter video polling failed.'));
   }
   if (status.status === 'failed' || status.status === 'cancelled' || status.status === 'expired') {
-    throw new Error(status.error || `OpenRouter video generation ${status.status}.`);
+    throw new Error(redactSecrets(status.error) || `OpenRouter video generation ${status.status}.`);
   }
   if (status.status !== 'completed') {
     return { jobId, status: status.status, usage: status.usage };
@@ -642,7 +668,7 @@ export async function pollOpenRouterVideo({ jobId }) {
   });
   if (!contentResponse.ok) {
     const data = await contentResponse.json().catch(() => ({}));
-    throw new Error(data?.error?.message || data?.message || 'OpenRouter video download failed.');
+    throw new Error(redactSecrets(data?.error?.message || data?.message || 'OpenRouter video download failed.'));
   }
   const video = Buffer.from(await contentResponse.arrayBuffer()).toString('base64');
   return {

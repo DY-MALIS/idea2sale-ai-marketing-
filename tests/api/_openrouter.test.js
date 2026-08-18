@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { resolveOpenRouterTextModel, resolveOpenRouterImageModel, generateOpenRouterImage } from '../../api/_openrouter.js';
+import { resolveOpenRouterTextModel, resolveOpenRouterImageModel, generateOpenRouterImage, redactSecrets } from '../../api/_openrouter.js';
 
 const originalEnv = { ...process.env };
 const originalFetch = global.fetch;
@@ -114,5 +114,48 @@ describe('generateOpenRouterImage fallback', () => {
 
     await expect(generateOpenRouterImage({ prompt: 'a fish', model: 'bytedance-seed/seedream-4.5' })).rejects.toThrow('down');
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Regression coverage for a real incident this session: a secret pasted into
+// the wrong Vercel env var (an API key value landing in a model-name field)
+// made OpenRouter echo it back verbatim in an error message ("X is not a
+// valid model ID"), which the app then displayed to a user and persisted into
+// their AI Agent chat history in Firestore. redactSecrets is the guard
+// against this ever leaking a real secret again, regardless of which env var
+// it ends up in.
+describe('redactSecrets', () => {
+  it('redacts an OpenRouter-style key embedded in a longer message', () => {
+    // Deliberately short/fake -- just long enough (16+ hex chars) to exercise
+    // our own pattern without being anywhere near a real 64-char OpenRouter
+    // key's length/shape (GitHub's push-protection secret scanner flags
+    // anything matching that exact real shape, fake value or not).
+    const fakeKeyFragment = 'sk-or-v1-' + '0123456789abcdef'.repeat(2);
+    const message = `${fakeKeyFragment} is not a valid model ID`;
+    expect(redactSecrets(message)).toBe('[redacted] is not a valid model ID');
+  });
+
+  it('redacts a Google API key (AIza...) style token', () => {
+    // Deliberately fake -- matches the AIza<35 chars> shape, not a real key.
+    expect(redactSecrets('key AIzaFAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKE rejected')).toBe('key [redacted] rejected');
+  });
+
+  it('redacts a Telegram-bot-token-shaped value', () => {
+    // Deliberately fake -- matches the <digits>:<token> shape, not a real bot token.
+    expect(redactSecrets('token 1234567890:FAKE-TOKEN-NOT-REAL-aaaaaaaaaaaaaaaaaaaa invalid')).toBe('token [redacted] invalid');
+  });
+
+  it('redacts any other long opaque token as a fallback', () => {
+    const longToken = 'a'.repeat(45);
+    expect(redactSecrets(`bad value ${longToken} here`)).toBe('bad value [redacted] here');
+  });
+
+  it('leaves ordinary error text with no secret-shaped substring untouched', () => {
+    expect(redactSecrets('Model not found. Please try again.')).toBe('Model not found. Please try again.');
+  });
+
+  it('treats missing/nullish input as an empty string', () => {
+    expect(redactSecrets(undefined)).toBe('');
+    expect(redactSecrets(null)).toBe('');
   });
 });

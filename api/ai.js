@@ -8,6 +8,7 @@ import {
   synthesizeSpeechViaOpenRouter,
   transcribeAudioWithOpenRouter,
   resolveOpenRouterTextModel,
+  redactSecrets,
 } from './_openrouter.js';
 import { initFirebaseAdmin } from './_firebaseAdmin.js';
 import { checkRateLimit, getClientIp } from './_rateLimit.js';
@@ -770,7 +771,11 @@ Response rules:
 
     return res.status(400).json({ error: 'Unknown AI action.' });
   } catch (error) {
-    const message = String(error?.message || '');
+    // Last-resort safety net, on top of the redaction already applied at each
+    // throw site in _openrouter.js -- every error message that reaches an
+    // actual HTTP response (and, for socialAgent, gets persisted into a user's
+    // AI Agent chat history in Firestore) passes through here first.
+    const message = redactSecrets(error?.message || '');
     const keyError = /OPEN_ROUTER_API_KEY|unauthorized|invalid api key/i.test(message);
     return res.status(keyError ? 503 : 500).json({
       error: keyError ? 'OpenRouter API key is missing or invalid. Update OPEN_ROUTER_API_KEY in Vercel.' : message || 'AI generation failed.',

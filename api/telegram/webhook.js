@@ -1,4 +1,4 @@
-import { generateOpenRouterText } from '../_openrouter.js';
+import { generateOpenRouterText, redactSecrets } from '../_openrouter.js';
 import admin, { initFirebaseAdmin } from '../_firebaseAdmin.js';
 import { FieldValue } from 'firebase-admin/firestore';
 import { logAudit } from '../_audit.js';
@@ -459,12 +459,19 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ ok: true });
   } catch (error) {
+    // redactSecrets guards against the same class of incident described in
+    // _openrouter.js: a misconfigured env var (e.g. a secret pasted into a
+    // model-name field) can make a provider echo that value back in its error
+    // message -- this specific path sends the message straight to an actual
+    // Telegram customer, so it's the most exposed of every place this app
+    // surfaces a raw error message.
+    const safeMessage = redactSecrets(error?.message) || 'Unknown error';
     const fallback = isKhmer
-      ? `មានបញ្ហាពេលឆ្លើយតប: ${error?.message || 'Unknown error'}`
-      : `There was a problem replying: ${error?.message || 'Unknown error'}`;
+      ? `មានបញ្ហាពេលឆ្លើយតប: ${safeMessage}`
+      : `There was a problem replying: ${safeMessage}`;
 
     await sendTelegramHtmlMessage(token, chatId, fallback.slice(0, TELEGRAM_LIMIT)).catch(() => {});
 
-    return res.status(200).json({ ok: false, error: error?.message || 'Telegram chatbot failed.' });
+    return res.status(200).json({ ok: false, error: safeMessage });
   }
 }
