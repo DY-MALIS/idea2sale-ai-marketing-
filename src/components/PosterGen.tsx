@@ -646,7 +646,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
                   </div>
                   <div className="text-center">
                     <p className="text-lg font-medium text-brand-500">{t('readyToCreate')}</p>
-                    <p className="text-sm">{t('readyToCreate')}</p>
+                    <p className="text-sm">{t('imageWillAppear')}</p>
                   </div>
                 </div>
               )}
