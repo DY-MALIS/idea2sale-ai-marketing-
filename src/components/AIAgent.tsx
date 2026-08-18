@@ -837,7 +837,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                     deleteConversationSession(session.id);
                   }}
                   title={text.historyDelete}
-                  className="absolute right-2 top-2 rounded-lg p-1.5 text-slate-400 opacity-0 transition hover:bg-red-50 hover:text-red-500 group-hover:opacity-100 dark:hover:bg-red-900/30"
+                  className="absolute right-2 top-2 rounded-lg border border-red-200 bg-white p-1.5 text-red-400 shadow-sm transition hover:bg-red-50 hover:text-red-500 dark:border-red-800/60 dark:bg-slate-800 dark:hover:bg-red-900/30"
                 >
                   <Trash2 size={13} />
                 </button>
