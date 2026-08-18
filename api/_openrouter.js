@@ -226,14 +226,32 @@ export async function generateOpenRouterText({
   return content;
 }
 
+// If the configured/current default image model fails (unavailable, erroring,
+// or simply not returning image data), one retry against this previously-
+// stable model is far better than the whole generation coming back as a bare
+// error -- same resilience pattern already used for TTS below (Gemini ->
+// gpt-audio-mini -> Google Translate).
+const FALLBACK_IMAGE_MODEL = 'bytedance-seed/seedream-4.5';
+
 export async function generateOpenRouterImage({ prompt, aspectRatio = '1:1', model }) {
-  const data = await openRouterJson('/images', {
-    model: resolveOpenRouterImageModel(model),
+  const primaryModel = resolveOpenRouterImageModel(model);
+  const buildBody = (modelId) => ({
+    model: modelId,
     prompt,
     aspect_ratio: aspectRatio,
     output_format: 'png',
     n: 1,
   });
+
+  let data;
+  try {
+    data = await openRouterJson('/images', buildBody(primaryModel));
+    if (!data?.data?.[0]?.b64_json) throw new Error('OpenRouter did not return an image.');
+  } catch (primaryError) {
+    if (primaryModel === FALLBACK_IMAGE_MODEL) throw primaryError;
+    console.error(`Image generation failed with ${primaryModel}, retrying with ${FALLBACK_IMAGE_MODEL}:`, primaryError?.message || primaryError);
+    data = await openRouterJson('/images', buildBody(FALLBACK_IMAGE_MODEL));
+  }
 
   const image = data?.data?.[0];
   if (!image?.b64_json) throw new Error('OpenRouter did not return an image.');

@@ -1,9 +1,12 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import { resolveOpenRouterTextModel, resolveOpenRouterImageModel } from '../../api/_openrouter.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { resolveOpenRouterTextModel, resolveOpenRouterImageModel, generateOpenRouterImage } from '../../api/_openrouter.js';
 
 const originalEnv = { ...process.env };
+const originalFetch = global.fetch;
 afterEach(() => {
   process.env = { ...originalEnv };
+  global.fetch = originalFetch;
+  vi.restoreAllMocks();
 });
 
 // Regression coverage for the "stale model in Vercel env vars" problem this
@@ -42,5 +45,74 @@ describe('resolveOpenRouterImageModel', () => {
 
   it('passes through an explicit model unchanged', () => {
     expect(resolveOpenRouterImageModel('some/other-image-model')).toBe('some/other-image-model');
+  });
+});
+
+// Regression coverage for the "app used to generate images, then a model swap
+// broke it" scenario this session ran into: if the current default image
+// model fails or returns no image data, one retry against the previously-
+// stable model must happen automatically rather than the whole generation
+// just failing.
+describe('generateOpenRouterImage fallback', () => {
+  const jsonResponse = (body, ok = true) => ({
+    ok,
+    json: async () => body,
+  });
+
+  it('returns the primary model image when the first call succeeds', async () => {
+    process.env.OPEN_ROUTER_API_KEY = 'test-key';
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ data: [{ b64_json: 'AAAA' }] }));
+    global.fetch = fetchMock;
+
+    const result = await generateOpenRouterImage({ prompt: 'a cat' });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.imageUrl).toBe('data:image/png;base64,AAAA');
+  });
+
+  it('retries with the fallback model when the primary model errors', async () => {
+    process.env.OPEN_ROUTER_API_KEY = 'test-key';
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ error: { message: 'model unavailable' } }, false))
+      .mockResolvedValueOnce(jsonResponse({ data: [{ b64_json: 'BBBB' }] }));
+    global.fetch = fetchMock;
+
+    const result = await generateOpenRouterImage({ prompt: 'a dog', model: 'some/broken-model' });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const secondCallBody = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(secondCallBody.model).toBe('bytedance-seed/seedream-4.5');
+    expect(result.imageUrl).toBe('data:image/png;base64,BBBB');
+  });
+
+  it('retries with the fallback model when the primary model returns no image data', async () => {
+    process.env.OPEN_ROUTER_API_KEY = 'test-key';
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ data: [{}] }))
+      .mockResolvedValueOnce(jsonResponse({ data: [{ b64_json: 'CCCC' }] }));
+    global.fetch = fetchMock;
+
+    const result = await generateOpenRouterImage({ prompt: 'a bird' });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.imageUrl).toBe('data:image/png;base64,CCCC');
+  });
+
+  it('still throws (after trying both models) when the fallback also fails', async () => {
+    process.env.OPEN_ROUTER_API_KEY = 'test-key';
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ error: { message: 'all models down' } }, false));
+    global.fetch = fetchMock;
+
+    await expect(generateOpenRouterImage({ prompt: 'a fish' })).rejects.toThrow('all models down');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry a second time when the primary model already is the fallback model', async () => {
+    process.env.OPEN_ROUTER_API_KEY = 'test-key';
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ error: { message: 'down' } }, false));
+    global.fetch = fetchMock;
+
+    await expect(generateOpenRouterImage({ prompt: 'a fish', model: 'bytedance-seed/seedream-4.5' })).rejects.toThrow('down');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
