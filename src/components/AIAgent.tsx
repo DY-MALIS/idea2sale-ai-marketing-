@@ -22,6 +22,13 @@ interface AgentMessage {
   imageDataUrls?: string[];
 }
 
+interface AgentConversationSession {
+  id: string;
+  title: string;
+  messages: AgentMessage[];
+  updatedAt: number;
+}
+
 interface AttachedImage {
   base64: string;
   mimeType: string;
@@ -33,11 +40,40 @@ interface AIAgentProps {
 
 const MAX_MESSAGES = 40;
 const HISTORY_MESSAGES = 20;
+const MAX_SESSIONS = 20;
 const MAX_IMAGES = 4;
 
 const detectMessageLanguage = (message: string) => (
   /[\u1780-\u17FF]/.test(message) ? 'km' : 'en'
 );
+
+const sessionTitleFromMessages = (messages: AgentMessage[]) => (
+  messages.find((message) => message.role === 'user' && message.content.trim())?.content.trim().slice(0, 80)
+  || messages[0]?.content.trim().slice(0, 80)
+  || 'Conversation'
+);
+
+const buildSession = (messages: AgentMessage[], existingId?: string): AgentConversationSession | null => {
+  const textOnly = messages
+    .map(({ role, content }) => ({ role, content }))
+    .filter((message) => message.content.trim());
+  if (!textOnly.length) return null;
+  return {
+    id: existingId || `session-${Date.now()}`,
+    title: sessionTitleFromMessages(textOnly),
+    messages: textOnly.slice(-MAX_MESSAGES),
+    updatedAt: Date.now(),
+  };
+};
+
+const normalizeSessions = (value: unknown): AgentConversationSession[] => (
+  Array.isArray(value) ? value : []
+).map((session: any) => ({
+  id: String(session?.id || `session-${Date.now()}-${Math.random().toString(36).slice(2)}`),
+  title: String(session?.title || sessionTitleFromMessages(Array.isArray(session?.messages) ? session.messages : [])),
+  messages: Array.isArray(session?.messages) ? session.messages.slice(-MAX_MESSAGES) : [],
+  updatedAt: Number(session?.updatedAt || Date.now()),
+})).filter((session) => session.messages.length);
 
 interface AgentBusinessContext {
   businessName: string;
@@ -52,6 +88,8 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const [loading, setLoading] = useState(false);
   const [autoCreateEnabled, setAutoCreateEnabled] = useState(true);
   const [messages, setMessages] = useState<AgentMessage[]>([]);
+  const [conversationSessions, setConversationSessions] = useState<AgentConversationSession[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string>(() => `session-${Date.now()}`);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
   const [isListening, setIsListening] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
@@ -129,6 +167,8 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     // the previous user's conversation/profile would stay visible (or race with
     // and get clobbered onto) the newly-signed-in user's data.
     setMessages([]);
+    setConversationSessions([]);
+    setActiveSessionId(`session-${Date.now()}`);
     setBusinessContext(null);
 
     const loadMemory = async () => {
@@ -136,11 +176,14 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         if (isDemoMode || !user) {
           const saved = JSON.parse(localStorage.getItem(DEMO_AGENT_CONVERSATION_STORAGE_KEY) || 'null');
           const savedMessages = Array.isArray(saved) ? saved : saved?.messages;
+          const savedSessions = normalizeSessions(saved?.sessions);
           const savedAt = Array.isArray(saved) ? null : saved?.updatedAt;
           const isFresh = typeof savedAt === 'number' && Date.now() - savedAt < AGENT_MEMORY_EXPIRY_MS;
           if (cancelled) return;
+          setConversationSessions(savedSessions.slice(0, MAX_SESSIONS));
           if (Array.isArray(savedMessages) && savedMessages.length && isFresh) {
             setMessages(savedMessages.slice(-MAX_MESSAGES));
+            setActiveSessionId(String(saved?.activeSessionId || `session-${Date.now()}`));
           } else if (savedMessages?.length) {
             localStorage.removeItem(DEMO_AGENT_CONVERSATION_STORAGE_KEY);
           }
@@ -157,10 +200,13 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           if (conversationSnap.exists()) {
             const data = conversationSnap.data();
             const saved = data?.messages;
+            const savedSessions = normalizeSessions(data?.sessions);
             const updatedAtMs = data?.updatedAt?.toMillis?.() ?? null;
             const isFresh = typeof updatedAtMs === 'number' && Date.now() - updatedAtMs < AGENT_MEMORY_EXPIRY_MS;
+            setConversationSessions(savedSessions.slice(0, MAX_SESSIONS));
             if (Array.isArray(saved) && saved.length && isFresh) {
               setMessages(saved.slice(-MAX_MESSAGES));
+              setActiveSessionId(String(data?.activeSessionId || `session-${Date.now()}`));
             }
           }
           if (profileSnap.exists()) {
@@ -184,15 +230,29 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   // Only the text survives into persisted memory — attached image previews are
   // base64 data URLs that would blow past Firestore's 1MB document limit and
   // add real storage cost within a handful of exchanges, so they stay session-only.
-  const persistConversation = (nextMessages: AgentMessage[]) => {
+  const persistConversation = (nextMessages: AgentMessage[], sessionsOverride = conversationSessions, sessionId = activeSessionId) => {
     if (!memoryLoadedRef.current) return;
     const textOnly = nextMessages.map(({ role, content }) => ({ role, content }));
+    const currentSession = buildSession(textOnly, sessionId);
+    const sessions = currentSession
+      ? [
+          currentSession,
+          ...sessionsOverride.filter((session) => session.id !== currentSession.id),
+        ].slice(0, MAX_SESSIONS)
+      : sessionsOverride.slice(0, MAX_SESSIONS);
     try {
       if (isDemoMode || !user) {
-        localStorage.setItem(DEMO_AGENT_CONVERSATION_STORAGE_KEY, JSON.stringify({ messages: textOnly, updatedAt: Date.now() }));
+        localStorage.setItem(DEMO_AGENT_CONVERSATION_STORAGE_KEY, JSON.stringify({
+          messages: textOnly,
+          sessions,
+          activeSessionId: sessionId,
+          updatedAt: Date.now(),
+        }));
       } else {
         void setDoc(doc(db, 'agent_conversations', user.uid), {
           messages: textOnly,
+          sessions,
+          activeSessionId: sessionId,
           userId: user.uid,
           updatedAt: serverTimestamp(),
         });
@@ -220,9 +280,9 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       : 'Ask a question, request content, or describe a problem you want to solve.',
     copy: language === 'km' ? 'ចម្លងចម្លើយចុងក្រោយ' : 'Copy latest answer',
     clear: language === 'km' ? 'សន្ទនាថ្មី' : 'New chat',
-    historyTitle: language === 'km' ? 'ប្រវត្តិសន្ទនា' : 'Conversation history',
-    historyEmpty: language === 'km' ? 'សារដែលអ្នកនិយាយជាមួយ Agent នឹងបង្ហាញនៅទីនេះ។' : 'Messages you exchange with the agent will appear here.',
-    reusePrompt: language === 'km' ? 'ចុចដើម្បីយកសំណួរនេះមកប្រើវិញ' : 'Click to reuse this question',
+    historyTitle: language === 'km' ? 'Story / ប្រវត្តិសន្ទនា' : 'Story / History',
+    historyEmpty: language === 'km' ? 'នៅមិនទាន់មាន story ទេ។ សួរ Agent ម្តង រួច conversation នឹងរក្សាទុកនៅទីនេះ។' : 'No story yet. Ask the agent once and the conversation will be saved here.',
+    reusePrompt: language === 'km' ? 'ចុចដើម្បីបើក story នេះ' : 'Open this story',
     user: language === 'km' ? 'អ្នក' : 'You',
     agent: language === 'km' ? 'AI Agent' : 'AI Agent',
     inputHint: language === 'km' ? 'ចុច Enter ដើម្បីផ្ញើ · Shift + Enter ដើម្បីចុះបន្ទាត់' : 'Enter to send · Shift + Enter for a new line',
@@ -239,16 +299,35 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
 
   const updateMessages = (nextMessages: AgentMessage[]) => {
     const trimmed = nextMessages.slice(-MAX_MESSAGES);
+    const currentSession = buildSession(trimmed, activeSessionId);
+    if (currentSession) {
+      setConversationSessions((current) => [
+        currentSession,
+        ...current.filter((session) => session.id !== currentSession.id),
+      ].slice(0, MAX_SESSIONS));
+    }
     setMessages(trimmed);
     persistConversation(trimmed);
   };
 
   const startNewChat = () => {
     requestControllerRef.current?.abort();
+    const nextSessionId = `session-${Date.now()}`;
     setMessages([]);
     setInput('');
     setLoading(false);
-    persistConversation([]);
+    setActiveSessionId(nextSessionId);
+    persistConversation([], conversationSessions, nextSessionId);
+  };
+
+  const openConversationSession = (session: AgentConversationSession) => {
+    requestControllerRef.current?.abort();
+    setActiveSessionId(session.id);
+    setMessages(session.messages.slice(-MAX_MESSAGES));
+    setInput('');
+    setAttachedImages([]);
+    setLoading(false);
+    persistConversation(session.messages, conversationSessions, session.id);
   };
 
   const handleImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -620,10 +699,13 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   };
 
   const latestAnswer = [...messages].reverse().find((message) => message.role === 'assistant')?.content || '';
-  const conversationHistory = useMemo(() => messages
-    .map((message, index) => ({ message, index }))
-    .slice(-16)
-    .reverse(), [messages]);
+  const conversationHistory = useMemo(() => {
+    const currentSession = buildSession(messages, activeSessionId);
+    return [
+      ...(currentSession ? [currentSession] : []),
+      ...conversationSessions.filter((session) => session.id !== activeSessionId),
+    ].slice(0, MAX_SESSIONS);
+  }, [activeSessionId, conversationSessions, messages]);
 
   return (
     <div className="max-w-7xl mx-auto space-y-8">
@@ -779,24 +861,24 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
             </div>
             {conversationHistory.length ? (
               <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
-                {conversationHistory.map(({ message, index }) => (
+                {conversationHistory.map((session) => (
                   <button
-                    key={`history-${index}`}
+                    key={session.id}
                     type="button"
-                    onClick={() => message.role === 'user' && setInput(message.content)}
-                    title={message.role === 'user' ? text.reusePrompt : undefined}
+                    onClick={() => openConversationSession(session)}
+                    title={text.reusePrompt}
                     className={`w-full rounded-xl border px-3 py-2 text-left text-xs leading-relaxed transition ${
-                      message.role === 'user'
+                      session.id === activeSessionId
                         ? 'border-brand-100 bg-brand-50/80 text-slate-800 hover:border-brand-300 hover:bg-white dark:border-brand-200 dark:bg-brand-50 dark:text-slate-900'
                         : 'border-slate-200 bg-white/80 text-slate-600 dark:border-slate-300 dark:bg-slate-50 dark:text-slate-700'
                     }`}
                   >
                     <span className={`mb-1 block text-[9px] font-black uppercase tracking-widest ${
-                      message.role === 'user' ? 'text-brand-600' : 'text-slate-400'
+                      session.id === activeSessionId ? 'text-brand-600' : 'text-slate-400'
                     }`}>
-                      {message.role === 'user' ? text.user : text.agent}
+                      {session.messages.length} messages
                     </span>
-                    <span className="line-clamp-3 font-semibold">{message.content}</span>
+                    <span className="line-clamp-3 font-semibold">{session.title}</span>
                   </button>
                 ))}
               </div>
