@@ -11,6 +11,7 @@ import {
 } from './_openrouter.js';
 import { initFirebaseAdmin } from './_firebaseAdmin.js';
 import { checkRateLimit, getClientIp } from './_rateLimit.js';
+import { notifyAdmins } from './_alert.js';
 
 // This endpoint has no auth check (it's used from guest/demo sessions with no
 // Firebase login), so without a limit a single connection can script unlimited
@@ -18,6 +19,11 @@ import { checkRateLimit, getClientIp } from './_rateLimit.js';
 // One shared per-IP budget across every action here, not per-action, since a
 // script abusing this endpoint would just spread calls across actions otherwise.
 const AI_RATE_LIMIT_PER_HOUR = Number(process.env.AI_RATE_LIMIT_PER_HOUR) || 60;
+// Separate, much higher budget for client-side crash reports -- these cost no
+// AI/API spend, so they shouldn't compete with real AI usage for the same
+// per-IP quota, but still need *some* cap so a broken page stuck in a retry
+// loop can't spam the admin Telegram alert channel indefinitely.
+const CLIENT_ERROR_RATE_LIMIT_PER_HOUR = Number(process.env.CLIENT_ERROR_RATE_LIMIT_PER_HOUR) || 30;
 
 // Vercel's default serverless function timeout (10s on Hobby) is too short for
 // transcribing a long voice recording (the AI Agent's voice input now allows up to
@@ -397,6 +403,39 @@ export default async function handler(req, res) {
   const action = String(req.body?.action || '');
   const languageCode = String(req.body?.language || 'en');
   const language = languageCode === 'km' ? 'Khmer' : 'English';
+
+  // Handled before the AI rate-limit gate below: this costs no AI/API spend,
+  // so it shouldn't compete with real AI usage for the same per-IP quota (see
+  // CLIENT_ERROR_RATE_LIMIT_PER_HOUR for its own, separate cap). Lets any
+  // uncaught frontend error (React render crash, unhandled promise rejection,
+  // global window.onerror) reach the same admin Telegram alert channel that
+  // backend failures already use -- without this, a real user hitting a broken
+  // screen was previously invisible to the developer unless they reported it
+  // themselves.
+  if (action === 'reportClientError') {
+    try {
+      const db = initFirebaseAdmin();
+      const { allowed } = await checkRateLimit(db, {
+        scope: 'client-error',
+        key: getClientIp(req),
+        limit: CLIENT_ERROR_RATE_LIMIT_PER_HOUR,
+      });
+      if (allowed) {
+        const context = String(req.body?.context || 'unknown').trim().slice(0, 80);
+        const message = String(req.body?.message || 'No message').trim().slice(0, 500);
+        const url = String(req.body?.url || '').trim().slice(0, 300);
+        const stack = String(req.body?.stack || '').trim().slice(0, 1200);
+        await notifyAdmins(
+          `Frontend error [${context}]: ${message}${url ? `\nPage: ${url}` : ''}${stack ? `\n${stack}` : ''}`,
+        );
+      }
+    } catch (error) {
+      console.error('Failed to report client error:', error?.message || error);
+    }
+    // Always 200 -- a failed error *report* must never itself surface as a
+    // second error to the user, and the client doesn't act on the response.
+    return res.status(200).json({ ok: true });
+  }
 
   // Fails open: a rate-limit infra hiccup (Firebase misconfigured, transient
   // error) must never block a legitimate request, only genuinely exceeding
