@@ -66,6 +66,12 @@ const buildSession = (messages: AgentMessage[], existingId?: string): AgentConve
   };
 };
 
+const upsertSession = (sessions: AgentConversationSession[], session: AgentConversationSession | null) => (
+  session
+    ? [session, ...sessions.filter((item) => item.id !== session.id)].slice(0, MAX_SESSIONS)
+    : sessions.slice(0, MAX_SESSIONS)
+);
+
 const normalizeSessions = (value: unknown): AgentConversationSession[] => (
   Array.isArray(value) ? value : []
 ).map((session: any) => ({
@@ -283,6 +289,8 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     historyTitle: language === 'km' ? 'Story / ប្រវត្តិសន្ទនា' : 'Story / History',
     historyEmpty: language === 'km' ? 'នៅមិនទាន់មាន story ទេ។ សួរ Agent ម្តង រួច conversation នឹងរក្សាទុកនៅទីនេះ។' : 'No story yet. Ask the agent once and the conversation will be saved here.',
     reusePrompt: language === 'km' ? 'ចុចដើម្បីបើក story នេះ' : 'Open this story',
+    currentStory: language === 'km' ? 'កំពុងបើក' : 'Current',
+    openStory: language === 'km' ? 'បើកមើល' : 'Open',
     user: language === 'km' ? 'អ្នក' : 'You',
     agent: language === 'km' ? 'AI Agent' : 'AI Agent',
     inputHint: language === 'km' ? 'ចុច Enter ដើម្បីផ្ញើ · Shift + Enter ដើម្បីចុះបន្ទាត់' : 'Enter to send · Shift + Enter for a new line',
@@ -300,34 +308,35 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const updateMessages = (nextMessages: AgentMessage[]) => {
     const trimmed = nextMessages.slice(-MAX_MESSAGES);
     const currentSession = buildSession(trimmed, activeSessionId);
-    if (currentSession) {
-      setConversationSessions((current) => [
-        currentSession,
-        ...current.filter((session) => session.id !== currentSession.id),
-      ].slice(0, MAX_SESSIONS));
-    }
+    const nextSessions = upsertSession(conversationSessions, currentSession);
+    setConversationSessions(nextSessions);
     setMessages(trimmed);
-    persistConversation(trimmed);
+    persistConversation(trimmed, nextSessions);
   };
 
   const startNewChat = () => {
     requestControllerRef.current?.abort();
     const nextSessionId = `session-${Date.now()}`;
+    const nextSessions = upsertSession(conversationSessions, buildSession(messages, activeSessionId));
     setMessages([]);
     setInput('');
     setLoading(false);
+    setConversationSessions(nextSessions);
     setActiveSessionId(nextSessionId);
-    persistConversation([], conversationSessions, nextSessionId);
+    persistConversation([], nextSessions, nextSessionId);
   };
 
   const openConversationSession = (session: AgentConversationSession) => {
     requestControllerRef.current?.abort();
+    const openedMessages = session.messages.slice(-MAX_MESSAGES);
+    const nextSessions = upsertSession(conversationSessions, { ...session, messages: openedMessages, updatedAt: Date.now() });
+    setConversationSessions(nextSessions);
     setActiveSessionId(session.id);
-    setMessages(session.messages.slice(-MAX_MESSAGES));
+    setMessages(openedMessages);
     setInput('');
     setAttachedImages([]);
     setLoading(false);
-    persistConversation(session.messages, conversationSessions, session.id);
+    persistConversation(openedMessages, nextSessions, session.id);
   };
 
   const handleImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -869,14 +878,23 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                     title={text.reusePrompt}
                     className={`w-full rounded-xl border px-3 py-2 text-left text-xs leading-relaxed transition ${
                       session.id === activeSessionId
-                        ? 'border-brand-100 bg-brand-50/80 text-slate-800 hover:border-brand-300 hover:bg-white dark:border-brand-200 dark:bg-brand-50 dark:text-slate-900'
+                        ? 'border-brand-300 bg-brand-50/80 text-slate-800 ring-1 ring-brand-200 hover:border-brand-400 hover:bg-white dark:border-brand-300 dark:bg-brand-50 dark:text-slate-900'
                         : 'border-slate-200 bg-white/80 text-slate-600 dark:border-slate-300 dark:bg-slate-50 dark:text-slate-700'
                     }`}
                   >
-                    <span className={`mb-1 block text-[9px] font-black uppercase tracking-widest ${
-                      session.id === activeSessionId ? 'text-brand-600' : 'text-slate-400'
-                    }`}>
-                      {session.messages.length} messages
+                    <span className="mb-1 flex items-center justify-between gap-2">
+                      <span className={`text-[9px] font-black uppercase tracking-widest ${
+                        session.id === activeSessionId ? 'text-brand-600' : 'text-slate-400'
+                      }`}>
+                        {session.messages.length} messages
+                      </span>
+                      <span className={`rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${
+                        session.id === activeSessionId
+                          ? 'bg-brand-600 text-white'
+                          : 'bg-white text-brand-600 border border-brand-100'
+                      }`}>
+                        {session.id === activeSessionId ? text.currentStory : text.openStory}
+                      </span>
                     </span>
                     <span className="line-clamp-3 font-semibold">{session.title}</span>
                   </button>
