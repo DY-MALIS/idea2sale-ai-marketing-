@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { 
   Sparkles, 
   Video as VideoIcon, 
@@ -288,16 +288,8 @@ interface VideoVoiceProps {
 
 const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomationConsumed, onScheduleHandoff }) => {
   const { t, language } = useLanguage();
-  const { user, isDemoMode, loading: authLoading } = useAuth();
+  const { user, isDemoMode } = useAuth();
   const { notify, ToastHost } = useToast();
-  const [logoDataUrl, setLogoDataUrl] = useState('');
-  const logoDataUrlRef = useRef('');
-  // See the identical comment in PosterGen.tsx: the business-profile logo fetch
-  // below is async, but generation (especially the AI-Agent automation handoff)
-  // can fire before it resolves -- logoDataUrlRef.current would still read ''
-  // at that point, silently skipping the watermark for that one video. Awaiting
-  // this promise before every watermark call closes that race.
-  const logoLoadPromiseRef = useRef<Promise<void>>(Promise.resolve());
   const [watermarking, setWatermarking] = useState(false);
   const [voiceOverEnabled, setVoiceOverEnabled] = useState(false);
   const [voiceOverText, setVoiceOverText] = useState('');
@@ -362,38 +354,24 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     },
   };
 
-  const updateLogoDataUrl = (value: string) => {
-    logoDataUrlRef.current = value;
-    setLogoDataUrl(value);
-  };
-
-  React.useEffect(() => {
-    // See the matching comment in PosterGen.tsx: while auth is still restoring the
-    // session, `user` is indistinguishable from a real signed-out guest, so this
-    // must not resolve the logo promise to '' yet -- that would permanently miss a
-    // signed-in user's saved logo for any generation already in flight. The effect
-    // re-runs and replaces this promise once `authLoading` settles (bounded by
-    // AuthContext's own hard timeout, so this can never hang forever).
-    if (authLoading) {
-      logoLoadPromiseRef.current = new Promise(() => {});
-      return;
-    }
-    const loadLogo = async () => {
-      try {
-        if (isDemoMode || !user) {
-          const saved = JSON.parse(localStorage.getItem('demo_business_profile') || 'null');
-          updateLogoDataUrl(saved?.logoDataUrl || '');
-          return;
-        }
-        const snap = await getDoc(doc(db, 'business_profiles', user.uid));
-        updateLogoDataUrl((snap.data() as BusinessProfileData | undefined)?.logoDataUrl || '');
-      } catch (error) {
-        console.error('Failed to load business profile logo for watermarking:', error);
-        updateLogoDataUrl('');
+  // See the matching comment in PosterGen.tsx: VideoVoice also stays mounted for
+  // the app's entire lifetime (App.tsx keeps it alive via CSS visibility across
+  // tab switches), so a logo cached once at mount would go stale for the rest of
+  // the session the moment the user saves a *new* logo in Business Profile.
+  // Fetching fresh right before each watermark call keeps it always current.
+  const fetchLatestLogoDataUrl = async (): Promise<string> => {
+    try {
+      if (isDemoMode || !user) {
+        const saved = JSON.parse(localStorage.getItem('demo_business_profile') || 'null');
+        return saved?.logoDataUrl || '';
       }
-    };
-    logoLoadPromiseRef.current = loadLogo();
-  }, [user, isDemoMode, authLoading]);
+      const snap = await getDoc(doc(db, 'business_profiles', user.uid));
+      return (snap.data() as BusinessProfileData | undefined)?.logoDataUrl || '';
+    } catch (error) {
+      console.error('Failed to load business profile logo for watermarking:', error);
+      return '';
+    }
+  };
 
   React.useEffect(() => {
     if (!('speechSynthesis' in window)) return;
@@ -592,8 +570,8 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         video = clipUrls[0];
       }
 
-      await logoLoadPromiseRef.current;
-      if (logoDataUrlRef.current) {
+      const latestLogoDataUrl = await fetchLatestLogoDataUrl();
+      if (latestLogoDataUrl) {
         setWatermarking(true);
         try {
           // overlayLogoOnVideo's own try/catch only guards the ffmpeg exec/read
@@ -602,7 +580,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
           // step failing would discard the whole successfully-generated video
           // (setGeneratedVideo below never runs) instead of falling back to the
           // unwatermarked result.
-          video = await overlayLogoOnVideo(video, logoDataUrlRef.current);
+          video = await overlayLogoOnVideo(video, latestLogoDataUrl);
         } catch (watermarkError) {
           console.error('Logo watermark step failed, using the unwatermarked video:', watermarkError);
         } finally {

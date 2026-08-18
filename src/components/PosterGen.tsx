@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useState } from 'react';
 import {
   Sparkles,
   Image as ImageIcon,
@@ -213,20 +213,8 @@ interface PosterGenProps {
 
 const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationConsumed, onScheduleHandoff }) => {
   const { t, language } = useLanguage();
-  const { user, isDemoMode, loading: authLoading } = useAuth();
+  const { user, isDemoMode } = useAuth();
   const { notify, ToastHost } = useToast();
-  const [logoDataUrl, setLogoDataUrl] = useState('');
-  const logoDataUrlRef = useRef('');
-  // Logo watermarking used to be a straight race: the business-profile logo
-  // fetch below is async (a Firestore getDoc), but generation could fire before
-  // it resolved -- fast manual clicks, and especially the AI-Agent automation
-  // handoff effect further down, which calls handleGenerateImage immediately on
-  // mount with no dependency on this load finishing. logoDataUrlRef.current
-  // would still read '' at that point, so applyLogoWatermark silently skipped
-  // the logo for that one generation -- "sometimes it's there, sometimes it's
-  // not" depending purely on which finished first. Awaiting this promise right
-  // before every watermark call closes that window.
-  const logoLoadPromiseRef = useRef<Promise<void>>(Promise.resolve());
   const [activeTool, setActiveTool] = useState<ToolType>('poster');
   const [posterPrompt, setPosterPrompt] = useState('A real product photo in a Cambodian cafe setting, warm sunlight, premium commercial photography, natural shadows, realistic texture, lifestyle background');
   const [visualPrompt, setVisualPrompt] = useState('A photorealistic product advertisement scene, real camera photo, premium lighting, natural shadows, detailed texture, cinematic depth of field, TikTok-ready composition');
@@ -245,42 +233,31 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
   const [automationNotice, setAutomationNotice] = useState<string | null>(null);
   const handledAutomationRef = React.useRef<string | null>(null);
 
-  const updateLogoDataUrl = (value: string) => {
-    logoDataUrlRef.current = value;
-    setLogoDataUrl(value);
-  };
-
-  React.useEffect(() => {
-    // While Firebase Auth is still restoring the session (fresh page load/reload),
-    // `user` reads as null exactly the same as a genuinely signed-out guest -- so
-    // without this guard, a generation fired in that window (e.g. a fast click, or
-    // the automation handoff below) would take the "no user" branch, resolve the
-    // logo promise to '' almost instantly, and permanently miss a signed-in user's
-    // real saved logo, since that resolved promise is what any in-flight generation
-    // is awaiting. Deliberately not resolving here while auth is unsettled -- the
-    // effect re-runs and replaces this promise once `authLoading` flips false (and
-    // AuthContext itself guarantees that happens within a bounded time even if
-    // auth hangs), so nothing can wait on this forever.
-    if (authLoading) {
-      logoLoadPromiseRef.current = new Promise(() => {});
-      return;
-    }
-    const loadLogo = async () => {
-      try {
-        if (isDemoMode || !user) {
-          const saved = JSON.parse(localStorage.getItem('demo_business_profile') || 'null');
-          updateLogoDataUrl(saved?.logoDataUrl || '');
-          return;
-        }
-        const snap = await getDoc(doc(db, 'business_profiles', user.uid));
-        updateLogoDataUrl((snap.data() as BusinessProfileData | undefined)?.logoDataUrl || '');
-      } catch (error) {
-        console.error('Failed to load business profile logo for watermarking:', error);
-        updateLogoDataUrl('');
+  // PosterGen stays mounted for the app's entire lifetime once it's first
+  // rendered (see App.tsx -- it's kept alive via CSS visibility across tab
+  // switches so a background generation never gets silently killed by an
+  // unmount). A logo loaded once into a ref/state at mount time would then go
+  // stale for the rest of the session the moment the user saves a *new* logo
+  // in Business Profile afterward -- every later generation, including ones
+  // fired straight from AI Agent auto-create, would keep watermarking with
+  // the old (often empty) value with no way to notice the profile changed.
+  // Fetching fresh right before each watermark call instead guarantees it's
+  // always the logo actually saved *now*, at the small, one-time cost of a
+  // Firestore read that's negligible next to the multi-second AI image call
+  // it follows.
+  const fetchLatestLogoDataUrl = async (): Promise<string> => {
+    try {
+      if (isDemoMode || !user) {
+        const saved = JSON.parse(localStorage.getItem('demo_business_profile') || 'null');
+        return saved?.logoDataUrl || '';
       }
-    };
-    logoLoadPromiseRef.current = loadLogo();
-  }, [user, isDemoMode, authLoading]);
+      const snap = await getDoc(doc(db, 'business_profiles', user.uid));
+      return (snap.data() as BusinessProfileData | undefined)?.logoDataUrl || '';
+    } catch (error) {
+      console.error('Failed to load business profile logo for watermarking:', error);
+      return '';
+    }
+  };
 
   React.useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -407,8 +384,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Image generation failed.');
-      await logoLoadPromiseRef.current;
-      const withLogo = await applyLogoWatermark(data.imageUrl, logoDataUrlRef.current);
+      const withLogo = await applyLogoWatermark(data.imageUrl, await fetchLatestLogoDataUrl());
       setGeneratedImage(await overlayPosterText(withLogo, posterDetails.headline, posterDetails.cta));
     } catch (error: any) {
       console.error(error);
@@ -436,8 +412,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Image generation failed.');
-      await logoLoadPromiseRef.current;
-      setGeneratedImage(await applyLogoWatermark(data.imageUrl, logoDataUrlRef.current));
+      setGeneratedImage(await applyLogoWatermark(data.imageUrl, await fetchLatestLogoDataUrl()));
     } catch (error: any) {
       console.error(error);
       if (/OPEN_ROUTER_API_KEY|api key/i.test(error.message || '')) {
