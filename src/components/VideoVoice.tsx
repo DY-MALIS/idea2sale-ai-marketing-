@@ -26,6 +26,25 @@ type ToolType = 'video' | 'voice';
 type VoiceGender = 'Female' | 'Male';
 type VoicePersona = 'sreymom' | 'piseth';
 
+// None of the five /api/ai calls in this file had a timeout of their own --
+// api/ai.js's own 60s Vercel maxDuration only helps if the server cleanly
+// returns an error/504; if the connection itself stalls, the fetch just hangs
+// forever with no error and no result, leaving the UI stuck on its loading
+// state indefinitely. 70s gives the server's own timeout a chance to surface
+// its real error first in the common case. Matches the same pattern already
+// used in src/lib/geminiService.ts.
+const AI_FETCH_TIMEOUT_MS = 70000;
+const fetchAiWithTimeout = (body: unknown) => {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), AI_FETCH_TIMEOUT_MS);
+  return fetch('/api/ai', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: controller.signal,
+  }).finally(() => window.clearTimeout(timeoutId));
+};
+
 const MAX_VIDEO_IMAGES = 20;
 // Google Veo 3.1 Fast (the underlying video model) only accepts these exact
 // per-clip durations — anything else risks a rejected or misbehaving
@@ -240,21 +259,13 @@ const attemptGenerateVideoClip = async (
   images: { base64: string; mimeType: string }[],
   duration: number,
 ): Promise<string> => {
-  const response = await fetch('/api/ai', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'videoGenerate', prompt, images, duration }),
-  });
+  const response = await fetchAiWithTimeout({ action: 'videoGenerate', prompt, images, duration });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || 'Video generation failed.');
   const jobId = data.jobId;
   for (let attempt = 0; attempt < 48 && jobId; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 5000));
-    const statusResponse = await fetch('/api/ai', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'videoStatus', jobId }),
-    });
+    const statusResponse = await fetchAiWithTimeout({ action: 'videoStatus', jobId });
     const statusData = await statusResponse.json();
     if (!statusResponse.ok) throw new Error(statusData.error || 'Video generation failed.');
     if (statusData.videoUrl) return statusData.videoUrl;
@@ -417,11 +428,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     if (!videoPrompt) return;
     setIsGeneratingCaption(true);
     try {
-      const response = await fetch('/api/ai', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'videoCaption', prompt: videoPrompt, language }),
-      });
+      const response = await fetchAiWithTimeout({ action: 'videoCaption', prompt: videoPrompt, language });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to generate caption.');
       setAiCaption(data.text || '');
@@ -593,16 +600,12 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         try {
           const persona = voicePersonas[voicePersona];
           const hasKhmerText = /[ក-៿]/.test(voiceOverContent);
-          const ttsResponse = await fetch('/api/ai', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              action: 'ttsGenerate',
-              input: voiceOverContent,
-              voice: persona.openRouterVoice,
-              languageHint: hasKhmerText ? 'Khmer' : 'English',
-              performanceStyle: `${persona.style} Read the exact provided text like you are speaking in a real conversation, not reading a script. Use human emotion, natural rhythm, clear consonants, natural pacing. Avoid robotic or AI narration.`,
-            }),
+          const ttsResponse = await fetchAiWithTimeout({
+            action: 'ttsGenerate',
+            input: voiceOverContent,
+            voice: persona.openRouterVoice,
+            languageHint: hasKhmerText ? 'Khmer' : 'English',
+            performanceStyle: `${persona.style} Read the exact provided text like you are speaking in a real conversation, not reading a script. Use human emotion, natural rhythm, clear consonants, natural pacing. Avoid robotic or AI narration.`,
           });
           const ttsData = await ttsResponse.json();
           if (ttsResponse.ok && ttsData.audioUrl) {
@@ -642,11 +645,13 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       // that isn't a normal Error (a bare string, or an object with no usable
       // .message) — fall back to a neutral message instead of always blaming
       // the OpenRouter API key/credits, which is only sometimes the real cause.
-      const errorMessage = typeof error?.message === 'string' && error.message.trim()
-        ? error.message
-        : typeof error === 'string' && error.trim()
-          ? error
-          : 'Video generation failed for an unknown reason. Please try again.';
+      const errorMessage = error?.name === 'AbortError'
+        ? (language === 'km' ? 'ការបង្កើតវីដេអូចំណាយពេលយូរពេក។ សូមសាកល្បងម្ដងទៀត។' : 'Video generation took too long. Please try again.')
+        : typeof error?.message === 'string' && error.message.trim()
+          ? error.message
+          : typeof error === 'string' && error.trim()
+            ? error
+            : 'Video generation failed for an unknown reason. Please try again.';
       if (/OPEN_ROUTER_API_KEY|api key/i.test(errorMessage)) setNeedsApiKey(true);
       notify(errorMessage, 'error');
     } finally {
@@ -698,16 +703,12 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         : hasKhmerText
           ? 'Khmer'
           : voiceLanguage;
-      const response = await fetch('/api/ai', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'ttsGenerate',
-          input: ttsText,
-          voice: selectedPersona.openRouterVoice,
-          languageHint,
-          performanceStyle: `${selectedPersona.style} Read the exact provided text like you are speaking in a real conversation, not reading a script. Keep Khmer words Khmer and English words English. Use human emotion, natural rhythm, clear consonants, natural pacing, short pauses, and real creator-style intonation. Avoid robotic or AI narration.`,
-        }),
+      const response = await fetchAiWithTimeout({
+        action: 'ttsGenerate',
+        input: ttsText,
+        voice: selectedPersona.openRouterVoice,
+        languageHint,
+        performanceStyle: `${selectedPersona.style} Read the exact provided text like you are speaking in a real conversation, not reading a script. Keep Khmer words Khmer and English words English. Use human emotion, natural rhythm, clear consonants, natural pacing, short pauses, and real creator-style intonation. Avoid robotic or AI narration.`,
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Audio generation failed.');

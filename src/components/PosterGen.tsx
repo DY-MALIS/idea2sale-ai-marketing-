@@ -19,6 +19,24 @@ import { BusinessProfileData, CreativeAutomationRequest, ScheduleHandoffRequest 
 const LOGO_MARGIN_RATIO = 0.04;
 const LOGO_WIDTH_RATIO = 0.16;
 
+// The api/ai.js imageGenerate function has its own 60s Vercel maxDuration, but
+// this fetch had no timeout of its own -- if the connection itself stalls
+// (rather than the server cleanly returning an error/504), the fetch just hangs
+// forever with no error and no image, leaving `loading` stuck true and the UI
+// silently sitting on the empty state indefinitely. 70s gives the server's own
+// timeout a chance to surface its real error first in the common case.
+const IMAGE_GENERATE_TIMEOUT_MS = 70000;
+const fetchImageGenerate = (body: unknown) => {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), IMAGE_GENERATE_TIMEOUT_MS);
+  return fetch('/api/ai', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: controller.signal,
+  }).finally(() => window.clearTimeout(timeoutId));
+};
+
 const applyLogoWatermark = (baseDataUrl: string, logoDataUrl: string): Promise<string> => {
   if (!logoDataUrl) return Promise.resolve(baseDataUrl);
   return new Promise((resolve) => {
@@ -377,17 +395,22 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
       - If the brand/headline/visual description is in Khmer, prioritize the Khmer aesthetic.
       - Do NOT render the brand name, headline, or call-to-action as literal on-image text -- treat them only as creative direction for the mood, subject, and styling of the photo.`;
 
-      const response = await fetch('/api/ai', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'imageGenerate', prompt: fullPrompt, aspectRatio: '3:4' }),
-      });
+      const response = await fetchImageGenerate({ action: 'imageGenerate', prompt: fullPrompt, aspectRatio: '3:4' });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Image generation failed.');
       const withLogo = await applyLogoWatermark(data.imageUrl, await fetchLatestLogoDataUrl());
       setGeneratedImage(await overlayPosterText(withLogo, posterDetails.headline, posterDetails.cta));
     } catch (error: any) {
       console.error(error);
+      if (error?.name === 'AbortError') {
+        notify(
+          language === 'km'
+            ? 'ការបង្កើតរូបភាពចំណាយពេលយូរពេក។ សូមសាកល្បងម្ដងទៀត។'
+            : 'Image generation took too long. Please try again.',
+          'error',
+        );
+        return;
+      }
       if (/OPEN_ROUTER_API_KEY|api key/i.test(error.message || '')) {
         setNeedsApiKey(true);
       }
@@ -405,16 +428,21 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
     setLoading(true);
     setGeneratedImage(null);
     try {
-      const response = await fetch('/api/ai', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'imageGenerate', prompt, aspectRatio }),
-      });
+      const response = await fetchImageGenerate({ action: 'imageGenerate', prompt, aspectRatio });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Image generation failed.');
       setGeneratedImage(await applyLogoWatermark(data.imageUrl, await fetchLatestLogoDataUrl()));
     } catch (error: any) {
       console.error(error);
+      if (error?.name === 'AbortError') {
+        notify(
+          language === 'km'
+            ? 'ការបង្កើតរូបភាពចំណាយពេលយូរពេក។ សូមសាកល្បងម្ដងទៀត។'
+            : 'Image generation took too long. Please try again.',
+          'error',
+        );
+        return;
+      }
       if (/OPEN_ROUTER_API_KEY|api key/i.test(error.message || '')) {
         setNeedsApiKey(true);
       }
