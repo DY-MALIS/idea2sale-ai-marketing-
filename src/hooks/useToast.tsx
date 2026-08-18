@@ -24,7 +24,15 @@ export const useToast = () => {
     }, AUTO_DISMISS_MS);
   }, []);
 
-  const ToastHost: React.FC = () => (
+  // Defining a component inline in a hook body gives it a brand-new function
+  // identity on every render of whatever calls useToast() -- React then treats
+  // <ToastHost /> as a different component type each time and unmounts +
+  // remounts the whole subtree, which discards AnimatePresence's exit
+  // animations and makes a visible toast flicker/reset on every unrelated
+  // state change in the parent (e.g. typing in a textarea next to it).
+  // useCallback keyed on `toasts` keeps the identity stable across every
+  // render that doesn't actually change the toast list.
+  const ToastHost: React.FC = useCallback(() => (
     <div className="fixed bottom-6 right-6 z-[200] flex flex-col gap-2 w-full max-w-sm pointer-events-none">
       <AnimatePresence>
         {toasts.map((toast) => (
@@ -50,7 +58,7 @@ export const useToast = () => {
         ))}
       </AnimatePresence>
     </div>
-  );
+  ), [toasts]);
 
   return { notify, ToastHost };
 };
