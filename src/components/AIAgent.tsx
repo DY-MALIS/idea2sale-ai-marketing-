@@ -825,7 +825,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           )}
         </div>
         {!historyOpen ? null : conversationHistory.length ? (
-          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="mt-4 max-h-96 space-y-1 overflow-y-auto pr-1">
             {conversationHistory.map((session) => (
               <div
                 key={`top-${session.id}`}
@@ -839,12 +839,18 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                   }
                 }}
                 title={text.reusePrompt}
-                className={`group relative rounded-xl border p-4 text-left transition cursor-pointer ${
+                className={`group flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition cursor-pointer ${
                   session.id === activeSessionId
-                    ? 'border-brand-300 bg-brand-50 text-slate-900 ring-1 ring-brand-200'
-                    : 'border-slate-200 bg-white text-slate-700 hover:border-brand-300 hover:bg-brand-50/60'
+                    ? 'bg-brand-50 font-bold text-brand-700 dark:bg-slate-700 dark:text-brand-400'
+                    : 'text-slate-600 hover:bg-brand-50/60 dark:text-slate-300 dark:hover:bg-slate-700/60'
                 }`}
               >
+                <span className="min-w-0 flex-1 truncate">{session.title}</span>
+                {session.id === activeSessionId && (
+                  <span className="shrink-0 text-[10px] font-black uppercase tracking-widest text-brand-500">
+                    {text.currentStory}
+                  </span>
+                )}
                 <button
                   type="button"
                   onClick={(event) => {
@@ -852,21 +858,10 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                     deleteConversationSession(session.id);
                   }}
                   title={text.historyDelete}
-                  className="absolute right-2 top-2 rounded-lg border border-red-200 bg-white p-1.5 text-red-400 shadow-sm transition hover:bg-red-50 hover:text-red-500 dark:border-red-800/60 dark:bg-slate-800 dark:hover:bg-red-900/30"
+                  className="shrink-0 rounded-md p-1 text-red-400 transition hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-900/30"
                 >
                   <Trash2 size={13} />
                 </button>
-                <span className="mb-2 flex items-center justify-between gap-2 pr-6">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-brand-500">
-                    {session.messages.length} messages
-                  </span>
-                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-widest ${
-                    session.id === activeSessionId ? 'bg-brand-600 text-white' : 'bg-white text-brand-600 border border-brand-100'
-                  }`}>
-                    {session.id === activeSessionId ? text.currentStory : text.openStory}
-                  </span>
-                </span>
-                <span className="line-clamp-2 text-sm font-bold">{session.title}</span>
               </div>
             ))}
           </div>
