@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Bot, Copy, History, Image as ImageIcon, ImagePlus, Loader2, Mic, MicOff, RefreshCw, Send, Sparkles, Trash2, UserRound, Video, X, Zap } from 'lucide-react';
+import { Bot, ChevronDown, Copy, History, Image as ImageIcon, ImagePlus, Loader2, Mic, MicOff, RefreshCw, Send, Sparkles, Trash2, UserRound, Video, X, Zap } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { AnimatePresence, motion } from 'motion/react';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
@@ -101,6 +101,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const [autoCreateEnabled, setAutoCreateEnabled] = useState(true);
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [conversationSessions, setConversationSessions] = useState<AgentConversationSession[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [activeSessionId, setActiveSessionId] = useState<string>(() => newSessionId());
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
   const [isListening, setIsListening] = useState(false);
@@ -795,23 +796,37 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
 
       <section className="glass rounded-2xl p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-lg font-bold text-brand-700">
-            <History size={20} />
-            <span>{text.historyTitle}</span>
-          </div>
           <button
             type="button"
-            onClick={() => void restoreOldHistory()}
-            className="flex items-center gap-2 rounded-xl border border-brand-200 bg-brand-50 px-4 py-2 text-sm font-bold text-brand-700 transition hover:border-brand-300 hover:bg-white"
-            title={text.restoreHistory}
+            onClick={() => setHistoryOpen((open) => !open)}
+            className="flex items-center gap-2 text-lg font-bold text-brand-700"
           >
-            <RefreshCw size={15} />
-            {text.restoreHistory}
+            <History size={20} />
+            <span>{text.historyTitle}</span>
+            {conversationHistory.length > 0 && (
+              <span className="rounded-full bg-brand-100 px-2 py-0.5 text-xs font-black text-brand-600 dark:bg-slate-700 dark:text-brand-400">
+                {conversationHistory.length}
+              </span>
+            )}
+            <motion.span animate={{ rotate: historyOpen ? 180 : 0 }} className="text-brand-400">
+              <ChevronDown size={18} />
+            </motion.span>
           </button>
+          {historyOpen && (
+            <button
+              type="button"
+              onClick={() => void restoreOldHistory()}
+              className="flex items-center gap-2 rounded-xl border border-brand-200 bg-brand-50 px-4 py-2 text-sm font-bold text-brand-700 transition hover:border-brand-300 hover:bg-white"
+              title={text.restoreHistory}
+            >
+              <RefreshCw size={15} />
+              {text.restoreHistory}
+            </button>
+          )}
         </div>
-        {conversationHistory.length ? (
+        {!historyOpen ? null : conversationHistory.length ? (
           <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-            {conversationHistory.slice(0, 4).map((session) => (
+            {conversationHistory.map((session) => (
               <div
                 key={`top-${session.id}`}
                 role="button"
