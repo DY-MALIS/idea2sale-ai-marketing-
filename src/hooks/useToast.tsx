@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { CheckCircle2, XCircle } from 'lucide-react';
+import { CheckCircle2, X, XCircle } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 interface ToastItem {
@@ -9,20 +9,32 @@ interface ToastItem {
   message: string;
 }
 
-const AUTO_DISMISS_MS = 5000;
+const SUCCESS_AUTO_DISMISS_MS = 5000;
+// Error toasts used to auto-dismiss at the same 5s as success ones -- for a
+// user who isn't already looking at the screen (or doesn't have DevTools open
+// to check the console), that's often not enough time to even read the
+// message, let alone screenshot it for support. They stay up until manually
+// closed instead; success toasts still clear themselves since there's nothing
+// to act on.
+const ERROR_AUTO_DISMISS_MS = null;
 
 // Lightweight in-app replacement for alert()/window.alert. Each component that
 // needs toasts calls useToast() and renders <ToastHost /> once in its JSX.
 export const useToast = () => {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
+  const dismiss = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((toast) => toast.id !== id));
+  }, []);
+
   const notify = useCallback((message: string, type: 'success' | 'error' = 'success') => {
     const id = Date.now() + Math.random();
     setToasts((prev) => [...prev, { id, type, message }]);
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((toast) => toast.id !== id));
-    }, AUTO_DISMISS_MS);
-  }, []);
+    const dismissAfter = type === 'error' ? ERROR_AUTO_DISMISS_MS : SUCCESS_AUTO_DISMISS_MS;
+    if (dismissAfter !== null) {
+      setTimeout(() => dismiss(id), dismissAfter);
+    }
+  }, [dismiss]);
 
   // Defining a component inline in a hook body gives it a brand-new function
   // identity on every render of whatever calls useToast() -- React then treats
@@ -53,12 +65,22 @@ export const useToast = () => {
             ) : (
               <XCircle size={18} className="mt-0.5 shrink-0" />
             )}
-            <span>{toast.message}</span>
+            <span className="flex-1">{toast.message}</span>
+            {toast.type === 'error' && (
+              <button
+                type="button"
+                onClick={() => dismiss(toast.id)}
+                className="shrink-0 rounded-md p-0.5 text-red-400 transition hover:bg-red-100 hover:text-red-600 dark:hover:bg-red-900/40"
+                title="Close"
+              >
+                <X size={16} />
+              </button>
+            )}
           </motion.div>
         ))}
       </AnimatePresence>
     </div>
-  ), [toasts]);
+  ), [toasts, dismiss]);
 
   return { notify, ToastHost };
 };
