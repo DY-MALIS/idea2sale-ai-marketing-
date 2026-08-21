@@ -808,7 +808,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     <div className="max-w-7xl mx-auto space-y-8">
       <ToastHost />
       <header className="flex flex-col gap-2">
-        <h2 className="text-4xl font-display font-bold text-brand-700 tracking-tight flex items-center gap-3">
+        <h2 className="text-4xl font-display font-bold text-brand-700 dark:text-brand-300 tracking-tight flex items-center gap-3">
           {text.title}
           <Sparkles className="text-brand-500" size={34} />
         </h2>
@@ -820,7 +820,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           <button
             type="button"
             onClick={() => setHistoryOpen((open) => !open)}
-            className="flex items-center gap-2 text-lg font-bold text-brand-700"
+            className="flex items-center gap-2 text-lg font-bold text-brand-700 dark:text-brand-300"
           >
             <History size={20} />
             <span>{text.historyTitle}</span>
@@ -894,7 +894,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
         <section className="xl:col-span-4 glass rounded-[2rem] p-7 space-y-5 self-start">
           <div className="space-y-2">
-            <label className="text-[10px] font-bold text-brand-700 uppercase tracking-widest">{text.prompt}</label>
+            <label className="text-[10px] font-bold text-brand-700 dark:text-brand-300 uppercase tracking-widest">{text.prompt}</label>
             <textarea
               value={input}
               onChange={(event) => setInput(event.target.value)}
@@ -990,7 +990,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                 <Zap size={18} />
               </span>
               <div>
-                <p className="text-sm font-bold text-brand-700">{text.autoCreate}</p>
+                <p className="text-sm font-bold text-brand-700 dark:text-brand-300">{text.autoCreate}</p>
                 <p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">{text.autoCreateHelp}</p>
                 <div className="mt-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-brand-400">
                   <ImageIcon size={13} />
@@ -1031,7 +1031,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
 
         <section className="xl:col-span-8 glass rounded-[2rem] p-7 min-h-[650px] flex flex-col">
           <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-            <h3 className="text-xl font-bold text-brand-700 flex items-center gap-2">
+            <h3 className="text-xl font-bold text-brand-700 dark:text-brand-300 flex items-center gap-2">
               <span className="w-2 h-6 bg-brand-500 rounded-full" />
               {text.result}
             </h3>
@@ -1065,7 +1065,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                 <div className="w-20 h-20 bg-brand-50 rounded-3xl flex items-center justify-center border border-brand-100 shadow-inner mb-5">
                   <Bot size={38} className="text-brand-400" />
                 </div>
-                <p className="text-lg font-bold text-brand-700">{text.emptyTitle}</p>
+                <p className="text-lg font-bold text-brand-700 dark:text-brand-300">{text.emptyTitle}</p>
                 <p className="mt-2 max-w-md text-slate-500 dark:text-slate-400">{text.empty}</p>
               </div>
             )}

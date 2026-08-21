@@ -65,7 +65,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onLogout, on
   ];
 
   return (
-    <div className="w-72 bg-brand-700 text-brand-100 h-screen flex flex-col fixed left-0 top-0 z-50 shadow-2xl overflow-y-auto custom-scrollbar">
+    <div className="w-72 bg-slate-950/95 text-slate-300 h-screen flex flex-col fixed left-0 top-0 z-50 border-r border-slate-800 shadow-2xl shadow-black/30 overflow-y-auto custom-scrollbar backdrop-blur-xl">
       <div className="p-8">
         <h1 className="text-2xl font-display font-bold text-white flex items-center gap-3">
           <div className="h-12 w-12 shrink-0 overflow-hidden rounded-2xl bg-white shadow-lg shadow-brand-500/20 ring-1 ring-white/40">
@@ -83,7 +83,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onLogout, on
         {sections.map((section) => (
           <div key={section.title} className="space-y-2">
             <div className="px-4 mb-2">
-              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-300/40">{section.title}</p>
+              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">{section.title}</p>
             </div>
             {section.items.map((item) => (
               <motion.button
@@ -93,8 +93,8 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onLogout, on
                 className={cn(
                   "w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all duration-300 group relative overflow-hidden",
                   activeTab === item.id 
-                    ? "bg-white/10 text-white shadow-inner" 
-                    : "hover:bg-white/5 hover:text-slate-100"
+                    ? "bg-brand-500/15 text-brand-100 ring-1 ring-inset ring-brand-400/20 shadow-inner" 
+                    : "text-slate-300 hover:bg-slate-800/70 hover:text-white"
                 )}
               >
                 {activeTab === item.id && (
@@ -105,7 +105,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onLogout, on
                 )}
                 <div className={cn(
                   "transition-colors duration-300",
-                  activeTab === item.id ? "text-brand-300" : "text-brand-400/60 group-hover:text-brand-100"
+                  activeTab === item.id ? "text-brand-300" : "text-slate-500 group-hover:text-brand-300"
                 )}>
                   {item.id === 'tiktok' ? (
                     <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current" xmlns="http://www.w3.org/2000/svg">
@@ -123,10 +123,10 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onLogout, on
       </nav>
 
       <div className="p-6 space-y-2">
-        <div className="bg-gradient-to-br from-brand-600 to-brand-800 p-4 rounded-2xl border border-white/10 mb-6">
-          <p className="text-xs font-bold text-brand-200 uppercase tracking-wider mb-1">Pro Plan</p>
-          <p className="text-[10px] text-brand-100/70 mb-3">{t('planProSubtitle')}</p>
-          <button className="w-full py-2 bg-crab-shell hover:bg-red-700 text-white text-[10px] font-bold rounded-lg transition-all">
+        <div className="bg-gradient-to-br from-slate-900 to-slate-800 p-4 rounded-2xl border border-brand-400/20 mb-6 shadow-lg shadow-black/20">
+          <p className="text-xs font-bold text-brand-300 uppercase tracking-wider mb-1">Pro Plan</p>
+          <p className="text-[10px] text-slate-400 mb-3">{t('planProSubtitle')}</p>
+          <button className="w-full py-2 bg-brand-600 hover:bg-brand-500 text-white text-[10px] font-bold rounded-lg transition-all">
             {t('upgradeNow')}
           </button>
         </div>
@@ -136,7 +136,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onLogout, on
           href="https://t.me/aime_angkorgate_auto_bot"
           target="_blank"
           rel="noopener noreferrer"
-          className="w-full flex items-center gap-3 px-4 py-3 text-brand-300/70 hover:bg-white/5 hover:text-white rounded-xl transition-all"
+          className="w-full flex items-center gap-3 px-4 py-3 text-slate-400 hover:bg-slate-800/70 hover:text-brand-300 rounded-xl transition-all"
         >
           <Bot size={18} />
           <span className="text-sm font-medium">{t('openTelegramBot')}</span>
@@ -146,7 +146,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onLogout, on
           href="https://t.me/aime_angkorgate"
           target="_blank"
           rel="noopener noreferrer"
-          className="w-full flex items-center gap-3 px-4 py-3 text-brand-300/70 hover:bg-white/5 hover:text-white rounded-xl transition-all"
+          className="w-full flex items-center gap-3 px-4 py-3 text-slate-400 hover:bg-slate-800/70 hover:text-brand-300 rounded-xl transition-all"
         >
           <Send size={18} />
           <span className="text-sm font-medium">{t('openTelegramChannel')}</span>
@@ -154,7 +154,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onLogout, on
         <motion.button
           whileTap={{ scale: 0.98 }}
           onClick={onOpenBusinessProfile}
-          className="w-full flex items-center gap-3 px-4 py-3 text-brand-300/70 hover:bg-white/5 hover:text-white rounded-xl transition-all"
+          className="w-full flex items-center gap-3 px-4 py-3 text-slate-400 hover:bg-slate-800/70 hover:text-brand-300 rounded-xl transition-all"
         >
           <Settings size={18} />
           <span className="text-sm font-medium">{t('settings')}</span>
