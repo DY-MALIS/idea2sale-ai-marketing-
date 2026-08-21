@@ -301,6 +301,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     historyDelete: language === 'km' ? 'លុប story នេះ' : 'Delete this story',
     restoreHistory: language === 'km' ? 'Restore old history' : 'Restore old history',
     restoredHistory: language === 'km' ? 'រកឃើញ history ចាស់ ហើយបើកជូនរួច។' : 'Old history was found and opened.',
+    alreadyRestored: language === 'km' ? 'Story នេះធ្លាប់ restore រួចហើយ បើកជូនវិញ។' : 'This was already restored -- opened it again.',
     noOldHistory: language === 'km' ? 'រកមិនឃើញ history ចាស់នៅក្នុង storage ទេ។' : 'No old history was found in storage.',
     user: language === 'km' ? 'អ្នក' : 'You',
     agent: language === 'km' ? 'AI Agent' : 'AI Agent',
@@ -370,6 +371,15 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     }
   };
 
+  // Compares only role+content (ignoring id/title/updatedAt) so a restore is
+  // recognized as "the same one already restored" even though buildSession
+  // stamps a fresh id/timestamp on it every time this runs.
+  const sameMessageContent = (a: AgentMessage[], b: AgentMessage[]) => (
+    a.length === b.length && a.every((message, index) => (
+      message.role === b[index].role && message.content === b[index].content
+    ))
+  );
+
   const restoreOldHistory = async () => {
     try {
       let legacyMessages: AgentMessage[] = [];
@@ -385,6 +395,17 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       const restoredSession = buildSession(legacyMessages, `restored-${Date.now()}`);
       if (!restoredSession) {
         notify(text.noOldHistory, 'error');
+        return;
+      }
+
+      // This reads the same live "current conversation" doc every time it's
+      // called (there's no separate "legacy-only" store), so clicking Restore
+      // more than once created a fresh duplicate story with identical content
+      // each time. Re-open the existing one instead of adding another copy.
+      const alreadyRestored = conversationHistory.find((session) => sameMessageContent(session.messages, restoredSession.messages));
+      if (alreadyRestored) {
+        openConversationSession(alreadyRestored);
+        notify(text.alreadyRestored, 'success');
         return;
       }
 
