@@ -174,6 +174,27 @@ const KHMER_ATTIRE_GUIDANCE = `CULTURAL AUTHENTICITY IS REQUIRED:
 - Apply the same Khmer specificity to posture and gestures, architecture, temples, homes, shops, furniture, crafts, food presentation, landscape, plants, vehicles, props, and decor. The complete image must read immediately and consistently as Cambodia—not as a generic Southeast-Asian tourism scene.
 - Preserve the user's actual subject and requested modern/ancient style, but express every human and cultural detail through a coherent Khmer/Cambodian visual identity.`;
 
+const containsKhmerScript = (value) => /[\u1780-\u17FF]/.test(String(value || ''));
+
+const normalizeMediaPrompt = async (prompt, mediaType) => {
+  if (!containsKhmerScript(prompt)) return prompt;
+
+  try {
+    const normalized = await generateOpenRouterText({
+      system: `You are a Khmer-to-English visual prompt interpreter for an AI ${mediaType} generator. Understand natural Khmer accurately, including informal wording and Khmer mixed with English. Return only one detailed English production prompt—no heading, explanation, markdown, alternatives, or commentary. Preserve every explicitly requested person, count, identity, action, object, product, location, camera direction, era, mood, color, composition, and constraint. Do not add a different culture or replace Khmer/Cambodian identity with a generic Asian identity. Do not turn requested wording into visible signs or captions; treat brand names and slogans as creative context unless the user explicitly asks for a physical text element.`,
+      prompt: `Interpret this Khmer or Khmer-mixed request as a precise ${mediaType} production prompt:\n\n${prompt}`,
+      temperature: 0.1,
+      maxTokens: 2500,
+    });
+    return normalized.trim() || prompt;
+  } catch (error) {
+    // A translation/provider hiccup should not block generation entirely. The
+    // original prompt still goes through the Khmer cultural constraints below.
+    console.error(`Khmer ${mediaType} prompt normalization failed, using the original prompt:`, error?.message || error);
+    return prompt;
+  }
+};
+
 const photorealImagePrompt = (prompt) => `Scene: ${prompt}
 
 ${NO_FOREIGN_TEXT_CONSTRAINT}
@@ -686,7 +707,8 @@ Response rules:
       const prompt = String(req.body?.prompt || '').trim();
       const aspectRatio = String(req.body?.aspectRatio || '1:1');
       if (!prompt) return res.status(400).json({ error: 'Image prompt is required.' });
-      const image = await generateOpenRouterImage({ prompt: photorealImagePrompt(prompt), aspectRatio });
+      const normalizedPrompt = await normalizeMediaPrompt(prompt, 'image');
+      const image = await generateOpenRouterImage({ prompt: photorealImagePrompt(normalizedPrompt), aspectRatio });
       return res.status(200).json(image);
     }
 
@@ -751,6 +773,7 @@ Response rules:
     if (action === 'videoGenerate') {
       const prompt = String(req.body?.prompt || '').trim();
       if (!prompt) return res.status(400).json({ error: 'Video prompt is required.' });
+      const normalizedPrompt = await normalizeMediaPrompt(prompt, 'video');
       const images = Array.isArray(req.body?.images)
         ? req.body.images
             .filter((image) => typeof image?.base64 === 'string' && typeof image?.mimeType === 'string')
@@ -763,7 +786,7 @@ Response rules:
             Math.abs(option - requestedDuration) < Math.abs(closest - requestedDuration) ? option : closest
           ), 8);
       const video = await startOpenRouterVideo({
-        prompt: photorealVideoPrompt(prompt),
+        prompt: photorealVideoPrompt(normalizedPrompt),
         images,
         duration,
       });
