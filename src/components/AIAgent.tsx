@@ -1089,7 +1089,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                       className={`max-w-[88%] rounded-2xl px-5 py-4 ${
                         isUser
                           ? 'bg-brand-600 text-white rounded-br-md'
-                          : 'border border-brand-100 bg-brand-50/70 text-slate-700 dark:bg-white/90 dark:border-brand-200 dark:text-slate-800 rounded-bl-md'
+                          : 'border border-brand-100 bg-brand-50/70 text-slate-700 dark:bg-slate-800/95 dark:border-slate-600 dark:text-slate-100 rounded-bl-md shadow-sm dark:shadow-black/20'
                       }`}
                     >
                       <p className={`mb-2 text-[10px] font-bold uppercase tracking-widest ${isUser ? 'text-white/70' : 'text-brand-500'}`}>
@@ -1132,7 +1132,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                 <div className="mt-1 h-9 w-9 shrink-0 rounded-xl bg-brand-600 text-white flex items-center justify-center">
                   <Bot size={18} />
                 </div>
-                <div className="rounded-2xl rounded-bl-md border border-brand-100 bg-brand-50/70 px-5 py-4 text-brand-600 flex items-center gap-3">
+                <div className="rounded-2xl rounded-bl-md border border-brand-100 bg-brand-50/70 px-5 py-4 text-brand-600 dark:bg-slate-800/95 dark:border-slate-600 dark:text-brand-300 flex items-center gap-3">
                   <Loader2 className="animate-spin" size={18} />
                   <span className="font-medium">{text.thinking}</span>
                 </div>
