@@ -1,4 +1,10 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/ai.js": {
+      "maxDuration": 180
+    }
+  },
   "crons": [
     {
       "path": "/api/telegram/run-scheduled",

@@ -19,13 +19,10 @@ import { BusinessProfileData, CreativeAutomationRequest, ScheduleHandoffRequest 
 const LOGO_MARGIN_RATIO = 0.04;
 const LOGO_WIDTH_RATIO = 0.16;
 
-// The api/ai.js imageGenerate function has its own 60s Vercel maxDuration, but
-// this fetch had no timeout of its own -- if the connection itself stalls
-// (rather than the server cleanly returning an error/504), the fetch just hangs
-// forever with no error and no image, leaving `loading` stuck true and the UI
-// silently sitting on the empty state indefinitely. 70s gives the server's own
-// timeout a chance to surface its real error first in the common case.
-const IMAGE_GENERATE_TIMEOUT_MS = 70000;
+// Vercel gives api/ai.js up to 180s for slower image providers. Keep the browser
+// deadline slightly longer so the function can return its real result/error,
+// while still preventing a stalled connection from leaving the UI loading forever.
+const IMAGE_GENERATE_TIMEOUT_MS = 190000;
 const fetchImageGenerate = (body: unknown) => {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), IMAGE_GENERATE_TIMEOUT_MS);
