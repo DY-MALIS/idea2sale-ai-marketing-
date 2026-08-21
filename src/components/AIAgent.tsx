@@ -299,7 +299,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     currentStory: language === 'km' ? 'កំពុងបើក' : 'Current',
     openStory: language === 'km' ? 'បើកមើល' : 'Open',
     historyDelete: language === 'km' ? 'លុប story នេះ' : 'Delete this story',
-    restoreHistory: language === 'km' ? 'Restore old history' : 'Restore old history',
+    restoreHistory: language === 'km' ? 'ស្ដារ History ចាស់' : 'Restore old history',
     restoredHistory: language === 'km' ? 'រកឃើញ history ចាស់ ហើយបើកជូនរួច។' : 'Old history was found and opened.',
     alreadyRestored: language === 'km' ? 'Story នេះធ្លាប់ restore រួចហើយ បើកជូនវិញ។' : 'This was already restored -- opened it again.',
     noOldHistory: language === 'km' ? 'រកមិនឃើញ history ចាស់នៅក្នុង storage ទេ។' : 'No old history was found in storage.',
