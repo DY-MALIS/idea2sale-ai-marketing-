@@ -168,10 +168,11 @@ const NO_FOREIGN_TEXT_CONSTRAINT = 'HARD CONSTRAINT, highest priority: this imag
 // foreign hat or costume can "seed" that object in diffusion/image models even
 // when the surrounding instruction says not to draw it.
 const KHMER_ATTIRE_GUIDANCE = `CULTURAL AUTHENTICITY IS REQUIRED:
-- Every person must look recognizably Khmer/Cambodian, with natural Cambodian facial features, skin tone, hair, and build. Do not use a generic East-Asian or ambiguous stock-model appearance.
-- Match clothing to the setting. For a modern cafe, shop, office, or city scene, use tasteful modern clothing commonly worn by young Cambodians. Use sampot, av pak, silk, or a fine red-and-white/blue-and-white krama only when the Scene explicitly asks for traditional Khmer clothing.
-- Unless the Scene explicitly requests headwear, every person must be bareheaded. Do not invent hats, ceremonial headpieces, costumes, or culture-mixing accessories.
-- The location, furniture, materials, decor, food presentation, and overall styling must feel authentically contemporary Cambodian, not a generic Southeast-Asian tourism scene and not another country's visual identity.`;
+- This application creates Cambodian/Khmer-first imagery. In every era and setting, every person must look recognizably Khmer/Cambodian, with natural Cambodian facial features, skin tone, hair, body proportions, and build. Never substitute a generic, ambiguous, or neighboring-country stock-model appearance.
+- Match authentic Khmer clothing to the requested era and context. Modern scenes require clothing and styling genuinely worn by Cambodians today. Traditional or ceremonial scenes require accurate Khmer garments such as sampot, av pak, sbai, silk weaving, fine checked krama, jewelry, footwear, and headwear appropriate to that exact ceremony and social role. Ancient or Angkorian scenes require historically grounded Khmer clothing, crowns/headpieces, jewelry, hairstyles, tools, and materials from the depicted period.
+- Any hat, headwear, hairstyle, makeup, accessory, jewelry, footwear, uniform, or textile pattern that appears must be authentically Cambodian and appropriate to the era, setting, occupation, gender presentation, and occasion. Do not invent culture-mixing costumes or borrow another country's iconic attire.
+- Apply the same Khmer specificity to posture and gestures, architecture, temples, homes, shops, furniture, crafts, food presentation, landscape, plants, vehicles, props, and decor. The complete image must read immediately and consistently as Cambodia—not as a generic Southeast-Asian tourism scene.
+- Preserve the user's actual subject and requested modern/ancient style, but express every human and cultural detail through a coherent Khmer/Cambodian visual identity.`;
 
 const photorealImagePrompt = (prompt) => `Scene: ${prompt}
 
