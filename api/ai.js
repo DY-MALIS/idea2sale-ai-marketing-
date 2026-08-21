@@ -195,7 +195,26 @@ const normalizeMediaPrompt = async (prompt, mediaType) => {
   }
 };
 
-const photorealImagePrompt = (prompt) => `Scene: ${prompt}
+const khmerReferenceGuidance = (prompt) => {
+  const text = String(prompt || '').toLowerCase();
+  const guidance = [];
+
+  if (/hat|headwear|palm[- ]leaf|straw hat|មួក/.test(text)) {
+    guidance.push('KHMER HAT REFERENCE (apply only because headwear is requested): use an authentic Cambodian pleated palm-leaf hat with a broad circular brim, a short flat-topped cylindrical crown, fine radial folded panels, and a neat scalloped/woven brim edge. A small Cambodian flag patch or subtle red-blue accent may appear when appropriate. The silhouette must not have a tall or sharp pointed cone.');
+  }
+
+  if (/krama|scarf|ក្រមា/.test(text)) {
+    guidance.push('KRAMA REFERENCE (apply only because a krama/scarf is requested): use a real Cambodian handwoven cotton krama with a fine small-scale checked or narrow striped weave, commonly red-and-white, blue-and-white, pink-and-white, or black-and-white, with natural woven texture and short fringed ends. It may be folded around the neck, draped over one shoulder, wrapped at the waist, or used naturally for the activity described; avoid oversized tartan/plaid patterns.');
+  }
+
+  if (/traditional|ceremonial|heritage|sampot|av pak|sbai|silk|khmer attire|khmer clothing|costume|សំពត់|អាវប៉ាក់|ស្បៃ|ប្រពៃណី|សម្លៀកបំពាក់/.test(text)) {
+    guidance.push('KHMER CLOTHING REFERENCE (apply only because traditional/heritage attire is requested): use historically and socially appropriate Cambodian garments and handwoven textiles. Coordinate sampot, av pak, sbai, silk, krama, jewelry, hairstyle, footwear, and any headwear as one coherent Khmer outfit appropriate to the stated era, occupation, ceremony, and gender presentation—not a mixed pan-Asian costume.');
+  }
+
+  return guidance.length ? `\n\nRequested Khmer visual references:\n- ${guidance.join('\n- ')}` : '';
+};
+
+const photorealImagePrompt = (prompt) => `Scene: ${prompt}${khmerReferenceGuidance(prompt)}
 
 ${NO_FOREIGN_TEXT_CONSTRAINT}
 
@@ -211,7 +230,7 @@ Photorealistic commercial image requirements:
 - No readable text, lettering, or signage anywhere (see hard constraint above) — also avoid distorted/garbled text artifacts, extra logos, malformed objects, duplicated limbs, fake watermarks, blurry details, oversaturated colors, and fantasy styling.
 - Output should be high-detail, clean, professional, TikTok/e-commerce ready, and visually convincing.`;
 
-const photorealVideoPrompt = (prompt) => `Scene: ${prompt}
+const photorealVideoPrompt = (prompt) => `Scene: ${prompt}${khmerReferenceGuidance(prompt)}
 
 ${NO_FOREIGN_TEXT_CONSTRAINT}
 
