@@ -99,7 +99,7 @@ const Suggestions: React.FC<SuggestionsProps> = ({ activityVersion }) => {
 
   if (suggestions.length === 0) {
     return (
-      <div className="text-center py-12 px-6 border-2 border-dashed border-brand-100 rounded-2xl bg-brand-50/50">
+      <div className="text-center py-12 px-6 border-2 border-dashed border-brand-100 dark:border-slate-700 rounded-2xl bg-brand-50/50 dark:bg-slate-800/50">
         <AlertCircle size={32} className="mx-auto text-slate-300 dark:text-slate-500 mb-3" />
         <p className="text-sm text-slate-500 dark:text-slate-400">{t('noAudienceData')}</p>
       </div>
@@ -126,12 +126,12 @@ const Suggestions: React.FC<SuggestionsProps> = ({ activityVersion }) => {
               className="group flex items-center justify-between p-4 bg-white dark:bg-slate-800 border border-brand-100 rounded-2xl shadow-sm hover:border-brand-500/50 transition-all cursor-default"
             >
               <div className="flex items-center gap-4">
-                <div className="flex flex-col items-center justify-center w-12 h-12 bg-brand-50 text-brand-600 rounded-xl border border-brand-200">
+                <div className="flex flex-col items-center justify-center w-12 h-12 bg-brand-50 dark:bg-slate-800 text-brand-600 dark:text-brand-400 rounded-xl border border-brand-200 dark:border-slate-700">
                   <span className="text-[10px] uppercase font-bold leading-none">{s.dayOfWeek?.slice(0, 3) || '—'}</span>
                   <span className="text-lg font-bold leading-none mt-1">{s.hour}:00</span>
                 </div>
                 <div>
-                  <p className="text-sm font-bold text-brand-700 group-hover:text-brand-600 transition-colors">
+                  <p className="text-sm font-bold text-brand-700 dark:text-brand-400 group-hover:text-brand-600 transition-colors">
                     {s.reason?.split('.')[0] || ''}
                   </p>
                   <div className="flex items-center gap-2 mt-1">
@@ -152,7 +152,7 @@ const Suggestions: React.FC<SuggestionsProps> = ({ activityVersion }) => {
                 whileTap={{ scale: 0.9 }}
                 onClick={() => handleApplySuggestion(s)}
                 disabled={isProcessing}
-                className="p-2 bg-brand-50 text-brand-600 border border-brand-100 rounded-full hover:bg-brand-600 hover:text-white transition-colors disabled:opacity-50"
+                className="p-2 bg-brand-50 dark:bg-slate-800 text-brand-600 dark:text-brand-400 border border-brand-100 dark:border-slate-700 rounded-full hover:bg-brand-600 hover:text-white transition-colors disabled:opacity-50"
               >
                 {isProcessing ? (
                    <div className="w-5 h-5 border-2 border-brand-200 border-t-brand-600 rounded-full animate-spin" />

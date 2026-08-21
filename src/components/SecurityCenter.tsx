@@ -90,7 +90,7 @@ const SecurityCenter: React.FC = () => {
             hosting multiple unrelated companies' confidential data under one deployment.
           </p>
         </div>
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
+        <div className="rounded-lg border border-amber-200 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-900/30 px-4 py-3 text-sm font-semibold text-amber-900 dark:text-amber-300">
           {liveCount}/{controls.length} controls fully live — review "Partial" and "Not implemented" rows before handling sensitive data
         </div>
       </header>

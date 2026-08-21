@@ -144,7 +144,7 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
             alt="aime.angkorgate icon"
             className="mb-4 h-16 w-16 rounded-2xl shadow-lg"
           />
-          <h1 className="text-2xl font-black text-brand-700">aime.angkorgate</h1>
+          <h1 className="text-2xl font-black text-brand-700 dark:text-brand-400">aime.angkorgate</h1>
           <p className="text-slate-700 dark:text-slate-300 mt-2 text-lg sm:text-xl font-semibold leading-snug">
             {isLogin ? t('signInToContinue') : t('joinAndGrow')}
           </p>
@@ -195,7 +195,7 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
                 <button
                   type="button"
                   onClick={onDemoMode}
-                  className="text-brand-700 hover:underline inline-flex items-center gap-1"
+                  className="text-brand-700 dark:text-brand-400 hover:underline inline-flex items-center gap-1"
                 >
                   <Sparkles size={12} /> {t('exploreDemo')}
                 </button>
@@ -234,8 +234,8 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
 
         <p className="text-center text-slate-600 dark:text-slate-300 text-[10px] sm:text-xs mt-8 sm:mt-10 leading-relaxed font-semibold uppercase tracking-[0.14em] sm:tracking-widest">
           {t('termsAndPrivacyPrefix')} <br />
-          <a href="/terms-of-service/" className="text-brand-700 font-bold hover:underline">{t('termsOfService')}</a> {t('and')}{' '}
-          <a href="/privacy-policy/" className="text-brand-700 font-bold hover:underline">{t('privacyPolicy')}</a>.
+          <a href="/terms-of-service/" className="text-brand-700 dark:text-brand-400 font-bold hover:underline">{t('termsOfService')}</a> {t('and')}{' '}
+          <a href="/privacy-policy/" className="text-brand-700 dark:text-brand-400 font-bold hover:underline">{t('privacyPolicy')}</a>.
         </p>
       </motion.div>
     </div>

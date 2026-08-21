@@ -177,7 +177,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
       >
         <div className="flex items-start justify-between mb-6">
           <div>
-            <h2 className="text-2xl font-display font-bold text-brand-700 tracking-tight">
+            <h2 className="text-2xl font-display font-bold text-brand-700 dark:text-brand-400 tracking-tight">
               {t('businessProfileTitle')}
             </h2>
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{t('businessProfileDesc')}</p>

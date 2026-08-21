@@ -88,16 +88,16 @@ const AITrainer: React.FC<AITrainerProps> = ({ onTrainingComplete }) => {
 
   return (
     <div className="glass p-8 rounded-[2.5rem] shadow-sm relative overflow-hidden">
-      <div className="absolute top-0 right-0 p-4 opacity-[0.04] pointer-events-none text-brand-700">
+      <div className="absolute top-0 right-0 p-4 opacity-[0.04] pointer-events-none text-brand-700 dark:text-brand-400">
         <Brain size={120} />
       </div>
 
       <div className="flex items-center gap-3 mb-6">
-        <div className="p-3 bg-brand-50 rounded-2xl text-brand-500">
+        <div className="p-3 bg-brand-50 dark:bg-slate-800 rounded-2xl text-brand-500 dark:text-brand-400">
           <Brain size={24} />
         </div>
         <div>
-          <h2 className="text-xl font-bold text-brand-700 tracking-tight">{t('trainYourAi')}</h2>
+          <h2 className="text-xl font-bold text-brand-700 dark:text-brand-400 tracking-tight">{t('trainYourAi')}</h2>
           <p className="text-sm text-slate-500 dark:text-slate-400">{t('describeAudienceDesc')}</p>
         </div>
       </div>
@@ -108,7 +108,7 @@ const AITrainer: React.FC<AITrainerProps> = ({ onTrainingComplete }) => {
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder={t('trainerPlaceholder')}
-            className="w-full h-32 bg-brand-50 border border-brand-100 rounded-2xl p-4 text-brand-700 text-sm focus:ring-2 focus:ring-brand-500 focus:outline-none transition-all resize-none placeholder:text-slate-400 dark:placeholder:text-slate-500"
+            className="w-full h-32 bg-brand-50 dark:bg-slate-800 border border-brand-100 dark:border-slate-600 rounded-2xl p-4 text-brand-700 dark:text-slate-100 text-sm focus:ring-2 focus:ring-brand-500 focus:outline-none transition-all resize-none placeholder:text-slate-400 dark:placeholder:text-slate-500"
           />
           <div className="absolute bottom-3 right-3 flex items-center gap-2">
             <motion.button
@@ -152,11 +152,11 @@ const AITrainer: React.FC<AITrainerProps> = ({ onTrainingComplete }) => {
         )}
 
         <div className="grid grid-cols-2 gap-4 pt-2">
-          <div className="p-3 bg-brand-50 rounded-2xl border border-brand-100">
+          <div className="p-3 bg-brand-50 dark:bg-slate-800 rounded-2xl border border-brand-100 dark:border-slate-700">
             <p className="text-[10px] uppercase tracking-wider text-brand-400 mb-1 font-bold">{t('howItWorks')}</p>
             <p className="text-xs text-slate-500 dark:text-slate-400">{t('geminiAnalysisDesc')}</p>
           </div>
-          <div className="p-3 bg-brand-50 rounded-2xl border border-brand-100">
+          <div className="p-3 bg-brand-50 dark:bg-slate-800 rounded-2xl border border-brand-100 dark:border-slate-700">
             <p className="text-[10px] uppercase tracking-wider text-brand-400 mb-1 font-bold">{t('tipTitle')}</p>
             <p className="text-xs text-slate-500 dark:text-slate-400">{t('tipDescription')}</p>
           </div>

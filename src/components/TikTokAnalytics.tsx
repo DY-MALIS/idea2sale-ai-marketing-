@@ -192,12 +192,12 @@ const TikTokAnalytics: React.FC = () => {
     <div className="max-w-6xl mx-auto space-y-8">
       <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h2 className="text-4xl font-display font-bold text-brand-700 tracking-tight flex items-center gap-3">
+          <h2 className="text-4xl font-display font-bold text-brand-700 dark:text-brand-400 tracking-tight flex items-center gap-3">
             {t('tiktokActivity')}
             <BarChart3 className="text-brand-500" size={32} />
           </h2>
           <div className="flex items-center gap-2 mt-2">
-            <div className="flex items-center gap-2 px-3 py-1 bg-brand-50 rounded-full border border-brand-100 relative group">
+            <div className="flex items-center gap-2 px-3 py-1 bg-brand-50 dark:bg-slate-800 rounded-full border border-brand-100 dark:border-slate-700 relative group">
               <div className="w-5 h-5 bg-brand-500 rounded-full flex items-center justify-center text-[10px] text-white font-bold">@</div>
               <span className="text-sm font-bold text-brand-600">{handle}</span>
               
@@ -230,7 +230,7 @@ const TikTokAnalytics: React.FC = () => {
                           value={tempHandle}
                           onChange={(e) => setTempHandle(e.target.value)}
                           onKeyDown={(e) => e.key === 'Enter' && saveHandle(tempHandle)}
-                          className="w-full pl-7 pr-3 py-2 bg-brand-50 border border-brand-100 rounded-xl text-sm focus:outline-none focus:ring-2 ring-brand-500/20"
+                          className="w-full pl-7 pr-3 py-2 bg-brand-50 dark:bg-slate-800 border border-brand-100 dark:border-slate-600 dark:text-slate-100 rounded-xl text-sm focus:outline-none focus:ring-2 ring-brand-500/20"
                         />
                       </div>
                     </div>
@@ -272,7 +272,7 @@ const TikTokAnalytics: React.FC = () => {
           <button 
             onClick={fetchPublicStats}
             disabled={syncing}
-            className="p-3 bg-brand-50 text-brand-600 rounded-2xl hover:bg-brand-100 transition-all disabled:opacity-50"
+            className="p-3 bg-brand-50 dark:bg-slate-800 text-brand-600 dark:text-brand-400 rounded-2xl hover:bg-brand-100 dark:hover:bg-slate-700 transition-all disabled:opacity-50"
           >
             <RefreshCw size={20} className={cn(syncing && "animate-spin")} />
           </button>
@@ -292,29 +292,29 @@ const TikTokAnalytics: React.FC = () => {
             label: t('totalFollowers'), 
             value: syncing ? '...' : (publicStats?.followers ?? '0'), 
             icon: Eye, 
-            color: 'text-blue-500', 
-            bg: 'bg-blue-50' 
+            color: 'text-blue-500',
+            bg: 'bg-blue-50 dark:bg-blue-900/30'
           },
-          { 
-            label: t('totalLikes'), 
-            value: syncing ? '...' : (publicStats?.likes ?? '0'), 
-            icon: Heart, 
-            color: 'text-rose-500', 
-            bg: 'bg-rose-50' 
+          {
+            label: t('totalLikes'),
+            value: syncing ? '...' : (publicStats?.likes ?? '0'),
+            icon: Heart,
+            color: 'text-rose-500',
+            bg: 'bg-rose-50 dark:bg-rose-900/30'
           },
-          { 
-            label: t('following'), 
-            value: syncing ? '...' : (publicStats?.following ?? '0'), 
-            icon: BarChart3, 
-            color: 'text-emerald-500', 
-            bg: 'bg-emerald-50' 
+          {
+            label: t('following'),
+            value: syncing ? '...' : (publicStats?.following ?? '0'),
+            icon: BarChart3,
+            color: 'text-emerald-500',
+            bg: 'bg-emerald-50 dark:bg-emerald-900/30'
           },
-          { 
-            label: t('videoPosts'), 
-            value: syncing ? '...' : (publicStats?.videoCount ?? '0'), 
-            icon: Share2, 
-            color: 'text-purple-500', 
-            bg: 'bg-purple-50' 
+          {
+            label: t('videoPosts'),
+            value: syncing ? '...' : (publicStats?.videoCount ?? '0'),
+            icon: Share2,
+            color: 'text-purple-500',
+            bg: 'bg-purple-50 dark:bg-purple-900/30'
           },
         ].map((stat, i) => (stat && (
           <div key={i} className="glass p-8 rounded-[2rem] border border-white/50 shadow-sm relative overflow-hidden group">
@@ -325,7 +325,7 @@ const TikTokAnalytics: React.FC = () => {
               <stat.icon size={24} />
             </div>
             <p className="text-slate-500 dark:text-slate-400 font-bold text-xs uppercase tracking-widest mb-1">{stat.label}</p>
-            <p className="text-3xl font-display font-bold text-brand-700">
+            <p className="text-3xl font-display font-bold text-brand-700 dark:text-brand-400">
               {stat.value}
             </p>
           </div>
@@ -333,7 +333,7 @@ const TikTokAnalytics: React.FC = () => {
       </div>
 
       {(statsError || publicStats?.canReadStats === false) && (
-        <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+        <div className="flex items-start gap-3 rounded-2xl border border-amber-200 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-900/30 p-4 text-sm text-amber-900 dark:text-amber-300">
           <AlertCircle size={18} className="mt-0.5 shrink-0" />
           <div>
             <p className="font-bold">
@@ -350,7 +350,7 @@ const TikTokAnalytics: React.FC = () => {
       )}
 
       <div className="glass p-8 rounded-[2.5rem] border border-white/50 shadow-sm">
-        <h3 className="text-xl font-bold text-brand-700 mb-6 flex items-center gap-2">
+        <h3 className="text-xl font-bold text-brand-700 dark:text-brand-400 mb-6 flex items-center gap-2">
           <Clock className="text-brand-500" size={24} />
           {t('recentTikTokSyncs')}
         </h3>
@@ -364,7 +364,7 @@ const TikTokAnalytics: React.FC = () => {
               {t('noPostsFound')}
             </div>
           ) : posts.map((post) => (
-            <div key={post.id} className="flex items-center justify-between p-6 bg-brand-50/50 rounded-2xl border border-brand-100">
+            <div key={post.id} className="flex items-center justify-between p-6 bg-brand-50/50 dark:bg-slate-800/50 rounded-2xl border border-brand-100 dark:border-slate-700">
               <div className="flex items-center gap-4">
                  <div className="w-12 h-12 bg-black rounded-xl flex items-center justify-center">
                     <svg viewBox="0 0 24 24" className="w-6 h-6 fill-white" xmlns="http://www.w3.org/2000/svg">
@@ -372,7 +372,7 @@ const TikTokAnalytics: React.FC = () => {
                     </svg>
                  </div>
                  <div>
-                    <h4 className="font-bold text-brand-700 line-clamp-1">{post.title || 'Untitled AI Generation'}</h4>
+                    <h4 className="font-bold text-brand-700 dark:text-brand-400 line-clamp-1">{post.title || 'Untitled AI Generation'}</h4>
                     <p className="text-xs text-slate-500 dark:text-slate-400">
                       {post.timestamp?.toDate ? post.timestamp.toDate().toLocaleString() : 'Processing timestamp...'}
                     </p>
@@ -380,17 +380,17 @@ const TikTokAnalytics: React.FC = () => {
               </div>
               <div className="flex items-center gap-2">
                 {post.status === 'PUBLISH_COMPLETE' ? (
-                  <span className="flex items-center gap-1 px-3 py-1 bg-emerald-50 text-emerald-600 rounded-full text-[10px] font-black uppercase tracking-widest">
+                  <span className="flex items-center gap-1 px-3 py-1 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-300 rounded-full text-[10px] font-black uppercase tracking-widest">
                     <CheckCircle2 size={12} />
                     {t('liveStatus')}
                   </span>
                 ) : post.status === 'FAILED' ? (
-                  <span className="flex items-center gap-1 px-3 py-1 bg-rose-50 text-rose-600 rounded-full text-[10px] font-black uppercase tracking-widest">
+                  <span className="flex items-center gap-1 px-3 py-1 bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-300 rounded-full text-[10px] font-black uppercase tracking-widest">
                     <AlertCircle size={12} />
                     {t('failedStatus')}
                   </span>
                 ) : (
-                  <span className="flex items-center gap-1 px-3 py-1 bg-brand-50 text-brand-600 rounded-full text-[10px] font-black uppercase tracking-widest">
+                  <span className="flex items-center gap-1 px-3 py-1 bg-brand-50 dark:bg-slate-800 text-brand-600 dark:text-brand-400 rounded-full text-[10px] font-black uppercase tracking-widest">
                     <RefreshCw size={12} className="animate-spin" />
                     {t('processingStatus')}
                   </span>
@@ -402,19 +402,19 @@ const TikTokAnalytics: React.FC = () => {
       </div>
 
       <div className="glass p-8 rounded-[2.5rem] border border-white/50 shadow-sm">
-        <h3 className="text-xl font-bold text-brand-700 mb-6 flex items-center gap-2">
+        <h3 className="text-xl font-bold text-brand-700 dark:text-brand-400 mb-6 flex items-center gap-2">
           <Send className="text-sky-500" size={24} />
           {t('telegramChannelStats')}
         </h3>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
           {[
-            { label: t('totalSent'), value: telegramStats.total, color: 'text-brand-600', bg: 'bg-brand-50' },
-            { label: t('published'), value: telegramStats.published, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-            { label: t('pending'), value: telegramStats.pending, color: 'text-amber-600', bg: 'bg-amber-50' },
-            { label: t('failed'), value: telegramStats.failed, color: 'text-rose-600', bg: 'bg-rose-50' },
+            { label: t('totalSent'), value: telegramStats.total, color: 'text-brand-600 dark:text-brand-400', bg: 'bg-brand-50 dark:bg-slate-800' },
+            { label: t('published'), value: telegramStats.published, color: 'text-emerald-600 dark:text-emerald-300', bg: 'bg-emerald-50 dark:bg-emerald-900/30' },
+            { label: t('pending'), value: telegramStats.pending, color: 'text-amber-600 dark:text-amber-300', bg: 'bg-amber-50 dark:bg-amber-900/30' },
+            { label: t('failed'), value: telegramStats.failed, color: 'text-rose-600 dark:text-rose-300', bg: 'bg-rose-50 dark:bg-rose-900/30' },
           ].map((stat, i) => (
-            <div key={i} className={cn('p-5 rounded-2xl border border-brand-100', stat.bg)}>
+            <div key={i} className={cn('p-5 rounded-2xl border border-brand-100 dark:border-slate-700', stat.bg)}>
               <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1">{stat.label}</p>
               <p className={cn('text-2xl font-bold', stat.color)}>{stat.value}</p>
             </div>
@@ -432,13 +432,13 @@ const TikTokAnalytics: React.FC = () => {
               .sort((a, b) => new Date(b.scheduledTime || 0).getTime() - new Date(a.scheduledTime || 0).getTime())
               .slice(0, 8)
               .map((post) => (
-                <div key={post.id} className="flex items-center justify-between p-5 bg-brand-50/50 rounded-2xl border border-brand-100">
+                <div key={post.id} className="flex items-center justify-between p-5 bg-brand-50/50 dark:bg-slate-800/50 rounded-2xl border border-brand-100 dark:border-slate-700">
                   <div className="flex items-center gap-4 min-w-0">
-                    <div className="w-10 h-10 bg-sky-50 text-sky-600 rounded-xl flex items-center justify-center border border-sky-100 shrink-0">
+                    <div className="w-10 h-10 bg-sky-50 dark:bg-sky-900/30 text-sky-600 dark:text-sky-300 rounded-xl flex items-center justify-center border border-sky-100 dark:border-sky-800/60 shrink-0">
                       <Send size={18} />
                     </div>
                     <div className="min-w-0">
-                      <p className="text-sm text-brand-700 font-medium line-clamp-1">{post.content || post.mediaName || '—'}</p>
+                      <p className="text-sm text-brand-700 dark:text-brand-400 font-medium line-clamp-1">{post.content || post.mediaName || '—'}</p>
                       <p className="text-xs text-slate-400">
                         {post.scheduledTime ? new Date(post.scheduledTime).toLocaleString() : ''}
                       </p>
@@ -446,7 +446,7 @@ const TikTokAnalytics: React.FC = () => {
                   </div>
                   <span className={cn(
                     'text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full shrink-0',
-                    post.status === 'PUBLISHED' ? 'bg-emerald-50 text-emerald-600' : post.status === 'FAILED' ? 'bg-rose-50 text-rose-600' : 'bg-amber-50 text-amber-600'
+                    post.status === 'PUBLISHED' ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-300' : post.status === 'FAILED' ? 'bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-300' : 'bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-300'
                   )}>
                     {post.status}
                   </span>

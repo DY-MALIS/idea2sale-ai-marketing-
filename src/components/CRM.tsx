@@ -20,10 +20,10 @@ interface TelegramLead {
 }
 
 const TAG_STYLES: Record<string, string> = {
-  interested: 'bg-emerald-50 text-emerald-600 border-emerald-200',
-  'price-question': 'bg-amber-50 text-amber-600 border-amber-200',
-  support: 'bg-sky-50 text-sky-600 border-sky-200',
-  general: 'bg-brand-50 text-brand-600 border-brand-200',
+  interested: 'bg-emerald-50 text-emerald-600 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800/60',
+  'price-question': 'bg-amber-50 text-amber-600 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800/60',
+  support: 'bg-sky-50 text-sky-600 border-sky-200 dark:bg-sky-900/30 dark:text-sky-300 dark:border-sky-800/60',
+  general: 'bg-brand-50 text-brand-600 border-brand-200 dark:bg-slate-800 dark:text-brand-400 dark:border-slate-700',
 };
 
 const PAGE_SIZE = 30;
@@ -137,7 +137,7 @@ const CRM: React.FC = () => {
   return (
     <div className="max-w-6xl mx-auto space-y-8 pb-20">
       <header>
-        <h2 className="text-4xl font-display font-bold text-brand-700 tracking-tight flex items-center gap-3">
+        <h2 className="text-4xl font-display font-bold text-brand-700 dark:text-brand-400 tracking-tight flex items-center gap-3">
           {t('crmTitle')}
           <Users className="text-brand-500" size={32} />
         </h2>
@@ -153,7 +153,7 @@ const CRM: React.FC = () => {
           )}
         >
           <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1">{t('allLeads')}</p>
-          <p className="text-2xl font-bold text-brand-700">{leads.length}{hasMore ? '+' : ''}</p>
+          <p className="text-2xl font-bold text-brand-700 dark:text-brand-400">{leads.length}{hasMore ? '+' : ''}</p>
         </button>
         {['interested', 'price-question', 'support', 'general'].map((tag) => (
           <button
@@ -165,7 +165,7 @@ const CRM: React.FC = () => {
             )}
           >
             <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1">{t(`leadTag_${tag.replace('-', '_')}` as any)}</p>
-            <p className="text-2xl font-bold text-brand-700">{tagCounts[tag] || 0}</p>
+            <p className="text-2xl font-bold text-brand-700 dark:text-brand-400">{tagCounts[tag] || 0}</p>
           </button>
         ))}
       </div>
@@ -176,7 +176,7 @@ const CRM: React.FC = () => {
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
           placeholder={t('searchLeadsPlaceholder')}
-          className="w-full pl-12 pr-5 py-4 bg-brand-50 border border-brand-100 rounded-2xl focus:ring-2 focus:ring-brand-500 focus:bg-white dark:focus:bg-slate-800 outline-none transition-all font-medium"
+          className="w-full pl-12 pr-5 py-4 bg-brand-50 dark:bg-slate-800 border border-brand-100 dark:border-slate-600 dark:text-slate-100 rounded-2xl focus:ring-2 focus:ring-brand-500 focus:bg-white dark:focus:bg-slate-800 outline-none transition-all font-medium"
         />
         <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-brand-400" size={20} />
       </div>
@@ -188,10 +188,10 @@ const CRM: React.FC = () => {
           </div>
         ) : !isAdmin ? (
           <div className="text-center py-20 px-10">
-            <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-100">
+            <div className="w-16 h-16 bg-amber-50 dark:bg-amber-900/30 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-100 dark:border-amber-800/60">
               <ShieldAlert size={24} className="text-amber-500" />
             </div>
-            <h3 className="text-brand-700 font-bold mb-1">{t('adminOnlyTitle')}</h3>
+            <h3 className="text-brand-700 dark:text-brand-400 font-bold mb-1">{t('adminOnlyTitle')}</h3>
             <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm mx-auto">{t('adminOnlyDesc')}</p>
           </div>
         ) : loading ? (
@@ -200,10 +200,10 @@ const CRM: React.FC = () => {
           </div>
         ) : filteredLeads.length === 0 ? (
           <div className="text-center py-20 px-10">
-            <div className="w-16 h-16 bg-brand-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-brand-100">
+            <div className="w-16 h-16 bg-brand-50 dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4 border border-brand-100 dark:border-slate-700">
               <MessageCircle size={24} className="text-brand-300" />
             </div>
-            <h3 className="text-brand-700 font-bold mb-1">{t('noLeadsYet')}</h3>
+            <h3 className="text-brand-700 dark:text-brand-400 font-bold mb-1">{t('noLeadsYet')}</h3>
             <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm mx-auto">{t('noLeadsYetDesc')}</p>
           </div>
         ) : (
@@ -216,14 +216,14 @@ const CRM: React.FC = () => {
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
-                  className="flex items-start gap-4 p-6 hover:bg-brand-50 transition-colors"
+                  className="flex items-start gap-4 p-6 hover:bg-brand-50 dark:hover:bg-slate-800/60 transition-colors"
                 >
-                  <div className="w-12 h-12 bg-sky-50 text-sky-600 rounded-xl flex items-center justify-center border border-sky-100 shrink-0">
+                  <div className="w-12 h-12 bg-sky-50 dark:bg-sky-900/30 text-sky-600 dark:text-sky-300 rounded-xl flex items-center justify-center border border-sky-100 dark:border-sky-800/60 shrink-0">
                     <Send size={20} />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
-                      <span className="font-bold text-brand-700">{lead.displayName}</span>
+                      <span className="font-bold text-brand-700 dark:text-brand-400">{lead.displayName}</span>
                       {lead.username && <span className="text-xs text-slate-400 dark:text-slate-400">@{lead.username}</span>}
                       <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider border flex items-center gap-1', TAG_STYLES[lead.tag] || TAG_STYLES.general)}>
                         <Tag size={10} />

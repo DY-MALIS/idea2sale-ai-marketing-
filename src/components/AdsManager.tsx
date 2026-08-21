@@ -274,7 +274,7 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
     <div className="max-w-6xl mx-auto space-y-10 pb-20">
       <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
         <div>
-          <h2 className="text-4xl font-display font-bold text-brand-700 tracking-tight flex items-center gap-3">
+          <h2 className="text-4xl font-display font-bold text-brand-700 dark:text-brand-400 tracking-tight flex items-center gap-3">
             {t('adsManagerLite')}
             <TrendingUp className="text-brand-500" size={32} />
           </h2>
@@ -286,7 +286,7 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
         <div className="lg:col-span-4 space-y-8">
           <div className="glass p-10 rounded-[2.5rem] shadow-sm space-y-8">
             <div>
-              <h3 className="text-xl font-bold text-brand-700 mb-2 flex items-center gap-2">
+              <h3 className="text-xl font-bold text-brand-700 dark:text-brand-400 mb-2 flex items-center gap-2">
                 <Target size={20} className="text-brand-500" />
                 {t('targetAnalysis')}
               </h3>
@@ -297,7 +297,7 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest text-[9px]">{t('scanLanguageLabel')}</label>
-                  <div className="flex bg-brand-50 p-1 rounded-xl border border-brand-100">
+                  <div className="flex bg-brand-50 dark:bg-slate-800 p-1 rounded-xl border border-brand-100 dark:border-slate-700">
                     {(['km', 'en'] as const).map((lang) => (
                       <button
                         key={lang}
@@ -311,7 +311,7 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
                         }}
                         className={cn(
                           "px-3 py-1 rounded-lg text-[10px] font-black transition-all disabled:opacity-50 disabled:cursor-not-allowed",
-                          scanLanguage === lang ? "bg-white dark:bg-slate-700 text-brand-700 shadow-sm" : "text-brand-400"
+                          scanLanguage === lang ? "bg-white dark:bg-slate-700 text-brand-700 dark:text-brand-400 shadow-sm" : "text-brand-400"
                         )}
                       >
                         {lang === 'km' ? 'ខ្មែរ' : 'English'}
@@ -319,7 +319,7 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
                     ))}
                   </div>
                 </div>
-                <label className="flex items-center justify-center gap-2 w-full py-3 px-4 border-2 border-dashed border-brand-200 rounded-2xl bg-brand-50 hover:bg-brand-100 cursor-pointer transition-all text-sm font-bold text-brand-500">
+                <label className="flex items-center justify-center gap-2 w-full py-3 px-4 border-2 border-dashed border-brand-200 dark:border-slate-600 rounded-2xl bg-brand-50 dark:bg-slate-800 hover:bg-brand-100 dark:hover:bg-slate-700 cursor-pointer transition-all text-sm font-bold text-brand-500">
                   {isAnalyzingImage ? <Loader2 className="animate-spin" size={16} /> : <ImagePlus size={16} />}
                   {isAnalyzingImage ? t('analyzingImage') : t('scanProductBtn')}
                   <input
@@ -331,7 +331,7 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
                   />
                 </label>
                 {productImageBase64 && (
-                  <div className="flex items-center gap-3 p-2 rounded-2xl bg-brand-50 border border-brand-100">
+                  <div className="flex items-center gap-3 p-2 rounded-2xl bg-brand-50 dark:bg-slate-800 border border-brand-100 dark:border-slate-700">
                     <img
                       src={`data:${productImageMimeType};base64,${productImageBase64}`}
                       className="w-10 h-10 rounded-xl object-cover"
@@ -358,7 +358,7 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
                   value={targetQuery}
                   onChange={(e) => setTargetQuery(e.target.value)}
                   placeholder={t('productCategoryPlaceholder')}
-                  className="w-full px-5 py-4 bg-brand-50 border border-brand-100 rounded-2xl focus:ring-2 focus:ring-brand-500 outline-none transition-all font-medium"
+                  className="w-full px-5 py-4 bg-brand-50 dark:bg-slate-800 border border-brand-100 dark:border-slate-600 dark:text-slate-100 rounded-2xl focus:ring-2 focus:ring-brand-500 outline-none transition-all font-medium"
                 />
               </div>
               <button 
@@ -382,7 +382,7 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
             <button
               onClick={handleGetScalingAdvice}
               disabled={!strategy || isGettingScalingAdvice}
-              className="w-full py-4 font-bold rounded-xl transition-all shadow-lg bg-white text-brand-700 hover:bg-brand-50 disabled:opacity-60 flex items-center justify-center gap-2"
+              className="w-full py-4 font-bold rounded-xl transition-all shadow-lg bg-white text-brand-700 dark:text-brand-400 hover:bg-brand-50 disabled:opacity-60 flex items-center justify-center gap-2"
             >
               {isGettingScalingAdvice ? <Loader2 size={18} className="animate-spin" /> : <Zap size={18} />}
               {t('activateScalingBtn')}
@@ -406,11 +406,11 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
               className="glass p-8 rounded-[2.5rem] shadow-sm space-y-4"
             >
               <div className="flex items-center gap-3">
-                <div className="p-3 bg-brand-50 text-brand-600 rounded-2xl">
+                <div className="p-3 bg-brand-50 dark:bg-slate-800 text-brand-600 dark:text-brand-400 rounded-2xl">
                   <Eye size={22} />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-brand-700 m-0">{t('productImageAnalysisTitle')}</h3>
+                  <h3 className="text-lg font-bold text-brand-700 dark:text-brand-400 m-0">{t('productImageAnalysisTitle')}</h3>
                   <p className="text-sm text-slate-500 dark:text-slate-400 m-0">{t('generatedByAiStrategist')}</p>
                 </div>
               </div>
@@ -420,7 +420,7 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
                   <span className="text-sm font-medium">{t('analyzingImage')}</span>
                 </div>
               ) : (
-                <div className="whitespace-pre-wrap text-brand-700 leading-relaxed text-sm font-sans">
+                <div className="whitespace-pre-wrap text-brand-700 dark:text-brand-400 leading-relaxed text-sm font-sans">
                   {imageAnalysis}
                 </div>
               )}
@@ -433,11 +433,11 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
                 animate={{ opacity: 1 }}
                 className="glass p-12 rounded-[3rem] h-full flex flex-col items-center justify-center text-center space-y-6"
               >
-                <div className="w-24 h-24 bg-brand-50 rounded-[3rem] flex items-center justify-center border border-brand-100 shadow-inner">
+                <div className="w-24 h-24 bg-brand-50 dark:bg-slate-800 rounded-[3rem] flex items-center justify-center border border-brand-100 dark:border-slate-700 shadow-inner">
                   <BarChart size={40} className="text-brand-200" />
                 </div>
                 <div>
-                  <h3 className="text-2xl font-bold text-brand-700">{t('noActiveStrategy')}</h3>
+                  <h3 className="text-2xl font-bold text-brand-700 dark:text-brand-400">{t('noActiveStrategy')}</h3>
                   <p className="text-slate-500 dark:text-slate-400 max-w-sm mx-auto mt-2">{t('enterProductDetailsDesc')}</p>
                 </div>
               </motion.div>
@@ -452,7 +452,7 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
                   <Sparkles className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-brand-600 animate-pulse" size={24} />
                 </div>
                 <div>
-                  <p className="text-xl font-bold text-brand-700 animate-pulse">{t('analyzingMarketSegments')}</p>
+                  <p className="text-xl font-bold text-brand-700 dark:text-brand-400 animate-pulse">{t('analyzingMarketSegments')}</p>
                   <p className="text-brand-500">{t('findingProfitableAudience')}</p>
                 </div>
               </motion.div>
@@ -464,18 +464,18 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
               >
                 <div className="flex justify-between items-center pb-6 border-b border-brand-100">
                   <div className="flex items-center gap-3">
-                    <div className="p-3 bg-brand-50 text-brand-600 rounded-2xl">
+                    <div className="p-3 bg-brand-50 dark:bg-slate-800 text-brand-600 dark:text-brand-400 rounded-2xl">
                       <Zap size={24} />
                     </div>
                     <div>
-                      <h3 className="text-2xl font-bold text-brand-700 m-0">{t('recommendedAdStrategy')}</h3>
+                      <h3 className="text-2xl font-bold text-brand-700 dark:text-brand-400 m-0">{t('recommendedAdStrategy')}</h3>
                       <p className="text-sm text-slate-500 dark:text-slate-400 m-0">{t('generatedByAiStrategist')}</p>
                     </div>
                   </div>
                   <button
                     onClick={handleCreateAd}
                     disabled={isCreatingAd}
-                    className="flex items-center gap-2 px-6 py-3 bg-brand-50 text-brand-600 rounded-2xl font-bold text-sm hover:bg-white dark:hover:bg-slate-700 border border-brand-100 shadow-sm transition-all group disabled:opacity-60"
+                    className="flex items-center gap-2 px-6 py-3 bg-brand-50 dark:bg-slate-800 text-brand-600 dark:text-brand-400 rounded-2xl font-bold text-sm hover:bg-white dark:hover:bg-slate-700 border border-brand-100 dark:border-slate-700 shadow-sm transition-all group disabled:opacity-60"
                   >
                     {isCreatingAd ? (language === 'km' ? 'កំពុងបង្កើត...' : 'Creating...') : t('nextStepCreateAd')}
                     {isCreatingAd ? <Loader2 size={18} className="animate-spin" /> : <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />}
@@ -483,15 +483,15 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
                 </div>
                 
                 <div className="prose prose-brand max-w-none">
-                  <div className="whitespace-pre-wrap text-brand-700 leading-relaxed font-sans">
+                  <div className="whitespace-pre-wrap text-brand-700 dark:text-brand-400 leading-relaxed font-sans">
                     {strategy}
                   </div>
                 </div>
 
                 {adCreative && (
-                  <div className="rounded-[2rem] border border-brand-100 bg-brand-50/70 p-6 space-y-4">
+                  <div className="rounded-[2rem] border border-brand-100 dark:border-slate-700 bg-brand-50/70 dark:bg-slate-800/70 p-6 space-y-4">
                     <div className="flex items-center justify-between gap-4">
-                      <h4 className="text-lg font-bold text-brand-700 m-0 flex items-center gap-2">
+                      <h4 className="text-lg font-bold text-brand-700 dark:text-brand-400 m-0 flex items-center gap-2">
                         <CheckCircle2 size={18} className="text-emerald-500" />
                         {language === 'km' ? 'Ad ដែលត្រៀមប្រើបាន' : 'Ready-to-Use Ad'}
                       </h4>
@@ -503,7 +503,7 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
                         {language === 'km' ? 'ចម្លង' : 'Copy'}
                       </button>
                     </div>
-                    <div className="whitespace-pre-wrap text-brand-700 leading-relaxed">
+                    <div className="whitespace-pre-wrap text-brand-700 dark:text-brand-400 leading-relaxed">
                       {adCreative}
                     </div>
                   </div>

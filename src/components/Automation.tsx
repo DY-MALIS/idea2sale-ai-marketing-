@@ -379,7 +379,7 @@ const Automation: React.FC = () => {
     <div className="max-w-6xl mx-auto space-y-10 pb-20">
       <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
         <div>
-          <h2 className="text-4xl font-display font-bold text-brand-700 tracking-tight flex items-center gap-3">
+          <h2 className="text-4xl font-display font-bold text-brand-700 dark:text-brand-400 tracking-tight flex items-center gap-3">
             {t('socialAutomation')}
             <MessagesSquare className="text-brand-500" size={32} />
           </h2>
@@ -412,13 +412,13 @@ const Automation: React.FC = () => {
         <div className="flex bg-brand-100/50 p-1.5 rounded-2xl border border-brand-200">
           <button
             onClick={() => setActiveTab('reply')}
-            className={cn("px-6 py-2.5 rounded-xl text-sm font-bold transition-all", activeTab === 'reply' ? "bg-white dark:bg-slate-700 text-brand-700 shadow-sm" : "text-brand-500 hover:bg-brand-50 dark:hover:bg-slate-700")}
+            className={cn("px-6 py-2.5 rounded-xl text-sm font-bold transition-all", activeTab === 'reply' ? "bg-white dark:bg-slate-700 text-brand-700 dark:text-brand-400 shadow-sm" : "text-brand-500 hover:bg-brand-50 dark:hover:bg-slate-700")}
           >
             {t('smartReply')}
           </button>
           <button
             onClick={() => setActiveTab('inbox')}
-            className={cn("px-6 py-2.5 rounded-xl text-sm font-bold transition-all", activeTab === 'inbox' ? "bg-white dark:bg-slate-700 text-brand-700 shadow-sm" : "text-brand-500 hover:bg-brand-50 dark:hover:bg-slate-700")}
+            className={cn("px-6 py-2.5 rounded-xl text-sm font-bold transition-all", activeTab === 'inbox' ? "bg-white dark:bg-slate-700 text-brand-700 dark:text-brand-400 shadow-sm" : "text-brand-500 hover:bg-brand-50 dark:hover:bg-slate-700")}
           >
             {t('inboxLabel')}
           </button>
@@ -429,7 +429,7 @@ const Automation: React.FC = () => {
         <motion.div 
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="p-4 bg-red-50 text-red-600 rounded-xl border border-red-100 flex items-center gap-3 shadow-sm"
+          className="p-4 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-300 rounded-xl border border-red-100 dark:border-red-800/60 flex items-center gap-3 shadow-sm"
         >
           <AlertCircle size={20} className="shrink-0" />
           <p className="text-sm font-medium">{errorMsg}</p>
@@ -442,24 +442,24 @@ const Automation: React.FC = () => {
         </motion.div>
       )}
 
-      <div className="rounded-2xl border border-brand-200 bg-brand-50 px-5 py-4 text-sm text-brand-700">
+      <div className="rounded-2xl border border-brand-200 dark:border-slate-700 bg-brand-50 dark:bg-slate-800 px-5 py-4 text-sm text-brand-700 dark:text-brand-400">
         <strong>{t('socialAutomation')}</strong>
         <span className="ml-2">{t('automationRoleDesc')}</span>
       </div>
 
       {activeTab === 'inbox' && !checkingAdmin && !isAdmin ? (
         <div className="glass rounded-[2rem] overflow-hidden text-center py-20 px-10">
-          <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-100">
+          <div className="w-16 h-16 bg-amber-50 dark:bg-amber-900/30 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-100 dark:border-amber-800/60">
             <ShieldAlert size={24} className="text-amber-500" />
           </div>
-          <h3 className="text-brand-700 font-bold mb-1">{t('adminOnlyTitle')}</h3>
+          <h3 className="text-brand-700 dark:text-brand-400 font-bold mb-1">{t('adminOnlyTitle')}</h3>
           <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm mx-auto">{t('adminOnlyDesc')}</p>
         </div>
       ) : activeTab === 'inbox' ? (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           <div className="lg:col-span-4 glass rounded-[2rem] overflow-hidden max-h-[70vh] flex flex-col">
-            <div className="p-5 border-b border-brand-100 bg-brand-50 flex items-center justify-between shrink-0">
-              <h3 className="font-bold text-brand-700 flex items-center gap-2">
+            <div className="p-5 border-b border-brand-100 dark:border-slate-700 bg-brand-50 dark:bg-slate-800 flex items-center justify-between shrink-0">
+              <h3 className="font-bold text-brand-700 dark:text-brand-400 flex items-center gap-2">
                 <InboxIcon size={18} className="text-brand-500" />
                 {t('inboxLabel')}
               </h3>
@@ -472,7 +472,7 @@ const Automation: React.FC = () => {
                   value={inboxSearch}
                   onChange={(e) => setInboxSearch(e.target.value)}
                   placeholder={t('searchLeadsPlaceholder')}
-                  className="w-full pl-9 pr-3 py-2 bg-brand-50 border border-brand-100 rounded-xl text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all"
+                  className="w-full pl-9 pr-3 py-2 bg-brand-50 dark:bg-slate-800 border border-brand-100 dark:border-slate-600 dark:text-slate-100 rounded-xl text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all"
                 />
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-brand-400" size={14} />
               </div>
@@ -493,10 +493,10 @@ const Automation: React.FC = () => {
                       onClick={() => setSelectedChatId(lead.chatId)}
                       className={cn(
                         'w-full text-left p-4 border-b border-brand-50 transition-colors',
-                        selectedChatId === lead.chatId ? 'bg-brand-50' : 'hover:bg-brand-50/50'
+                        selectedChatId === lead.chatId ? 'bg-brand-50 dark:bg-slate-800' : 'hover:bg-brand-50/50 dark:hover:bg-slate-800/50'
                       )}
                     >
-                      <p className="font-bold text-sm text-brand-700 truncate">{lead.displayName}</p>
+                      <p className="font-bold text-sm text-brand-700 dark:text-brand-400 truncate">{lead.displayName}</p>
                       <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{lead.lastMessage}</p>
                     </button>
                   ))}
@@ -511,10 +511,10 @@ const Automation: React.FC = () => {
           </div>
 
           <div className="lg:col-span-8 glass rounded-[2rem] overflow-hidden max-h-[70vh] flex flex-col">
-            <div className="p-5 border-b border-brand-100 bg-brand-50 flex items-center justify-between shrink-0">
+            <div className="p-5 border-b border-brand-100 dark:border-slate-700 bg-brand-50 dark:bg-slate-800 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2">
                 <Bot size={18} className="text-brand-500" />
-                <h3 className="font-bold text-brand-700">
+                <h3 className="font-bold text-brand-700 dark:text-brand-400">
                   {inboxLeads.find((l) => l.chatId === selectedChatId)?.displayName || t('inboxLabel')}
                 </h3>
               </div>
@@ -535,7 +535,7 @@ const Automation: React.FC = () => {
                   <div key={msg.id} className={cn('flex', msg.direction === 'in' ? 'justify-start' : 'justify-end')}>
                     <div className={cn(
                       'max-w-[75%] px-4 py-3 rounded-2xl text-sm',
-                      msg.direction === 'in' ? 'bg-brand-50 text-brand-700' : 'bg-brand-700 text-white'
+                      msg.direction === 'in' ? 'bg-brand-50 dark:bg-slate-800 text-brand-700 dark:text-brand-400' : 'bg-brand-700 text-white'
                     )}>
                       <p className="whitespace-pre-wrap">{msg.text}</p>
                       {msg.direction === 'out' && (
@@ -562,7 +562,7 @@ const Automation: React.FC = () => {
                   }}
                   placeholder={language === 'km' ? 'វាយសារឆ្លើយតប...' : 'Type a reply...'}
                   rows={1}
-                  className="flex-1 px-4 py-3 bg-brand-50 border border-brand-100 rounded-xl text-sm text-brand-800 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 ring-brand-500/20 resize-none max-h-32"
+                  className="flex-1 px-4 py-3 bg-brand-50 dark:bg-slate-800 border border-brand-100 dark:border-slate-600 rounded-xl text-sm text-brand-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 ring-brand-500/20 resize-none max-h-32"
                 />
                 <button
                   onClick={handleSendReply}
@@ -581,7 +581,7 @@ const Automation: React.FC = () => {
             <div className="glass p-10 rounded-[2.5rem] shadow-sm">
               <div className="flex justify-between items-center mb-8">
                 <div>
-                  <h3 className="text-2xl font-bold text-brand-700">{t('smartAiReplies')}</h3>
+                  <h3 className="text-2xl font-bold text-brand-700 dark:text-brand-400">{t('smartAiReplies')}</h3>
                   <p className="text-slate-500 dark:text-slate-400 text-sm">{t('aiReplyDesc')}</p>
                 </div>
                 <button
@@ -595,7 +595,7 @@ const Automation: React.FC = () => {
                 </button>
               </div>
 
-              <div className="mb-6 p-4 bg-sky-50 border border-sky-100 rounded-2xl text-sm text-sky-700">
+              <div className="mb-6 p-4 bg-sky-50 dark:bg-sky-900/30 border border-sky-100 dark:border-sky-800/60 rounded-2xl text-sm text-sky-700 dark:text-sky-300">
                 {t('telegramRulesLiveNote')}
               </div>
 
@@ -605,18 +605,18 @@ const Automation: React.FC = () => {
                     <Loader2 className="animate-spin text-brand-500" size={32} />
                   </div>
                 ) : replyRules.length === 0 ? (
-                  <div className="text-center py-20 bg-brand-50/30 rounded-[2.5rem] border border-dashed border-brand-200">
+                  <div className="text-center py-20 bg-brand-50/30 dark:bg-slate-800/30 rounded-[2.5rem] border border-dashed border-brand-200 dark:border-slate-700">
                     <MessageCircle size={48} className="mx-auto text-brand-200 mb-4" />
-                    <h4 className="text-brand-700 font-bold mb-1">{language === 'km' ? 'មិនទាន់មានច្បាប់ឆ្លើយតបនៅឡើយទេ' : 'No reply rules yet'}</h4>
+                    <h4 className="text-brand-700 dark:text-brand-400 font-bold mb-1">{language === 'km' ? 'មិនទាន់មានច្បាប់ឆ្លើយតបនៅឡើយទេ' : 'No reply rules yet'}</h4>
                     <p className="text-sm text-slate-500 dark:text-slate-400">{language === 'km' ? 'បង្កើតច្បាប់ដំបូងរបស់អ្នកដើម្បីសន្សំសំចៃពេលវេលា' : 'Create your first rule to save time'}</p>
                   </div>
                 ) : (
                   replyRules.map((rule, i) => (
-                    <div key={rule.id} className="p-6 bg-brand-50/50 rounded-3xl border border-brand-100 hover:bg-white dark:hover:bg-slate-700 transition-all group relative">
+                    <div key={rule.id} className="p-6 bg-brand-50/50 dark:bg-slate-800/50 rounded-3xl border border-brand-100 dark:border-slate-700 hover:bg-white dark:hover:bg-slate-700 transition-all group relative">
                       <div className="flex justify-between items-start mb-4">
                         <div className="flex items-center gap-2">
                           <span className="text-[10px] font-black text-brand-400 uppercase tracking-widest bg-white dark:bg-slate-700 px-2 py-1 rounded border border-brand-100">{t('commentContains')}</span>
-                          <span className="font-bold text-brand-700">"{rule.trigger}"</span>
+                          <span className="font-bold text-brand-700 dark:text-brand-400">"{rule.trigger}"</span>
                         </div>
                         <div className="flex items-center gap-4">
                           <span className="text-xs text-slate-400 dark:text-slate-400 font-bold">{rule.platform}</span>
@@ -666,7 +666,7 @@ const Automation: React.FC = () => {
           </div>
 
           <div className="glass p-8 rounded-[2rem] border border-brand-100 shadow-sm relative group/stats">
-            <h3 className="font-bold text-brand-700 mb-4 flex items-center justify-between">
+            <h3 className="font-bold text-brand-700 dark:text-brand-400 mb-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Zap size={20} className={isAutomationActive ? "text-amber-500" : "text-slate-300"} />
                 {t('engagementStats')}
@@ -674,13 +674,13 @@ const Automation: React.FC = () => {
               {isAutomationActive && <span className="text-[10px] text-emerald-500 animate-pulse font-bold">Auto-Sync ON</span>}
             </h3>
             <div className="grid grid-cols-2 gap-4">
-              <div className="bg-brand-50 px-4 py-6 rounded-2xl border border-brand-100">
+              <div className="bg-brand-50 dark:bg-slate-800 px-4 py-6 rounded-2xl border border-brand-100 dark:border-slate-700">
                 <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1">{t('totalReplies')}</p>
-                <p className="text-2xl font-bold text-brand-700">{stats.replies.toLocaleString()}</p>
+                <p className="text-2xl font-bold text-brand-700 dark:text-brand-400">{stats.replies.toLocaleString()}</p>
               </div>
-              <div className="bg-brand-50 px-4 py-6 rounded-2xl border border-brand-100">
+              <div className="bg-brand-50 dark:bg-slate-800 px-4 py-6 rounded-2xl border border-brand-100 dark:border-slate-700">
                 <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1">{t('timeSaved')}</p>
-                <p className="text-2xl font-bold text-brand-700">{stats.hours}h</p>
+                <p className="text-2xl font-bold text-brand-700 dark:text-brand-400">{stats.hours}h</p>
               </div>
             </div>
             <p className="text-[10px] text-brand-400 mt-4 text-center">
@@ -719,9 +719,9 @@ const Automation: React.FC = () => {
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
               className="relative w-full max-w-lg bg-white dark:bg-slate-800 rounded-[2.5rem] shadow-2xl overflow-hidden"
             >
-              <div className="p-8 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-brand-50/30">
+              <div className="p-8 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-brand-50/30 dark:bg-slate-800/30">
                 <div>
-                  <h3 className="text-2xl font-bold text-brand-700">{t('addRule')}</h3>
+                  <h3 className="text-2xl font-bold text-brand-700 dark:text-brand-400">{t('addRule')}</h3>
                   <p className="text-slate-500 dark:text-slate-400 text-sm">{t('aiReplyDesc')}</p>
                 </div>
                 <button onClick={() => setIsRuleModalOpen(false)} className="p-2 hover:bg-white dark:hover:bg-slate-700 rounded-xl transition-all">
@@ -731,7 +731,7 @@ const Automation: React.FC = () => {
               
               <div className="p-8 space-y-6">
                 {errorMsg && (
-                  <div className="p-4 bg-red-50 text-red-600 rounded-xl flex items-center gap-2 text-sm border border-red-100">
+                  <div className="p-4 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-300 rounded-xl flex items-center gap-2 text-sm border border-red-100 dark:border-red-800/60">
                     <AlertCircle size={16} />
                     {errorMsg}
                   </div>
@@ -743,7 +743,7 @@ const Automation: React.FC = () => {
                     value={ruleTrigger}
                     onChange={(e) => setRuleTrigger(e.target.value)}
                     placeholder={language === 'km' ? 'ឧទាហរណ៍៖ តម្លៃ, ប៉ុន្មាន...' : 'e.g. price, how much...'} 
-                    className="w-full px-4 py-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-800 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 ring-brand-500/20"
+                    className="w-full px-4 py-3 bg-brand-50 dark:bg-slate-800 border border-brand-100 dark:border-slate-600 rounded-xl text-brand-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 ring-brand-500/20"
                   />
                   <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                     {language === 'km'
@@ -758,22 +758,22 @@ const Automation: React.FC = () => {
                     value={ruleResponse}
                     onChange={(e) => setRuleResponse(e.target.value)}
                     placeholder={language === 'km' ? 'បញ្ចូលការឆ្លើយតបរបស់អ្នក...' : 'Enter your automated response...'} 
-                    className="w-full px-4 py-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-800 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 ring-brand-500/20 h-24 resize-none"
+                    className="w-full px-4 py-3 bg-brand-50 dark:bg-slate-800 border border-brand-100 dark:border-slate-600 rounded-xl text-brand-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 ring-brand-500/20 h-24 resize-none"
                   />
                 </div>
                 
                 <div>
                   <label className="block text-xs font-bold text-brand-400 uppercase tracking-widest mb-2">{t('platform')}</label>
-                  <div className="w-full px-4 py-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-800 font-medium">
+                  <div className="w-full px-4 py-3 bg-brand-50 dark:bg-slate-800 border border-brand-100 dark:border-slate-600 rounded-xl text-brand-800 dark:text-slate-100 font-medium">
                     Telegram
                   </div>
                 </div>
               </div>
 
-              <div className="p-8 bg-brand-50/50 border-t border-slate-100 dark:border-slate-700 flex gap-3">
+              <div className="p-8 bg-brand-50/50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-700 flex gap-3">
                 <button
                   onClick={() => setIsRuleModalOpen(false)}
-                  className="flex-1 py-4 bg-white dark:bg-slate-800 border border-brand-200 text-brand-700 font-bold rounded-2xl hover:bg-brand-50 dark:hover:bg-slate-700 transition-all"
+                  className="flex-1 py-4 bg-white dark:bg-slate-800 border border-brand-200 text-brand-700 dark:text-brand-400 font-bold rounded-2xl hover:bg-brand-50 dark:hover:bg-slate-700 transition-all"
                 >
                   {t('cancel')}
                 </button>

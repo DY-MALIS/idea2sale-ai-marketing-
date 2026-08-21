@@ -492,9 +492,9 @@ const Scheduler: React.FC = () => {
 
       <div className="p-0">
         {errorMsg && (
-          <div className="m-6 p-4 bg-red-50 border border-red-200 rounded-2xl flex items-center gap-3">
+          <div className="m-6 p-4 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800/60 rounded-2xl flex items-center gap-3">
             <AlertCircle className="text-red-500 shrink-0" size={20} />
-            <p className="text-sm text-red-500 font-medium">{errorMsg}</p>
+            <p className="text-sm text-red-500 dark:text-red-300 font-medium">{errorMsg}</p>
             <button onClick={() => setErrorMsg(null)} className="ml-auto text-red-400 hover:text-red-500">
               <X size={16} />
             </button>
@@ -522,11 +522,11 @@ const Scheduler: React.FC = () => {
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, scale: 0.95 }}
-                    className="group relative flex items-start gap-4 p-6 hover:bg-brand-50 transition-colors dark:hover:bg-slate-700"
+                    className="group relative flex items-start gap-4 p-6 hover:bg-brand-50 dark:hover:bg-slate-800/60 transition-colors"
                   >
                     <div className="flex flex-col items-center gap-1 min-w-[80px]">
                       <div className={`p-2 rounded-xl ${
-                        post.status === 'PUBLISHED' ? 'bg-emerald-50 text-emerald-600' : 'bg-brand-50 text-slate-400 border border-brand-100 dark:bg-slate-800 dark:border-slate-700'
+                        post.status === 'PUBLISHED' ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-300' : 'bg-brand-50 text-slate-400 border border-brand-100 dark:bg-slate-800 dark:border-slate-700'
                       }`}>
                         {post.platform === 'INSTAGRAM' ? <Instagram size={20} /> : post.platform === 'TWITTER' ? <Twitter size={20} /> : post.platform === 'TELEGRAM' ? <Send size={20} /> : <Share2 size={20} />}
                       </div>
@@ -536,13 +536,13 @@ const Scheduler: React.FC = () => {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${
-                          post.status === 'PUBLISHED' ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-amber-50 text-amber-600 border border-amber-200'
+                          post.status === 'PUBLISHED' ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60' : 'bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60'
                         }`}>
                           {post.status}
                         </span>
                         <span className="text-[10px] text-slate-400 font-mono dark:text-slate-400">{timeStr}</span>
                         {post.aiSuggested && (
-                          <div className="flex items-center gap-1 text-[10px] text-brand-600 font-bold px-2 py-0.5 bg-brand-50 rounded border border-brand-200 uppercase">
+                          <div className="flex items-center gap-1 text-[10px] text-brand-600 dark:text-brand-400 font-bold px-2 py-0.5 bg-brand-50 dark:bg-slate-800 rounded border border-brand-200 dark:border-slate-700 uppercase">
                             <AlertCircle size={10} />
                             {t('aiSuggested')}
                           </div>
@@ -552,7 +552,7 @@ const Scheduler: React.FC = () => {
                         {post.content}
                       </p>
                       {post.platform === 'TELEGRAM' && post.mediaName && (
-                        <p className="mt-2 inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-sky-600">
+                        <p className="mt-2 inline-flex items-center rounded-full border border-sky-200 dark:border-sky-800/60 bg-sky-50 dark:bg-sky-900/30 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-sky-600 dark:text-sky-300">
                           {post.mediaType === 'video' ? 'Video' : 'Image'}: {post.mediaName}
                         </p>
                       )}
@@ -568,7 +568,7 @@ const Scheduler: React.FC = () => {
                           whileTap={{ scale: 0.9 }}
                           onClick={() => toggleStatus(post)}
                           className={`p-2 rounded-md transition-colors ${
-                            post.status === 'PUBLISHED' ? 'text-emerald-600 bg-emerald-50' : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:text-slate-400'
+                            post.status === 'PUBLISHED' ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30' : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 dark:text-slate-400'
                           }`}
                         >
                           <CheckCircle2 size={18} />
@@ -579,7 +579,7 @@ const Scheduler: React.FC = () => {
                           whileHover={{ scale: 1.1 }}
                           whileTap={{ scale: 0.9 }}
                           onClick={() => sendTelegramPost(post)}
-                          className="p-2 text-sky-500 hover:text-sky-600 hover:bg-sky-50 rounded-md transition-colors"
+                          className="p-2 text-sky-500 hover:text-sky-600 hover:bg-sky-50 dark:hover:bg-sky-900/30 rounded-md transition-colors"
                           title="Send to Telegram now"
                         >
                           <Send size={18} />
@@ -590,7 +590,7 @@ const Scheduler: React.FC = () => {
                           whileHover={{ scale: 1.1 }}
                           whileTap={{ scale: 0.9 }}
                           onClick={() => handleRetryTelegram(post)}
-                          className="p-2 text-amber-500 hover:text-amber-600 hover:bg-amber-50 rounded-md transition-colors"
+                          className="p-2 text-amber-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30 rounded-md transition-colors"
                           title="Retry sending to Telegram"
                         >
                           <RotateCcw size={18} />
@@ -600,7 +600,7 @@ const Scheduler: React.FC = () => {
                         whileHover={{ scale: 1.1 }}
                         whileTap={{ scale: 0.9 }}
                         onClick={() => handleDelete(post.id)}
-                        className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors dark:text-slate-400"
+                        className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-md transition-colors dark:text-slate-400"
                       >
                         <Trash2 size={18} />
                       </motion.button>

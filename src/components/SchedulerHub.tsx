@@ -474,7 +474,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                   <motion.div
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: 'auto' }}
-                    className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-500 text-xs"
+                    className="p-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800/60 rounded-lg flex items-center gap-2 text-red-500 dark:text-red-300 text-xs"
                   >
                     <AlertCircle size={14} />
                     {formError}
@@ -560,7 +560,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                           </p>
                         )}
                       </div>
-                      <div className="p-3 bg-sky-50 border border-sky-200 rounded-xl flex items-start gap-2 text-sky-600 text-xs">
+                      <div className="p-3 bg-sky-50 dark:bg-sky-900/30 border border-sky-200 dark:border-sky-800/60 rounded-xl flex items-start gap-2 text-sky-600 dark:text-sky-300 text-xs">
                         <Upload size={14} className="mt-0.5 shrink-0" />
                         <p>Telegram can post text, image, or video. If you add media, the text will be used as the caption.</p>
                       </div>

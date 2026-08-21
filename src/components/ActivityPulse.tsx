@@ -67,7 +67,7 @@ const ActivityPulse: React.FC<ActivityPulseProps> = ({ version }) => {
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
           <Thermometer size={18} className="text-brand-500" />
-          <h3 className="text-sm font-bold text-brand-700 uppercase tracking-wider">Audience Pulse</h3>
+          <h3 className="text-sm font-bold text-brand-700 dark:text-brand-400 uppercase tracking-wider">Audience Pulse</h3>
         </div>
         <div className="flex gap-1 items-center">
           <div className="w-2 h-2 rounded-full bg-brand-500 animate-pulse" />

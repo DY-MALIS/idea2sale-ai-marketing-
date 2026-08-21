@@ -80,7 +80,7 @@ const Copywriter: React.FC = () => {
   return (
     <div className="max-w-6xl mx-auto space-y-10">
       <header>
-        <h2 className="text-4xl font-display font-bold text-brand-700 tracking-tight flex items-center gap-3">
+        <h2 className="text-4xl font-display font-bold text-brand-700 dark:text-brand-400 tracking-tight flex items-center gap-3">
           {t('aiCopywriter')}
           <Sparkles className="text-brand-500 animate-pulse" size={32} />
         </h2>
@@ -106,7 +106,7 @@ const Copywriter: React.FC = () => {
                       "px-4 py-3 rounded-xl text-xs font-bold transition-all border",
                       contentType === type.id 
                         ? "bg-brand-700 text-white border-brand-700 shadow-md" 
-                        : "bg-brand-50 text-brand-500 border-brand-100 hover:border-brand-300"
+                        : "bg-brand-50 dark:bg-slate-800 text-brand-500 dark:text-brand-400 border-brand-100 dark:border-slate-700 hover:border-brand-300 dark:hover:border-slate-500"
                     )}
                   >
                     {type.label}
@@ -137,7 +137,7 @@ const Copywriter: React.FC = () => {
           </div>
 
           <div className="bg-brand-50/40 dark:bg-slate-900/40 backdrop-blur-sm p-8 rounded-[2rem] border border-brand-200 shadow-sm">
-            <h4 className="font-bold text-brand-700 mb-4 flex items-center gap-2 text-lg">
+            <h4 className="font-bold text-brand-700 dark:text-brand-400 mb-4 flex items-center gap-2 text-lg">
               <RefreshCw size={20} className="text-brand-500" />
               {t('aiProTips')}
             </h4>
@@ -157,7 +157,7 @@ const Copywriter: React.FC = () => {
         <div className="lg:col-span-7">
           <div className="glass p-8 rounded-[2.5rem] min-h-[600px] flex flex-col relative overflow-hidden">
             <div className="flex justify-between items-center mb-8">
-              <h3 className="text-xl font-bold text-brand-700 flex items-center gap-2">
+              <h3 className="text-xl font-bold text-brand-700 dark:text-brand-400 flex items-center gap-2">
                 <div className="w-2 h-6 bg-brand-500 rounded-full" />
                 {t('aiGenerationResult')}
               </h3>
@@ -165,13 +165,13 @@ const Copywriter: React.FC = () => {
                 <div className="flex gap-3">
                   <button 
                     onClick={() => navigator.clipboard.writeText(result)}
-                    className="p-3 bg-brand-50 text-brand-500 hover:bg-brand-100 rounded-xl transition-all border border-brand-200"
+                    className="p-3 bg-brand-50 dark:bg-slate-800 text-brand-500 dark:text-brand-400 hover:bg-brand-100 dark:hover:bg-slate-700 rounded-xl transition-all border border-brand-200 dark:border-slate-700"
                   >
                     <Copy size={20} />
                   </button>
                   <button 
                     onClick={handleDownload}
-                    className="p-3 bg-brand-50 text-brand-500 hover:bg-brand-100 rounded-xl transition-all border border-brand-200"
+                    className="p-3 bg-brand-50 dark:bg-slate-800 text-brand-500 dark:text-brand-400 hover:bg-brand-100 dark:hover:bg-slate-700 rounded-xl transition-all border border-brand-200 dark:border-slate-700"
                   >
                     <Download size={20} />
                   </button>
@@ -182,7 +182,7 @@ const Copywriter: React.FC = () => {
             <div className="flex-1 flex flex-col">
               {!result && !loading && (
                 <div className="flex-1 flex flex-col items-center justify-center text-brand-300 space-y-6">
-                  <div className="w-24 h-24 bg-brand-50 rounded-[2rem] flex items-center justify-center border border-brand-100 shadow-inner">
+                  <div className="w-24 h-24 bg-brand-50 dark:bg-slate-800 rounded-[2rem] flex items-center justify-center border border-brand-100 dark:border-slate-700 shadow-inner">
                     <Sparkles size={40} className="text-brand-200" />
                   </div>
                   <div className="text-center">
@@ -199,7 +199,7 @@ const Copywriter: React.FC = () => {
                     <Sparkles className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-brand-600 animate-pulse" size={24} />
                   </div>
                   <div className="text-center">
-                    <p className="text-xl font-bold text-brand-700 animate-pulse">{t('craftingMasterpiece')}</p>
+                    <p className="text-xl font-bold text-brand-700 dark:text-brand-400 animate-pulse">{t('craftingMasterpiece')}</p>
                     <p className="text-brand-500">{t('takesFewSeconds')}</p>
                   </div>
                 </div>
