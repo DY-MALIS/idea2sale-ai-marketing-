@@ -18,13 +18,10 @@ import { db } from '../lib/firebase';
 import { cn } from '../lib/utils';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
+import { getStoredScheduledPosts, mergeStoredScheduleHistory } from '../lib/scheduledPosts';
 
 const getLocalTelegramPosts = () => {
-  try {
-    return JSON.parse(localStorage.getItem('demo_scheduled_posts') || '[]').filter((p: any) => p.platform === 'TELEGRAM');
-  } catch {
-    return [];
-  }
+  return getStoredScheduledPosts().filter((post) => post.platform === 'TELEGRAM');
 };
 
 const TikTokAnalytics: React.FC = () => {
@@ -167,7 +164,11 @@ const TikTokAnalytics: React.FC = () => {
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      setTelegramPosts(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+      const remotePosts = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as any[];
+      setTelegramPosts(
+        mergeStoredScheduleHistory(remotePosts, user.uid)
+          .filter((post) => post.platform === 'TELEGRAM')
+      );
     }, (error) => {
       console.error('Telegram posts listener error:', error);
       setTelegramPosts([]);

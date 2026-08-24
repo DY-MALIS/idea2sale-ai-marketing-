@@ -8,16 +8,13 @@ import { format, isAfter, parseISO, addHours, subHours } from 'date-fns';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { deleteLocalMedia, getLocalMediaBlob, getLocalMediaDataUrl } from '../lib/localMediaStore';
+import { getStoredScheduledPosts, mergeStoredScheduleHistory } from '../lib/scheduledPosts';
 
 const DEMO_DEFAULT_POST_IDS = ['1', '2'];
 const TELEGRAM_UPLOAD_TIMEOUT_MS = 180000;
 
 const getLocalScheduledPosts = (): SchedulePost[] => {
-  try {
-    return JSON.parse(localStorage.getItem('demo_scheduled_posts') || '[]') as SchedulePost[];
-  } catch {
-    return [];
-  }
+  return getStoredScheduledPosts();
 };
 
 const saveLocalScheduledPosts = (posts: SchedulePost[]) => {
@@ -118,10 +115,7 @@ const Scheduler: React.FC = () => {
 
         let remotePosts: SchedulePost[] = [];
         const mergeLocalAndRemotePosts = () => {
-          const localPosts = getLocalScheduledPosts().filter(
-            post => post.localOnly && (post.userId === userToUse.uid || post.userId === 'demo-user')
-          );
-          setPosts(sortScheduledPosts([...localPosts, ...remotePosts]));
+          setPosts(sortScheduledPosts(mergeStoredScheduleHistory(remotePosts, userToUse.uid)));
         };
 
         const unsubscribeSnapshot = onSnapshot(q,
