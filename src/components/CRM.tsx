@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Users, MessageCircle, Send, Loader2, Search, Tag, ShieldAlert } from 'lucide-react';
+import { Users, MessageCircle, Send, Loader2, Search, Tag, ShieldAlert, Heart } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { collection, query, orderBy, limit, startAfter, getDocs, onSnapshot, QueryDocumentSnapshot, DocumentData } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -46,6 +46,7 @@ const CRM: React.FC = () => {
   const [lastDoc, setLastDoc] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
   const [searchInput, setSearchInput] = useState('');
   const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [reactionCount, setReactionCount] = useState(0);
   // Once the admin has paged past the live-tracked first page, a realtime
   // reorder of that first page must not reset lastDoc/hasMore back to it --
   // that would desync the "next page" cursor from what's actually been loaded.
@@ -85,6 +86,21 @@ const CRM: React.FC = () => {
         console.error('CRM leads listener error:', error);
         setLoading(false);
       }
+    );
+    return () => unsubscribe();
+  }, [checkingAdmin, isAdmin]);
+
+  useEffect(() => {
+    if (checkingAdmin || !isAdmin) return;
+    const unsubscribe = onSnapshot(
+      collection(db, 'telegram_channel_engagement'),
+      (snapshot) => {
+        setReactionCount(snapshot.docs.reduce((total, snapshotDoc) => {
+          const data = snapshotDoc.data();
+          return data.kind === 'aggregate' ? total + (Number(data.totalCount) || 0) : total;
+        }, 0));
+      },
+      (error) => console.error('Telegram reaction listener error:', error)
     );
     return () => unsubscribe();
   }, [checkingAdmin, isAdmin]);
@@ -144,7 +160,7 @@ const CRM: React.FC = () => {
         <p className="text-slate-500 dark:text-slate-400 mt-1 text-lg">{t('crmSubtitle')}</p>
       </header>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-4">
         <button
           onClick={() => setTagFilter(null)}
           className={cn(
@@ -168,6 +184,13 @@ const CRM: React.FC = () => {
             <p className="text-2xl font-bold text-brand-700 dark:text-brand-400">{tagCounts[tag] || 0}</p>
           </button>
         ))}
+        <div className="glass p-5 rounded-2xl border border-brand-100 text-left">
+          <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1.5">
+            <Heart size={12} className="text-rose-500" />
+            {t('telegramReactions')}
+          </p>
+          <p className="text-2xl font-bold text-brand-700 dark:text-brand-400">{reactionCount}</p>
+        </div>
       </div>
 
       <div className="relative">

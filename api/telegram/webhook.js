@@ -74,6 +74,30 @@ const logMessage = async (db, chatId, direction, text, source) => {
   }
 };
 
+export const telegramReactionName = (reaction) => {
+  if (reaction?.type === 'emoji') return String(reaction.emoji || 'reaction');
+  if (reaction?.type === 'custom_emoji') return `custom:${reaction.custom_emoji_id || 'reaction'}`;
+  if (reaction?.type === 'paid') return 'paid';
+  return 'reaction';
+};
+
+const messageLeadContext = (message) => {
+  const chat = message?.chat || {};
+  const actor = message?.from || chat;
+  const isGroupComment = chat.type === 'group' || chat.type === 'supergroup';
+  const actorId = String(actor.id ?? chat.id ?? 'unknown');
+  const replyChatId = String(chat.id ?? actor.id ?? '');
+  return {
+    actor,
+    actorId,
+    conversationId: isGroupComment ? `${replyChatId}:${actorId}` : replyChatId,
+    replyChatId,
+    replyToMessageId: isGroupComment ? message?.message_id || null : null,
+    source: isGroupComment ? 'channel-comment' : 'user',
+    canReply: Boolean(replyChatId),
+  };
+};
+
 const classifyLead = async (text) => {
   try {
     const result = await generateOpenRouterText({
@@ -87,31 +111,42 @@ const classifyLead = async (text) => {
   }
 };
 
-const upsertTelegramLead = async (db, message, text) => {
-  const chat = message?.chat || {};
-  const chatId = String(chat.id);
-  const leadRef = db.collection('telegram_leads').doc(chatId);
+const upsertTelegramLead = async (db, message, text, forcedTag) => {
+  const context = messageLeadContext(message);
+  const leadRef = db.collection('telegram_leads').doc(context.conversationId);
 
   try {
     const existingSnap = await leadRef.get();
-    const displayName = [chat.first_name, chat.last_name].filter(Boolean).join(' ') || chat.username || 'Telegram user';
+    const displayName = [context.actor.first_name, context.actor.last_name].filter(Boolean).join(' ') || context.actor.username || 'Telegram user';
 
     if (!existingSnap.exists) {
-      const tag = await classifyLead(text);
+      const tag = forcedTag || await classifyLead(text);
       await leadRef.set({
-        chatId,
-        username: chat.username || null,
+        chatId: context.conversationId,
+        replyChatId: context.replyChatId,
+        replyToMessageId: context.replyToMessageId,
+        telegramUserId: context.actorId,
+        username: context.actor.username || null,
         displayName,
         tag,
+        source: context.source,
+        canReply: context.canReply,
         messageCount: 1,
         lastMessage: text.slice(0, 500),
         lastMessageAt: FieldValue.serverTimestamp(),
         createdAt: FieldValue.serverTimestamp(),
       });
     } else {
+      const currentTag = existingSnap.data()?.tag;
+      const detectedTag = forcedTag || await classifyLead(text);
+      const nextTag = detectedTag !== 'general' || !currentTag ? detectedTag : currentTag;
       await leadRef.update({
         displayName,
-        username: chat.username || null,
+        username: context.actor.username || null,
+        replyChatId: context.replyChatId,
+        replyToMessageId: context.replyToMessageId,
+        source: context.source,
+        tag: nextTag,
         messageCount: FieldValue.increment(1),
         lastMessage: text.slice(0, 500),
         lastMessageAt: FieldValue.serverTimestamp(),
@@ -119,6 +154,59 @@ const upsertTelegramLead = async (db, message, text) => {
     }
   } catch (error) {
     console.error('Telegram lead capture failed:', error?.message || error);
+  }
+
+  return context;
+};
+
+const recordReactionUpdate = async (db, update) => {
+  const detailed = update?.message_reaction;
+  const aggregate = update?.message_reaction_count;
+  const reactionUpdate = detailed || aggregate;
+  const chatId = String(reactionUpdate?.chat?.id || '');
+  const messageId = Number(reactionUpdate?.message_id);
+  if (!chatId || !Number.isFinite(messageId)) return;
+
+  if (aggregate) {
+    const reactions = Array.isArray(aggregate.reactions)
+      ? aggregate.reactions.map((item) => ({
+          reaction: telegramReactionName(item?.type),
+          count: Number(item?.total_count) || 0,
+        }))
+      : [];
+    await db.collection('telegram_channel_engagement').doc(`${chatId}_${messageId}`).set({
+      kind: 'aggregate',
+      chatId,
+      messageId,
+      reactions,
+      totalCount: reactions.reduce((sum, item) => sum + item.count, 0),
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    return;
+  }
+
+  const actor = detailed.user || detailed.actor_chat;
+  if (!actor?.id) return;
+  const reactionNames = Array.isArray(detailed.new_reaction)
+    ? detailed.new_reaction.map(telegramReactionName)
+    : [];
+  await db.collection('telegram_channel_engagement').doc(`${chatId}_${messageId}_${actor.id}`).set({
+    kind: 'actor',
+    chatId,
+    messageId,
+    actorId: String(actor.id),
+    username: actor.username || null,
+    displayName: [actor.first_name, actor.last_name].filter(Boolean).join(' ') || actor.username || 'Telegram user',
+    reactions: reactionNames,
+    totalCount: reactionNames.length,
+    updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true });
+
+  if (reactionNames.length) {
+    await upsertTelegramLead(db, {
+      chat: { id: actor.id, type: 'private' },
+      from: actor,
+    }, `Reacted ${reactionNames.join(' ')}`, 'interested');
   }
 };
 
@@ -208,6 +296,9 @@ const sendTelegramHtmlMessage = (token, chatId, text, options = {}) => telegramA
   text: formatTelegramHtml(text),
   parse_mode: 'HTML',
   disable_web_page_preview: Boolean(options.disableWebPagePreview),
+  ...(options.replyToMessageId ? {
+    reply_parameters: { message_id: Number(options.replyToMessageId), allow_sending_without_reply: true },
+  } : {}),
 });
 
 const welcomeMessage = (isKhmer, businessName) => {
@@ -252,6 +343,8 @@ const sendManualReply = async (req, res) => {
   }
 
   const chatId = String(req.body?.chatId || '').trim();
+  const conversationId = String(req.body?.conversationId || chatId).trim();
+  const replyToMessageId = Number(req.body?.replyToMessageId) || null;
   const text = String(req.body?.text || '').trim();
   if (!chatId || !text) {
     return res.status(400).json({ error: 'chatId and text are required.' });
@@ -267,9 +360,9 @@ const sendManualReply = async (req, res) => {
   }
 
   try {
-    await sendTelegramHtmlMessage(token, chatId, text);
-    await logMessage(db, chatId, 'out', text, 'system');
-    await logAudit(db, { action: 'telegram_manual_reply', actorUid: decoded.uid, meta: { chatId } });
+    await sendTelegramHtmlMessage(token, chatId, text, { replyToMessageId });
+    await logMessage(db, conversationId, 'out', text, 'system');
+    await logAudit(db, { action: 'telegram_manual_reply', actorUid: decoded.uid, meta: { chatId, conversationId, replyToMessageId } });
     return res.status(200).json({ ok: true });
   } catch (error) {
     return res.status(502).json({ error: error?.message || 'Could not send this reply.' });
@@ -302,7 +395,7 @@ const setWebhook = async (req, res) => {
 
   const payload = {
     url: webhookUrl,
-    allowed_updates: ['message', 'edited_message', 'channel_post', 'edited_channel_post'],
+    allowed_updates: ['message', 'edited_message', 'channel_post', 'edited_channel_post', 'message_reaction', 'message_reaction_count'],
     drop_pending_updates: false,
     ...(secret ? { secret_token: secret } : {}),
   };
@@ -368,6 +461,17 @@ export default async function handler(req, res) {
 
   const update = req.body || {};
 
+  if (update.message_reaction || update.message_reaction_count) {
+    try {
+      const db = initFirebaseAdmin();
+      await recordReactionUpdate(db, update);
+      return res.status(200).json({ ok: true, recorded: 'reaction' });
+    } catch (error) {
+      console.error('Telegram reaction capture failed:', error?.message || error);
+      return res.status(200).json({ ok: false, ignored: 'reaction-storage-unavailable' });
+    }
+  }
+
   // Channel posts include this app's own scheduled content arriving in the
   // channel (see api/telegram/run-scheduled.js / deliver.js) — auto-replying
   // to those created a self-reply loop where the bot "answered" its own
@@ -384,6 +488,10 @@ export default async function handler(req, res) {
 
   if (!chatId) {
     return res.status(200).json({ ok: true, ignored: true });
+  }
+
+  if (message?.from?.is_bot) {
+    return res.status(200).json({ ok: true, ignored: 'bot-message' });
   }
 
   if (!text) {
@@ -404,17 +512,17 @@ export default async function handler(req, res) {
     console.error('Firebase Admin not configured for Telegram CRM/rules:', error?.message || error);
   }
 
-  if (db) {
-    await upsertTelegramLead(db, message, text);
-    await logMessage(db, chatId, 'in', text, 'user');
-  }
+  const leadContext = db
+    ? await upsertTelegramLead(db, message, text)
+    : messageLeadContext(message);
+  if (db) await logMessage(db, leadContext.conversationId, 'in', text, leadContext.source);
 
   const businessName = db ? await getBusinessName(db) : null;
   const isKhmer = containsKhmer(text);
   if (/^\/(start|help)\b/i.test(text)) {
     const welcome = welcomeMessage(isKhmer, businessName);
-    await sendTelegramHtmlMessage(token, chatId, welcome, { disableWebPagePreview: true });
-    if (db) await logMessage(db, chatId, 'out', welcome, 'system');
+    await sendTelegramHtmlMessage(token, chatId, welcome, { disableWebPagePreview: true, replyToMessageId: leadContext.replyToMessageId });
+    if (db) await logMessage(db, leadContext.conversationId, 'out', welcome, 'system');
     return res.status(200).json({ ok: true });
   }
 
@@ -429,8 +537,8 @@ export default async function handler(req, res) {
   if (db) {
     const ruleResponse = await findMatchingReplyRule(db, text).catch(() => null);
     if (ruleResponse) {
-      await sendTelegramHtmlMessage(token, chatId, ruleResponse);
-      await logMessage(db, chatId, 'out', ruleResponse, 'rule');
+      await sendTelegramHtmlMessage(token, chatId, ruleResponse, { replyToMessageId: leadContext.replyToMessageId });
+      await logMessage(db, leadContext.conversationId, 'out', ruleResponse, 'rule');
       return res.status(200).json({ ok: true, matchedRule: true });
     }
   }
@@ -452,10 +560,10 @@ export default async function handler(req, res) {
       : 'Sorry, I could not generate a reply right now. Please try again.');
 
     for (const chunk of chunkMessage(reply)) {
-      await sendTelegramHtmlMessage(token, chatId, chunk);
+      await sendTelegramHtmlMessage(token, chatId, chunk, { replyToMessageId: leadContext.replyToMessageId });
     }
 
-    if (db) await logMessage(db, chatId, 'out', reply, 'ai');
+    if (db) await logMessage(db, leadContext.conversationId, 'out', reply, 'ai');
 
     return res.status(200).json({ ok: true });
   } catch (error) {

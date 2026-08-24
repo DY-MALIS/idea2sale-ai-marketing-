@@ -229,6 +229,14 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /telegram_channel_engagement/{engagementId} {
+      // Telegram webhook writes reaction aggregates and identifiable reaction events.
+      // Admins can read them for CRM analytics; clients can never write them.
+      allow read: if isAdmin();
+      allow list: if isAdmin();
+      allow write: if false;
+    }
+
     match /settings/automation {
       // Shared on/off switch for the Telegram bot's auto-reply (rule-matched and AI
       // fallback) behavior -- api/telegram/webhook.js reads this before replying.

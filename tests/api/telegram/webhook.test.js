@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { escapeTelegramHtml, formatTelegramHtml, getAutomationActive, replyRuleTriggerMatches, splitReplyRuleTriggers } from '../../../api/telegram/webhook.js';
+import { escapeTelegramHtml, formatTelegramHtml, getAutomationActive, replyRuleTriggerMatches, splitReplyRuleTriggers, telegramReactionName } from '../../../api/telegram/webhook.js';
 
 describe('getAutomationActive', () => {
   const makeFakeDb = (data) => ({
@@ -81,5 +81,13 @@ describe('formatTelegramHtml', () => {
 
   it('does not misread a spaced multiplication sign as italic emphasis', () => {
     expect(formatTelegramHtml('Price: $5 * 2 = $10')).toBe('Price: $5 * 2 = $10');
+  });
+});
+
+describe('telegramReactionName', () => {
+  it('normalizes standard, custom, and paid Telegram reactions', () => {
+    expect(telegramReactionName({ type: 'emoji', emoji: '👍' })).toBe('👍');
+    expect(telegramReactionName({ type: 'custom_emoji', custom_emoji_id: '123' })).toBe('custom:123');
+    expect(telegramReactionName({ type: 'paid' })).toBe('paid');
   });
 });

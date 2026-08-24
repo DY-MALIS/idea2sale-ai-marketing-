@@ -31,6 +31,9 @@ interface TelegramLead {
   tag: string;
   lastMessage: string;
   lastMessageAt?: { toDate: () => Date };
+  replyChatId?: string;
+  replyToMessageId?: number | null;
+  canReply?: boolean;
 }
 
 interface TelegramMessage {
@@ -38,7 +41,7 @@ interface TelegramMessage {
   chatId: string;
   direction: 'in' | 'out';
   text: string;
-  source: 'user' | 'rule' | 'ai' | 'system';
+  source: 'user' | 'channel-comment' | 'rule' | 'ai' | 'system';
   createdAt?: { toDate: () => Date };
 }
 
@@ -179,11 +182,18 @@ const Automation: React.FC = () => {
 
     try {
       if (!user) throw new Error(language === 'km' ? 'សូម Sign in ជាមុនសិន' : 'Please sign in first.');
+      const selectedLead = inboxLeads.find((lead) => lead.chatId === selectedChatId);
+      const replyChatId = selectedLead?.replyChatId || selectedChatId;
       const idToken = await user.getIdToken();
       const response = await fetch('/api/telegram/webhook?action=reply', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-        body: JSON.stringify({ chatId: selectedChatId, text })
+        body: JSON.stringify({
+          chatId: replyChatId,
+          conversationId: selectedChatId,
+          replyToMessageId: selectedLead?.replyToMessageId || null,
+          text
+        })
       });
       const data = await response.json();
       if (!response.ok || !data.ok) {
