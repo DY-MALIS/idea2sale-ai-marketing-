@@ -203,45 +203,48 @@ const recordReactionUpdate = async (db, update) => {
   const reactionNames = Array.isArray(detailed.new_reaction)
     ? detailed.new_reaction.map(telegramReactionName)
     : [];
-  const oldReactionCount = Array.isArray(detailed.old_reaction) ? detailed.old_reaction.length : 0;
-  const reactionDelta = reactionNames.length - oldReactionCount;
-  await db.collection('telegram_channel_engagement').doc(`${chatId}_${messageId}_${actor.id}`).set({
-    kind: 'actor',
-    chatId,
-    messageId,
-    actorId: String(actor.id),
-    username: actor.username || null,
-    displayName: [actor.first_name, actor.last_name].filter(Boolean).join(' ') || actor.username || 'Telegram user',
-    reactions: reactionNames,
-    totalCount: reactionNames.length,
-    updatedAt: FieldValue.serverTimestamp(),
-  }, { merge: true });
+  const actorRef = db.collection('telegram_channel_engagement').doc(`${chatId}_${messageId}_${actor.id}`);
+  const aggregateRef = db.collection('telegram_channel_engagement').doc(`${chatId}_${messageId}`);
+  const summaryRef = db.collection('telegram_leads').doc('_channel_reactions');
+  await db.runTransaction(async (transaction) => {
+    // Derive the delta from our last stored state, not Telegram's old_reaction
+    // field. Telegram can retry the same webhook update; using stored state
+    // makes retries idempotent instead of incrementing/decrementing twice.
+    const actorSnapshot = await transaction.get(actorRef);
+    const aggregateSnapshot = await transaction.get(aggregateRef);
+    const previousActorTotal = Number(actorSnapshot.data()?.totalCount) || 0;
+    const reactionDelta = reactionNames.length - previousActorTotal;
+    const currentTotal = Number(aggregateSnapshot.data()?.totalCount) || 0;
+    const nextTotal = Math.max(0, currentTotal + reactionDelta);
+    const appliedDelta = nextTotal - currentTotal;
 
-  if (reactionDelta) {
-    const aggregateRef = db.collection('telegram_channel_engagement').doc(`${chatId}_${messageId}`);
-    const summaryRef = db.collection('telegram_leads').doc('_channel_reactions');
-    await db.runTransaction(async (transaction) => {
-      const aggregateSnapshot = await transaction.get(aggregateRef);
-      const currentTotal = Number(aggregateSnapshot.data()?.totalCount) || 0;
-      const nextTotal = Math.max(0, currentTotal + reactionDelta);
-      const appliedDelta = nextTotal - currentTotal;
-      transaction.set(aggregateRef, {
-        kind: 'aggregate',
-        chatId,
-        messageId,
-        totalCount: nextTotal,
+    transaction.set(actorRef, {
+      kind: 'actor',
+      chatId,
+      messageId,
+      actorId: String(actor.id),
+      username: actor.username || null,
+      displayName: [actor.first_name, actor.last_name].filter(Boolean).join(' ') || actor.username || 'Telegram user',
+      reactions: reactionNames,
+      totalCount: reactionNames.length,
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    transaction.set(aggregateRef, {
+      kind: 'aggregate',
+      chatId,
+      messageId,
+      totalCount: nextTotal,
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    if (appliedDelta) {
+      transaction.set(summaryRef, {
+        kind: 'engagement-summary',
+        totalCount: FieldValue.increment(appliedDelta),
         updatedAt: FieldValue.serverTimestamp(),
+        lastMessageAt: FieldValue.serverTimestamp(),
       }, { merge: true });
-      if (appliedDelta) {
-        transaction.set(summaryRef, {
-          kind: 'engagement-summary',
-          totalCount: FieldValue.increment(appliedDelta),
-          updatedAt: FieldValue.serverTimestamp(),
-          lastMessageAt: FieldValue.serverTimestamp(),
-        }, { merge: true });
-      }
-    });
-  }
+    }
+  });
 
   if (reactionNames.length) {
     await upsertTelegramLead(db, {
