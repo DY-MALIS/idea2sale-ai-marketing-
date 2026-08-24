@@ -362,8 +362,11 @@ const welcomeMessage = (isKhmer, businessName) => {
       ].join('\n');
 };
 
-const buildSystemPrompt = (businessName) => [
+const buildSystemPrompt = (businessName, isKhmer) => [
   `You are the Telegram chatbot for ${businessName || 'aime.angkorgate'}, an AI marketing assistant.`,
+  isKhmer
+    ? 'LANGUAGE REQUIREMENT FOR THIS MESSAGE: Reply in natural Khmer. Do not answer in English except for necessary brand names or technical terms.'
+    : 'LANGUAGE REQUIREMENT FOR THIS MESSAGE: Reply in English. Do not answer in Khmer.',
   businessName
     ? `You represent ${businessName}. When a customer asks who you are or what business this is, answer with ${businessName}, and naturally note relevant details about them if it helps the conversation.`
     : '',
@@ -612,7 +615,9 @@ export default async function handler(req, res) {
 
   if (db) {
     const ruleResponse = await findMatchingReplyRule(db, text).catch(() => null);
-    if (ruleResponse) {
+    // Never send a saved English rule to a Khmer question (or vice versa).
+    // A mismatched rule falls through to the language-locked AI response below.
+    if (ruleResponse && containsKhmer(ruleResponse) === isKhmer) {
       await sendTelegramHtmlMessage(token, chatId, ruleResponse, { replyToMessageId: leadContext.replyToMessageId });
       await logMessage(db, leadContext.conversationId, 'out', ruleResponse, 'rule');
       return res.status(200).json({ ok: true, matchedRule: true });
@@ -626,7 +631,7 @@ export default async function handler(req, res) {
     }).catch(() => {});
 
     const answer = await generateOpenRouterText({
-      system: buildSystemPrompt(businessName),
+      system: buildSystemPrompt(businessName, isKhmer),
       prompt: text,
       model: process.env.OPEN_ROUTER_MODEL,
     });
