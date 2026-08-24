@@ -203,6 +203,8 @@ const recordReactionUpdate = async (db, update) => {
   const reactionNames = Array.isArray(detailed.new_reaction)
     ? detailed.new_reaction.map(telegramReactionName)
     : [];
+  const oldReactionCount = Array.isArray(detailed.old_reaction) ? detailed.old_reaction.length : 0;
+  const reactionDelta = reactionNames.length - oldReactionCount;
   await db.collection('telegram_channel_engagement').doc(`${chatId}_${messageId}_${actor.id}`).set({
     kind: 'actor',
     chatId,
@@ -214,6 +216,32 @@ const recordReactionUpdate = async (db, update) => {
     totalCount: reactionNames.length,
     updatedAt: FieldValue.serverTimestamp(),
   }, { merge: true });
+
+  if (reactionDelta) {
+    const aggregateRef = db.collection('telegram_channel_engagement').doc(`${chatId}_${messageId}`);
+    const summaryRef = db.collection('telegram_leads').doc('_channel_reactions');
+    await db.runTransaction(async (transaction) => {
+      const aggregateSnapshot = await transaction.get(aggregateRef);
+      const currentTotal = Number(aggregateSnapshot.data()?.totalCount) || 0;
+      const nextTotal = Math.max(0, currentTotal + reactionDelta);
+      const appliedDelta = nextTotal - currentTotal;
+      transaction.set(aggregateRef, {
+        kind: 'aggregate',
+        chatId,
+        messageId,
+        totalCount: nextTotal,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      if (appliedDelta) {
+        transaction.set(summaryRef, {
+          kind: 'engagement-summary',
+          totalCount: FieldValue.increment(appliedDelta),
+          updatedAt: FieldValue.serverTimestamp(),
+          lastMessageAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+      }
+    });
+  }
 
   if (reactionNames.length) {
     await upsertTelegramLead(db, {
