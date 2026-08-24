@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Users, MessageCircle, Send, Loader2, Search, Tag, ShieldAlert, Heart } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { collection, query, orderBy, limit, startAfter, getDocs, onSnapshot, QueryDocumentSnapshot, DocumentData } from 'firebase/firestore';
+import { collection, doc, query, orderBy, limit, startAfter, getDocs, onSnapshot, QueryDocumentSnapshot, DocumentData } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { cn } from '../lib/utils';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -78,8 +78,6 @@ const CRM: React.FC = () => {
       q,
       (snapshot) => {
         const rows = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as TelegramLead[];
-        const summary = rows.find((lead) => lead.kind === 'engagement-summary');
-        setReactionCount(Number(summary?.totalCount) || 0);
         setLiveLeads(rows.filter((lead) => lead.kind !== 'engagement-summary'));
         if (!hasLoadedMoreRef.current) {
           setLastDoc(snapshot.docs[snapshot.docs.length - 1] || null);
@@ -91,6 +89,19 @@ const CRM: React.FC = () => {
         console.error('CRM leads listener error:', error);
         setLoading(false);
       }
+    );
+    return () => unsubscribe();
+  }, [checkingAdmin, isAdmin]);
+
+  // Keep channel engagement independent from lead pagination. Listening to the
+  // summary document directly makes every Telegram +1/-1 visible immediately,
+  // even when that synthetic document is outside the first leads page.
+  useEffect(() => {
+    if (checkingAdmin || !isAdmin) return;
+    const unsubscribe = onSnapshot(
+      doc(db, 'telegram_leads', '_channel_reactions'),
+      (snapshot) => setReactionCount(Number(snapshot.data()?.totalCount) || 0),
+      (error) => console.error('CRM reaction summary listener error:', error)
     );
     return () => unsubscribe();
   }, [checkingAdmin, isAdmin]);
