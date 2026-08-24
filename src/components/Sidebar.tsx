@@ -7,7 +7,6 @@ import {
   LogOut,
   ImageIcon,
   Video as VideoIcon,
-  Search,
   TrendingUp,
   Bot,
   ShieldCheck,
@@ -35,7 +34,6 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onLogout, on
       title: t('researchStrategy'),
       items: [
         { id: 'ai-agent', label: 'AI Agent', icon: Bot },
-        { id: 'product-research', label: t('researchLabel'), icon: Search },
       ]
     },
     {
