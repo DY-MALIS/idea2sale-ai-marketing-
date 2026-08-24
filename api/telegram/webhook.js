@@ -461,6 +461,8 @@ const setWebhook = async (req, res) => {
     const webhookInfoData = await webhookInfoResponse.json().catch(() => ({}));
     const allowedUpdates = webhookInfoData?.result?.allowed_updates || [];
     let botIsChannelAdmin = false;
+    let discussionGroupLinked = false;
+    let botIsDiscussionAdmin = false;
     const configuredChatId = (process.env.TELEGRAM_CHAT_ID || '').trim();
     if (configuredChatId) {
       const botData = await fetch(`https://api.telegram.org/bot${token}/getMe`).then((result) => result.json()).catch(() => ({}));
@@ -469,6 +471,15 @@ const setWebhook = async (req, res) => {
         const memberData = await fetch(`https://api.telegram.org/bot${token}/getChatMember?chat_id=${encodeURIComponent(configuredChatId)}&user_id=${botId}`)
           .then((result) => result.json()).catch(() => ({}));
         botIsChannelAdmin = ['administrator', 'creator'].includes(memberData?.result?.status);
+        const channelData = await fetch(`https://api.telegram.org/bot${token}/getChat?chat_id=${encodeURIComponent(configuredChatId)}`)
+          .then((result) => result.json()).catch(() => ({}));
+        const linkedChatId = channelData?.result?.linked_chat_id;
+        discussionGroupLinked = Boolean(linkedChatId);
+        if (linkedChatId) {
+          const discussionMemberData = await fetch(`https://api.telegram.org/bot${token}/getChatMember?chat_id=${linkedChatId}&user_id=${botId}`)
+            .then((result) => result.json()).catch(() => ({}));
+          botIsDiscussionAdmin = ['administrator', 'creator'].includes(discussionMemberData?.result?.status);
+        }
       }
     }
 
@@ -480,6 +491,8 @@ const setWebhook = async (req, res) => {
       diagnostics: {
         reactionUpdatesEnabled: allowedUpdates.includes('message_reaction') && allowedUpdates.includes('message_reaction_count'),
         botIsChannelAdmin,
+        discussionGroupLinked,
+        botIsDiscussionAdmin,
       },
     });
   } catch (error) {
