@@ -429,11 +429,30 @@ const setWebhook = async (req, res) => {
       });
     }
 
+    const webhookInfoResponse = await fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`);
+    const webhookInfoData = await webhookInfoResponse.json().catch(() => ({}));
+    const allowedUpdates = webhookInfoData?.result?.allowed_updates || [];
+    let botIsChannelAdmin = false;
+    const configuredChatId = (process.env.TELEGRAM_CHAT_ID || '').trim();
+    if (configuredChatId) {
+      const botData = await fetch(`https://api.telegram.org/bot${token}/getMe`).then((result) => result.json()).catch(() => ({}));
+      const botId = botData?.result?.id;
+      if (botId) {
+        const memberData = await fetch(`https://api.telegram.org/bot${token}/getChatMember?chat_id=${encodeURIComponent(configuredChatId)}&user_id=${botId}`)
+          .then((result) => result.json()).catch(() => ({}));
+        botIsChannelAdmin = ['administrator', 'creator'].includes(memberData?.result?.status);
+      }
+    }
+
     return res.status(200).json({
       ok: true,
       webhookUrl,
       message: 'Telegram chatbot webhook is active. Send /start to your bot in Telegram.',
       telegram: data,
+      diagnostics: {
+        reactionUpdatesEnabled: allowedUpdates.includes('message_reaction') && allowedUpdates.includes('message_reaction_count'),
+        botIsChannelAdmin,
+      },
     });
   } catch (error) {
     return res.status(500).json({
