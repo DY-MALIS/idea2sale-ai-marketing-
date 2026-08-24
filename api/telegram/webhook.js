@@ -174,14 +174,27 @@ const recordReactionUpdate = async (db, update) => {
           count: Number(item?.total_count) || 0,
         }))
       : [];
-    await db.collection('telegram_channel_engagement').doc(`${chatId}_${messageId}`).set({
-      kind: 'aggregate',
-      chatId,
-      messageId,
-      reactions,
-      totalCount: reactions.reduce((sum, item) => sum + item.count, 0),
-      updatedAt: FieldValue.serverTimestamp(),
-    }, { merge: true });
+    const totalCount = reactions.reduce((sum, item) => sum + item.count, 0);
+    const engagementRef = db.collection('telegram_channel_engagement').doc(`${chatId}_${messageId}`);
+    const summaryRef = db.collection('telegram_leads').doc('_channel_reactions');
+    await db.runTransaction(async (transaction) => {
+      const previous = await transaction.get(engagementRef);
+      const previousCount = Number(previous.data()?.totalCount) || 0;
+      transaction.set(engagementRef, {
+        kind: 'aggregate',
+        chatId,
+        messageId,
+        reactions,
+        totalCount,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      transaction.set(summaryRef, {
+        kind: 'engagement-summary',
+        totalCount: FieldValue.increment(totalCount - previousCount),
+        updatedAt: FieldValue.serverTimestamp(),
+        lastMessageAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+    });
     return;
   }
 

@@ -17,6 +17,8 @@ interface TelegramLead {
   lastMessage: string;
   lastMessageAt?: { toDate: () => Date };
   createdAt?: { toDate: () => Date };
+  kind?: 'engagement-summary';
+  totalCount?: number;
 }
 
 const TAG_STYLES: Record<string, string> = {
@@ -75,7 +77,10 @@ const CRM: React.FC = () => {
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
-        setLiveLeads(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as TelegramLead[]);
+        const rows = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as TelegramLead[];
+        const summary = rows.find((lead) => lead.kind === 'engagement-summary');
+        setReactionCount(Number(summary?.totalCount) || 0);
+        setLiveLeads(rows.filter((lead) => lead.kind !== 'engagement-summary'));
         if (!hasLoadedMoreRef.current) {
           setLastDoc(snapshot.docs[snapshot.docs.length - 1] || null);
           setHasMore(snapshot.docs.length === PAGE_SIZE);
@@ -90,21 +95,6 @@ const CRM: React.FC = () => {
     return () => unsubscribe();
   }, [checkingAdmin, isAdmin]);
 
-  useEffect(() => {
-    if (checkingAdmin || !isAdmin) return;
-    const unsubscribe = onSnapshot(
-      collection(db, 'telegram_channel_engagement'),
-      (snapshot) => {
-        setReactionCount(snapshot.docs.reduce((total, snapshotDoc) => {
-          const data = snapshotDoc.data();
-          return data.kind === 'aggregate' ? total + (Number(data.totalCount) || 0) : total;
-        }, 0));
-      },
-      (error) => console.error('Telegram reaction listener error:', error)
-    );
-    return () => unsubscribe();
-  }, [checkingAdmin, isAdmin]);
-
   const handleLoadMore = async () => {
     if (!lastDoc || loadingMoreRef.current) return;
     loadingMoreRef.current = true;
@@ -113,7 +103,8 @@ const CRM: React.FC = () => {
     try {
       const q = query(collection(db, 'telegram_leads'), orderBy('lastMessageAt', 'desc'), startAfter(lastDoc), limit(PAGE_SIZE));
       const snapshot = await getDocs(q);
-      const nextLeads = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as TelegramLead[];
+      const nextLeads = (snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as TelegramLead[])
+        .filter((lead) => lead.kind !== 'engagement-summary');
       setExtraLeads((prev) => [...prev, ...nextLeads]);
       setLastDoc(snapshot.docs[snapshot.docs.length - 1] || null);
       setHasMore(snapshot.docs.length === PAGE_SIZE);
