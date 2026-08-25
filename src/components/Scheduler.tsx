@@ -10,6 +10,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useIsAdmin } from '../hooks/useIsAdmin';
 import { deleteLocalMedia, getLocalMediaBlob, getLocalMediaDataUrl } from '../lib/localMediaStore';
 import { getStoredScheduledPosts, mergeStoredScheduleHistory } from '../lib/scheduledPosts';
+import { recordAuditEvent } from '../lib/auditClient';
 
 const DEMO_DEFAULT_POST_IDS = ['1', '2'];
 const TELEGRAM_UPLOAD_TIMEOUT_MS = 180000;
@@ -202,6 +203,7 @@ const Scheduler: React.FC = () => {
     await updateDoc(doc(db, 'scheduled_posts', post.id), status === 'PUBLISHED'
       ? { status, publishedAt: serverTimestamp() }
       : { status });
+    void recordAuditEvent('scheduled_post_status_updated', { postId: post.id, status, platform: post.platform });
   };
 
   // Second, cross-document safety net: the atomic claim above only stops the
@@ -417,6 +419,7 @@ const Scheduler: React.FC = () => {
       // Flipping back to PENDING is enough -- the due-post effect below picks it
       // straight back up (its scheduledTime is already in the past) and resends it.
       await updateDoc(doc(db, 'scheduled_posts', post.id), { status: 'PENDING' });
+      void recordAuditEvent('scheduled_post_retried', { postId: post.id, platform: post.platform });
     } catch (err: any) {
       console.error('Error retrying post:', err);
       const msg = err.message || '';
@@ -437,6 +440,7 @@ const Scheduler: React.FC = () => {
         return;
       }
       await deleteDoc(doc(db, 'scheduled_posts', id));
+      void recordAuditEvent('scheduled_post_deleted', { postId: id });
     } catch (err: any) {
       console.error('Error deleting post:', err);
       const msg = err.message || '';
@@ -458,6 +462,7 @@ const Scheduler: React.FC = () => {
       await updateDoc(doc(db, 'scheduled_posts', post.id), {
         status: newStatus
       });
+      void recordAuditEvent('scheduled_post_status_updated', { postId: post.id, status: newStatus, platform: post.platform });
     } catch (err: any) {
       console.error('Error updating status:', err);
       const msg = err.message || '';

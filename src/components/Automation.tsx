@@ -22,6 +22,7 @@ import { collection, query, where, orderBy, limit, startAfter, getDocs, onSnapsh
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useIsAdmin } from '../hooks/useIsAdmin';
+import { recordAuditEvent } from '../lib/auditClient';
 
 interface TelegramLead {
   id: string;
@@ -298,6 +299,7 @@ const Automation: React.FC = () => {
         updatedAt: serverTimestamp(),
         updatedBy: user?.uid || null,
       }, { merge: true });
+      void recordAuditEvent('automation_status_changed', { active: newState });
     } catch (err: any) {
       console.error('Error toggling automation:', err);
       setIsAutomationActive(!newState);
@@ -373,6 +375,7 @@ const Automation: React.FC = () => {
         userId: userToUse.uid,
         createdAt: serverTimestamp()
       });
+      void recordAuditEvent('reply_rule_created', { platform: 'TELEGRAM', trigger: normalizedTrigger });
       setIsRuleModalOpen(false);
       setRuleTrigger('');
       setRuleResponse('');
@@ -391,6 +394,7 @@ const Automation: React.FC = () => {
         return;
       }
       await deleteDoc(doc(db, 'reply_rules', id));
+      void recordAuditEvent('reply_rule_deleted', { ruleId: id });
     } catch (err: any) {
       console.error('Error deleting rule:', err);
       const msg = err.message || '';

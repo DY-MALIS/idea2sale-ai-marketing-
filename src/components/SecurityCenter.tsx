@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { ShieldCheck, LockKeyhole, FileWarning, DatabaseBackup, Activity, Users, Bot, AlertTriangle, ListChecks, ShieldAlert, Loader2 } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { ShieldCheck, LockKeyhole, FileWarning, DatabaseBackup, Activity, Users, Bot, AlertTriangle, ListChecks, ShieldAlert, Loader2, Download, UploadCloud } from 'lucide-react';
 import { collection, query, orderBy, limit, onSnapshot, DocumentData } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 import { useIsAdmin } from '../hooks/useIsAdmin';
@@ -61,8 +61,8 @@ const controls: Control[] = [
   },
   {
     label: 'Backup and restore',
-    status: 'missing',
-    detail: 'No documented or verified backup policy for this Firebase project. Firestore point-in-time recovery / scheduled exports must be enabled manually in the Firebase console, and a restore should be test-run at least once — this cannot be done from application code.',
+    status: 'live',
+    detail: 'Admins can download a versioned JSON backup and restore it safely with explicit confirmation. Production-scale point-in-time recovery should still be enabled in Firebase.',
   },
 ];
 
@@ -159,6 +159,7 @@ const SecurityCenter: React.FC = () => {
         </div>
       </section>
 
+      <AdminBackupPanel />
       <AdminUserDataPanel />
       <AuditLogPanel />
 
@@ -179,6 +180,93 @@ const SecurityCenter: React.FC = () => {
         </div>
       </section>
     </div>
+  );
+};
+
+const AdminBackupPanel: React.FC = () => {
+  const { isAdmin, checking } = useIsAdmin();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState<'download' | 'restore' | null>(null);
+  const [message, setMessage] = useState('');
+
+  const getAdminToken = async () => {
+    if (!auth.currentUser) throw new Error('Admin sign-in required.');
+    return auth.currentUser.getIdToken();
+  };
+
+  const downloadBackup = async () => {
+    setBusy('download');
+    setMessage('');
+    try {
+      const token = await getAdminToken();
+      const response = await fetch('/api/config/check?action=admin-backup', { headers: { Authorization: `Bearer ${token}` } });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Backup failed.');
+      const blobUrl = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+      const anchor = document.createElement('a');
+      anchor.href = blobUrl;
+      anchor.download = `aime-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      anchor.click();
+      URL.revokeObjectURL(blobUrl);
+      setMessage(`Backup downloaded: ${data.documentCount || 0} documents.`);
+    } catch (error: any) {
+      setMessage(error?.message || 'Backup failed.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const restoreBackup = async (file: File) => {
+    setBusy('restore');
+    setMessage('');
+    try {
+      const backup = JSON.parse(await file.text());
+      const confirmation = window.prompt('Type RESTORE to merge this backup into live Firestore. Existing matching documents may be overwritten.');
+      if (confirmation !== 'RESTORE') {
+        setMessage('Restore cancelled.');
+        return;
+      }
+      const token = await getAdminToken();
+      const response = await fetch('/api/config/check?action=admin-restore', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ backup, confirmation }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Restore failed.');
+      setMessage(`Restore completed: ${data.restored || 0} documents merged.`);
+    } catch (error: any) {
+      setMessage(error?.message || 'Restore failed.');
+    } finally {
+      setBusy(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  if (checking || !isAdmin) return null;
+
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+      <div className="flex flex-col justify-between gap-5 md:flex-row md:items-center">
+        <div>
+          <div className="flex items-center gap-2">
+            <DatabaseBackup className="h-5 w-5 text-brand-700 dark:text-brand-400" />
+            <h3 className="text-lg font-bold text-slate-950 dark:text-slate-100">Admin Backup & Restore</h3>
+          </div>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500 dark:text-slate-400">Download application data as versioned JSON. Restore merges documents and requires typing RESTORE; administrator roles and server secrets are never included.</p>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <button type="button" onClick={downloadBackup} disabled={busy !== null} className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">
+            {busy === 'download' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Download backup
+          </button>
+          <button type="button" onClick={() => fileInputRef.current?.click()} disabled={busy !== null} className="inline-flex items-center gap-2 rounded-lg border border-brand-300 px-4 py-2.5 text-sm font-bold text-brand-700 disabled:opacity-50 dark:border-slate-600 dark:text-brand-400">
+            {busy === 'restore' ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />} Restore backup
+          </button>
+          <input ref={fileInputRef} type="file" accept="application/json,.json" className="hidden" aria-label="Choose backup JSON file" onChange={(event) => { const file = event.target.files?.[0]; if (file) void restoreBackup(file); }} />
+        </div>
+      </div>
+      {message ? <p className="mt-4 rounded-lg bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 dark:bg-slate-700 dark:text-slate-200">{message}</p> : null}
+    </section>
   );
 };
 
@@ -294,6 +382,14 @@ const ACTION_LABELS: Record<string, string> = {
   tiktok_publish_photo: 'Published a TikTok photo post',
   tiktok_publish_video: 'Published a TikTok video post',
   telegram_cron_run: 'Scheduled Telegram poster ran',
+  admin_backup_downloaded: 'Downloaded an administrator data backup',
+  admin_backup_restored: 'Restored data from an administrator backup',
+  scheduled_post_status_updated: 'Updated a scheduled post status',
+  scheduled_post_deleted: 'Deleted a scheduled post',
+  scheduled_post_retried: 'Retried a failed scheduled post',
+  reply_rule_created: 'Created a Smart Reply rule',
+  reply_rule_deleted: 'Deleted a Smart Reply rule',
+  automation_status_changed: 'Changed Social Automation status',
 };
 
 const AuditLogPanel: React.FC = () => {
