@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { escapeTelegramHtml, formatTelegramHtml, getAutomationActive, replyRuleTriggerMatches, splitReplyRuleTriggers, telegramReactionName } from '../../../api/telegram/webhook.js';
+import { classifyLeadByKeywords, escapeTelegramHtml, formatTelegramHtml, getAutomationActive, replyRuleTriggerMatches, splitReplyRuleTriggers, telegramReactionName } from '../../../api/telegram/webhook.js';
 
 describe('getAutomationActive', () => {
   const makeFakeDb = (data) => ({
@@ -89,5 +89,21 @@ describe('telegramReactionName', () => {
     expect(telegramReactionName({ type: 'emoji', emoji: '👍' })).toBe('👍');
     expect(telegramReactionName({ type: 'custom_emoji', custom_emoji_id: '123' })).toBe('custom:123');
     expect(telegramReactionName({ type: 'paid' })).toBe('paid');
+  });
+});
+
+describe('classifyLeadByKeywords', () => {
+  it('classifies Khmer and English content creation requests as interested', () => {
+    expect(classifyLeadByKeywords('ខ្ញុំចង់ឲ្យអ្នកបង្កើត content ដែលទាក់ទាញខ្លាំង')).toBe('interested');
+    expect(classifyLeadByKeywords('I want you to create content for my business')).toBe('interested');
+  });
+
+  it('keeps price questions and technical support separate', () => {
+    expect(classifyLeadByKeywords('ធ្វើ content តម្លៃប៉ុន្មាន?')).toBe('price-question');
+    expect(classifyLeadByKeywords('កម្មវិធីមានបញ្ហា ប្រើមិនបាន')).toBe('support');
+  });
+
+  it('leaves greetings for the AI/general fallback', () => {
+    expect(classifyLeadByKeywords('សួស្តី')).toBeNull();
   });
 });

@@ -98,10 +98,48 @@ const messageLeadContext = (message) => {
   };
 };
 
+const includesAny = (text, phrases) => phrases.some((phrase) => text.includes(phrase));
+
+export const classifyLeadByKeywords = (value) => {
+  const text = String(value || '').normalize('NFKC').toLocaleLowerCase().trim();
+  if (!text) return null;
+
+  // A price question is the most specific commercial intent.
+  if (includesAny(text, [
+    'តម្លៃ', 'ថ្លៃប៉ុន្មាន', 'ប៉ុន្មានដុល្លារ', 'អស់ប៉ុន្មាន',
+    'price', 'pricing', 'how much', 'cost', 'quotation', 'quote',
+  ])) return 'price-question';
+
+  // Reserve support for an actual problem; a request to create content is a sales lead.
+  if (includesAny(text, [
+    'មិនដំណើរការ', 'ប្រើមិនបាន', 'មានបញ្ហា', 'ខូច', 'កំហុស',
+    'not working', 'does not work', "doesn't work", 'error', 'broken',
+    'technical support', 'bug', 'fix this',
+  ])) return 'support';
+
+  if (includesAny(text, [
+    'ចង់', 'ចាប់អារម្មណ៍', 'បង្កើត', 'កម្ម៉ង់', 'កុម្ម៉ង់', 'ទិញ',
+    'ជួល', 'ប្រើសេវា', 'សុំធ្វើ', 'ធ្វើឲ្យ', 'ធ្វើអោយ',
+    'interested', 'i want', "i'd like", 'would like', 'need you to',
+    'create content', 'make content', 'order', 'buy', 'hire', 'use your service',
+  ])) return 'interested';
+
+  return null;
+};
+
 const classifyLead = async (text) => {
+  const keywordTag = classifyLeadByKeywords(text);
+  if (keywordTag) return keywordTag;
+
   try {
     const result = await generateOpenRouterText({
-      system: 'Classify the intent of this first message from a new contact. Respond with ONLY one lowercase word from this exact list: interested, price-question, support, general. No punctuation, no explanation.',
+      system: `Classify this Telegram contact message. Understand both Khmer and English.
+Return ONLY one exact lowercase tag: interested, price-question, support, general.
+- interested: wants, requests, orders, hires, buys, or asks us to create content or provide a service.
+- price-question: asks about price, cost, quotation, package, or payment.
+- support: reports a technical problem, error, broken feature, or asks to fix an existing problem.
+- general: greeting, thanks, casual conversation, or information with no buying/service intent.
+A request such as "I want you to create attractive content" is interested, not general or support.`,
       prompt: text.slice(0, 500),
     });
     const tag = String(result || '').trim().toLowerCase().replace(/[^a-z-]/g, '');
