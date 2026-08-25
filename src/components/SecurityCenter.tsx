@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { ShieldCheck, LockKeyhole, FileWarning, DatabaseBackup, Activity, Users, Bot, AlertTriangle, ListChecks, ShieldAlert, Loader2 } from 'lucide-react';
 import { collection, query, orderBy, limit, onSnapshot, DocumentData } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { auth, db } from '../lib/firebase';
 import { useIsAdmin } from '../hooks/useIsAdmin';
 
 type ControlStatus = 'live' | 'partial' | 'missing';
@@ -159,6 +159,7 @@ const SecurityCenter: React.FC = () => {
         </div>
       </section>
 
+      <AdminUserDataPanel />
       <AuditLogPanel />
 
       <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
@@ -178,6 +179,104 @@ const SecurityCenter: React.FC = () => {
         </div>
       </section>
     </div>
+  );
+};
+
+interface AdminUserSummary {
+  uid: string;
+  email?: string | null;
+  displayName?: string | null;
+  businessName?: string | null;
+  disabled: boolean;
+  isAdmin: boolean;
+  createdAt?: string | null;
+  lastSignInAt?: string | null;
+  agentMessageCount: number;
+  dataCounts: Record<string, number>;
+}
+
+const AdminUserDataPanel: React.FC = () => {
+  const { isAdmin, checking } = useIsAdmin();
+  const [users, setUsers] = useState<AdminUserSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (checking) return;
+    if (!isAdmin || !auth.currentUser) {
+      setLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const loadUsers = async () => {
+      try {
+        const idToken = await auth.currentUser?.getIdToken();
+        const response = await fetch('/api/admin/users', {
+          headers: { Authorization: `Bearer ${idToken}` },
+          signal: controller.signal,
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'Could not load users.');
+        setUsers(Array.isArray(data.users) ? data.users : []);
+      } catch (loadError: any) {
+        if (loadError?.name !== 'AbortError') setError(loadError?.message || 'Could not load users.');
+      } finally {
+        setLoading(false);
+      }
+    };
+    void loadUsers();
+    return () => controller.abort();
+  }, [checking, isAdmin]);
+
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+      <div className="flex items-center gap-2 border-b border-slate-100 px-6 py-4 dark:border-slate-700">
+        <Users className="h-5 w-5 text-brand-700 dark:text-brand-400" />
+        <h3 className="text-lg font-bold text-slate-950 dark:text-slate-100">Admin User Data</h3>
+      </div>
+      {checking || loading ? (
+        <div className="flex justify-center p-10"><Loader2 className="h-5 w-5 animate-spin text-brand-400" /></div>
+      ) : !isAdmin ? (
+        <p className="px-6 py-8 text-sm text-slate-500">Admin access required.</p>
+      ) : error ? (
+        <p className="px-6 py-8 text-sm text-red-600">{error}</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-left text-sm">
+            <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:bg-slate-900/40 dark:text-slate-400">
+              <tr>
+                <th className="px-6 py-3">User</th>
+                <th className="px-4 py-3">Role</th>
+                <th className="px-4 py-3">Scheduled</th>
+                <th className="px-4 py-3">Campaigns</th>
+                <th className="px-4 py-3">Rules</th>
+                <th className="px-4 py-3">Audience</th>
+                <th className="px-4 py-3">AI messages</th>
+                <th className="px-4 py-3">Last sign-in</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+              {users.map((item) => (
+                <tr key={item.uid}>
+                  <td className="px-6 py-4">
+                    <p className="font-semibold text-slate-900 dark:text-slate-100">{item.email || item.displayName || 'No email'}</p>
+                    <p className="mt-1 max-w-64 truncate text-xs text-slate-400" title={item.uid}>{item.businessName || item.uid}</p>
+                  </td>
+                  <td className="px-4 py-4 font-semibold text-brand-700 dark:text-brand-400">{item.isAdmin ? 'Admin' : 'User'}</td>
+                  <td className="px-4 py-4">{item.dataCounts.scheduled_posts || 0}</td>
+                  <td className="px-4 py-4">{item.dataCounts.campaigns || 0}</td>
+                  <td className="px-4 py-4">{item.dataCounts.reply_rules || 0}</td>
+                  <td className="px-4 py-4">{item.dataCounts.audience_activity || 0}</td>
+                  <td className="px-4 py-4">{item.agentMessageCount || 0}</td>
+                  <td className="px-4 py-4 text-xs text-slate-500">{item.lastSignInAt ? new Date(item.lastSignInAt).toLocaleString() : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   );
 };
 

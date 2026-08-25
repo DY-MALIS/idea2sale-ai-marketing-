@@ -55,7 +55,13 @@ const TikTokAnalytics: React.FC = () => {
     const statsController = new AbortController();
     const statsTimeoutId = window.setTimeout(() => statsController.abort(), 15000);
     try {
-      const response = await fetch(`/api/tiktok/stats?handle=${encodeURIComponent(handle)}&t=${Date.now()}`, { credentials: 'include', signal: statsController.signal });
+      if (!user) throw new Error('Sign in to view TikTok statistics.');
+      const idToken = await user.getIdToken();
+      const response = await fetch(`/api/tiktok/stats?handle=${encodeURIComponent(handle)}&t=${Date.now()}`, {
+        credentials: 'include',
+        signal: statsController.signal,
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
       const data = await response.json();
       if (!response.ok) {
         setStatsErrorCode(data.code || 'sync_error');

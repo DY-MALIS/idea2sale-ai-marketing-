@@ -1,4 +1,18 @@
 import { getCookie } from '../_tiktok.js';
+import admin from 'firebase-admin';
+import { initFirebaseAdmin } from '../_firebaseAdmin.js';
+
+async function requireSignedInUser(req) {
+  initFirebaseAdmin();
+  const authorization = String(req.headers.authorization || '');
+  const idToken = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+  if (!idToken) return null;
+  try {
+    return await admin.auth().verifyIdToken(idToken, true);
+  } catch {
+    return null;
+  }
+}
 
 function cleanHandle(value = '') {
   let handle = String(value || '').trim();
@@ -31,6 +45,9 @@ function fallbackStats(req, message = 'TikTok official statistics are not availa
 }
 
 export default async function handler(req, res) {
+  const user = await requireSignedInUser(req);
+  if (!user) return res.status(401).json({ error: 'Sign in to view TikTok statistics.', code: 'auth_required' });
+
   const token = getCookie(req, 'tiktok_token');
   if (!token) return res.status(200).json(fallbackStats(req, 'Connect TikTok to read official account statistics.'));
   const fields = 'open_id,avatar_url,display_name,username,follower_count,following_count,likes_count,video_count';
