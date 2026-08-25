@@ -127,6 +127,30 @@ export const classifyLeadByKeywords = (value) => {
   return null;
 };
 
+const ensureStoredLeadIntentTags = async (db) => {
+  const snapshot = await db.collection('telegram_leads').get();
+  const updates = snapshot.docs.filter((leadDoc) => {
+    if (leadDoc.id.startsWith('_')) return false;
+    const lead = leadDoc.data() || {};
+    if (lead.source === 'channel-comment') return false;
+    const detectedTag = classifyLeadByKeywords(lead.lastMessage);
+    return detectedTag && detectedTag !== lead.tag;
+  }).map((leadDoc) => ({
+    ref: leadDoc.ref,
+    tag: classifyLeadByKeywords(leadDoc.data()?.lastMessage),
+  }));
+
+  for (let index = 0; index < updates.length; index += 400) {
+    const batch = db.batch();
+    updates.slice(index, index + 400).forEach(({ ref, tag }) => {
+      batch.update(ref, { tag });
+    });
+    await batch.commit();
+  }
+
+  return updates.length;
+};
+
 const classifyLead = async (text) => {
   const keywordTag = classifyLeadByKeywords(text);
   if (keywordTag) return keywordTag;
@@ -579,10 +603,13 @@ const setWebhook = async (req, res) => {
         }
       }
     }
+    let reclassifiedLeads = 0;
     try {
-      await ensureChannelCommentSummary(initFirebaseAdmin());
+      const db = initFirebaseAdmin();
+      await ensureChannelCommentSummary(db);
+      reclassifiedLeads = await ensureStoredLeadIntentTags(db);
     } catch (error) {
-      console.error('Telegram comment summary backfill failed:', error?.message || error);
+      console.error('Telegram CRM backfill failed:', error?.message || error);
     }
 
     return res.status(200).json({
@@ -595,6 +622,7 @@ const setWebhook = async (req, res) => {
         botIsChannelAdmin,
         discussionGroupLinked,
         botIsDiscussionAdmin,
+        reclassifiedLeads,
       },
     });
   } catch (error) {
