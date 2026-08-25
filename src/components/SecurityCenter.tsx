@@ -212,7 +212,7 @@ const AdminUserDataPanel: React.FC = () => {
     const loadUsers = async () => {
       try {
         const idToken = await auth.currentUser?.getIdToken();
-        const response = await fetch('/api/admin/users', {
+        const response = await fetch('/api/config/check?action=admin-users', {
           headers: { Authorization: `Bearer ${idToken}` },
           signal: controller.signal,
         });
