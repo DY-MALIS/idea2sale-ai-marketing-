@@ -573,6 +573,14 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true, ignored: 'bot-message' });
   }
 
+  // Telegram automatically mirrors every new channel post into its linked
+  // discussion group. That mirrored photo/video is the comment thread root,
+  // not a customer message, so replying to it creates an unwanted generic bot
+  // message above the first real comment. Real comments do not carry this flag.
+  if (message?.is_automatic_forward) {
+    return res.status(200).json({ ok: true, ignored: 'automatic-channel-forward' });
+  }
+
   if (!text) {
     await sendTelegramHtmlMessage(
       token,
