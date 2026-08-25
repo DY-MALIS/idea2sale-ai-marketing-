@@ -15,6 +15,7 @@ import CRM from './components/CRM';
 import Automation from './components/Automation';
 import Auth from './components/Auth';
 import LegalPage from './components/LegalPage';
+import PublicWebsite from './components/PublicWebsite';
 import SecurityCenter from './components/SecurityCenter';
 import BusinessProfile from './components/BusinessProfile';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -119,6 +120,10 @@ export default function App() {
 
   if (pathname === '/privacy-policy') {
     return <LegalPage type="privacy" />;
+  }
+
+  if (pathname === '/about') {
+    return <PublicWebsite />;
   }
 
   return (
