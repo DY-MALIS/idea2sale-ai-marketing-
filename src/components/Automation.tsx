@@ -35,6 +35,7 @@ interface TelegramLead {
   replyToMessageId?: number | null;
   canReply?: boolean;
   kind?: 'engagement-summary' | 'comment-summary';
+  source?: 'user' | 'channel-comment';
 }
 
 interface TelegramMessage {
@@ -78,6 +79,7 @@ const Automation: React.FC = () => {
   const [inboxHasMore, setInboxHasMore] = useState(false);
   const [inboxLastDoc, setInboxLastDoc] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
   const [inboxSearch, setInboxSearch] = useState('');
+  const [inboxView, setInboxView] = useState<'messages' | 'comments'>('messages');
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [inboxMessages, setInboxMessages] = useState<TelegramMessage[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
@@ -124,11 +126,23 @@ const Automation: React.FC = () => {
     }
   };
 
-  const filteredInboxLeads = inboxLeads.filter((lead) => {
+  const visibleInboxLeads = inboxLeads.filter((lead) => (
+    inboxView === 'comments' ? lead.source === 'channel-comment' : lead.source !== 'channel-comment'
+  ));
+  const filteredInboxLeads = visibleInboxLeads.filter((lead) => {
     if (!inboxSearch.trim()) return true;
     const needle = inboxSearch.trim().toLowerCase();
     return lead.displayName?.toLowerCase().includes(needle) || lead.username?.toLowerCase().includes(needle) || lead.lastMessage?.toLowerCase().includes(needle);
   });
+
+  useEffect(() => {
+    if (activeTab !== 'inbox') return;
+    setSelectedChatId((current) => (
+      current && visibleInboxLeads.some((lead) => lead.chatId === current)
+        ? current
+        : visibleInboxLeads[0]?.chatId || null
+    ));
+  }, [activeTab, inboxView, inboxLeads]);
 
   // Auto-load the next page as the user scrolls near the bottom of the list.
   const inboxSentinelRef = useRef<HTMLDivElement | null>(null);
@@ -476,7 +490,31 @@ const Automation: React.FC = () => {
                 <InboxIcon size={18} className="text-brand-500" />
                 {t('inboxLabel')}
               </h3>
-              <span className="text-[10px] font-bold text-slate-400 dark:text-slate-400">{inboxLeads.length}{inboxHasMore ? '+' : ''}</span>
+              <span className="text-[10px] font-bold text-slate-400 dark:text-slate-400">{visibleInboxLeads.length}{inboxHasMore ? '+' : ''}</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2 p-3 border-b border-brand-50 dark:border-slate-700 shrink-0">
+              <button
+                onClick={() => setInboxView('messages')}
+                className={cn(
+                  'rounded-xl px-3 py-2 text-xs font-bold border transition-colors',
+                  inboxView === 'messages'
+                    ? 'bg-brand-700 text-white border-brand-700'
+                    : 'bg-white dark:bg-slate-800 text-brand-600 dark:text-brand-300 border-brand-100 dark:border-slate-600'
+                )}
+              >
+                {t('inboxMessagesLabel')}
+              </button>
+              <button
+                onClick={() => setInboxView('comments')}
+                className={cn(
+                  'rounded-xl px-3 py-2 text-xs font-bold border transition-colors',
+                  inboxView === 'comments'
+                    ? 'bg-brand-700 text-white border-brand-700'
+                    : 'bg-white dark:bg-slate-800 text-brand-600 dark:text-brand-300 border-brand-100 dark:border-slate-600'
+                )}
+              >
+                {t('inboxCommentsLabel')}
+              </button>
             </div>
             <div className="p-3 border-b border-brand-50 shrink-0">
               <div className="relative">
@@ -496,7 +534,7 @@ const Automation: React.FC = () => {
               ) : filteredInboxLeads.length === 0 ? (
                 <div className="text-center p-10">
                   <MessageCircle size={32} className="mx-auto text-brand-200 mb-3" />
-                  <p className="text-sm text-slate-500 dark:text-slate-400">{t('noLeadsYet')}</p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">{inboxView === 'comments' ? t('noCommentsYet') : t('noLeadsYet')}</p>
                 </div>
               ) : (
                 <>
