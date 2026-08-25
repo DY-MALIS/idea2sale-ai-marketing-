@@ -19,6 +19,7 @@ interface TelegramLead {
   createdAt?: { toDate: () => Date };
   kind?: 'engagement-summary' | 'comment-summary';
   totalCount?: number;
+  source?: 'user' | 'channel-comment';
 }
 
 const TAG_STYLES: Record<string, string> = {
@@ -48,6 +49,7 @@ const CRM: React.FC = () => {
   const [lastDoc, setLastDoc] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
   const [searchInput, setSearchInput] = useState('');
   const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'leads' | 'comments'>('leads');
   const [reactionCount, setReactionCount] = useState(0);
   const [commentCount, setCommentCount] = useState(0);
   // Once the admin has paged past the live-tracked first page, a realtime
@@ -151,14 +153,17 @@ const CRM: React.FC = () => {
     return () => observer.disconnect();
   }, [hasMore, lastDoc]);
 
-  const filteredLeads = leads.filter((lead) => {
+  const regularLeads = leads.filter((lead) => lead.source !== 'channel-comment');
+  const commentLeads = leads.filter((lead) => lead.source === 'channel-comment');
+  const visibleLeads = viewMode === 'comments' ? commentLeads : regularLeads;
+  const filteredLeads = visibleLeads.filter((lead) => {
     if (tagFilter && lead.tag !== tagFilter) return false;
     if (!searchInput.trim()) return true;
     const needle = searchInput.trim().toLowerCase();
     return lead.displayName?.toLowerCase().includes(needle) || lead.username?.toLowerCase().includes(needle) || lead.lastMessage?.toLowerCase().includes(needle);
   });
 
-  const tagCounts = leads.reduce<Record<string, number>>((acc, lead) => {
+  const tagCounts = regularLeads.reduce<Record<string, number>>((acc, lead) => {
     acc[lead.tag] = (acc[lead.tag] || 0) + 1;
     return acc;
   }, {});
@@ -175,22 +180,28 @@ const CRM: React.FC = () => {
 
       <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-7 gap-4">
         <button
-          onClick={() => setTagFilter(null)}
+          onClick={() => {
+            setViewMode('leads');
+            setTagFilter(null);
+          }}
           className={cn(
             'glass p-5 rounded-2xl border text-left transition-all',
-            tagFilter === null ? 'border-brand-500 shadow-sm' : 'border-brand-100'
+            viewMode === 'leads' && tagFilter === null ? 'border-brand-500 shadow-sm' : 'border-brand-100'
           )}
         >
           <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1">{t('allLeads')}</p>
-          <p className="text-2xl font-bold text-brand-700 dark:text-brand-400">{leads.length}{hasMore ? '+' : ''}</p>
+          <p className="text-2xl font-bold text-brand-700 dark:text-brand-400">{regularLeads.length}{hasMore ? '+' : ''}</p>
         </button>
         {['interested', 'price-question', 'support', 'general'].map((tag) => (
           <button
             key={tag}
-            onClick={() => setTagFilter(tag)}
+            onClick={() => {
+              setViewMode('leads');
+              setTagFilter(tag);
+            }}
             className={cn(
               'glass p-5 rounded-2xl border text-left transition-all',
-              tagFilter === tag ? 'border-brand-500 shadow-sm' : 'border-brand-100'
+              viewMode === 'leads' && tagFilter === tag ? 'border-brand-500 shadow-sm' : 'border-brand-100'
             )}
           >
             <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1">{t(`leadTag_${tag.replace('-', '_')}` as any)}</p>
@@ -204,13 +215,22 @@ const CRM: React.FC = () => {
           </p>
           <p className="text-2xl font-bold text-brand-700 dark:text-brand-400">{reactionCount}</p>
         </div>
-        <div className="glass p-5 rounded-2xl border border-brand-100 text-left">
+        <button
+          onClick={() => {
+            setViewMode('comments');
+            setTagFilter(null);
+          }}
+          className={cn(
+            'glass p-5 rounded-2xl border text-left transition-all',
+            viewMode === 'comments' ? 'border-brand-500 shadow-sm' : 'border-brand-100'
+          )}
+        >
           <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1.5">
             <MessageCircle size={12} className="text-sky-500" />
             {t('telegramComments')}
           </p>
           <p className="text-2xl font-bold text-brand-700 dark:text-brand-400">{commentCount}</p>
-        </div>
+        </button>
       </div>
 
       <div className="relative">
@@ -246,8 +266,8 @@ const CRM: React.FC = () => {
             <div className="w-16 h-16 bg-brand-50 dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4 border border-brand-100 dark:border-slate-700">
               <MessageCircle size={24} className="text-brand-300" />
             </div>
-            <h3 className="text-brand-700 dark:text-brand-400 font-bold mb-1">{t('noLeadsYet')}</h3>
-            <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm mx-auto">{t('noLeadsYetDesc')}</p>
+            <h3 className="text-brand-700 dark:text-brand-400 font-bold mb-1">{viewMode === 'comments' ? t('noCommentsYet') : t('noLeadsYet')}</h3>
+            <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm mx-auto">{viewMode === 'comments' ? t('noCommentsYetDesc') : t('noLeadsYetDesc')}</p>
           </div>
         ) : (
           <div className="divide-y divide-brand-100">
