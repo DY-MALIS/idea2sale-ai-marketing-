@@ -254,6 +254,52 @@ const recordReactionUpdate = async (db, update) => {
   }
 };
 
+const recordChannelComment = async (db, message, text) => {
+  const chatId = String(message?.chat?.id || '');
+  const messageId = Number(message?.message_id);
+  if (!chatId || !Number.isFinite(messageId)) return;
+
+  const eventRef = db.collection('telegram_channel_engagement').doc(`${chatId}_comment_${messageId}`);
+  const summaryRef = db.collection('telegram_leads').doc('_channel_comments');
+  await db.runTransaction(async (transaction) => {
+    const existing = await transaction.get(eventRef);
+    transaction.set(eventRef, {
+      kind: 'comment',
+      chatId,
+      messageId,
+      actorId: String(message?.from?.id || message?.sender_chat?.id || ''),
+      text: text.slice(0, 500),
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    if (!existing.exists) {
+      transaction.set(summaryRef, {
+        kind: 'comment-summary',
+        totalCount: FieldValue.increment(1),
+        updatedAt: FieldValue.serverTimestamp(),
+        lastMessageAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+    }
+  });
+};
+
+const ensureChannelCommentSummary = async (db) => {
+  const summaryRef = db.collection('telegram_leads').doc('_channel_comments');
+  const legacyComments = await db.collection('telegram_messages')
+    .where('source', '==', 'channel-comment')
+    .get();
+  await db.runTransaction(async (transaction) => {
+    const summary = await transaction.get(summaryRef);
+    if (!summary.exists) {
+      transaction.set(summaryRef, {
+        kind: 'comment-summary',
+        totalCount: legacyComments.size,
+        updatedAt: FieldValue.serverTimestamp(),
+        lastMessageAt: FieldValue.serverTimestamp(),
+      });
+    }
+  });
+};
+
 const getBusinessName = async (db) => {
   try {
     const snapshot = await db.collection('business_profiles').orderBy('updatedAt', 'desc').limit(1).get();
@@ -488,6 +534,11 @@ const setWebhook = async (req, res) => {
         }
       }
     }
+    try {
+      await ensureChannelCommentSummary(initFirebaseAdmin());
+    } catch (error) {
+      console.error('Telegram comment summary backfill failed:', error?.message || error);
+    }
 
     return res.status(200).json({
       ok: true,
@@ -602,6 +653,11 @@ export default async function handler(req, res) {
   const leadContext = db
     ? await upsertTelegramLead(db, message, text)
     : messageLeadContext(message);
+  if (db && ['group', 'supergroup'].includes(message?.chat?.type)) {
+    await recordChannelComment(db, message, text).catch((error) => {
+      console.error('Telegram comment count failed:', error?.message || error);
+    });
+  }
   if (db) await logMessage(db, leadContext.conversationId, 'in', text, leadContext.source);
 
   const businessName = db ? await getBusinessName(db) : null;

@@ -34,7 +34,7 @@ interface TelegramLead {
   replyChatId?: string;
   replyToMessageId?: number | null;
   canReply?: boolean;
-  kind?: 'engagement-summary';
+  kind?: 'engagement-summary' | 'comment-summary';
 }
 
 interface TelegramMessage {
@@ -93,7 +93,7 @@ const Automation: React.FC = () => {
     const q = query(collection(db, 'telegram_leads'), orderBy('lastMessageAt', 'desc'), limit(INBOX_PAGE_SIZE));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data = (snapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as TelegramLead[])
-        .filter((lead) => lead.kind !== 'engagement-summary');
+        .filter((lead) => !lead.kind?.endsWith('summary'));
       setInboxLeads(data);
       setInboxLastDoc(snapshot.docs[snapshot.docs.length - 1] || null);
       setInboxHasMore(snapshot.docs.length === INBOX_PAGE_SIZE);
@@ -113,7 +113,7 @@ const Automation: React.FC = () => {
       const q = query(collection(db, 'telegram_leads'), orderBy('lastMessageAt', 'desc'), startAfter(inboxLastDoc), limit(INBOX_PAGE_SIZE));
       const snapshot = await getDocs(q);
       const next = (snapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as TelegramLead[])
-        .filter((lead) => lead.kind !== 'engagement-summary');
+        .filter((lead) => !lead.kind?.endsWith('summary'));
       setInboxLeads((prev) => [...prev, ...next]);
       setInboxLastDoc(snapshot.docs[snapshot.docs.length - 1] || null);
       setInboxHasMore(snapshot.docs.length === INBOX_PAGE_SIZE);

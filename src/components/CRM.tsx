@@ -17,7 +17,7 @@ interface TelegramLead {
   lastMessage: string;
   lastMessageAt?: { toDate: () => Date };
   createdAt?: { toDate: () => Date };
-  kind?: 'engagement-summary';
+  kind?: 'engagement-summary' | 'comment-summary';
   totalCount?: number;
 }
 
@@ -49,6 +49,7 @@ const CRM: React.FC = () => {
   const [searchInput, setSearchInput] = useState('');
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [reactionCount, setReactionCount] = useState(0);
+  const [commentCount, setCommentCount] = useState(0);
   // Once the admin has paged past the live-tracked first page, a realtime
   // reorder of that first page must not reset lastDoc/hasMore back to it --
   // that would desync the "next page" cursor from what's actually been loaded.
@@ -78,7 +79,7 @@ const CRM: React.FC = () => {
       q,
       (snapshot) => {
         const rows = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as TelegramLead[];
-        setLiveLeads(rows.filter((lead) => lead.kind !== 'engagement-summary'));
+        setLiveLeads(rows.filter((lead) => !lead.kind?.endsWith('summary')));
         if (!hasLoadedMoreRef.current) {
           setLastDoc(snapshot.docs[snapshot.docs.length - 1] || null);
           setHasMore(snapshot.docs.length === PAGE_SIZE);
@@ -89,6 +90,16 @@ const CRM: React.FC = () => {
         console.error('CRM leads listener error:', error);
         setLoading(false);
       }
+    );
+    return () => unsubscribe();
+  }, [checkingAdmin, isAdmin]);
+
+  useEffect(() => {
+    if (checkingAdmin || !isAdmin) return;
+    const unsubscribe = onSnapshot(
+      doc(db, 'telegram_leads', '_channel_comments'),
+      (snapshot) => setCommentCount(Number(snapshot.data()?.totalCount) || 0),
+      (error) => console.error('CRM comment summary listener error:', error)
     );
     return () => unsubscribe();
   }, [checkingAdmin, isAdmin]);
@@ -115,7 +126,7 @@ const CRM: React.FC = () => {
       const q = query(collection(db, 'telegram_leads'), orderBy('lastMessageAt', 'desc'), startAfter(lastDoc), limit(PAGE_SIZE));
       const snapshot = await getDocs(q);
       const nextLeads = (snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as TelegramLead[])
-        .filter((lead) => lead.kind !== 'engagement-summary');
+        .filter((lead) => !lead.kind?.endsWith('summary'));
       setExtraLeads((prev) => [...prev, ...nextLeads]);
       setLastDoc(snapshot.docs[snapshot.docs.length - 1] || null);
       setHasMore(snapshot.docs.length === PAGE_SIZE);
@@ -162,7 +173,7 @@ const CRM: React.FC = () => {
         <p className="text-slate-500 dark:text-slate-400 mt-1 text-lg">{t('crmSubtitle')}</p>
       </header>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-7 gap-4">
         <button
           onClick={() => setTagFilter(null)}
           className={cn(
@@ -192,6 +203,13 @@ const CRM: React.FC = () => {
             {t('telegramReactions')}
           </p>
           <p className="text-2xl font-bold text-brand-700 dark:text-brand-400">{reactionCount}</p>
+        </div>
+        <div className="glass p-5 rounded-2xl border border-brand-100 text-left">
+          <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1.5">
+            <MessageCircle size={12} className="text-sky-500" />
+            {t('telegramComments')}
+          </p>
+          <p className="text-2xl font-bold text-brand-700 dark:text-brand-400">{commentCount}</p>
         </div>
       </div>
 
