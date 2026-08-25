@@ -284,18 +284,25 @@ const recordChannelComment = async (db, message, text) => {
 
 const ensureChannelCommentSummary = async (db) => {
   const summaryRef = db.collection('telegram_leads').doc('_channel_comments');
-  const legacyComments = await db.collection('telegram_messages')
-    .where('source', '==', 'channel-comment')
-    .get();
+  const [legacyComments, commentLeads] = await Promise.all([
+    db.collection('telegram_messages').where('source', '==', 'channel-comment').get(),
+    db.collection('telegram_leads').where('source', '==', 'channel-comment').get(),
+  ]);
+  const leadMessageCount = commentLeads.docs.reduce(
+    (total, lead) => total + Math.max(1, Number(lead.data()?.messageCount) || 0),
+    0,
+  );
+  const recoveredTotal = Math.max(legacyComments.size, leadMessageCount);
   await db.runTransaction(async (transaction) => {
     const summary = await transaction.get(summaryRef);
-    if (!summary.exists) {
+    const currentTotal = Number(summary.data()?.totalCount) || 0;
+    if (!summary.exists || recoveredTotal > currentTotal) {
       transaction.set(summaryRef, {
         kind: 'comment-summary',
-        totalCount: legacyComments.size,
+        totalCount: recoveredTotal,
         updatedAt: FieldValue.serverTimestamp(),
         lastMessageAt: FieldValue.serverTimestamp(),
-      });
+      }, { merge: true });
     }
   });
 };
