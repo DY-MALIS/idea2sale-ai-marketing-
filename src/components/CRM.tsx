@@ -233,6 +233,37 @@ const CRM: React.FC = () => {
         </button>
       </div>
 
+      <div className="grid grid-cols-2 gap-3 rounded-2xl border border-brand-100 dark:border-slate-700 bg-white/70 dark:bg-slate-900/60 p-3">
+        <button
+          onClick={() => {
+            setViewMode('leads');
+            setTagFilter(null);
+          }}
+          className={cn(
+            'rounded-xl px-4 py-3 text-sm font-bold border transition-all',
+            viewMode === 'leads'
+              ? 'bg-brand-700 text-white border-brand-700 shadow-sm'
+              : 'bg-white dark:bg-slate-800 text-brand-600 dark:text-brand-300 border-brand-100 dark:border-slate-600'
+          )}
+        >
+          {t('inboxMessagesLabel')}
+        </button>
+        <button
+          onClick={() => {
+            setViewMode('comments');
+            setTagFilter(null);
+          }}
+          className={cn(
+            'rounded-xl px-4 py-3 text-sm font-bold border transition-all',
+            viewMode === 'comments'
+              ? 'bg-brand-700 text-white border-brand-700 shadow-sm'
+              : 'bg-white dark:bg-slate-800 text-brand-600 dark:text-brand-300 border-brand-100 dark:border-slate-600'
+          )}
+        >
+          {t('inboxCommentsLabel')}
+        </button>
+      </div>
+
       <div className="relative">
         <input
           type="text"
