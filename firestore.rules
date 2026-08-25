@@ -46,29 +46,33 @@ service cloud.firestore {
     }
 
     match /tiktok_posts/{postId} {
-      // Allow public read for analytics dashboard
-      allow read: if true;
+      allow read: if isAdmin()
+        || (isSignedIn() && resource.data.userId == request.auth.uid);
       
       allow create: if isSignedIn() 
         && isValidId(postId)
+        && incoming().userId == request.auth.uid
         && incoming().videoId is string
         && incoming().videoId.size() < 500
         && incoming().status == 'PROCESSING'
         && incoming().timestamp == request.time;
         
-      allow update: if isSignedIn() 
+      allow update: if isAdmin()
+        || (isSignedIn()
+        && existing().userId == request.auth.uid
+        && incoming().userId == request.auth.uid
         && (
           // Action: Update Status
           incoming().diff(existing()).affectedKeys().hasOnly(['status'])
           && incoming().status in ['PUBLISH_COMPLETE', 'FAILED']
-        );
+        ));
         
       allow delete: if isAdmin();
     }
 
     match /scheduled_posts/{postId} {
-      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
       
       allow create: if isSignedIn()
         && isValidId(postId)
@@ -78,19 +82,19 @@ service cloud.firestore {
         && incoming().platform in ['TIKTOK', 'INSTAGRAM', 'TWITTER', 'TELEGRAM']
         && incoming().status == 'PENDING';
         
-      allow update: if isSignedIn()
+      allow update: if isAdmin() || (isSignedIn()
         && existing().userId == request.auth.uid
         && incoming().userId == request.auth.uid
         && (
           incoming().diff(existing()).affectedKeys().hasOnly(['status', 'processingAt', 'publishedAt', 'duplicateSkipped', 'scheduledTime', 'content', 'mediaUrl', 'mediaName', 'mediaType', 'videoUrl', 'videoName', 'publishMode'])
-        );
+        ));
         
-      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+      allow delete: if isAdmin() || (isSignedIn() && existing().userId == request.auth.uid);
     }
 
     match /audience_activity/{activityId} {
-      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
       
       allow create: if isSignedIn()
         && isValidId(activityId)
@@ -99,19 +103,19 @@ service cloud.firestore {
         && incoming().hour >= 0 && incoming().hour <= 23
         && incoming().intensity is number;
         
-      allow update: if isSignedIn()
+      allow update: if isAdmin() || (isSignedIn()
         && existing().userId == request.auth.uid
         && incoming().userId == request.auth.uid
         && (
           incoming().diff(existing()).affectedKeys().hasOnly(['intensity', 'updatedAt'])
-        );
+        ));
         
-      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+      allow delete: if isAdmin() || (isSignedIn() && existing().userId == request.auth.uid);
     }
 
     match /campaigns/{campaignId} {
-      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
       
       allow create: if isSignedIn()
         && isValidId(campaignId)
@@ -122,19 +126,19 @@ service cloud.firestore {
         && incoming().frequency in ['Daily', 'Weekly', 'Custom']
         && incoming().status == 'Active';
         
-      allow update: if isSignedIn()
+      allow update: if isAdmin() || (isSignedIn()
         && existing().userId == request.auth.uid
         && incoming().userId == request.auth.uid
         && (
           incoming().diff(existing()).affectedKeys().hasOnly(['status', 'name', 'frequency', 'platform', 'updatedAt'])
-        );
+        ));
         
-      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+      allow delete: if isAdmin() || (isSignedIn() && existing().userId == request.auth.uid);
     }
 
     match /reply_rules/{ruleId} {
-      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
       
       allow create: if isSignedIn()
         // && isValidId(ruleId) // auto-ids might fail isValidId if they have weird chars, but Firestore auto ID is usually fine.
@@ -145,18 +149,18 @@ service cloud.firestore {
         && incoming().response.size() <= 2000
         && incoming().platform in ['TikTok', 'Facebook', 'Instagram', 'TELEGRAM'];
         
-      allow update: if isSignedIn()
+      allow update: if isAdmin() || (isSignedIn()
         && existing().userId == request.auth.uid
         && incoming().userId == request.auth.uid
         && (
           incoming().diff(existing()).affectedKeys().hasOnly(['trigger', 'response', 'platform', 'updatedAt'])
-        );
+        ));
         
-      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
+      allow delete: if isAdmin() || (isSignedIn() && existing().userId == request.auth.uid);
     }
 
     match /business_profiles/{profileId} {
-      allow read: if isSignedIn() && profileId == request.auth.uid;
+      allow read: if isAdmin() || (isSignedIn() && profileId == request.auth.uid);
 
       allow create: if isSignedIn()
         && profileId == request.auth.uid
@@ -190,7 +194,7 @@ service cloud.firestore {
       // client could write an unbounded sessions array straight at Firestore
       // and eventually blow past the 1MB document size limit. No images are
       // stored here (kept client-side only), so length is the only cap needed.
-      allow read: if isSignedIn() && profileId == request.auth.uid;
+      allow read: if isAdmin() || (isSignedIn() && profileId == request.auth.uid);
 
       allow create: if isSignedIn()
         && profileId == request.auth.uid

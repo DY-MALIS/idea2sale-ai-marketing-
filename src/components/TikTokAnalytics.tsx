@@ -18,6 +18,7 @@ import { db } from '../lib/firebase';
 import { cn } from '../lib/utils';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useIsAdmin } from '../hooks/useIsAdmin';
 import { getStoredScheduledPosts, mergeStoredScheduleHistory } from '../lib/scheduledPosts';
 
 const getLocalTelegramPosts = () => {
@@ -27,6 +28,7 @@ const getLocalTelegramPosts = () => {
 const TikTokAnalytics: React.FC = () => {
   const { t } = useLanguage();
   const { user, isDemoMode } = useAuth();
+  const { isAdmin, checking: checkingAdmin } = useIsAdmin();
   const [telegramPosts, setTelegramPosts] = useState<any[]>([]);
   const [handle, setHandle] = useState(() => localStorage.getItem('tiktok_handle') || 'ai.cafe4');
   const [isEditingHandle, setIsEditingHandle] = useState(false);
@@ -117,18 +119,23 @@ const TikTokAnalytics: React.FC = () => {
     };
     window.addEventListener('message', handleAuthSuccess);
     
+    if (checkingAdmin || !user || isDemoMode) {
+      setPosts([]);
+      setLoading(false);
+      return () => {
+        clearInterval(intervalId);
+        window.removeEventListener('message', handleAuthSuccess);
+      };
+    }
+
     setLoading(true);
-    const q = query(
-      collection(db, 'tiktok_posts'),
-      orderBy('createdAt', 'desc'),
-      limit(10)
-    );
+    const q = isAdmin
+      ? query(collection(db, 'tiktok_posts'), orderBy('createdAt', 'desc'), limit(10))
+      : query(collection(db, 'tiktok_posts'), where('userId', '==', user.uid), limit(10));
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const postsData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+      const postsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+        .sort((a: any, b: any) => b.createdAt?.toMillis?.() - a.createdAt?.toMillis?.());
       setPosts(postsData);
       setLoading(false);
     }, (error) => {
@@ -142,7 +149,7 @@ const TikTokAnalytics: React.FC = () => {
       window.removeEventListener('message', handleAuthSuccess);
       unsubscribe();
     };
-  }, [handle]);
+  }, [handle, user, isDemoMode, isAdmin, checkingAdmin]);
 
   useEffect(() => {
     if (isDemoMode) {

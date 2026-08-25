@@ -37,7 +37,7 @@ const controls: Control[] = [
   {
     label: 'Public TikTok analytics read',
     status: 'live',
-    detail: 'tiktok_posts allows unauthenticated read by design, for the public analytics dashboard. Status can only be updated to PUBLISH_COMPLETE or FAILED by a signed-in user.',
+    detail: 'tiktok_posts is private: admins can read all records, while signed-in users can read only records whose userId matches their own account. Anonymous and cross-account reads are denied.',
   },
   {
     label: 'Admin-gated deletes',
