@@ -6,6 +6,7 @@
 //   node scripts/grant-admin.js someone@example.com
 //   node scripts/grant-admin.js <firebase-uid>
 //   node scripts/grant-admin.js someone@example.com --revoke
+//   node scripts/grant-admin.js someone@example.com --exclusive
 //
 // Needs the same server-side Firebase Admin credentials as the Vercel
 // functions: FIREBASE_PROJECT_ID (+ FIREBASE_CLIENT_EMAIL / FIREBASE_PRIVATE_KEY,
@@ -35,13 +36,18 @@ const initFirebaseAdmin = () => {
 };
 
 const main = async () => {
-  const args = process.argv.slice(2).filter((a) => a !== '--revoke');
+  const args = process.argv.slice(2).filter((a) => !['--revoke', '--exclusive'].includes(a));
   const revoke = process.argv.includes('--revoke');
+  const exclusive = process.argv.includes('--exclusive');
   const identifier = args[0];
 
   if (!identifier) {
-    console.error('Usage: node scripts/grant-admin.js <email-or-uid> [--revoke]');
+    console.error('Usage: node scripts/grant-admin.js <email-or-uid> [--revoke|--exclusive]');
     process.exit(1);
+  }
+
+  if (revoke && exclusive) {
+    throw new Error('--revoke and --exclusive cannot be used together.');
   }
 
   const db = initFirebaseAdmin();
@@ -57,6 +63,17 @@ const main = async () => {
   } else {
     await ref.set({ grantedAt: new Date().toISOString(), grantedVia: 'scripts/grant-admin.js' });
     console.log(`Granted admin rights to uid ${uid} (${identifier}).`);
+
+    if (exclusive) {
+      const admins = await db.collection('admins').get();
+      const otherAdmins = admins.docs.filter((doc) => doc.id !== uid);
+      for (let index = 0; index < otherAdmins.length; index += 400) {
+        const batch = db.batch();
+        otherAdmins.slice(index, index + 400).forEach((doc) => batch.delete(doc.ref));
+        await batch.commit();
+      }
+      console.log(`Removed admin rights from ${otherAdmins.length} other account(s).`);
+    }
   }
 
   process.exit(0);
