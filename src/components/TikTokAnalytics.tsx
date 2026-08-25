@@ -164,11 +164,13 @@ const TikTokAnalytics: React.FC = () => {
       return;
     }
 
-    const q = query(
-      collection(db, 'scheduled_posts'),
-      where('userId', '==', user.uid),
-      where('platform', '==', 'TELEGRAM')
-    );
+    const q = isAdmin
+      ? query(collection(db, 'scheduled_posts'), where('platform', '==', 'TELEGRAM'))
+      : query(
+          collection(db, 'scheduled_posts'),
+          where('userId', '==', user.uid),
+          where('platform', '==', 'TELEGRAM')
+        );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const remotePosts = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as any[];
@@ -182,7 +184,7 @@ const TikTokAnalytics: React.FC = () => {
     });
 
     return () => unsubscribe();
-  }, [user, isDemoMode]);
+  }, [user, isDemoMode, isAdmin, checkingAdmin]);
 
   // A post skipped as a duplicate (same media already delivered by another doc --
   // see findRecentDuplicateTelegramPost) is marked PUBLISHED so it stops being
