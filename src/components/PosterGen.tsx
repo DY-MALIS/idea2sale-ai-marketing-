@@ -246,6 +246,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [needsApiKey, setNeedsApiKey] = useState(false);
   const [automationNotice, setAutomationNotice] = useState<string | null>(null);
+  const [isGeneratingScheduleCaption, setIsGeneratingScheduleCaption] = useState(false);
   const handledAutomationRef = React.useRef<string | null>(null);
 
   // PosterGen stays mounted for the app's entire lifetime once it's first
@@ -477,14 +478,35 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
     }
   };
 
-  const handleScheduleThisImage = () => {
+  const handleScheduleThisImage = async () => {
     if (!generatedImage) return;
     // Telegram (and most platforms) reject captions over ~1024 characters, and the raw
     // generation prompt can easily run to several times that — cap it so scheduling
     // never silently fails.
-    const caption = activeTool === 'poster'
+    let caption = activeTool === 'poster'
       ? `${posterDetails.headline} — ${posterDetails.cta}`.slice(0, 90)
       : visualPrompt.trim().slice(0, 900);
+
+    // The 'visual' tool has no caption of its own -- without this, the raw English
+    // image-generation prompt (e.g. "Create a highly realistic full-body portrait
+    // of...") went out as the post caption, which reads as an unfinished AI prompt
+    // rather than real marketing copy. Best-effort only: any failure here just
+    // keeps the raw-prompt fallback above rather than blocking scheduling.
+    if (activeTool === 'visual') {
+      setIsGeneratingScheduleCaption(true);
+      try {
+        const response = await fetchImageGenerate({ action: 'videoCaption', prompt: visualPrompt, language });
+        const data = await response.json();
+        if (response.ok && typeof data?.text === 'string' && data.text.trim()) {
+          caption = data.text.trim().slice(0, 900);
+        }
+      } catch (error) {
+        console.error('Caption generation for scheduling failed, using the raw prompt instead:', error);
+      } finally {
+        setIsGeneratingScheduleCaption(false);
+      }
+    }
+
     onScheduleHandoff?.({
       id: `${Date.now()}-image`,
       kind: 'image',
@@ -737,10 +759,11 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
                   )}
                   <button
                     onClick={handleScheduleThisImage}
-                    className="p-4 bg-brand-100 text-brand-700 rounded-2xl hover:bg-brand-200 transition-all border border-brand-200"
+                    disabled={isGeneratingScheduleCaption}
+                    className="p-4 bg-brand-100 text-brand-700 rounded-2xl hover:bg-brand-200 transition-all border border-brand-200 disabled:opacity-50"
                     title="Schedule for later"
                   >
-                    <Calendar size={24} />
+                    {isGeneratingScheduleCaption ? <Loader2 size={24} className="animate-spin" /> : <Calendar size={24} />}
                   </button>
                 </div>
               )}
