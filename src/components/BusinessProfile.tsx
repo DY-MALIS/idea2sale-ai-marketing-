@@ -7,6 +7,7 @@ import { cn } from '../lib/utils';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { BusinessDirectoryEntry, BusinessProfileData } from '../types';
+import { recordAuditEvent } from '../lib/auditClient';
 
 const DEMO_STORAGE_KEY = 'demo_business_profile';
 const LOGO_MAX_DIMENSION = 256;
@@ -148,6 +149,11 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
           ...profile,
           userId: user.uid,
           updatedAt: serverTimestamp()
+        });
+        void recordAuditEvent('business_profile_updated', {
+          businessName: profile.businessName,
+          directoryEntries: profile.directory.length,
+          hasLogo: Boolean(profile.logoDataUrl),
         });
       }
       setSaved(true);

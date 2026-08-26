@@ -41,8 +41,8 @@ const controls: Control[] = [
   },
   {
     label: 'Admin-gated deletes',
-    status: 'partial',
-    detail: 'Deleting a tiktok_posts doc, and reading the Telegram CRM/inbox, both require an admins/{uid} Firestore document. Run `npm run grant-admin -- <email-or-uid>` to create one — still a manual step, just no longer a hand-edit in the Firebase console.',
+    status: 'live',
+    detail: 'Sensitive shared data and destructive TikTok record deletion require an admins/{uid} document. The configured administrator can inspect all user data; standard accounts remain owner-scoped.',
   },
   {
     label: 'Server secrets never sent to client',
@@ -57,7 +57,7 @@ const controls: Control[] = [
   {
     label: 'Audit logging',
     status: 'partial',
-    detail: 'audit_logs (admin-only read, server-only write) records manual Telegram replies, TikTok publish attempts, and cron run summaries — see the Recent Activity panel below. It does not yet cover every write in the app (e.g. scheduled post edits, reply rule changes).',
+    detail: 'audit_logs records Telegram replies, publishing and cron actions, scheduled-post changes, Smart Reply rule changes, automation status, audience training, business-profile updates, and backup/restore. High-frequency AI chat autosaves are intentionally excluded.',
   },
   {
     label: 'Backup and restore',
@@ -100,7 +100,7 @@ const SecurityCenter: React.FC = () => {
           { icon: ShieldCheck, label: 'Firestore rules', value: 'Default-deny + owner checks' },
           { icon: LockKeyhole, label: 'Secrets', value: 'Server-side only' },
           { icon: Bot, label: 'AI keys', value: 'Not exposed to client' },
-          { icon: Activity, label: 'Audit logs', value: 'Partial coverage' },
+          { icon: Activity, label: 'Audit logs', value: 'Key actions covered' },
         ].map((item) => (
           <div key={item.label} className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
             <item.icon className="h-5 w-5 text-brand-700 dark:text-brand-400" />
@@ -390,6 +390,9 @@ const ACTION_LABELS: Record<string, string> = {
   reply_rule_created: 'Created a Smart Reply rule',
   reply_rule_deleted: 'Deleted a Smart Reply rule',
   automation_status_changed: 'Changed Social Automation status',
+  scheduled_post_created: 'Created a scheduled post',
+  audience_activity_trained: 'Trained scheduler audience activity',
+  business_profile_updated: 'Updated a business profile',
 };
 
 const AuditLogPanel: React.FC = () => {

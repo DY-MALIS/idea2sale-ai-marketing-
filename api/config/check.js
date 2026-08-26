@@ -12,6 +12,7 @@ const BACKUP_COLLECTIONS = [
 const CLIENT_AUDIT_ACTIONS = new Set([
   'scheduled_post_status_updated', 'scheduled_post_deleted', 'scheduled_post_retried',
   'reply_rule_created', 'reply_rule_deleted', 'automation_status_changed',
+  'scheduled_post_created', 'audience_activity_trained', 'business_profile_updated',
 ]);
 
 const requireAdmin = async (req, db) => {
@@ -111,6 +112,26 @@ const recordClientAudit = async (req, res) => {
   return res.status(200).json({ ok: true });
 };
 
+const getAutomationStats = async (req, res) => {
+  const db = initFirebaseAdmin();
+  const actor = await requireAdmin(req, db);
+  if (!actor) return res.status(403).json({ error: 'Admin access required.' });
+  const messages = db.collection('telegram_messages');
+  const [incomingSnapshot, ruleSnapshot, aiSnapshot] = await Promise.all([
+    messages.where('direction', '==', 'in').count().get(),
+    messages.where('source', '==', 'rule').count().get(),
+    messages.where('source', '==', 'ai').count().get(),
+  ]);
+  const incoming = incomingSnapshot.data().count || 0;
+  const replies = (ruleSnapshot.data().count || 0) + (aiSnapshot.data().count || 0);
+  return res.status(200).json({
+    incoming,
+    replies,
+    hours: Math.round((replies * 1.5 / 60) * 10) / 10,
+    rate: incoming > 0 ? Math.min(100, Math.round((replies / incoming) * 100)) : 0,
+  });
+};
+
 const getAdminUsers = async (req, res) => {
   try {
     const db = initFirebaseAdmin();
@@ -173,6 +194,11 @@ export default async function handler(req, res) {
   if (req.query?.action === 'audit-event') {
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
     return recordClientAudit(req, res);
+  }
+
+  if (req.query?.action === 'automation-stats') {
+    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    return getAutomationStats(req, res);
   }
 
   if (req.query?.action === 'admin-users') {

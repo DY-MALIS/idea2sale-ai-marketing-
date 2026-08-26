@@ -5,6 +5,7 @@ import { geminiService, PostingSuggestion, ActivityData } from '../lib/geminiSer
 import { db, auth } from '../lib/firebase';
 import { collection, query, where, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
 import { useLanguage } from '../contexts/LanguageContext';
+import { recordAuditEvent } from '../lib/auditClient';
 
 interface SuggestionsProps {
   activityVersion: number;
@@ -72,6 +73,11 @@ const Suggestions: React.FC<SuggestionsProps> = ({ activityVersion }) => {
         userId: auth.currentUser.uid,
         aiSuggested: true,
         createdAt: serverTimestamp()
+      });
+      void recordAuditEvent('scheduled_post_created', {
+        platform: 'TIKTOK',
+        scheduledTime: scheduledDate.toISOString(),
+        aiSuggested: true,
       });
 
       // Temporary success state would be nice, but for now just clear addingPost

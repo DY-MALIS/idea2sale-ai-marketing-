@@ -103,11 +103,12 @@ npm run dev
 
 ## Known Gaps
 
-- Audit logging (`audit_logs` collection, admin-only read) covers manual Telegram replies, TikTok publish attempts,
-  and cron runs — not every write in the app. Extend `api/_audit.js` usage if you need broader coverage.
-- No verified backup/restore process for the Firebase project (see Security Overview page in-app). Enabling
-  Firestore exports and running a test restore is a manual step in the Firebase console — nothing in this repo can
-  do that for you.
+- Audit logging (`audit_logs`, admin-only read) covers key operational actions: Telegram replies, publish/cron
+  actions, scheduler changes, Smart Reply rules, automation status, audience training, business-profile updates,
+  and backup/restore. High-frequency AI chat autosaves are intentionally excluded.
+- Admins can download and merge-restore a versioned JSON application backup in Security Center. Firebase
+  point-in-time recovery / managed exports are still a separate production safeguard that must be enabled and
+  verified in Firebase.
 - `server.ts` (local dev) and `api/tiktok/publish.js` (production) implement TikTok video publishing separately
   and can drift — production is the source of truth.
 - Ads Manager Lite generates AI strategy/creative/scaling guidance only; it does not connect to Meta or TikTok Ads

@@ -282,6 +282,13 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
         </div>
       </header>
 
+      <div className="rounded-2xl border border-sky-200 bg-sky-50 px-5 py-4 text-sm text-sky-800 dark:border-sky-800/60 dark:bg-sky-900/25 dark:text-sky-200">
+        <strong>{language === 'km' ? 'AI Planning Workspace៖' : 'AI planning workspace:'}</strong>{' '}
+        {language === 'km'
+          ? 'ផ្នែកនេះបង្កើត strategy, creative និង scaling guidance។ វាមិនទាន់ភ្ជាប់ទៅ Meta Ads ឬ TikTok Ads ដើម្បីប្ដូរ budget ឬបើក campaign ដោយស្វ័យប្រវត្តិទេ។'
+          : 'This area creates strategy, creative, and scaling guidance. It is not connected to Meta Ads or TikTok Ads and cannot change budgets or launch campaigns automatically.'}
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         <div className="lg:col-span-4 space-y-8">
           <div className="glass p-10 rounded-[2.5rem] shadow-sm space-y-8">

@@ -277,7 +277,6 @@ const Automation: React.FC = () => {
   // to be localStorage-only, which only changed this browser's own UI and never
   // stopped the bot from auto-replying to real customers.
   const [isAutomationActive, setIsAutomationActive] = useState(true);
-  const [isTraining, setIsTraining] = useState(false);
 
   useEffect(() => {
     if (isDemoMode) return;
@@ -307,31 +306,39 @@ const Automation: React.FC = () => {
     }
   };
 
-  const handleTrainAI = () => {
-    setIsTraining(true);
-    // Simulate activation process
-    setTimeout(() => {
-      setIsTraining(false);
-      alert(language === 'km' 
-        ? 'ការបង្កើត AI របស់អ្នកបានជោគជ័យ! បច្ចេកវិទ្យា AI ឥឡូវបេះកំពុងដំណើរការ។' 
-        : 'Your AI creation is successful! AI technology is now operational.');
-    }, 2000);
-  };
-
   useEffect(() => {
     if (isDemoMode) {
       setStats({ replies: 1248, hours: 12, rate: 84 });
-    } else {
-      // Calculate real stats based on active reply rules
-      const activeCount = replyRules.length;
-      const hoursSaved = activeCount * 2.5; // Rough estimate: 2.5 hours per active rule
-      setStats({
-        replies: activeCount * 15, // Mocking replies for now as we don't have a replies collection
-        hours: Math.round(hoursSaved),
-        rate: activeCount > 0 ? 82 : 0
-      });
+      return;
     }
-  }, [replyRules, isDemoMode]);
+    if (checkingAdmin || !isAdmin) {
+      setStats({ replies: 0, hours: 0, rate: 0 });
+      return;
+    }
+
+    let cancelled = false;
+    const refreshStats = async () => {
+      try {
+        if (!user) return;
+        const token = await user.getIdToken();
+        const response = await fetch('/api/config/check?action=automation-stats', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'Could not load automation statistics.');
+        if (!cancelled) setStats({ replies: Number(data.replies) || 0, hours: Number(data.hours) || 0, rate: Number(data.rate) || 0 });
+      } catch (error) {
+        console.error('Automation statistics refresh error:', error);
+        if (!cancelled) setStats({ replies: 0, hours: 0, rate: 0 });
+      }
+    };
+    void refreshStats();
+    const intervalId = window.setInterval(refreshStats, 30000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [checkingAdmin, isAdmin, isDemoMode, user]);
 
   const handleCreateRule = async () => {
     if (!ruleTrigger.trim() || !ruleResponse.trim()) {
@@ -703,20 +710,18 @@ const Automation: React.FC = () => {
               <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center mb-6 border border-white/10">
                 <Shield size={24} />
               </div>
-              <h3 className="text-2xl font-bold mb-3 tracking-tight">{t('aiTrainingCenter')}</h3>
-              <p className="text-brand-100/80 text-sm leading-relaxed mb-8">{t('aiTrainingDesc')}</p>
-              <button 
-                onClick={handleTrainAI}
-                disabled={isTraining}
-                className="w-full py-4 bg-crab-shell hover:bg-red-600 rounded-2xl font-bold text-sm shadow-lg transition-all flex items-center justify-center gap-2"
-              >
-                {isTraining ? (
-                  <>
-                    <Loader2 className="animate-spin" size={18} />
-                    {language === 'km' ? 'កំពុងបង្កើត...' : 'Creating...'}
-                  </>
-                ) : t('trainMyAi')}
-              </button>
+              <h3 className="text-2xl font-bold mb-3 tracking-tight">{language === 'km' ? 'ស្ថានភាព AI Reply' : 'AI Reply Status'}</h3>
+              <p className="text-brand-100/80 text-sm leading-relaxed mb-8">
+                {language === 'km'
+                  ? 'AI ប្រើ Smart Reply rules ជាមុន ហើយឆ្លើយដោយ AI នៅពេលមិនមាន rule ត្រូវគ្នា។'
+                  : 'AI checks Smart Reply rules first, then uses an AI response when no rule matches.'}
+              </p>
+              <div className="w-full py-4 bg-white/10 rounded-2xl font-bold text-sm border border-white/15 flex items-center justify-center gap-2">
+                <span className={cn('h-2.5 w-2.5 rounded-full', isAutomationActive ? 'bg-emerald-400 animate-pulse' : 'bg-red-400')} />
+                {isAutomationActive
+                  ? (language === 'km' ? 'កំពុងដំណើរការពិតប្រាកដ' : 'Live and responding')
+                  : (language === 'km' ? 'បានផ្អាក' : 'Paused')}
+              </div>
             </div>
           </div>
 
@@ -749,7 +754,7 @@ const Automation: React.FC = () => {
             <div className="absolute -top-12 left-1/2 -translate-x-1/2 w-48 p-3 bg-brand-800 text-white text-[10px] rounded-xl shadow-xl opacity-0 group-hover/stats:opacity-100 transition-all pointer-events-none z-20 text-center leading-relaxed">
               {isDemoMode 
                 ? (language === 'km' ? 'ទិន្នន័យនេះបានមកពីប្រវត្តិរូបគម្រូ។' : 'This data comes from the demo profile.')
-                : (language === 'km' ? 'ទិន្នន័យត្រូវបានគណនាដោយផ្អែកលើសកម្មភាពយុទ្ធនាការរបស់អ្នក។' : 'Data is calculated based on your campaign activity.')
+                : (language === 'km' ? 'ទិន្នន័យមកពីសារ Telegram ពិត៖ rule និង AI replies។ Time Saved គឺការប៉ាន់ស្មាន ១.៥ នាទីក្នុងមួយ reply។' : 'Data comes from real Telegram rule and AI replies. Time Saved estimates 1.5 minutes per reply.')
               }
               <div className="absolute bottom-[-4px] left-1/2 -translate-x-1/2 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[6px] border-t-brand-800"></div>
             </div>

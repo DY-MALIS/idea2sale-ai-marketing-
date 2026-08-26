@@ -7,6 +7,7 @@ import { collection, addDoc, serverTimestamp, query, where, getDocs, writeBatch,
 import { AudienceActivity } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
+import { recordAuditEvent } from '../lib/auditClient';
 
 interface AITrainerProps {
   onTrainingComplete: () => void;
@@ -74,6 +75,10 @@ const AITrainer: React.FC<AITrainerProps> = ({ onTrainingComplete }) => {
       });
 
       await batch.commit();
+      void recordAuditEvent('audience_activity_trained', {
+        dataPointCount: dataPoints.length,
+        descriptionLength: description.trim().length,
+      });
       setDescription('');
       setShowSuccess(true);
       setTimeout(() => setShowSuccess(false), 5000);

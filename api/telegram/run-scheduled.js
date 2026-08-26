@@ -344,6 +344,13 @@ const createScheduledTelegramPost = async (req, res) => {
     createdAt: FieldValue.serverTimestamp()
   });
 
+  await logAudit(db, {
+    action: 'scheduled_post_created',
+    actorUid: decoded.uid,
+    actorLabel: decoded.email || null,
+    meta: { postId: docRef.id, platform: 'TELEGRAM', scheduledTime: scheduledDate.toISOString(), hasMedia: true },
+  });
+
   await scheduleQStashDelivery(req, docRef.id, scheduledDate);
 
   return res.status(200).json({ ok: true, id: docRef.id });

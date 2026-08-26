@@ -13,6 +13,7 @@ import { saveLocalMedia } from '../lib/localMediaStore';
 
 import { useAuth } from '../contexts/AuthContext';
 import { ScheduleHandoffRequest } from '../types';
+import { recordAuditEvent } from '../lib/auditClient';
 
 const MB = 1024 * 1024;
 const TELEGRAM_SERVER_MEDIA_LIMIT_MB = 48;
@@ -352,6 +353,11 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
         mediaType,
         publishMode: platform === 'TIKTOK' ? 'TIKTOK_DIRECT_POST' : 'PLANNED_ONLY',
         createdAt: serverTimestamp()
+      });
+      void recordAuditEvent('scheduled_post_created', {
+        platform,
+        scheduledTime: scheduledDate.toISOString(),
+        hasMedia: Boolean(videoUrl || mediaUrl),
       });
       setIsModalOpen(false);
       setContent('');
