@@ -788,6 +788,21 @@ Response rules:
         console.error('Gemini TTS failed, falling back to gpt-audio-mini:', geminiError?.message);
       }
 
+      // Free-tier model, tried for Khmer specifically before gpt-audio-mini below --
+      // unlike Gemini/gpt-audio (which either error out or hallucinate a reply in the
+      // wrong language for Khmer script, confirmed via live testing), a live test of
+      // this model returned real, correctly-sized MP3 audio for a Khmer sentence. No
+      // account/cost to try it since it shares this same OpenRouter key. Costs nothing
+      // to skip if it's ever removed from OpenRouter -- just falls through below.
+      if (containsKhmerScript(input)) {
+        try {
+          const audio = await synthesizeSpeechViaOpenRouter({ input, model: 'fish-audio/s2.1-pro-free:free', voice, format: 'mp3' });
+          return res.status(200).json(audio);
+        } catch (fishError) {
+          console.error('Fish Audio TTS failed, falling back to gpt-audio-mini:', fishError?.message);
+        }
+      }
+
       try {
         const audio = await generateOpenRouterSpeech({ input, voice, languageHint, performanceStyle });
         return res.status(200).json(audio);
