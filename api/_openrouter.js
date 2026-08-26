@@ -635,10 +635,24 @@ export async function startOpenRouterVideo({ prompt, images, model, duration }) 
     : [];
 
   if (imageList.length) {
-    body.input_references = imageList.map((image) => ({
+    // The first uploaded image is the actual opening frame, not merely a loose
+    // style reference. OpenRouter gives frame_images precedence and routes the
+    // request through image-to-video; using input_references alone lets the
+    // provider reinterpret the composition and often produces near-static,
+    // hesitant motion. This also makes chained clips start from the previous
+    // clip's extracted last frame, yielding materially smoother continuity.
+    const [firstFrame, ...referenceImages] = imageList;
+    body.frame_images = [{
       type: 'image_url',
-      image_url: { url: fileToDataUrl(image.base64, image.mimeType) },
-    }));
+      image_url: { url: fileToDataUrl(firstFrame.base64, firstFrame.mimeType) },
+      frame_type: 'first_frame',
+    }];
+    if (referenceImages.length) {
+      body.input_references = referenceImages.map((image) => ({
+        type: 'image_url',
+        image_url: { url: fileToDataUrl(image.base64, image.mimeType) },
+      }));
+    }
   }
 
   const job = await openRouterJson('/videos', body);

@@ -244,7 +244,7 @@ Photorealistic commercial image requirements:
 - No readable text, lettering, or signage anywhere (see hard constraint above) — also avoid distorted/garbled text artifacts, extra logos, malformed objects, duplicated limbs, fake watermarks, blurry details, oversaturated colors, and fantasy styling.
 - Output should be high-detail, clean, professional, TikTok/e-commerce ready, and visually convincing.`;
 
-const photorealVideoPrompt = (prompt) => `Scene: ${prompt}${khmerReferenceGuidance(prompt)}
+const photorealVideoPrompt = (prompt, imageToVideo = false) => `Scene: ${prompt}${khmerReferenceGuidance(prompt)}
 
 ${NO_FOREIGN_TEXT_CONSTRAINT}
 
@@ -254,8 +254,11 @@ HARD CONSTRAINT: Render every subject, person, and action explicitly named in th
 
 Photorealistic cinematic video requirements:
 - Make the scene look filmed with a real camera, not animation, cartoon, or 3D render.
-- Use realistic movement, natural camera motion, lifelike lighting, real shadows, accurate reflections, and believable object physics.
-- Add subtle handheld or dolly movement, cinematic depth of field, natural motion blur, and smooth subject tracking.
+- Use continuous realistic movement from the first frame to the last: natural body weight shifts, breathing, blinking, facial micro-expressions, cloth and hair responding gently to motion, and believable object physics.
+- Use one clear, deliberate camera move (a slow dolly-in, dolly-out, pan, orbit, or smooth subject-follow) with steady speed, cinematic depth of field, natural motion blur, and smooth tracking. Never alternate between frozen holds and sudden jumps.
+- Motion must feel fluid and temporally coherent at normal playback speed: no stop-motion cadence, frame skipping, repeated frames, abrupt acceleration, robotic gestures, or jerky camera corrections.
+${imageToVideo ? `- IMAGE-TO-VIDEO: Treat the supplied first-frame image as the exact opening composition. Preserve the subject's identity, face, body proportions, clothing, objects, background, lighting, and framing, then animate them progressively and naturally instead of replacing, redrawing, or merely zooming the still image.
+- Begin visible but gentle motion immediately, build one continuous action through the middle, and settle naturally near the end. Do not keep the subject frozen for most of the clip.` : ''}
 - Product, people, hands, faces, and environment must stay consistent between frames with no warping or sudden identity changes.
 - No readable text, lettering, or signage anywhere (see hard constraint above) — also avoid distorted/garbled text artifacts, melted objects, duplicated limbs, flickering, excessive saturation, impossible motion, and fantasy effects.
 - Create a premium short-form ad style video suitable for TikTok, with a realistic product-demo feeling.`;
@@ -836,7 +839,7 @@ Response rules:
             Math.abs(option - requestedDuration) < Math.abs(closest - requestedDuration) ? option : closest
           ), 8);
       const video = await startOpenRouterVideo({
-        prompt: photorealVideoPrompt(normalizedPrompt),
+        prompt: photorealVideoPrompt(normalizedPrompt, images.length > 0),
         images,
         duration,
       });
