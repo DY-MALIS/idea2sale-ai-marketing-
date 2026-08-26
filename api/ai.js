@@ -788,20 +788,15 @@ Response rules:
         console.error('Gemini TTS failed, falling back to gpt-audio-mini:', geminiError?.message);
       }
 
-      // Free-tier model, tried for Khmer specifically before gpt-audio-mini below --
-      // unlike Gemini/gpt-audio (which either error out or hallucinate a reply in the
-      // wrong language for Khmer script, confirmed via live testing), a live test of
-      // this model returned real, correctly-sized MP3 audio for a Khmer sentence. No
-      // account/cost to try it since it shares this same OpenRouter key. Costs nothing
-      // to skip if it's ever removed from OpenRouter -- just falls through below.
-      if (containsKhmerScript(input)) {
-        try {
-          const audio = await synthesizeSpeechViaOpenRouter({ input, model: 'fish-audio/s2.1-pro-free:free', voice, format: 'mp3' });
-          return res.status(200).json(audio);
-        } catch (fishError) {
-          console.error('Fish Audio TTS failed, falling back to gpt-audio-mini:', fishError?.message);
-        }
-      }
+      // fish-audio/s2.1-pro-free:free was tried here in an earlier revision: it
+      // returns a plausible-looking, correctly-sized MP3 for Khmer input (no error),
+      // but a round-trip check -- feeding that audio into the Khmer STT model this
+      // app already trusts (google/chirp-3, confirmed elsewhere to transcribe real
+      // Khmer speech almost verbatim) -- transcribed it as unrelated German-sounding
+      // gibberish, i.e. it isn't actually speaking Khmer despite the "successful"
+      // response. Same result for x-ai/grok-voice-tts-1.0 (transcribed as pure noise).
+      // Removed rather than left in: a confidently-wrong voice is worse than falling
+      // through to the honest (if robotic) Google Translate voice below.
 
       try {
         const audio = await generateOpenRouterSpeech({ input, voice, languageHint, performanceStyle });
