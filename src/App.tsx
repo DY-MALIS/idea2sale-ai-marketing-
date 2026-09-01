@@ -122,7 +122,7 @@ export default function App() {
     return <LegalPage type="privacy" />;
   }
 
-  if (pathname === '/about') {
+  if (pathname === '/' || pathname === '/about') {
     return <PublicWebsite />;
   }
 
