@@ -78,7 +78,7 @@ export default async function handler(req, res) {
     }
 
     try {
-      const messageId = await sendTelegram(post);
+      const messageId = await sendTelegram(post, db);
       await ref.update({
         status: 'PUBLISHED',
         telegramMessageId: messageId,

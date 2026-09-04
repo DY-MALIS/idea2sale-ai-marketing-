@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Upload, Building2, User, Plus, Trash2, Save, CheckCircle2, Loader2 } from 'lucide-react';
+import { X, Upload, Building2, User, Plus, Trash2, Save, CheckCircle2, Loader2, Send } from 'lucide-react';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { cn } from '../lib/utils';
@@ -19,7 +19,7 @@ const getLocalProfile = (): BusinessProfileData => {
   } catch {
     // fall through to default
   }
-  return { businessName: '', logoDataUrl: '', directory: [] };
+  return { businessName: '', logoDataUrl: '', directory: [], telegramBotToken: '', telegramChatId: '' };
 };
 
 const resizeImageToDataUrl = (file: File): Promise<string> =>
@@ -66,6 +66,8 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
   const [businessName, setBusinessName] = useState('');
   const [logoDataUrl, setLogoDataUrl] = useState('');
   const [directory, setDirectory] = useState<BusinessDirectoryEntry[]>([]);
+  const [telegramBotToken, setTelegramBotToken] = useState('');
+  const [telegramChatId, setTelegramChatId] = useState('');
 
   const [entryName, setEntryName] = useState('');
   const [entryType, setEntryType] = useState<'COMPANY' | 'INDIVIDUAL'>('COMPANY');
@@ -88,6 +90,8 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
           setBusinessName(local.businessName);
           setLogoDataUrl(local.logoDataUrl);
           setDirectory(local.directory || []);
+          setTelegramBotToken(local.telegramBotToken || '');
+          setTelegramChatId(local.telegramChatId || '');
         } else {
           const snap = await getDoc(doc(db, 'business_profiles', user.uid));
           if (cancelled) return;
@@ -96,6 +100,8 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
             setBusinessName(data.businessName || '');
             setLogoDataUrl(data.logoDataUrl || '');
             setDirectory(data.directory || []);
+            setTelegramBotToken(data.telegramBotToken || '');
+            setTelegramChatId(data.telegramChatId || '');
           }
         }
       } catch (err) {
@@ -140,7 +146,13 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
     setSaving(true);
     setError(null);
     setSaved(false);
-    const profile: BusinessProfileData = { businessName: businessName.trim(), logoDataUrl, directory };
+    const profile: BusinessProfileData = {
+      businessName: businessName.trim(),
+      logoDataUrl,
+      directory,
+      telegramBotToken: telegramBotToken.trim(),
+      telegramChatId: telegramChatId.trim(),
+    };
     try {
       if (isDemoMode || !user) {
         localStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify(profile));
@@ -296,6 +308,31 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
                     </div>
                   ))
                 )}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                <Send size={12} />
+                {t('myTelegramChannelTitle')}
+              </label>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">{t('myTelegramChannelDesc')}</p>
+              <div className="space-y-2">
+                <input
+                  type="password"
+                  value={telegramBotToken}
+                  onChange={(e) => setTelegramBotToken(e.target.value)}
+                  placeholder={t('telegramBotTokenPlaceholder')}
+                  autoComplete="off"
+                  className="w-full px-4 py-3 bg-brand-50 border border-brand-100 dark:bg-slate-800 dark:border-slate-700 rounded-2xl text-sm text-brand-700 dark:text-slate-100 focus:outline-none focus:ring-2 ring-brand-500/20"
+                />
+                <input
+                  type="text"
+                  value={telegramChatId}
+                  onChange={(e) => setTelegramChatId(e.target.value)}
+                  placeholder={t('telegramChatIdPlaceholder')}
+                  className="w-full px-4 py-3 bg-brand-50 border border-brand-100 dark:bg-slate-800 dark:border-slate-700 rounded-2xl text-sm text-brand-700 dark:text-slate-100 focus:outline-none focus:ring-2 ring-brand-500/20"
+                />
               </div>
             </div>
 

@@ -82,6 +82,10 @@ export interface BusinessProfileData {
   businessName: string;
   logoDataUrl: string;
   directory: BusinessDirectoryEntry[];
+  // Optional: lets a user post scheduled Telegram content to their own channel
+  // instead of the app's shared default one (TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID).
+  telegramBotToken?: string;
+  telegramChatId?: string;
 }
 
 export interface AudienceActivity {

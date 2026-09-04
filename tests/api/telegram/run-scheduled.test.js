@@ -1,5 +1,26 @@
-import { describe, expect, it } from 'vitest';
-import { applyCloudinaryDeliveryTransform, escapeTelegramHtml, formatTelegramHtml, truncateForTelegram } from '../../../api/telegram/run-scheduled.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { applyCloudinaryDeliveryTransform, escapeTelegramHtml, formatTelegramHtml, sendTelegram, truncateForTelegram } from '../../../api/telegram/run-scheduled.js';
+
+const originalEnv = { ...process.env };
+const originalFetch = global.fetch;
+afterEach(() => {
+  process.env = { ...originalEnv };
+  global.fetch = originalFetch;
+  vi.restoreAllMocks();
+});
+
+const fakeDbWithProfile = (profileData) => ({
+  collection: () => ({
+    doc: () => ({
+      get: async () => ({ data: () => profileData }),
+    }),
+  }),
+});
+
+const okTelegramResponse = () => ({
+  ok: true,
+  json: async () => ({ ok: true, result: { message_id: 42 } }),
+});
 
 describe('truncateForTelegram', () => {
   it('leaves short text untouched', () => {
@@ -79,5 +100,76 @@ describe('formatTelegramHtml', () => {
 
   it('does not misread a spaced multiplication sign as italic emphasis', () => {
     expect(formatTelegramHtml('Price: $5 * 2 = $10')).toBe('Price: $5 * 2 = $10');
+  });
+});
+
+describe('sendTelegram destination resolution', () => {
+  it('uses the shared bot/channel when no db is passed', async () => {
+    process.env.TELEGRAM_BOT_TOKEN = 'shared-token';
+    process.env.TELEGRAM_CHAT_ID = 'shared-chat';
+    const fetchSpy = vi.fn().mockResolvedValue(okTelegramResponse());
+    global.fetch = fetchSpy;
+
+    await sendTelegram({ userId: 'u1', content: 'hello' });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy.mock.calls[0][0]).toContain('bot' + 'shared-token');
+    expect(JSON.parse(fetchSpy.mock.calls[0][1].body).chat_id).toBe('shared-chat');
+  });
+
+  it('uses the shared bot/channel when the post owner has no profile override', async () => {
+    process.env.TELEGRAM_BOT_TOKEN = 'shared-token';
+    process.env.TELEGRAM_CHAT_ID = 'shared-chat';
+    const fetchSpy = vi.fn().mockResolvedValue(okTelegramResponse());
+    global.fetch = fetchSpy;
+    const db = fakeDbWithProfile({ businessName: 'Acme' });
+
+    await sendTelegram({ userId: 'u1', content: 'hello' }, db);
+
+    expect(JSON.parse(fetchSpy.mock.calls[0][1].body).chat_id).toBe('shared-chat');
+  });
+
+  it('uses the post owner\'s own bot/channel when both fields are set', async () => {
+    process.env.TELEGRAM_BOT_TOKEN = 'shared-token';
+    process.env.TELEGRAM_CHAT_ID = 'shared-chat';
+    const fetchSpy = vi.fn().mockResolvedValue(okTelegramResponse());
+    global.fetch = fetchSpy;
+    const db = fakeDbWithProfile({ telegramBotToken: 'own-token', telegramChatId: 'own-chat' });
+
+    await sendTelegram({ userId: 'u1', content: 'hello' }, db);
+
+    expect(fetchSpy.mock.calls[0][0]).toContain('bot' + 'own-token');
+    expect(JSON.parse(fetchSpy.mock.calls[0][1].body).chat_id).toBe('own-chat');
+  });
+
+  it('falls back to the shared channel if only one override field is set', async () => {
+    process.env.TELEGRAM_BOT_TOKEN = 'shared-token';
+    process.env.TELEGRAM_CHAT_ID = 'shared-chat';
+    const fetchSpy = vi.fn().mockResolvedValue(okTelegramResponse());
+    global.fetch = fetchSpy;
+    const db = fakeDbWithProfile({ telegramBotToken: 'own-token-only' });
+
+    await sendTelegram({ userId: 'u1', content: 'hello' }, db);
+
+    expect(JSON.parse(fetchSpy.mock.calls[0][1].body).chat_id).toBe('shared-chat');
+  });
+
+  it('falls back to the shared channel if the profile lookup throws', async () => {
+    process.env.TELEGRAM_BOT_TOKEN = 'shared-token';
+    process.env.TELEGRAM_CHAT_ID = 'shared-chat';
+    const fetchSpy = vi.fn().mockResolvedValue(okTelegramResponse());
+    global.fetch = fetchSpy;
+    const throwingDb = { collection: () => ({ doc: () => ({ get: async () => { throw new Error('offline'); } }) }) };
+
+    await sendTelegram({ userId: 'u1', content: 'hello' }, throwingDb);
+
+    expect(JSON.parse(fetchSpy.mock.calls[0][1].body).chat_id).toBe('shared-chat');
+  });
+
+  it('throws when neither the shared nor a per-user destination is configured', async () => {
+    delete process.env.TELEGRAM_BOT_TOKEN;
+    delete process.env.TELEGRAM_CHAT_ID;
+
+    await expect(sendTelegram({ userId: 'u1', content: 'hello' })).rejects.toThrow('not configured');
   });
 });

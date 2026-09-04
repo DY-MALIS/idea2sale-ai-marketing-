@@ -486,9 +486,31 @@ const postTelegramMessage = async (req, res) => {
   }
 };
 
-export const sendTelegram = async (post) => {
-  const token = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
-  const chatId = (process.env.TELEGRAM_CHAT_ID || '').trim();
+// Looks up the post owner's own bot/channel (set in Business Profile) so their
+// scheduled content goes to their own Telegram channel instead of the app's
+// shared default -- falls back to the shared TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID
+// env vars whenever the user hasn't configured their own (the common case, and
+// always the case for posts predating this feature).
+const resolveTelegramDestination = async (db, userId) => {
+  const sharedToken = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
+  const sharedChatId = (process.env.TELEGRAM_CHAT_ID || '').trim();
+
+  if (db && userId) {
+    try {
+      const snap = await db.collection('business_profiles').doc(userId).get();
+      const ownToken = (snap.data()?.telegramBotToken || '').trim();
+      const ownChatId = (snap.data()?.telegramChatId || '').trim();
+      if (ownToken && ownChatId) return { token: ownToken, chatId: ownChatId };
+    } catch (error) {
+      console.error('Could not load the post owner\'s Telegram profile, using the shared channel:', error?.message);
+    }
+  }
+
+  return { token: sharedToken, chatId: sharedChatId };
+};
+
+export const sendTelegram = async (post, db) => {
+  const { token, chatId } = await resolveTelegramDestination(db, post.userId);
 
   if (!token || !chatId) {
     throw new Error('Telegram is not configured.');
@@ -702,7 +724,7 @@ export default async function handler(req, res) {
       }
 
       try {
-        const messageId = await sendTelegram(post);
+        const messageId = await sendTelegram(post, db);
 
         await doc.ref.update({
           status: 'PUBLISHED',

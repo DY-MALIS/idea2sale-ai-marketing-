@@ -162,6 +162,10 @@ service cloud.firestore {
     match /business_profiles/{profileId} {
       allow read: if isAdmin() || (isSignedIn() && profileId == request.auth.uid);
 
+      // telegramBotToken/telegramChatId let a user post scheduled Telegram content
+      // to their own channel instead of the app's shared default one -- optional
+      // (the client always sends both as strings, empty when unset) so existing
+      // profiles created before this field existed still satisfy these rules.
       allow create: if isSignedIn()
         && profileId == request.auth.uid
         && incoming().userId == request.auth.uid
@@ -170,7 +174,9 @@ service cloud.firestore {
         && incoming().logoDataUrl is string
         && incoming().logoDataUrl.size() <= 400000
         && incoming().directory is list
-        && incoming().directory.size() <= 200;
+        && incoming().directory.size() <= 200
+        && (!('telegramBotToken' in incoming()) || (incoming().telegramBotToken is string && incoming().telegramBotToken.size() <= 100))
+        && (!('telegramChatId' in incoming()) || (incoming().telegramChatId is string && incoming().telegramChatId.size() <= 100));
 
       allow update: if isSignedIn()
         && profileId == request.auth.uid
@@ -181,7 +187,9 @@ service cloud.firestore {
         && incoming().logoDataUrl is string
         && incoming().logoDataUrl.size() <= 400000
         && incoming().directory is list
-        && incoming().directory.size() <= 200;
+        && incoming().directory.size() <= 200
+        && (!('telegramBotToken' in incoming()) || (incoming().telegramBotToken is string && incoming().telegramBotToken.size() <= 100))
+        && (!('telegramChatId' in incoming()) || (incoming().telegramChatId is string && incoming().telegramChatId.size() <= 100));
 
       allow delete: if isSignedIn() && profileId == request.auth.uid;
     }
