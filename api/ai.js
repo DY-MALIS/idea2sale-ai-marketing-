@@ -526,9 +526,15 @@ export default async function handler(req, res) {
       const contentType = String(req.body?.contentType || 'caption');
       if (!prompt) return res.status(400).json({ error: 'Please enter a campaign goal.' });
       const contentPrompt = copyPromptByType[contentType]?.(prompt) || copyPromptByType.caption(prompt);
+      // The campaign-goal text's own language takes priority over the app's fixed
+      // UI display-language toggle -- a user with the UI set to English but a
+      // Khmer goal (or vice versa) expects the generated copy to match what they
+      // actually typed, across all 4 content types (caption/sale page/script/SEO).
+      // Same detection already used for the AI Agent's socialAgent action.
+      const responseLanguage = containsKhmerScript(prompt) ? 'Khmer' : 'English';
       const text = await generateOpenRouterText({
         system: `You are an expert marketing copywriter.\n\n${CAMBODIA_MARKET_CONTEXT}`,
-        prompt: `${contentPrompt}\n\nWrite primarily in ${language}. Use practical, ready-to-copy formatting.`,
+        prompt: `${contentPrompt}\n\nWrite primarily in ${responseLanguage}. Use practical, ready-to-copy formatting.`,
       });
       return res.status(200).json({ text: text || 'No response generated.' });
     }
