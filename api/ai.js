@@ -638,10 +638,9 @@ Response rules:
     if (action === 'adsStrategy') {
       const query = String(req.body?.query || '').trim();
       if (!query) return res.status(400).json({ error: 'Product or category is required.' });
-      // The UI language toggle alone isn't enough: a user can leave the app in
-      // English but type the product/category in Khmer, and the strategy should
-      // still come back in Khmer for that case.
-      const outputLanguage = language === 'Khmer' || /[ក-៿]/.test(query) ? 'Khmer' : 'English';
+      // The typed query's own language takes priority over the app's fixed UI
+      // display-language toggle, same as every other free-text action below.
+      const outputLanguage = containsKhmerScript(query) ? 'Khmer' : 'English';
       const strategy = await generateOpenRouterText({
         system: `You are a practical paid social advertising strategist.\n\n${CAMBODIA_MARKET_CONTEXT}`,
         prompt: `Create a concise digital advertising strategy for: "${query}". Write entirely in ${outputLanguage}. Include target audience, three-second hooks, campaign structure, and a practical test budget (in USD, matching how Cambodian sellers actually budget). Do not invent live ad-account metrics.`,
@@ -669,9 +668,12 @@ Response rules:
     if (action === 'productResearch') {
       const query = String(req.body?.query || '').trim();
       if (!query) return res.status(400).json({ error: 'Please enter a product, niche, or URL to research.' });
+      // The typed query's own language takes priority over the app's fixed UI
+      // display-language toggle, same as every other free-text action here.
+      const outputLanguageCode = containsKhmerScript(query) ? 'km' : 'en';
       const analysis = await generateOpenRouterText({
         system: 'You are an expert e-commerce product researcher.',
-        prompt: productResearchPrompt(query, languageCode),
+        prompt: productResearchPrompt(query, outputLanguageCode),
       });
       return res.status(200).json({ analysis });
     }
@@ -679,10 +681,11 @@ Response rules:
     if (action === 'competitorTracker') {
       const competitor = String(req.body?.competitor || '').trim();
       if (!competitor) return res.status(400).json({ error: 'Please enter a competitor, brand, or product to track.' });
+      const outputLanguage = containsKhmerScript(competitor) ? 'Khmer' : 'English';
       const xContext = await fetchXContextForEntity(competitor);
       const report = await generateOpenRouterText({
         system: 'You are a precise, practical competitive intelligence analyst.',
-        prompt: competitorTrackerPrompt(competitor, language, xContext),
+        prompt: competitorTrackerPrompt(competitor, outputLanguage, xContext),
       });
       return res.status(200).json({ report: report || 'No report generated.' });
     }
@@ -690,10 +693,11 @@ Response rules:
     if (action === 'brandSentiment') {
       const brand = String(req.body?.brand || '').trim();
       if (!brand) return res.status(400).json({ error: 'Please enter a brand or product name to check.' });
+      const outputLanguage = containsKhmerScript(brand) ? 'Khmer' : 'English';
       const xContext = await fetchXContextForEntity(brand);
       const report = await generateOpenRouterText({
         system: 'You are a precise, practical brand reputation and sentiment analyst.',
-        prompt: brandSentimentPrompt(brand, language, xContext),
+        prompt: brandSentimentPrompt(brand, outputLanguage, xContext),
       });
       return res.status(200).json({ report: report || 'No report generated.' });
     }
@@ -738,9 +742,12 @@ Response rules:
     if (action === 'videoCaption') {
       const prompt = String(req.body?.prompt || '').trim();
       if (!prompt) return res.status(400).json({ error: 'Scene description is required.' });
+      // The scene description's own language takes priority over the app's fixed
+      // UI display-language toggle, same as every other free-text action here.
+      const outputLanguage = containsKhmerScript(prompt) ? 'Khmer' : 'English';
       const text = await generateOpenRouterText({
         system: `You are a social media expert who writes TikTok captions.\n\n${CAMBODIA_MARKET_CONTEXT}`,
-        prompt: `Create a catchy TikTok caption and trending hashtags for this scene: "${prompt}". Write entirely in ${language}. Keep it ready to post.`,
+        prompt: `Create a catchy TikTok caption and trending hashtags for this scene: "${prompt}". Write entirely in ${outputLanguage}. Keep it ready to post.`,
       });
       return res.status(200).json({ text });
     }
