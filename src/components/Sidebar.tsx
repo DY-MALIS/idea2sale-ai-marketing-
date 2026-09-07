@@ -131,7 +131,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onLogout, on
         
         <motion.a
           whileTap={{ scale: 0.98 }}
-          href="https://t.me/aime_angkorgate_auto_bot"
+          href="https://t.me/aime_angkorgate_bot"
           target="_blank"
           rel="noopener noreferrer"
           className="w-full flex items-center gap-3 px-4 py-3 text-brand-300/70 hover:bg-white/5 hover:text-white dark:text-slate-400 dark:hover:bg-slate-800/70 dark:hover:text-brand-300 rounded-xl transition-all"
