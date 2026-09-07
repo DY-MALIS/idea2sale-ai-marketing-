@@ -384,17 +384,17 @@ const ensureChannelCommentSummary = async (db) => {
 };
 
 // For a per-user bot, the owner's own profile is the only correct answer.
-// The shared bot has no single owner, so it keeps its original heuristic
-// (whichever profile was touched most recently) unchanged.
-const getBusinessName = async (db, ownerId) => {
+// The shared bot has no single owner -- it used to fall back to "whichever
+// business_profiles doc was updated most recently across every user of the
+// app", which is not this bot's identity at all, just whoever happened to
+// save their own profile last; confirmed live when the shared bot introduced
+// itself using a random other user's business name. Falls back to null so
+// welcomeMessage/buildSystemPrompt's own 'aime.angkorgate' default applies.
+export const getBusinessName = async (db, ownerId) => {
+  if (!ownerId) return null;
   try {
-    if (ownerId) {
-      const snap = await db.collection('business_profiles').doc(ownerId).get();
-      return String(snap.data()?.businessName || '').trim() || null;
-    }
-    const snapshot = await db.collection('business_profiles').orderBy('updatedAt', 'desc').limit(1).get();
-    const name = String(snapshot.docs[0]?.data()?.businessName || '').trim();
-    return name || null;
+    const snap = await db.collection('business_profiles').doc(ownerId).get();
+    return String(snap.data()?.businessName || '').trim() || null;
   } catch (error) {
     console.error('Business profile lookup failed:', error?.message || error);
     return null;

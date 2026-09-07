@@ -5,6 +5,7 @@ import {
   findMatchingReplyRule,
   formatTelegramHtml,
   getAutomationActive,
+  getBusinessName,
   messageLeadContext,
   replyRuleTriggerMatches,
   resolveOwnerBotToken,
@@ -69,6 +70,32 @@ describe('getAutomationActive', () => {
     };
     expect(await getAutomationActive(db, 'owner-1')).toBe(false);
     expect(seenDocIds).toEqual(['automation_owner-1']);
+  });
+});
+
+// Regression coverage for a real bug the user hit live: the shared bot (no
+// ownerId) used to introduce itself using whichever business_profiles doc
+// was updated most recently across every user of the app -- a random other
+// user's business name, not this bot's own identity -- because there is no
+// single "owner" for the shared bot to look up in the first place.
+describe('getBusinessName', () => {
+  it('returns null for the shared bot (no ownerId) instead of guessing from an unrelated profile', async () => {
+    const db = {
+      collection: () => ({
+        orderBy: () => ({ limit: () => ({ async get() { return { docs: [{ data: () => ({ businessName: 'Some Other User Inc' }) }] } } }) }),
+      }),
+    };
+    expect(await getBusinessName(db, null)).toBeNull();
+  });
+
+  it("returns the owner's own business name for a per-user bot", async () => {
+    const db = { collection: () => ({ doc: () => ({ async get() { return { data: () => ({ businessName: 'Owner Business' }) } } }) }) };
+    expect(await getBusinessName(db, 'owner-1')).toBe('Owner Business');
+  });
+
+  it('falls back to null if the profile lookup throws', async () => {
+    const db = { collection: () => ({ doc: () => ({ async get() { throw new Error('offline'); } }) }) };
+    expect(await getBusinessName(db, 'owner-1')).toBeNull();
   });
 });
 
