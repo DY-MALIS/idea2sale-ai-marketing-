@@ -794,10 +794,18 @@ export default async function handler(req, res) {
     const duePlanItems = planSnapshot.docs.filter((planDoc) => String(planDoc.data()?.scheduledDate || '') <= todayStr);
 
     for (const planDoc of duePlanItems) {
-      const item = planDoc.data();
+      // Same atomic compare-and-swap claimPendingPost already uses for
+      // scheduled_posts -- without it, two overlapping cron runs (a slow
+      // prior invocation plus a fresh scheduled trigger, or a manual
+      // re-trigger) can both read this doc as PENDING and both generate +
+      // send the same image.
+      const claim = await claimPendingPost(db, planDoc.ref);
+      if (!claim.post) {
+        results.push({ id: planDoc.id, ok: true, contentPlan: true, skipped: true });
+        continue;
+      }
+      const item = claim.post;
       try {
-        await planDoc.ref.update({ status: 'PROCESSING', processingAt: FieldValue.serverTimestamp() });
-
         const image = await generateOpenRouterImage({ prompt: item.prompt, aspectRatio: '1:1' });
         const uploaded = await uploadMediaDataUrl({ mediaDataUrl: image.imageUrl, mediaType: 'photo' });
 
@@ -851,7 +859,16 @@ export default async function handler(req, res) {
     const dueVideoPlanItems = videoPlanSnapshot.docs.filter((planDoc) => String(planDoc.data()?.scheduledDate || '') <= todayStr);
 
     for (const planDoc of dueVideoPlanItems) {
-      const item = planDoc.data();
+      // Same atomic claim as the image loop above -- without it, two
+      // overlapping cron runs could both start a paid video generation job
+      // for the same item (the second one's videoJobId would silently
+      // clobber the first's, orphaning that job and its cost).
+      const claim = await claimPendingPost(db, planDoc.ref);
+      if (!claim.post) {
+        results.push({ id: planDoc.id, ok: true, contentPlan: true, skipped: true });
+        continue;
+      }
+      const item = claim.post;
       try {
         const job = await startOpenRouterVideo({ prompt: item.prompt, duration: 8 });
         await planDoc.ref.update({

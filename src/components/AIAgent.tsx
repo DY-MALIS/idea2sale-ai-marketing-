@@ -527,8 +527,18 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     if (!selectedItems.length) return;
     setPlanSaving(true);
     setPlanError(null);
-    try {
-      for (const item of selectedItems) {
+    // Each item is saved independently (not aborted on the first failure) and
+    // only the ones that actually succeeded are removed from the list --
+    // otherwise a failure partway through (e.g. item 4 of 10) would leave
+    // items 1-3 already persisted in Firestore while the UI still shows all
+    // 10 as unsaved, and pressing Save again would create duplicate
+    // content_plan_items docs (and later, duplicate generated posts) for
+    // the ones that already went through.
+    const failedIndexes = new Set<number>();
+    let savedCount = 0;
+    for (let i = 0; i < selectedItems.length; i++) {
+      const item = selectedItems[i];
+      try {
         await addDoc(collection(db, 'content_plan_items'), {
           userId: user.uid,
           scheduledDate: item.date,
@@ -538,15 +548,24 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           status: 'PENDING',
           createdAt: serverTimestamp(),
         });
+        savedCount += 1;
+      } catch (error) {
+        console.error('Failed to save content plan item:', error);
+        failedIndexes.add(i);
       }
-      setPlanSavedCount(selectedItems.length);
+    }
+
+    if (failedIndexes.size > 0) {
+      setPlanItems(selectedItems.filter((_, i) => failedIndexes.has(i)));
+      setPlanError(language === 'km'
+        ? `រក្សាទុកបានជោគជ័យ ${savedCount} ចំណុច ប៉ុន្តែ ${failedIndexes.size} ចំណុចបរាជ័យ (នៅសល់ខាងក្រោម សូមព្យាយាមម្តងទៀត)។`
+        : `Saved ${savedCount} item(s), but ${failedIndexes.size} failed (left below -- try again).`);
+    } else {
       setPlanItems([]);
       setPlanLink('');
-    } catch (error: any) {
-      setPlanError(error.message || (language === 'km' ? 'មិនអាចរក្សាទុកផែនការនេះបានទេ។' : 'Could not save this plan.'));
-    } finally {
-      setPlanSaving(false);
     }
+    setPlanSavedCount(savedCount > 0 ? savedCount : null);
+    setPlanSaving(false);
   };
 
   const handleImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1074,7 +1093,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                 </div>
 
                 {planError && <p className="text-sm text-rose-500">{planError}</p>}
-                {planSavedCount !== null && (
+                {planSavedCount !== null && !planError && (
                   <p className="flex items-center gap-2 text-sm font-bold text-emerald-600">
                     <Check size={16} />
                     {language === 'km' ? `បានរក្សាទុក ${planSavedCount} ចំណុចជោគជ័យ!` : `Saved ${planSavedCount} item(s) successfully!`}

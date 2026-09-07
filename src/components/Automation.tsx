@@ -187,10 +187,14 @@ const Automation: React.FC = () => {
     setMessagesLoading(true);
     // Sort client-side (not orderBy in the query) to avoid needing a composite
     // Firestore index for the chatId + createdAt combination.
-    const q = query(
-      collection(db, 'telegram_messages'),
-      where('chatId', '==', selectedChatId)
-    );
+    // Firestore security rules can't prove a `list` query only returns docs a
+    // non-admin owns just because chatId happens to be ownerId-prefixed --
+    // the query itself needs the matching where('ownerId', ...) clause (same
+    // as the leads query above) or the whole listener gets rejected with
+    // permission-denied for a non-admin bot owner opening their own inbox.
+    const q = isAdmin
+      ? query(collection(db, 'telegram_messages'), where('chatId', '==', selectedChatId))
+      : query(collection(db, 'telegram_messages'), where('chatId', '==', selectedChatId), where('ownerId', '==', user!.uid));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const messages = snapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as TelegramMessage[];
       messages.sort((a, b) => (a.createdAt?.toDate?.().getTime() || 0) - (b.createdAt?.toDate?.().getTime() || 0));
@@ -201,7 +205,7 @@ const Automation: React.FC = () => {
       setMessagesLoading(false);
     });
     return () => unsubscribe();
-  }, [selectedChatId, activeTab, checkingAdmin, canSeeInbox]);
+  }, [selectedChatId, activeTab, checkingAdmin, canSeeInbox, isAdmin, user]);
 
   const handleSendReply = async () => {
     const text = replyText.trim();
