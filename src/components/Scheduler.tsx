@@ -354,9 +354,17 @@ const Scheduler: React.FC = () => {
       // at PROCESSING -- a state the UI shows no Send/Retry button for at all, so
       // there'd be no visible way to un-stick it short of the server's separate
       // 3-minute stale-claim recovery (api/telegram/run-scheduled.js) kicking in.
+      // Signed-in (non-demo) so the server can resolve this user's own connected
+      // Telegram channel from Business Profile instead of always falling back to
+      // the shared default -- demo mode has no account/idToken, so it's omitted
+      // there and the server just uses the shared channel as before.
+      const authHeaders = user && !isDemoMode
+        ? { Authorization: `Bearer ${await user.getIdToken()}` }
+        : {};
+
       const res = await withUploadTimeout(fetch('/api/telegram/run-scheduled?action=post', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({
           text: post.content,
           mediaUrl,

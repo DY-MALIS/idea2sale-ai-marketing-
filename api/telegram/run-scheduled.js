@@ -360,14 +360,30 @@ const createScheduledTelegramPost = async (req, res) => {
 // api/telegram/post.js route to stay under Vercel Hobby's 12-function limit.
 // Unlike sendTelegram() above (used for scheduled posts, which only ever hold
 // a Cloudinary mediaUrl), this also accepts a raw mediaDataUrl upload.
-const postTelegramMessage = async (req, res) => {
+export const postTelegramMessage = async (req, res) => {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const token = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
-  const chatId = (process.env.TELEGRAM_CHAT_ID || '').trim();
+  // Auth is optional here (this path is also hit by demo-mode posts with no
+  // account at all) -- but when a caller IS signed in, resolve their own
+  // Telegram destination the same way sendTelegram() does for scheduled posts,
+  // so "send now"/the live polling loop in Scheduler.tsx actually honors a
+  // user's own connected channel instead of always falling through to the
+  // shared one.
+  let db;
+  let userId;
+  if (req.headers.authorization) {
+    try {
+      const decoded = await verifyUser(req);
+      userId = decoded.uid;
+      db = initFirebaseAdmin();
+    } catch (error) {
+      console.error('Optional auth on postTelegramMessage failed, using the shared channel:', error?.message);
+    }
+  }
+  const { token, chatId } = await resolveTelegramDestination(db, userId);
 
   if (!token || !chatId) {
     return res.status(503).json({

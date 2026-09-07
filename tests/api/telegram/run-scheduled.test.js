@@ -1,13 +1,46 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { applyCloudinaryDeliveryTransform, escapeTelegramHtml, formatTelegramHtml, sendTelegram, truncateForTelegram } from '../../../api/telegram/run-scheduled.js';
+
+const { mockVerifyIdToken, mockGetFirestore } = vi.hoisted(() => ({
+  mockVerifyIdToken: vi.fn(),
+  mockGetFirestore: vi.fn(),
+}));
+vi.mock('firebase-admin', () => ({
+  default: {
+    auth: () => ({ verifyIdToken: mockVerifyIdToken }),
+    apps: [],
+    initializeApp: vi.fn(),
+    app: vi.fn(),
+    credential: { cert: vi.fn() },
+  },
+}));
+vi.mock('firebase-admin/firestore', async (importOriginal) => ({
+  ...(await importOriginal()),
+  getFirestore: mockGetFirestore,
+}));
+
+const { applyCloudinaryDeliveryTransform, escapeTelegramHtml, formatTelegramHtml, postTelegramMessage, sendTelegram, truncateForTelegram } =
+  await import('../../../api/telegram/run-scheduled.js');
 
 const originalEnv = { ...process.env };
 const originalFetch = global.fetch;
 afterEach(() => {
   process.env = { ...originalEnv };
   global.fetch = originalFetch;
+  mockVerifyIdToken.mockReset();
+  mockGetFirestore.mockReset();
   vi.restoreAllMocks();
 });
+
+const createMockRes = () => {
+  const res = {
+    statusCode: 200,
+    body: undefined,
+    status(code) { this.statusCode = code; return this; },
+    json(payload) { this.body = payload; return this; },
+    setHeader() { return this; },
+  };
+  return res;
+};
 
 const fakeDbWithProfile = (profileData) => ({
   collection: () => ({
@@ -171,5 +204,52 @@ describe('sendTelegram destination resolution', () => {
     delete process.env.TELEGRAM_CHAT_ID;
 
     await expect(sendTelegram({ userId: 'u1', content: 'hello' })).rejects.toThrow('not configured');
+  });
+});
+
+describe('postTelegramMessage (the "send now"/live-polling immediate-send path)', () => {
+  it('uses the shared channel when the caller sends no Authorization header (demo mode)', async () => {
+    process.env.TELEGRAM_BOT_TOKEN = 'shared-token';
+    process.env.TELEGRAM_CHAT_ID = 'shared-chat';
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, text: async () => JSON.stringify({ ok: true, result: { message_id: 42 } }) });
+
+    const req = { method: 'POST', headers: {}, body: { text: 'hello' } };
+    const res = createMockRes();
+    await postTelegramMessage(req, res);
+
+    expect(mockVerifyIdToken).not.toHaveBeenCalled();
+    expect(JSON.parse(global.fetch.mock.calls[0][1].body).chat_id).toBe('shared-chat');
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('falls back to the shared channel if the Authorization header is present but invalid', async () => {
+    process.env.TELEGRAM_BOT_TOKEN = 'shared-token';
+    process.env.TELEGRAM_CHAT_ID = 'shared-chat';
+    mockVerifyIdToken.mockRejectedValueOnce(new Error('invalid token'));
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, text: async () => JSON.stringify({ ok: true, result: { message_id: 42 } }) });
+
+    const req = { method: 'POST', headers: { authorization: 'Bearer bad-token' }, body: { text: 'hello' } };
+    const res = createMockRes();
+    await postTelegramMessage(req, res);
+
+    expect(JSON.parse(global.fetch.mock.calls[0][1].body).chat_id).toBe('shared-chat');
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("uses the signed-in caller's own channel when their Business Profile has one configured", async () => {
+    process.env.TELEGRAM_BOT_TOKEN = 'shared-token';
+    process.env.TELEGRAM_CHAT_ID = 'shared-chat';
+    process.env.FIREBASE_PROJECT_ID = 'test-project';
+    mockVerifyIdToken.mockResolvedValueOnce({ uid: 'u1' });
+    mockGetFirestore.mockReturnValue(fakeDbWithProfile({ telegramBotToken: 'own-token', telegramChatId: 'own-chat' }));
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, text: async () => JSON.stringify({ ok: true, result: { message_id: 42 } }) });
+
+    const req = { method: 'POST', headers: { authorization: 'Bearer good-token' }, body: { text: 'hello' } };
+    const res = createMockRes();
+    await postTelegramMessage(req, res);
+
+    expect(global.fetch.mock.calls[0][0]).toContain('bot' + 'own-token');
+    expect(JSON.parse(global.fetch.mock.calls[0][1].body).chat_id).toBe('own-chat');
+    expect(res.statusCode).toBe(200);
   });
 });
