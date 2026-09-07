@@ -176,8 +176,15 @@ service cloud.firestore {
         && incoming().directory is list
         && incoming().directory.size() <= 200
         && (!('telegramBotToken' in incoming()) || (incoming().telegramBotToken is string && incoming().telegramBotToken.size() <= 100))
-        && (!('telegramChatId' in incoming()) || (incoming().telegramChatId is string && incoming().telegramChatId.size() <= 100));
+        && (!('telegramChatId' in incoming()) || (incoming().telegramChatId is string && incoming().telegramChatId.size() <= 100))
+        && (!('telegramBotActive' in incoming()) || incoming().telegramBotActive is bool);
 
+      // telegramBotActive is set server-side only (activateOwnBot in
+      // api/telegram/webhook.js, via the Admin SDK, which bypasses these rules
+      // entirely) -- allowed here only so a client's merge write that happens to
+      // carry the existing value forward still validates; a client can't set it
+      // to anything the Admin SDK didn't already put there since Admin SDK
+      // writes never go through this rule at all.
       allow update: if isSignedIn()
         && profileId == request.auth.uid
         && existing().userId == request.auth.uid
@@ -189,7 +196,8 @@ service cloud.firestore {
         && incoming().directory is list
         && incoming().directory.size() <= 200
         && (!('telegramBotToken' in incoming()) || (incoming().telegramBotToken is string && incoming().telegramBotToken.size() <= 100))
-        && (!('telegramChatId' in incoming()) || (incoming().telegramChatId is string && incoming().telegramChatId.size() <= 100));
+        && (!('telegramChatId' in incoming()) || (incoming().telegramChatId is string && incoming().telegramChatId.size() <= 100))
+        && (!('telegramBotActive' in incoming()) || incoming().telegramBotActive is bool);
 
       allow delete: if isSignedIn() && profileId == request.auth.uid;
     }
@@ -225,19 +233,21 @@ service cloud.firestore {
     }
 
     match /telegram_leads/{leadId} {
-      // Written only by the server (Admin SDK bypasses these rules). Shared CRM list, restricted to admins:
-      // this is one shared Telegram bot for every business using the app, so there is no per-business
-      // owner to scope by — gate the shared inbox to trusted admins instead of every signed-in account
-      // (including guest accounts, which get a real Firebase Auth uid too).
-      allow read: if isAdmin();
-      allow list: if isAdmin();
+      // Written only by the server (Admin SDK bypasses these rules). The shared
+      // bot's leads have no ownerId (null) and stay admin-only, as before -- a
+      // per-user bot's leads (see activateOwnBot in api/telegram/webhook.js) also
+      // let that bot's own owner read (not list-all -- their client query must
+      // filter by ownerId == their own uid for the list rule to be satisfiable).
+      allow read: if isAdmin() || (isSignedIn() && resource.data.ownerId == request.auth.uid);
+      allow list: if isAdmin() || (isSignedIn() && resource.data.ownerId == request.auth.uid);
       allow write: if false;
     }
 
     match /telegram_messages/{messageId} {
-      // Written only by the server (Admin SDK bypasses these rules). Same admin-only rationale as telegram_leads.
-      allow read: if isAdmin();
-      allow list: if isAdmin();
+      // Written only by the server (Admin SDK bypasses these rules). Same owner
+      // rationale as telegram_leads.
+      allow read: if isAdmin() || (isSignedIn() && resource.data.ownerId == request.auth.uid);
+      allow list: if isAdmin() || (isSignedIn() && resource.data.ownerId == request.auth.uid);
       allow write: if false;
     }
 
@@ -257,6 +267,17 @@ service cloud.firestore {
       // replies for the one shared bot every business using this deployment uses.
       allow read: if isSignedIn();
       allow write: if isAdmin() && incoming().active is bool;
+    }
+
+    match /settings/{settingId} {
+      // Per-user equivalent of settings/automation above, one doc per owner
+      // (id "automation_{uid}") for a user who has activated their own bot
+      // (see activateOwnBot in api/telegram/webhook.js) -- only that owner
+      // (or an admin) may toggle their own bot's auto-reply.
+      allow read: if isSignedIn() && settingId == ('automation_' + request.auth.uid);
+      allow write: if isSignedIn()
+        && settingId == ('automation_' + request.auth.uid)
+        && incoming().active is bool;
     }
   }
 }

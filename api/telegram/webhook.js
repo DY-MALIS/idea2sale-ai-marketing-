@@ -35,8 +35,13 @@ export const replyRuleTriggerMatches = (text, trigger) => {
   return normalizedText.includes(normalizedTrigger);
 };
 
-const findMatchingReplyRule = async (db, text) => {
-  const snapshot = await db.collection('reply_rules').where('platform', '==', 'TELEGRAM').limit(200).get();
+// A per-user bot (see resolveBotContext) only matches that user's own rules --
+// reply_rules already carries userId for edit-ownership, but matching used to
+// ignore it and apply every rule to every bot. The shared bot (ownerId null)
+// keeps its original app-wide behavior unchanged, matching any rule.
+export const findMatchingReplyRule = async (db, text, ownerId) => {
+  const base = db.collection('reply_rules').where('platform', '==', 'TELEGRAM');
+  const snapshot = await (ownerId ? base.where('userId', '==', ownerId) : base).limit(200).get();
   const matches = [];
 
   for (const doc of snapshot.docs) {
@@ -60,10 +65,11 @@ const findMatchingReplyRule = async (db, text) => {
   return matches[0]?.response || null;
 };
 
-const logMessage = async (db, chatId, direction, text, source) => {
+const logMessage = async (db, chatId, direction, text, source, ownerId) => {
   try {
     await db.collection('telegram_messages').add({
       chatId: String(chatId),
+      ownerId: ownerId || null,
       direction,
       text: String(text || '').slice(0, 2000),
       source,
@@ -81,16 +87,23 @@ export const telegramReactionName = (reaction) => {
   return 'reaction';
 };
 
-const messageLeadContext = (message) => {
+// A real Telegram user's chat.id in a private chat is their own numeric
+// Telegram account ID, which is the same regardless of which bot they're
+// messaging -- so the same customer messaging two different owners' bots
+// would collide on the same conversationId without this prefix. The shared
+// bot (ownerId null) keeps its original unprefixed IDs so existing
+// telegram_leads/telegram_messages docs keep resolving to the same lead.
+export const messageLeadContext = (message, ownerId) => {
   const chat = message?.chat || {};
   const actor = message?.from || chat;
   const isGroupComment = chat.type === 'group' || chat.type === 'supergroup';
   const actorId = String(actor.id ?? chat.id ?? 'unknown');
   const replyChatId = String(chat.id ?? actor.id ?? '');
+  const rawConversationId = isGroupComment ? `${replyChatId}:${actorId}` : replyChatId;
   return {
     actor,
     actorId,
-    conversationId: isGroupComment ? `${replyChatId}:${actorId}` : replyChatId,
+    conversationId: ownerId ? `${ownerId}_${rawConversationId}` : rawConversationId,
     replyChatId,
     replyToMessageId: isGroupComment ? message?.message_id || null : null,
     source: isGroupComment ? 'channel-comment' : 'user',
@@ -173,8 +186,8 @@ A request such as "I want you to create attractive content" is interested, not g
   }
 };
 
-const upsertTelegramLead = async (db, message, text, forcedTag) => {
-  const context = messageLeadContext(message);
+const upsertTelegramLead = async (db, message, text, forcedTag, ownerId) => {
+  const context = messageLeadContext(message, ownerId);
   const leadRef = db.collection('telegram_leads').doc(context.conversationId);
 
   try {
@@ -185,6 +198,7 @@ const upsertTelegramLead = async (db, message, text, forcedTag) => {
       const tag = forcedTag || await classifyLead(text);
       await leadRef.set({
         chatId: context.conversationId,
+        ownerId: ownerId || null,
         replyChatId: context.replyChatId,
         replyToMessageId: context.replyToMessageId,
         telegramUserId: context.actorId,
@@ -369,8 +383,15 @@ const ensureChannelCommentSummary = async (db) => {
   });
 };
 
-const getBusinessName = async (db) => {
+// For a per-user bot, the owner's own profile is the only correct answer.
+// The shared bot has no single owner, so it keeps its original heuristic
+// (whichever profile was touched most recently) unchanged.
+const getBusinessName = async (db, ownerId) => {
   try {
+    if (ownerId) {
+      const snap = await db.collection('business_profiles').doc(ownerId).get();
+      return String(snap.data()?.businessName || '').trim() || null;
+    }
     const snapshot = await db.collection('business_profiles').orderBy('updatedAt', 'desc').limit(1).get();
     const name = String(snapshot.docs[0]?.data()?.businessName || '').trim();
     return name || null;
@@ -385,9 +406,10 @@ const containsKhmer = (text) => /[\u1780-\u17FF]/.test(text || '');
 // Backs the "ACTIVE/PAUSED" toggle in Automation.tsx (settings/automation doc).
 // Defaults to active (true) if the doc is missing or unreadable, so a Firestore
 // hiccup fails open to "keep replying" rather than silently going dark.
-export const getAutomationActive = async (db) => {
+export const getAutomationActive = async (db, ownerId) => {
   try {
-    const snap = await db.collection('settings').doc('automation').get();
+    const docId = ownerId ? `automation_${ownerId}` : 'automation';
+    const snap = await db.collection('settings').doc(docId).get();
     return snap.exists ? snap.data()?.active !== false : true;
   } catch (error) {
     console.error('Automation-active lookup failed, defaulting to active:', error?.message || error);
@@ -492,12 +514,23 @@ const buildSystemPrompt = (businessName, isKhmer) => [
   'Do not claim that you posted, scheduled, or changed settings unless the user explicitly asks and an integration confirms it.',
 ].filter(Boolean).join(' ');
 
-const sendManualReply = async (req, res) => {
-  const token = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
-  if (!token) {
-    return res.status(503).json({ error: 'TELEGRAM_BOT_TOKEN is not configured in Vercel.' });
+// Resolves which bot token owns a given business (used both for a per-user
+// bot's incoming webhook and for replying to one of its captured leads).
+export const resolveOwnerBotToken = async (db, ownerId) => {
+  const sharedToken = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
+  if (db && ownerId) {
+    try {
+      const snap = await db.collection('business_profiles').doc(ownerId).get();
+      const ownToken = (snap.data()?.telegramBotToken || '').trim();
+      if (ownToken) return ownToken;
+    } catch (error) {
+      console.error("Could not load the bot owner's Telegram profile, using the shared bot:", error?.message);
+    }
   }
+  return sharedToken;
+};
 
+const sendManualReply = async (req, res) => {
   const authHeader = req.headers.authorization || '';
   const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
   if (!idToken) {
@@ -521,9 +554,30 @@ const sendManualReply = async (req, res) => {
     return res.status(401).json({ error: 'Sign-in verification failed.' });
   }
 
+  // The lead itself records which bot captured it (ownerId, absent for the
+  // legacy shared bot) -- that, not anything the client claims, decides which
+  // bot token replies and who is allowed to send this reply at all.
+  let ownerId = null;
+  try {
+    const leadSnap = await db.collection('telegram_leads').doc(conversationId).get();
+    ownerId = leadSnap.data()?.ownerId || null;
+  } catch (error) {
+    console.error('Could not load lead for reply ownership check:', error?.message);
+  }
+
+  const isCallerAdmin = await db.collection('admins').doc(decoded.uid).get().then((snap) => snap.exists).catch(() => false);
+  if (ownerId ? (decoded.uid !== ownerId && !isCallerAdmin) : !isCallerAdmin) {
+    return res.status(403).json({ error: 'You do not have permission to reply to this conversation.' });
+  }
+
+  const token = await resolveOwnerBotToken(db, ownerId);
+  if (!token) {
+    return res.status(503).json({ error: 'Telegram bot is not configured.' });
+  }
+
   try {
     await sendTelegramHtmlMessage(token, chatId, text, { replyToMessageId });
-    await logMessage(db, conversationId, 'out', text, 'system');
+    await logMessage(db, conversationId, 'out', text, 'system', ownerId);
     await logAudit(db, { action: 'telegram_manual_reply', actorUid: decoded.uid, meta: { chatId, conversationId, replyToMessageId } });
     return res.status(200).json({ ok: true });
   } catch (error) {
@@ -634,6 +688,74 @@ const setWebhook = async (req, res) => {
   }
 };
 
+// Lets a signed-in user point their own bot (saved in Business Profile) at
+// this app, so their incoming messages get CRM capture + AI auto-reply using
+// their own bot/data instead of the app's single shared bot. Distinct from
+// setWebhook above (which registers the shared bot via an admin setup key,
+// not a user's own idToken) -- kept separate rather than merged since the two
+// have unrelated auth models and target different bots.
+const activateOwnBot = async (req, res) => {
+  const authHeader = req.headers.authorization || '';
+  const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  if (!idToken) {
+    return res.status(401).json({ error: 'Please sign in before activating your bot.' });
+  }
+
+  let db;
+  let decoded;
+  try {
+    db = initFirebaseAdmin();
+    decoded = await admin.auth().verifyIdToken(idToken, true);
+  } catch (error) {
+    return res.status(401).json({ error: 'Sign-in verification failed.' });
+  }
+
+  const deactivate = req.body?.deactivate === true;
+  const profileSnap = await db.collection('business_profiles').doc(decoded.uid).get();
+  const ownToken = (profileSnap.data()?.telegramBotToken || '').trim();
+  if (!ownToken) {
+    return res.status(400).json({ error: 'Save your own Telegram Bot Token in Business Profile first.' });
+  }
+
+  const baseUrl = getBaseUrl(req);
+  const webhookUrl = `${baseUrl}/api/telegram/webhook?uid=${encodeURIComponent(decoded.uid)}`;
+  const secret = (process.env.TELEGRAM_WEBHOOK_SECRET || '').trim();
+
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${ownToken}/setWebhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(deactivate
+        ? { url: '' }
+        : {
+            url: webhookUrl,
+            allowed_updates: ['message', 'edited_message'],
+            drop_pending_updates: false,
+            ...(secret ? { secret_token: secret } : {}),
+          }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) {
+      return res.status(502).json({ ok: false, error: data?.description || 'Telegram setWebhook failed.' });
+    }
+
+    // Business Profile's own doc, not a separate collection, so the UI can
+    // reflect activation state with the same onSnapshot listener it already
+    // uses to load the saved bot token/chat ID.
+    await db.collection('business_profiles').doc(decoded.uid).set({ telegramBotActive: !deactivate }, { merge: true });
+    await logAudit(db, { action: deactivate ? 'telegram_own_bot_deactivated' : 'telegram_own_bot_activated', actorUid: decoded.uid });
+    return res.status(200).json({
+      ok: true,
+      active: !deactivate,
+      message: deactivate
+        ? 'Your bot has been disconnected.'
+        : 'Your bot is now active. Send /start to it on Telegram to test it.',
+    });
+  } catch (error) {
+    return res.status(500).json({ ok: false, error: error?.message || 'Could not update your bot webhook.' });
+  }
+};
+
 export default async function handler(req, res) {
   if (req.query?.action === 'set-webhook') {
     if (!['GET', 'POST'].includes(req.method)) {
@@ -652,7 +774,24 @@ export default async function handler(req, res) {
     return sendManualReply(req, res);
   }
 
-  const token = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
+  if (req.query?.action === 'activate-bot') {
+    return activateOwnBot(req, res);
+  }
+
+  // Present only for a per-user bot's own webhook URL (see activateOwnBot) --
+  // the shared bot's webhook URL carries none, so ownerId stays null and every
+  // function below falls back to its original single-tenant behavior exactly
+  // as before this feature existed.
+  const ownerId = String(req.query?.uid || '').trim() || null;
+
+  let db = null;
+  try {
+    db = initFirebaseAdmin();
+  } catch (error) {
+    console.error('Firebase Admin not configured for Telegram CRM/rules:', error?.message || error);
+  }
+
+  const token = ownerId ? await resolveOwnerBotToken(db, ownerId) : (process.env.TELEGRAM_BOT_TOKEN || '').trim();
   if (!token) {
     return res.status(503).json({ error: 'TELEGRAM_BOT_TOKEN is not configured in Vercel.' });
   }
@@ -666,7 +805,6 @@ export default async function handler(req, res) {
 
   if (update.message_reaction || update.message_reaction_count) {
     try {
-      const db = initFirebaseAdmin();
       await recordReactionUpdate(db, update);
       return res.status(200).json({ ok: true, recorded: 'reaction' });
     } catch (error) {
@@ -716,47 +854,40 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true });
   }
 
-  let db = null;
-  try {
-    db = initFirebaseAdmin();
-  } catch (error) {
-    console.error('Firebase Admin not configured for Telegram CRM/rules:', error?.message || error);
-  }
-
   const leadContext = db
-    ? await upsertTelegramLead(db, message, text)
-    : messageLeadContext(message);
+    ? await upsertTelegramLead(db, message, text, undefined, ownerId)
+    : messageLeadContext(message, ownerId);
   if (db && ['group', 'supergroup'].includes(message?.chat?.type)) {
     await recordChannelComment(db, message, text).catch((error) => {
       console.error('Telegram comment count failed:', error?.message || error);
     });
   }
-  if (db) await logMessage(db, leadContext.conversationId, 'in', text, leadContext.source);
+  if (db) await logMessage(db, leadContext.conversationId, 'in', text, leadContext.source, ownerId);
 
-  const businessName = db ? await getBusinessName(db) : null;
+  const businessName = db ? await getBusinessName(db, ownerId) : null;
   const isKhmer = containsKhmer(text);
   if (/^\/(start|help)\b/i.test(text)) {
     const welcome = welcomeMessage(isKhmer, businessName);
     await sendTelegramHtmlMessage(token, chatId, welcome, { disableWebPagePreview: true, replyToMessageId: leadContext.replyToMessageId });
-    if (db) await logMessage(db, leadContext.conversationId, 'out', welcome, 'system');
+    if (db) await logMessage(db, leadContext.conversationId, 'out', welcome, 'system', ownerId);
     return res.status(200).json({ ok: true });
   }
 
   // Lead capture/logging above always runs (that's CRM data collection, not
   // "automation"); only the rule-matched and AI-generated auto-replies below are
   // gated -- this is what Automation.tsx's ACTIVE/PAUSED toggle actually controls.
-  const automationActive = db ? await getAutomationActive(db) : true;
+  const automationActive = db ? await getAutomationActive(db, ownerId) : true;
   if (!automationActive) {
     return res.status(200).json({ ok: true, automationPaused: true });
   }
 
   if (db) {
-    const ruleResponse = await findMatchingReplyRule(db, text).catch(() => null);
+    const ruleResponse = await findMatchingReplyRule(db, text, ownerId).catch(() => null);
     // Never send a saved English rule to a Khmer question (or vice versa).
     // A mismatched rule falls through to the language-locked AI response below.
     if (ruleResponse && containsKhmer(ruleResponse) === isKhmer) {
       await sendTelegramHtmlMessage(token, chatId, ruleResponse, { replyToMessageId: leadContext.replyToMessageId });
-      await logMessage(db, leadContext.conversationId, 'out', ruleResponse, 'rule');
+      await logMessage(db, leadContext.conversationId, 'out', ruleResponse, 'rule', ownerId);
       return res.status(200).json({ ok: true, matchedRule: true });
     }
   }
@@ -781,7 +912,7 @@ export default async function handler(req, res) {
       await sendTelegramHtmlMessage(token, chatId, chunk, { replyToMessageId: leadContext.replyToMessageId });
     }
 
-    if (db) await logMessage(db, leadContext.conversationId, 'out', reply, 'ai');
+    if (db) await logMessage(db, leadContext.conversationId, 'out', reply, 'ai', ownerId);
 
     return res.status(200).json({ ok: true });
   } catch (error) {

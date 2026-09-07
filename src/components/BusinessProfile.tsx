@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Upload, Building2, User, Plus, Trash2, Save, CheckCircle2, Loader2, Send } from 'lucide-react';
+import { X, Upload, Building2, User, Plus, Trash2, Save, CheckCircle2, Loader2, Send, Bot } from 'lucide-react';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { cn } from '../lib/utils';
@@ -62,6 +62,9 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [telegramBotActive, setTelegramBotActive] = useState(false);
+  const [activatingBot, setActivatingBot] = useState(false);
+  const [botStatusMessage, setBotStatusMessage] = useState<string | null>(null);
 
   const [businessName, setBusinessName] = useState('');
   const [logoDataUrl, setLogoDataUrl] = useState('');
@@ -96,12 +99,13 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
           const snap = await getDoc(doc(db, 'business_profiles', user.uid));
           if (cancelled) return;
           if (snap.exists()) {
-            const data = snap.data() as BusinessProfileData;
+            const data = snap.data() as BusinessProfileData & { telegramBotActive?: boolean };
             setBusinessName(data.businessName || '');
             setLogoDataUrl(data.logoDataUrl || '');
             setDirectory(data.directory || []);
             setTelegramBotToken(data.telegramBotToken || '');
             setTelegramChatId(data.telegramChatId || '');
+            setTelegramBotActive(Boolean(data.telegramBotActive));
           }
         }
       } catch (err) {
@@ -157,11 +161,15 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
       if (isDemoMode || !user) {
         localStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify(profile));
       } else {
+        // merge: true -- a plain overwrite here would wipe out telegramBotActive,
+        // which the server sets independently (see activateOwnBot in
+        // api/telegram/webhook.js) whenever the user activates/deactivates their
+        // own bot, not through this form.
         await setDoc(doc(db, 'business_profiles', user.uid), {
           ...profile,
           userId: user.uid,
           updatedAt: serverTimestamp()
-        });
+        }, { merge: true });
         void recordAuditEvent('business_profile_updated', {
           businessName: profile.businessName,
           directoryEntries: profile.directory.length,
@@ -175,6 +183,31 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
       setError(err.message || t('businessProfileSaveError'));
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleToggleBotActive = async () => {
+    if (!user || isDemoMode) return;
+    setActivatingBot(true);
+    setBotStatusMessage(null);
+    const deactivate = telegramBotActive;
+    try {
+      const idToken = await user.getIdToken();
+      const response = await fetch('/api/telegram/webhook?action=activate-bot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ deactivate }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error || 'Could not update your bot.');
+      }
+      setTelegramBotActive(Boolean(data.active));
+      setBotStatusMessage(data.message || null);
+    } catch (err: any) {
+      setBotStatusMessage(err.message || 'Could not update your bot.');
+    } finally {
+      setActivatingBot(false);
     }
   };
 
@@ -335,6 +368,42 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
                 />
               </div>
             </div>
+
+            {!isDemoMode && user && (
+              <div>
+                <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                  <Bot size={12} />
+                  {t('myTelegramBotTitle')}
+                </label>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">{t('myTelegramBotDesc')}</p>
+                <div className="flex items-center gap-3">
+                  <span className={cn(
+                    'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold',
+                    telegramBotActive ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'
+                  )}>
+                    <span className={cn('w-2 h-2 rounded-full', telegramBotActive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400')} />
+                    {telegramBotActive ? t('botActiveStatus') : t('botInactiveStatus')}
+                  </span>
+                  <button
+                    onClick={handleToggleBotActive}
+                    disabled={activatingBot || !telegramBotToken.trim()}
+                    className={cn(
+                      'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
+                      telegramBotActive
+                        ? 'bg-rose-50 hover:bg-rose-100 text-rose-600'
+                        : 'bg-brand-50 hover:bg-brand-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-brand-600 dark:text-brand-400'
+                    )}
+                  >
+                    {activatingBot ? <Loader2 size={16} className="animate-spin" /> : null}
+                    {telegramBotActive ? t('deactivateMyBot') : t('activateMyBot')}
+                  </button>
+                </div>
+                {!telegramBotToken.trim() && (
+                  <p className="text-[11px] text-amber-600 mt-2">{t('saveBotTokenFirst')}</p>
+                )}
+                {botStatusMessage && <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">{botStatusMessage}</p>}
+              </div>
+            )}
 
             {error && <p className="text-sm text-rose-500">{error}</p>}
 

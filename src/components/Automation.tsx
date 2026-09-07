@@ -87,19 +87,44 @@ const Automation: React.FC = () => {
   const [replyText, setReplyText] = useState('');
   const [sendingReply, setSendingReply] = useState(false);
 
+  // A signed-in non-admin user who has activated their own bot (Business
+  // Profile) gets their own scoped inbox + automation toggle below, instead of
+  // the admin-only shared-bot view.
+  const [hasOwnBot, setHasOwnBot] = useState(false);
+  useEffect(() => {
+    if (isDemoMode || !user) return;
+    const unsubscribe = onSnapshot(doc(db, 'business_profiles', user.uid), (snap) => {
+      setHasOwnBot(Boolean(snap.data()?.telegramBotActive));
+    }, (error) => {
+      console.error('Business profile bot-status listener error:', error);
+    });
+    return () => unsubscribe();
+  }, [user, isDemoMode]);
+  const canSeeInbox = isAdmin || hasOwnBot;
+
   useEffect(() => {
     if (activeTab !== 'inbox') return;
-    if (checkingAdmin || !isAdmin) {
+    if (checkingAdmin || !canSeeInbox) {
       setInboxLoading(false);
       return;
     }
-    const q = query(collection(db, 'telegram_leads'), orderBy('lastMessageAt', 'desc'), limit(INBOX_PAGE_SIZE));
+
+    // A non-admin owner's own leads: no orderBy (an ownerId equality filter
+    // combined with an orderBy on a different field needs a composite index),
+    // sorted client-side instead -- and no server-side pagination, since this
+    // is one business's own inbox rather than the admin's cross-business one.
+    const q = isAdmin
+      ? query(collection(db, 'telegram_leads'), orderBy('lastMessageAt', 'desc'), limit(INBOX_PAGE_SIZE))
+      : query(collection(db, 'telegram_leads'), where('ownerId', '==', user!.uid), limit(200));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = (snapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as TelegramLead[])
+      let data = (snapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as TelegramLead[])
         .filter((lead) => !lead.kind?.endsWith('summary'));
+      if (!isAdmin) {
+        data = data.sort((a, b) => (b.lastMessageAt?.toDate?.().getTime() || 0) - (a.lastMessageAt?.toDate?.().getTime() || 0));
+      }
       setInboxLeads(data);
       setInboxLastDoc(snapshot.docs[snapshot.docs.length - 1] || null);
-      setInboxHasMore(snapshot.docs.length === INBOX_PAGE_SIZE);
+      setInboxHasMore(isAdmin && snapshot.docs.length === INBOX_PAGE_SIZE);
       setInboxLoading(false);
       setSelectedChatId((current) => current || data[0]?.chatId || null);
     }, (error) => {
@@ -107,10 +132,10 @@ const Automation: React.FC = () => {
       setInboxLoading(false);
     });
     return () => unsubscribe();
-  }, [activeTab, checkingAdmin, isAdmin]);
+  }, [activeTab, checkingAdmin, canSeeInbox, isAdmin, user]);
 
   const handleLoadMoreInboxLeads = async () => {
-    if (!inboxLastDoc || inboxLoadingMore) return;
+    if (!inboxLastDoc || inboxLoadingMore || !isAdmin) return;
     setInboxLoadingMore(true);
     try {
       const q = query(collection(db, 'telegram_leads'), orderBy('lastMessageAt', 'desc'), startAfter(inboxLastDoc), limit(INBOX_PAGE_SIZE));
@@ -158,7 +183,7 @@ const Automation: React.FC = () => {
   }, [inboxHasMore, inboxLastDoc, activeTab]);
 
   useEffect(() => {
-    if (!selectedChatId || activeTab !== 'inbox' || checkingAdmin || !isAdmin) return;
+    if (!selectedChatId || activeTab !== 'inbox' || checkingAdmin || !canSeeInbox) return;
     setMessagesLoading(true);
     // Sort client-side (not orderBy in the query) to avoid needing a composite
     // Firestore index for the chatId + createdAt combination.
@@ -176,7 +201,7 @@ const Automation: React.FC = () => {
       setMessagesLoading(false);
     });
     return () => unsubscribe();
-  }, [selectedChatId, activeTab, checkingAdmin, isAdmin]);
+  }, [selectedChatId, activeTab, checkingAdmin, canSeeInbox]);
 
   const handleSendReply = async () => {
     const text = replyText.trim();
@@ -277,6 +302,11 @@ const Automation: React.FC = () => {
   // to be localStorage-only, which only changed this browser's own UI and never
   // stopped the bot from auto-replying to real customers.
   const [isAutomationActive, setIsAutomationActive] = useState(true);
+  // A non-admin owner's own bot has its own independent on/off doc
+  // (settings/automation_{uid}) -- see getAutomationActive in
+  // api/telegram/webhook.js, which is what the webhook actually checks for
+  // that owner's incoming messages.
+  const [isOwnAutomationActive, setIsOwnAutomationActive] = useState(true);
 
   useEffect(() => {
     if (isDemoMode) return;
@@ -288,7 +318,21 @@ const Automation: React.FC = () => {
     return () => unsubscribe();
   }, [isDemoMode]);
 
+  useEffect(() => {
+    if (isDemoMode || !user || !hasOwnBot) return;
+    const unsubscribe = onSnapshot(doc(db, 'settings', `automation_${user.uid}`), (snap) => {
+      setIsOwnAutomationActive(snap.data()?.active !== false);
+    }, (error) => {
+      console.error('Own automation-active listener error:', error);
+    });
+    return () => unsubscribe();
+  }, [isDemoMode, user, hasOwnBot]);
+
+  const effectiveAutomationActive = isAdmin ? isAutomationActive : hasOwnBot ? isOwnAutomationActive : isAutomationActive;
+  const canToggleAutomation = isDemoMode || isAdmin || hasOwnBot;
+
   const toggleGlobalAutomation = async () => {
+    if (!isAdmin && hasOwnBot) return toggleOwnAutomation();
     const newState = !isAutomationActive;
     setIsAutomationActive(newState);
     if (isDemoMode) return;
@@ -302,6 +346,24 @@ const Automation: React.FC = () => {
     } catch (err: any) {
       console.error('Error toggling automation:', err);
       setIsAutomationActive(!newState);
+      setErrorMsg(language === 'km' ? 'មិនអាចផ្លាស់ប្តូរស្ថានភាពស្វ័យប្រវត្តិកម្មបានទេ៖ ' + (err.message || '') : 'Failed to update automation status: ' + (err.message || ''));
+    }
+  };
+
+  const toggleOwnAutomation = async () => {
+    if (!user) return;
+    const newState = !isOwnAutomationActive;
+    setIsOwnAutomationActive(newState);
+    try {
+      await setDoc(doc(db, 'settings', `automation_${user.uid}`), {
+        active: newState,
+        updatedAt: serverTimestamp(),
+        updatedBy: user.uid,
+      }, { merge: true });
+      void recordAuditEvent('automation_status_changed', { active: newState, scope: 'own' });
+    } catch (err: any) {
+      console.error('Error toggling own automation:', err);
+      setIsOwnAutomationActive(!newState);
       setErrorMsg(language === 'km' ? 'មិនអាចផ្លាស់ប្តូរស្ថានភាពស្វ័យប្រវត្តិកម្មបានទេ៖ ' + (err.message || '') : 'Failed to update automation status: ' + (err.message || ''));
     }
   };
@@ -424,17 +486,17 @@ const Automation: React.FC = () => {
           <div className="flex items-center gap-3 mt-2">
             <div className={cn(
               "flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold transition-all",
-              isAutomationActive ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
+              effectiveAutomationActive ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
             )}>
-              <div className={cn("w-2 h-2 rounded-full", isAutomationActive ? "bg-emerald-500 animate-pulse" : "bg-red-500")} />
-              {isAutomationActive ? (language === 'km' ? 'កំពុងដំណើរការ' : 'ACTIVE') : (language === 'km' ? 'បានផ្អាក' : 'PAUSED')}
+              <div className={cn("w-2 h-2 rounded-full", effectiveAutomationActive ? "bg-emerald-500 animate-pulse" : "bg-red-500")} />
+              {effectiveAutomationActive ? (language === 'km' ? 'កំពុងដំណើរការ' : 'ACTIVE') : (language === 'km' ? 'បានផ្អាក' : 'PAUSED')}
             </div>
-            {isDemoMode || isAdmin ? (
+            {canToggleAutomation ? (
               <button
                 onClick={toggleGlobalAutomation}
                 className="text-xs font-bold text-brand-600 hover:underline"
               >
-                {isAutomationActive
+                {effectiveAutomationActive
                   ? (language === 'km' ? 'ចុចទីនេះដើម្បីបិទ' : 'Click to disable')
                   : (language === 'km' ? 'ចុចទីនេះដើម្បីបើកដំណើរការ' : 'Click to enable')
                 }
@@ -485,7 +547,7 @@ const Automation: React.FC = () => {
         <span className="ml-2">{t('automationRoleDesc')}</span>
       </div>
 
-      {activeTab === 'inbox' && !checkingAdmin && !isAdmin ? (
+      {activeTab === 'inbox' && !checkingAdmin && !canSeeInbox ? (
         <div className="glass rounded-[2rem] overflow-hidden text-center py-20 px-10">
           <div className="w-16 h-16 bg-amber-50 dark:bg-amber-900/30 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-100 dark:border-amber-800/60">
             <ShieldAlert size={24} className="text-amber-500" />
@@ -717,8 +779,8 @@ const Automation: React.FC = () => {
                   : 'AI checks Smart Reply rules first, then uses an AI response when no rule matches.'}
               </p>
               <div className="w-full py-4 bg-white/10 rounded-2xl font-bold text-sm border border-white/15 flex items-center justify-center gap-2">
-                <span className={cn('h-2.5 w-2.5 rounded-full', isAutomationActive ? 'bg-emerald-400 animate-pulse' : 'bg-red-400')} />
-                {isAutomationActive
+                <span className={cn('h-2.5 w-2.5 rounded-full', effectiveAutomationActive ? 'bg-emerald-400 animate-pulse' : 'bg-red-400')} />
+                {effectiveAutomationActive
                   ? (language === 'km' ? 'កំពុងដំណើរការពិតប្រាកដ' : 'Live and responding')
                   : (language === 'km' ? 'បានផ្អាក' : 'Paused')}
               </div>
@@ -728,10 +790,10 @@ const Automation: React.FC = () => {
           <div className="glass p-8 rounded-[2rem] border border-brand-100 shadow-sm relative group/stats">
             <h3 className="font-bold text-brand-700 dark:text-brand-400 mb-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Zap size={20} className={isAutomationActive ? "text-amber-500" : "text-slate-300"} />
+                <Zap size={20} className={effectiveAutomationActive ? "text-amber-500" : "text-slate-300"} />
                 {t('engagementStats')}
               </div>
-              {isAutomationActive && <span className="text-[10px] text-emerald-500 animate-pulse font-bold">Auto-Sync ON</span>}
+              {effectiveAutomationActive && <span className="text-[10px] text-emerald-500 animate-pulse font-bold">Auto-Sync ON</span>}
             </h3>
             <div className="grid grid-cols-2 gap-4">
               <div className="bg-brand-50 dark:bg-slate-800 px-4 py-6 rounded-2xl border border-brand-100 dark:border-slate-700">
