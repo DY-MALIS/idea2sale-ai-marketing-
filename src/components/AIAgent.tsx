@@ -1081,11 +1081,6 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                               <span className="rounded-full bg-white px-2 py-0.5 text-[10px] dark:bg-slate-700">
                                 {item.type === 'video' ? (language === 'km' ? 'វីដេអូ' : 'Video') : (language === 'km' ? 'រូបភាព' : 'Image')}
                               </span>
-                              {item.type === 'video' && (
-                                <span className="text-amber-500 normal-case tracking-normal">
-                                  {language === 'km' ? '(ស្វ័យប្រវត្តិកម្មវីដេអូមកបន្ទាប់)' : '(video automation coming soon)'}
-                                </span>
-                              )}
                             </div>
                             <p className="mt-1 truncate text-sm font-bold text-brand-700 dark:text-brand-300">{item.topic}</p>
                           </div>

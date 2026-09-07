@@ -6,14 +6,14 @@ import { logAudit } from '../_audit.js';
 import { claimPendingPost, findRecentDuplicateTelegramPost } from '../_telegramClaim.js';
 import { notifyAdmins } from '../_alert.js';
 import { checkRateLimit, getClientIp } from '../_rateLimit.js';
-import { generateOpenRouterImage } from '../_openrouter.js';
+import { generateOpenRouterImage, startOpenRouterVideo } from '../_openrouter.js';
 
 const GUEST_TOKEN_RATE_LIMIT_PER_HOUR = Number(process.env.GUEST_TOKEN_RATE_LIMIT_PER_HOUR) || 30;
 
 // Telegram rejects the whole send with "message caption is too long" if a photo/video/
 // document caption exceeds 1024 characters (sendMessage's own text has a separate, higher
 // 4096 limit) — truncate defensively so a long caption never silently blocks delivery.
-const TELEGRAM_CAPTION_LIMIT = 1024;
+export const TELEGRAM_CAPTION_LIMIT = 1024;
 const TELEGRAM_MESSAGE_LIMIT = 4096;
 export const truncateForTelegram = (text, limit) => {
   const value = String(text || '');
@@ -192,7 +192,7 @@ const createSignedUpload = async (req, res) => {
   });
 };
 
-const uploadMediaDataUrl = async ({ mediaDataUrl, mediaType }) => {
+export const uploadMediaDataUrl = async ({ mediaDataUrl, mediaType }) => {
   if (!mediaDataUrl) return { mediaUrl: '', mediaType: null };
 
   const match = String(mediaDataUrl).match(/^data:([^;,]+);base64,(.+)$/);
@@ -276,6 +276,25 @@ const scheduleQStashDelivery = async (req, postId, scheduledDate) => {
     // hiccup should never block scheduling the post itself.
     console.error('QStash scheduling failed:', error?.message || error);
   }
+};
+
+// Video generation takes minutes and this cron only runs once a day, so a
+// video content-plan item can't finish within one cron invocation. Instead,
+// QStash re-invokes api/telegram/deliver.js on a short delay to check the job
+// again -- and re-schedules itself for another check if it's still running --
+// turning a single daily cron tick into an effectively continuous poll for
+// however long that one video job takes.
+export const scheduleContentPlanPoll = async (req, itemId, delaySeconds = 20) => {
+  const token = (process.env.QSTASH_TOKEN || '').trim();
+  if (!token) throw new Error('QSTASH_TOKEN is not configured, so video generation cannot be polled to completion.');
+
+  const client = new QStashClient({ token, baseUrl: process.env.QSTASH_URL });
+  const host = req.headers['x-forwarded-host'] || req.headers.host;
+  await client.publishJSON({
+    url: `https://${host}/api/telegram/deliver`,
+    body: { contentPlanItemId: itemId },
+    delay: delaySeconds,
+  });
 };
 
 const createScheduledTelegramPost = async (req, res) => {
@@ -508,7 +527,7 @@ export const postTelegramMessage = async (req, res) => {
 // shared default -- falls back to the shared TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID
 // env vars whenever the user hasn't configured their own (the common case, and
 // always the case for posts predating this feature).
-const resolveTelegramDestination = async (db, userId) => {
+export const resolveTelegramDestination = async (db, userId) => {
   const sharedToken = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
   const sharedChatId = (process.env.TELEGRAM_CHAT_ID || '').trim();
 
@@ -764,11 +783,7 @@ export default async function handler(req, res) {
     }
 
     // Auto-generate content-plan items (see extractContentPlan in api/ai.js
-    // and AIAgent.tsx's plan-upload UI) due today or earlier. Images only for
-    // now -- video generation itself can take minutes and this cron only runs
-    // once a day, so reliably automating video needs a job-chaining approach
-    // (e.g. QStash, already used for scheduled-post delivery) rather than
-    // doing it inline here; video items are left PENDING untouched.
+    // and AIAgent.tsx's plan-upload UI) due today or earlier.
     const todayStr = new Date().toISOString().slice(0, 10);
     const planSnapshot = await db
       .collection('content_plan_items')
@@ -819,6 +834,39 @@ export default async function handler(req, res) {
         await planDoc.ref.update({ status: 'FAILED', errorMessage: message, failedAt: FieldValue.serverTimestamp() });
         results.push({ id: planDoc.id, ok: false, contentPlan: true, error: message });
         await notifyAdmins(`Content plan item ${planDoc.id} failed (cron): ${message}`);
+      }
+    }
+
+    // Video items: start the job here, then hand off to QStash (see
+    // scheduleContentPlanPoll / api/telegram/deliver.js) to poll it to
+    // completion -- a video job routinely takes minutes, far longer than this
+    // once-a-day cron invocation should block on, so the actual wait happens
+    // across separate short-lived QStash-triggered function calls instead.
+    const videoPlanSnapshot = await db
+      .collection('content_plan_items')
+      .where('status', '==', 'PENDING')
+      .where('type', '==', 'video')
+      .limit(10)
+      .get();
+    const dueVideoPlanItems = videoPlanSnapshot.docs.filter((planDoc) => String(planDoc.data()?.scheduledDate || '') <= todayStr);
+
+    for (const planDoc of dueVideoPlanItems) {
+      const item = planDoc.data();
+      try {
+        const job = await startOpenRouterVideo({ prompt: item.prompt, duration: 8 });
+        await planDoc.ref.update({
+          status: 'PROCESSING',
+          videoJobId: job.jobId,
+          pollAttempts: 0,
+          processingAt: FieldValue.serverTimestamp(),
+        });
+        await scheduleContentPlanPoll(req, planDoc.id);
+        results.push({ id: planDoc.id, ok: true, contentPlan: true, videoStarted: true });
+      } catch (error) {
+        const message = error?.message || 'Could not start video generation.';
+        await planDoc.ref.update({ status: 'FAILED', errorMessage: message, failedAt: FieldValue.serverTimestamp() });
+        results.push({ id: planDoc.id, ok: false, contentPlan: true, error: message });
+        await notifyAdmins(`Content plan video item ${planDoc.id} failed to start (cron): ${message}`);
       }
     }
 

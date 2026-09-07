@@ -1,8 +1,85 @@
 import { Receiver } from '@upstash/qstash';
 import { FieldValue } from 'firebase-admin/firestore';
-import { initFirebaseAdmin, sendTelegram } from './run-scheduled.js';
+import {
+  TELEGRAM_CAPTION_LIMIT,
+  formatTelegramHtml,
+  initFirebaseAdmin,
+  resolveTelegramDestination,
+  scheduleContentPlanPoll,
+  sendTelegram,
+  truncateForTelegram,
+  uploadMediaDataUrl,
+} from './run-scheduled.js';
+import { pollOpenRouterVideo } from '../_openrouter.js';
 import { claimPendingPost, findRecentDuplicateTelegramPost } from '../_telegramClaim.js';
 import { notifyAdmins } from '../_alert.js';
+
+// A stuck/broken video job should not poll forever: 40 attempts at the
+// default ~20s spacing is roughly 13 minutes, comfortably past how long a
+// healthy Veo job takes, after which this is treated as a real failure.
+const MAX_VIDEO_POLL_ATTEMPTS = 40;
+
+export const processContentPlanVideo = async (db, itemId, req) => {
+  const ref = db.collection('content_plan_items').doc(itemId);
+  const snap = await ref.get();
+  if (!snap.exists) return { ok: true, skipped: 'missing' };
+  const item = snap.data();
+
+  // Idempotency: a duplicate/late QStash delivery re-invoking this after the
+  // item already finished (or was deleted/reset) must not double-process it.
+  if (item.status !== 'PROCESSING' || !item.videoJobId) {
+    return { ok: true, skipped: 'not-processing' };
+  }
+
+  try {
+    const result = await pollOpenRouterVideo({ jobId: item.videoJobId });
+
+    if (!result.videoUrl) {
+      const attempts = (Number(item.pollAttempts) || 0) + 1;
+      if (attempts >= MAX_VIDEO_POLL_ATTEMPTS) {
+        throw new Error(`Video generation timed out after ${attempts} status checks.`);
+      }
+      await ref.update({ pollAttempts: attempts });
+      await scheduleContentPlanPoll(req, itemId);
+      return { ok: true, stillProcessing: true, attempts };
+    }
+
+    const uploaded = await uploadMediaDataUrl({ mediaDataUrl: result.videoUrl, mediaType: 'video' });
+    const { token, chatId } = await resolveTelegramDestination(db, item.userId);
+    if (!token || !chatId) {
+      throw new Error('No Telegram bot/channel is connected to deliver this to. Connect one in Business Profile.');
+    }
+
+    const caption = formatTelegramHtml(truncateForTelegram(item.topic || '', TELEGRAM_CAPTION_LIMIT));
+    const telegramResponse = await fetch(`https://api.telegram.org/bot${token}/sendVideo`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        video: uploaded.mediaUrl,
+        caption: caption || undefined,
+        parse_mode: caption ? 'HTML' : undefined,
+      }),
+    });
+    const telegramData = await telegramResponse.json().catch(() => ({}));
+    if (!telegramResponse.ok || !telegramData.ok) {
+      throw new Error(telegramData?.description || 'Telegram could not deliver this video.');
+    }
+
+    await ref.update({
+      status: 'DONE',
+      resultMediaUrl: uploaded.mediaUrl,
+      completedAt: FieldValue.serverTimestamp(),
+      errorMessage: null,
+    });
+    return { ok: true };
+  } catch (error) {
+    const message = error?.message || 'Video generation failed.';
+    await ref.update({ status: 'FAILED', errorMessage: message, failedAt: FieldValue.serverTimestamp() });
+    await notifyAdmins(`Content plan video item ${itemId} failed: ${message}`);
+    return { ok: false, error: message };
+  }
+};
 
 export const config = {
   api: { bodyParser: false },
@@ -48,9 +125,22 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Invalid JSON payload.' });
   }
 
+  const contentPlanItemId = String(payload?.contentPlanItemId || '').trim();
+  if (contentPlanItemId) {
+    try {
+      const db = initFirebaseAdmin();
+      const result = await processContentPlanVideo(db, contentPlanItemId, req);
+      return res.status(200).json(result);
+    } catch (error) {
+      const message = error?.message || 'Content plan video polling crashed.';
+      await notifyAdmins(`Content plan video poll crashed for item ${contentPlanItemId}: ${message}`);
+      return res.status(500).json({ ok: false, error: message });
+    }
+  }
+
   const postId = String(payload?.postId || '').trim();
   if (!postId) {
-    return res.status(400).json({ error: 'postId is required.' });
+    return res.status(400).json({ error: 'postId or contentPlanItemId is required.' });
   }
 
   try {
