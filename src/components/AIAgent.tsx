@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Bot, ChevronDown, Copy, History, Image as ImageIcon, ImagePlus, Loader2, Mic, MicOff, RefreshCw, Send, Sparkles, Trash2, UserRound, Video, X, Zap } from 'lucide-react';
+import { Bot, CalendarClock, Check, ChevronDown, Copy, History, Image as ImageIcon, ImagePlus, Loader2, Mic, MicOff, RefreshCw, Send, Sparkles, Trash2, UserRound, Video, X, Zap } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { AnimatePresence, motion } from 'motion/react';
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { addDoc, collection, doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { uint8ArrayToBase64 } from '../lib/base64';
 import { readImagesIntoState } from '../lib/imageUpload';
@@ -32,6 +32,14 @@ interface AgentConversationSession {
 interface AttachedImage {
   base64: string;
   mimeType: string;
+}
+
+interface PlanItem {
+  date: string;
+  type: 'image' | 'video';
+  topic: string;
+  prompt: string;
+  selected: boolean;
 }
 
 interface AIAgentProps {
@@ -117,6 +125,20 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const [voiceInputLanguage, setVoiceInputLanguage] = useState<'km' | 'en'>('km');
   const conversationEndRef = useRef<HTMLDivElement>(null);
   const requestControllerRef = useRef<AbortController | null>(null);
+
+  // Content Plan: upload a CSV/Google Sheet content calendar, let the AI turn
+  // each dated row into a ready generation prompt, then save the confirmed
+  // items so the daily cron (api/telegram/run-scheduled.js) can generate and
+  // deliver each one automatically on its own date with no further action
+  // from the user.
+  const [planOpen, setPlanOpen] = useState(false);
+  const [planLink, setPlanLink] = useState('');
+  const [planExtracting, setPlanExtracting] = useState(false);
+  const [planItems, setPlanItems] = useState<PlanItem[]>([]);
+  const [planSaving, setPlanSaving] = useState(false);
+  const [planError, setPlanError] = useState<string | null>(null);
+  const [planSavedCount, setPlanSavedCount] = useState<number | null>(null);
+  const planFileInputRef = useRef<HTMLInputElement>(null);
   // Holds the live mic recording session (not the browser's SpeechRecognition —
   // see toggleVoiceInput for why). 'compressed' (MediaRecorder producing webm/opus
   // or similar) is used whenever the browser supports it, since compressed audio
@@ -424,6 +446,86 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     } catch (error) {
       console.error('Failed to restore old agent history:', error);
       notify(language === 'km' ? 'Restore old history បរាជ័យ។' : 'Restore old history failed.', 'error');
+    }
+  };
+
+  const runPlanExtraction = async (body: { planText?: string; planUrl?: string }) => {
+    setPlanExtracting(true);
+    setPlanError(null);
+    setPlanSavedCount(null);
+    try {
+      const response = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'extractContentPlan', language, ...body }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not read this content plan.');
+      const items: PlanItem[] = (Array.isArray(data.items) ? data.items : []).map((item: any) => ({
+        date: item.date,
+        type: item.type === 'video' ? 'video' : 'image',
+        topic: item.topic || '',
+        prompt: item.prompt || '',
+        selected: true,
+      }));
+      if (!items.length) {
+        setPlanError(language === 'km'
+          ? 'រកមិនឃើញកាលបរិច្ឆេទ ឬសំណើបង្កើតរូបភាព/វីដេអូច្បាស់លាស់ក្នុងឯកសារនេះទេ។'
+          : 'Could not find any clear dated image/video requests in this plan.');
+      }
+      setPlanItems(items);
+    } catch (error: any) {
+      setPlanError(error.message || (language === 'km' ? 'មិនអាចអានផែនការនេះបានទេ។' : 'Could not read this content plan.'));
+    } finally {
+      setPlanExtracting(false);
+    }
+  };
+
+  const handlePlanFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => void runPlanExtraction({ planText: String(reader.result || '') });
+    reader.onerror = () => setPlanError(language === 'km' ? 'មិនអាចអានឯកសារនេះបានទេ។' : 'Could not read this file.');
+    reader.readAsText(file);
+  };
+
+  const handlePlanLinkSubmit = () => {
+    const url = planLink.trim();
+    if (!url) return;
+    void runPlanExtraction({ planUrl: url });
+  };
+
+  const togglePlanItem = (index: number) => {
+    setPlanItems((items) => items.map((item, i) => (i === index ? { ...item, selected: !item.selected } : item)));
+  };
+
+  const handleSavePlan = async () => {
+    if (!user || isDemoMode) return;
+    const selectedItems = planItems.filter((item) => item.selected);
+    if (!selectedItems.length) return;
+    setPlanSaving(true);
+    setPlanError(null);
+    try {
+      for (const item of selectedItems) {
+        await addDoc(collection(db, 'content_plan_items'), {
+          userId: user.uid,
+          scheduledDate: item.date,
+          type: item.type,
+          topic: item.topic,
+          prompt: item.prompt,
+          status: 'PENDING',
+          createdAt: serverTimestamp(),
+        });
+      }
+      setPlanSavedCount(selectedItems.length);
+      setPlanItems([]);
+      setPlanLink('');
+    } catch (error: any) {
+      setPlanError(error.message || (language === 'km' ? 'មិនអាចរក្សាទុកផែនការនេះបានទេ។' : 'Could not save this plan.'));
+    } finally {
+      setPlanSaving(false);
     }
   };
 
@@ -888,6 +990,122 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           </div>
         ) : (
           <p className="mt-3 text-sm leading-relaxed text-slate-600">{text.historyEmpty}</p>
+        )}
+      </section>
+
+      <section className="glass rounded-2xl p-5">
+        <button
+          type="button"
+          onClick={() => setPlanOpen((open) => !open)}
+          className="flex items-center gap-2 text-lg font-bold text-brand-700 dark:text-brand-300"
+        >
+          <CalendarClock size={20} />
+          <span>{language === 'km' ? 'ផែនការខ្លឹមសារ (Content Plan)' : 'Content Plan'}</span>
+          <motion.span animate={{ rotate: planOpen ? 180 : 0 }} className="text-brand-400">
+            <ChevronDown size={18} />
+          </motion.span>
+        </button>
+
+        {planOpen && (
+          <div className="mt-4 space-y-4">
+            {isDemoMode || !user ? (
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                {language === 'km'
+                  ? 'ត្រូវការគណនីពិត (មិនមែន demo) ដើម្បីប្រើមុខងារនេះ ព្រោះវាបង្កើតខ្លឹមសារនៅផ្ទៃខាងក្រោយដោយស្វ័យប្រវត្តិ។'
+                  : 'This needs a real (non-demo) account, since it generates content automatically in the background.'}
+              </p>
+            ) : (
+              <>
+                <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+                  {language === 'km'
+                    ? 'អាប់ឡូតឯកសារ CSV ឬបិទភ្ជាប់ link Google Sheet ដែលមានកាលបរិច្ឆេទ + សំណើបង្កើតរូបភាព/វីដេអូ។ AI នឹងស្រង់ចេញជា prompt ត្រៀមរួច ហើយបង្កើតឲ្យស្វ័យប្រវត្តិនៅថ្ងៃដល់កំណត់ រួចផ្ញើទៅ Telegram Channel/Bot ដែលអ្នកបានភ្ជាប់។'
+                    : 'Upload a CSV file or paste a Google Sheet link with dates + image/video requests. The AI extracts ready-to-use prompts and generates each one automatically on its scheduled date, delivered to your connected Telegram Channel/Bot.'}
+                </p>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <input ref={planFileInputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={handlePlanFileSelect} />
+                  <button
+                    type="button"
+                    onClick={() => planFileInputRef.current?.click()}
+                    disabled={planExtracting}
+                    className="flex items-center gap-2 rounded-xl border border-brand-200 bg-brand-50 px-4 py-2.5 text-sm font-bold text-brand-700 transition hover:border-brand-300 hover:bg-white disabled:opacity-50"
+                  >
+                    <ImagePlus size={16} />
+                    {language === 'km' ? 'អាប់ឡូត CSV' : 'Upload CSV'}
+                  </button>
+                  <div className="flex flex-1 min-w-[240px] items-center gap-2">
+                    <input
+                      type="text"
+                      value={planLink}
+                      onChange={(event) => setPlanLink(event.target.value)}
+                      onKeyDown={(event) => event.key === 'Enter' && handlePlanLinkSubmit()}
+                      placeholder={language === 'km' ? 'ឬបិទភ្ជាប់ Google Sheet link...' : 'or paste a Google Sheet link...'}
+                      className="flex-1 rounded-xl border border-brand-100 bg-white px-3 py-2.5 text-sm text-brand-800 outline-none focus:ring-2 ring-brand-500/20 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
+                    />
+                    <button
+                      type="button"
+                      onClick={handlePlanLinkSubmit}
+                      disabled={planExtracting || !planLink.trim()}
+                      className="rounded-xl bg-brand-700 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-brand-800 disabled:opacity-40"
+                    >
+                      {planExtracting ? <Loader2 size={16} className="animate-spin" /> : (language === 'km' ? 'អាន' : 'Read')}
+                    </button>
+                  </div>
+                </div>
+
+                {planError && <p className="text-sm text-rose-500">{planError}</p>}
+                {planSavedCount !== null && (
+                  <p className="flex items-center gap-2 text-sm font-bold text-emerald-600">
+                    <Check size={16} />
+                    {language === 'km' ? `បានរក្សាទុក ${planSavedCount} ចំណុចជោគជ័យ!` : `Saved ${planSavedCount} item(s) successfully!`}
+                  </p>
+                )}
+
+                {planItems.length > 0 && (
+                  <div className="space-y-3">
+                    <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
+                      {planItems.map((item, index) => (
+                        <label
+                          key={`${item.date}-${index}`}
+                          className="flex cursor-pointer items-start gap-3 rounded-xl border border-brand-100 bg-brand-50/50 p-3 dark:border-slate-700 dark:bg-slate-800/50"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={item.selected}
+                            onChange={() => togglePlanItem(index)}
+                            className="mt-1 h-4 w-4 accent-brand-600"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-brand-500">
+                              <span>{item.date}</span>
+                              <span className="rounded-full bg-white px-2 py-0.5 text-[10px] dark:bg-slate-700">
+                                {item.type === 'video' ? (language === 'km' ? 'វីដេអូ' : 'Video') : (language === 'km' ? 'រូបភាព' : 'Image')}
+                              </span>
+                              {item.type === 'video' && (
+                                <span className="text-amber-500 normal-case tracking-normal">
+                                  {language === 'km' ? '(ស្វ័យប្រវត្តិកម្មវីដេអូមកបន្ទាប់)' : '(video automation coming soon)'}
+                                </span>
+                              )}
+                            </div>
+                            <p className="mt-1 truncate text-sm font-bold text-brand-700 dark:text-brand-300">{item.topic}</p>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleSavePlan}
+                      disabled={planSaving || !planItems.some((item) => item.selected)}
+                      className="flex items-center gap-2 rounded-xl bg-brand-700 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-brand-800 disabled:opacity-40"
+                    >
+                      {planSaving ? <Loader2 size={16} className="animate-spin" /> : <CalendarClock size={16} />}
+                      {language === 'km' ? 'រក្សាទុកផែនការ' : 'Save Plan'}
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         )}
       </section>
 

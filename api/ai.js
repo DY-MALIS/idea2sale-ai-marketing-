@@ -190,6 +190,17 @@ const KHMER_ATTIRE_GUIDANCE = `CULTURAL AUTHENTICITY IS REQUIRED:
 
 const containsKhmerScript = (value) => /[\u1780-\u17FF]/.test(String(value || ''));
 
+// Converts a Google Sheets share/edit URL into its CSV export URL, preserving
+// a specific tab (gid) if the link points at one. Returns null for anything
+// that isn't recognizably a Google Sheets URL, e.g. a random link a user
+// pasted by mistake -- the caller treats that as "please upload a CSV instead".
+export const googleSheetsUrlToCsvExportUrl = (planUrl) => {
+  const sheetMatch = String(planUrl || '').match(/docs\.google\.com\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+  if (!sheetMatch) return null;
+  const gidMatch = planUrl.match(/[?&#]gid=(\d+)/);
+  return `https://docs.google.com/spreadsheets/d/${sheetMatch[1]}/export?format=csv${gidMatch ? `&gid=${gidMatch[1]}` : ''}`;
+};
+
 const normalizeMediaPrompt = async (prompt, mediaType) => {
   if (!containsKhmerScript(prompt)) return prompt;
 
@@ -700,6 +711,52 @@ Response rules:
         prompt: brandSentimentPrompt(brand, outputLanguage, xContext),
       });
       return res.status(200).json({ report: report || 'No report generated.' });
+    }
+
+    if (action === 'extractContentPlan') {
+      const planUrl = String(req.body?.planUrl || '').trim();
+      let planText = String(req.body?.planText || '').trim();
+
+      if (!planText && planUrl) {
+        const csvUrl = googleSheetsUrlToCsvExportUrl(planUrl);
+        if (!csvUrl) {
+          return res.status(400).json({ error: 'Please paste a Google Sheets link, or upload a CSV file instead.' });
+        }
+        try {
+          const sheetResponse = await fetch(csvUrl);
+          if (!sheetResponse.ok) throw new Error(`status ${sheetResponse.status}`);
+          planText = (await sheetResponse.text()).trim();
+        } catch (error) {
+          return res.status(400).json({ error: 'Could not read that Google Sheet. Make sure its sharing is set to "Anyone with the link can view".' });
+        }
+      }
+
+      if (!planText) return res.status(400).json({ error: 'Please upload a CSV file or paste a Google Sheets link.' });
+      // A whole spreadsheet dump easily exceeds a reasonable prompt size for a
+      // plan that's meant to be a handful of calendar rows, not a data export.
+      planText = planText.slice(0, 20000);
+
+      const text = await generateOpenRouterText({
+        system: `You extract a content calendar from raw spreadsheet/CSV text and turn each row into a ready-to-use AI image/video generation prompt.\n\n${CAMBODIA_MARKET_CONTEXT}`,
+        prompt: `Here is the raw content plan (CSV or pasted spreadsheet text):\n\n${planText}\n\nFor every row that clearly specifies a date and asks for an image or a video (in any column, any language), produce one JSON object with:
+- "date": the date as YYYY-MM-DD (infer the year as ${new Date().getFullYear()} if missing; skip the row entirely if no usable date is present)
+- "type": exactly "image" or "video" (if unclear, use "image")
+- "topic": a short (max 15 words) plain summary of what the row asked for, in ${language}
+- "prompt": a complete, vivid, ready-to-use AI image/video generation prompt in English (photorealistic product/marketing photography or video style, specific about subject/setting/mood), expanding the row's brief into real creative direction rather than repeating it verbatim
+Ignore header rows, empty rows, and rows with no date. Return ONLY a valid JSON array of these objects, no markdown, no commentary. Return an empty array if nothing qualifies.`,
+      });
+
+      const items = jsonFromText(text, [])
+        .filter((item) => item && /^\d{4}-\d{2}-\d{2}$/.test(item.date) && item.prompt)
+        .map((item) => ({
+          date: item.date,
+          type: item.type === 'video' ? 'video' : 'image',
+          topic: String(item.topic || '').slice(0, 200),
+          prompt: String(item.prompt || '').slice(0, 2000),
+        }))
+        .slice(0, 60);
+
+      return res.status(200).json({ items });
     }
 
     if (action === 'plannerAuto') {

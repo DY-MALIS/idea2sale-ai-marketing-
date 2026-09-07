@@ -92,6 +92,30 @@ service cloud.firestore {
       allow delete: if isAdmin() || (isSignedIn() && existing().userId == request.auth.uid);
     }
 
+    match /content_plan_items/{itemId} {
+      // A user's own AI-extracted content-calendar items (see the
+      // extractContentPlan action in api/ai.js and AIAgent.tsx's plan-upload
+      // UI). status/resultMediaUrl/errorMessage are set only by the server
+      // (Admin SDK, via the daily cron in api/telegram/run-scheduled.js) as it
+      // generates each item's image/video on its scheduled date.
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+
+      allow create: if isSignedIn()
+        && isValidId(itemId)
+        && incoming().userId == request.auth.uid
+        && incoming().scheduledDate.matches('^\\d{4}-\\d{2}-\\d{2}$')
+        && incoming().type in ['image', 'video']
+        && incoming().prompt is string
+        && incoming().prompt.size() <= 2000
+        && incoming().topic is string
+        && incoming().topic.size() <= 200
+        && incoming().status == 'PENDING';
+
+      allow delete: if isAdmin() || (isSignedIn() && existing().userId == request.auth.uid);
+      allow update: if false;
+    }
+
     match /audience_activity/{activityId} {
       allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
       allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);

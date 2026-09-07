@@ -6,6 +6,7 @@ import { logAudit } from '../_audit.js';
 import { claimPendingPost, findRecentDuplicateTelegramPost } from '../_telegramClaim.js';
 import { notifyAdmins } from '../_alert.js';
 import { checkRateLimit, getClientIp } from '../_rateLimit.js';
+import { generateOpenRouterImage } from '../_openrouter.js';
 
 const GUEST_TOKEN_RATE_LIMIT_PER_HOUR = Number(process.env.GUEST_TOKEN_RATE_LIMIT_PER_HOUR) || 30;
 
@@ -759,6 +760,65 @@ export default async function handler(req, res) {
         });
         results.push({ id: doc.id, ok: false, error: message });
         await notifyAdmins(`Telegram post ${doc.id} failed (cron): ${message}`);
+      }
+    }
+
+    // Auto-generate content-plan items (see extractContentPlan in api/ai.js
+    // and AIAgent.tsx's plan-upload UI) due today or earlier. Images only for
+    // now -- video generation itself can take minutes and this cron only runs
+    // once a day, so reliably automating video needs a job-chaining approach
+    // (e.g. QStash, already used for scheduled-post delivery) rather than
+    // doing it inline here; video items are left PENDING untouched.
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const planSnapshot = await db
+      .collection('content_plan_items')
+      .where('status', '==', 'PENDING')
+      .where('type', '==', 'image')
+      .limit(20)
+      .get();
+    const duePlanItems = planSnapshot.docs.filter((planDoc) => String(planDoc.data()?.scheduledDate || '') <= todayStr);
+
+    for (const planDoc of duePlanItems) {
+      const item = planDoc.data();
+      try {
+        await planDoc.ref.update({ status: 'PROCESSING', processingAt: FieldValue.serverTimestamp() });
+
+        const image = await generateOpenRouterImage({ prompt: item.prompt, aspectRatio: '1:1' });
+        const uploaded = await uploadMediaDataUrl({ mediaDataUrl: image.imageUrl, mediaType: 'photo' });
+
+        const { token, chatId } = await resolveTelegramDestination(db, item.userId);
+        if (!token || !chatId) {
+          throw new Error('No Telegram bot/channel is connected to deliver this to. Connect one in Business Profile.');
+        }
+
+        const caption = telegramTextFor(item.topic || '', TELEGRAM_CAPTION_LIMIT);
+        const telegramResponse = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            photo: uploaded.mediaUrl,
+            caption: caption || undefined,
+            parse_mode: caption ? 'HTML' : undefined,
+          }),
+        });
+        const telegramData = await telegramResponse.json().catch(() => ({}));
+        if (!telegramResponse.ok || !telegramData.ok) {
+          throw new Error(telegramData?.description || 'Telegram could not deliver this image.');
+        }
+
+        await planDoc.ref.update({
+          status: 'DONE',
+          resultMediaUrl: uploaded.mediaUrl,
+          completedAt: FieldValue.serverTimestamp(),
+          errorMessage: null,
+        });
+        results.push({ id: planDoc.id, ok: true, contentPlan: true });
+      } catch (error) {
+        const message = error?.message || 'Content plan generation failed.';
+        await planDoc.ref.update({ status: 'FAILED', errorMessage: message, failedAt: FieldValue.serverTimestamp() });
+        results.push({ id: planDoc.id, ok: false, contentPlan: true, error: message });
+        await notifyAdmins(`Content plan item ${planDoc.id} failed (cron): ${message}`);
       }
     }
 
