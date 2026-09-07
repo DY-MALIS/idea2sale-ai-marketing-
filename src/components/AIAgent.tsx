@@ -3,6 +3,7 @@ import { Bot, CalendarClock, Check, ChevronDown, Copy, History, Image as ImageIc
 import Markdown from 'react-markdown';
 import { AnimatePresence, motion } from 'motion/react';
 import { addDoc, collection, doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { readSheet } from 'read-excel-file/browser';
 import { db } from '../lib/firebase';
 import { uint8ArrayToBase64 } from '../lib/base64';
 import { readImagesIntoState } from '../lib/imageUpload';
@@ -481,10 +482,29 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     }
   };
 
-  const handlePlanFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePlanFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
+
+    const isExcel = /\.xlsx?$/i.test(file.name);
+    if (isExcel) {
+      setPlanExtracting(true);
+      setPlanError(null);
+      try {
+        const rows = await readSheet(file);
+        // A plain comma join is enough here -- this text is only ever read by
+        // the AI extraction prompt, not parsed as strict RFC CSV, so it
+        // doesn't need quoting/escaping for cells containing commas.
+        const planText = rows.map((row) => row.map((cell) => String(cell ?? '')).join(',')).join('\n');
+        await runPlanExtraction({ planText });
+      } catch (error: any) {
+        setPlanExtracting(false);
+        setPlanError(error.message || (language === 'km' ? 'មិនអាចអានឯកសារ Excel នេះបានទេ។' : 'Could not read this Excel file.'));
+      }
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = () => void runPlanExtraction({ planText: String(reader.result || '') });
     reader.onerror = () => setPlanError(language === 'km' ? 'មិនអាចអានឯកសារនេះបានទេ។' : 'Could not read this file.');
@@ -1018,12 +1038,12 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
               <>
                 <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-400">
                   {language === 'km'
-                    ? 'អាប់ឡូតឯកសារ CSV ឬបិទភ្ជាប់ link Google Sheet ដែលមានកាលបរិច្ឆេទ + សំណើបង្កើតរូបភាព/វីដេអូ។ AI នឹងស្រង់ចេញជា prompt ត្រៀមរួច ហើយបង្កើតឲ្យស្វ័យប្រវត្តិនៅថ្ងៃដល់កំណត់ រួចផ្ញើទៅ Telegram Channel/Bot ដែលអ្នកបានភ្ជាប់។'
-                    : 'Upload a CSV file or paste a Google Sheet link with dates + image/video requests. The AI extracts ready-to-use prompts and generates each one automatically on its scheduled date, delivered to your connected Telegram Channel/Bot.'}
+                    ? 'អាប់ឡូតឯកសារ Excel/CSV ឬបិទភ្ជាប់ link Google Sheet ដែលមានកាលបរិច្ឆេទ + សំណើបង្កើតរូបភាព/វីដេអូ។ AI នឹងស្រង់ចេញជា prompt ត្រៀមរួច ហើយបង្កើតឲ្យស្វ័យប្រវត្តិនៅថ្ងៃដល់កំណត់ រួចផ្ញើទៅ Telegram Channel/Bot ដែលអ្នកបានភ្ជាប់។'
+                    : 'Upload an Excel/CSV file or paste a Google Sheet link with dates + image/video requests. The AI extracts ready-to-use prompts and generates each one automatically on its scheduled date, delivered to your connected Telegram Channel/Bot.'}
                 </p>
 
                 <div className="flex flex-wrap items-center gap-3">
-                  <input ref={planFileInputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={handlePlanFileSelect} />
+                  <input ref={planFileInputRef} type="file" accept=".csv,.xlsx,.xls,text/csv" className="hidden" onChange={handlePlanFileSelect} />
                   <button
                     type="button"
                     onClick={() => planFileInputRef.current?.click()}
@@ -1031,7 +1051,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                     className="flex items-center gap-2 rounded-xl border border-brand-200 bg-brand-50 px-4 py-2.5 text-sm font-bold text-brand-700 transition hover:border-brand-300 hover:bg-white disabled:opacity-50"
                   >
                     <ImagePlus size={16} />
-                    {language === 'km' ? 'អាប់ឡូត CSV' : 'Upload CSV'}
+                    {language === 'km' ? 'អាប់ឡូត Excel/CSV' : 'Upload Excel/CSV'}
                   </button>
                   <div className="flex flex-1 min-w-[240px] items-center gap-2">
                     <input
