@@ -783,7 +783,12 @@ export default async function handler(req, res) {
     }
 
     // Auto-generate content-plan items (see extractContentPlan in api/ai.js
-    // and AIAgent.tsx's plan-upload UI) due today or earlier.
+    // and AIAgent.tsx's plan-upload UI) due today or earlier. Capped per run
+    // (cron fires once daily) so a backlog of due items can't all generate at
+    // once -- any items past the cap just roll over to be picked up on a
+    // later day's run instead.
+    const DAILY_IMAGE_CAP = 2;
+    const DAILY_VIDEO_CAP = 1;
     const todayStr = new Date().toISOString().slice(0, 10);
     const planSnapshot = await db
       .collection('content_plan_items')
@@ -791,7 +796,9 @@ export default async function handler(req, res) {
       .where('type', '==', 'image')
       .limit(20)
       .get();
-    const duePlanItems = planSnapshot.docs.filter((planDoc) => String(planDoc.data()?.scheduledDate || '') <= todayStr);
+    const duePlanItems = planSnapshot.docs
+      .filter((planDoc) => String(planDoc.data()?.scheduledDate || '') <= todayStr)
+      .slice(0, DAILY_IMAGE_CAP);
 
     for (const planDoc of duePlanItems) {
       // Same atomic compare-and-swap claimPendingPost already uses for
@@ -856,7 +863,9 @@ export default async function handler(req, res) {
       .where('type', '==', 'video')
       .limit(10)
       .get();
-    const dueVideoPlanItems = videoPlanSnapshot.docs.filter((planDoc) => String(planDoc.data()?.scheduledDate || '') <= todayStr);
+    const dueVideoPlanItems = videoPlanSnapshot.docs
+      .filter((planDoc) => String(planDoc.data()?.scheduledDate || '') <= todayStr)
+      .slice(0, DAILY_VIDEO_CAP);
 
     for (const planDoc of dueVideoPlanItems) {
       // Same atomic claim as the image loop above -- without it, two
