@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Bot, CalendarClock, Check, ChevronDown, Copy, History, Image as ImageIcon, ImagePlus, Loader2, Mic, MicOff, RefreshCw, Send, Sparkles, Trash2, UserRound, Video, X, Zap } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { AnimatePresence, motion } from 'motion/react';
-import { addDoc, collection, doc, getDoc, onSnapshot, query, setDoc, serverTimestamp, where } from 'firebase/firestore';
+import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, setDoc, serverTimestamp, where } from 'firebase/firestore';
 import readXlsxFile from 'read-excel-file/browser';
 import { db } from '../lib/firebase';
 import { uint8ArrayToBase64 } from '../lib/base64';
@@ -145,6 +145,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const [planLink, setPlanLink] = useState('');
   const [planExtracting, setPlanExtracting] = useState(false);
   const [planItems, setPlanItems] = useState<PlanItem[]>([]);
+  const [replaceOldPlan, setReplaceOldPlan] = useState(true);
   const [planSaving, setPlanSaving] = useState(false);
   const [planError, setPlanError] = useState<string | null>(null);
   const [planSavedCount, setPlanSavedCount] = useState<number | null>(null);
@@ -569,6 +570,22 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     if (!selectedItems.length) return;
     setPlanSaving(true);
     setPlanError(null);
+    if (replaceOldPlan) {
+      // Only PENDING items are cleared -- DONE items are already-published
+      // history and PROCESSING items are mid-generation (a video job may
+      // already be running), neither should be touched by uploading a new plan.
+      try {
+        const oldSnapshot = await getDocs(
+          query(collection(db, 'content_plan_items'), where('userId', '==', user.uid), where('status', '==', 'PENDING')),
+        );
+        await Promise.all(oldSnapshot.docs.map((docSnap) => deleteDoc(docSnap.ref)));
+      } catch (error) {
+        console.error('Failed to clear old content plan items:', error);
+        setPlanError(language === 'km' ? 'មិនអាចលុបផែនការចាស់បានទេ។' : 'Could not clear the old plan.');
+        setPlanSaving(false);
+        return;
+      }
+    }
     // Each item is saved independently (not aborted on the first failure) and
     // only the ones that actually succeeded are removed from the list --
     // otherwise a failure partway through (e.g. item 4 of 10) would leave
@@ -1168,6 +1185,17 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                         </label>
                       ))}
                     </div>
+                    <label className="flex cursor-pointer items-center gap-2 text-xs font-bold text-brand-600 dark:text-brand-300">
+                      <input
+                        type="checkbox"
+                        checked={replaceOldPlan}
+                        onChange={(event) => setReplaceOldPlan(event.target.checked)}
+                        className="h-4 w-4 accent-brand-600"
+                      />
+                      {language === 'km'
+                        ? 'ជំនួសផែនការចាស់ (លុប item ដែលនៅរង់ចាំចាស់ៗចោល)'
+                        : 'Replace old plan (delete previous not-yet-generated items)'}
+                    </label>
                     <button
                       type="button"
                       onClick={handleSavePlan}
