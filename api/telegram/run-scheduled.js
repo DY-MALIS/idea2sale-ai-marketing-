@@ -2,11 +2,43 @@ import admin from 'firebase-admin';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { createHash } from 'crypto';
 import { Client as QStashClient } from '@upstash/qstash';
+import sharp from 'sharp';
 import { logAudit } from '../_audit.js';
 import { claimPendingPost, findRecentDuplicateTelegramPost } from '../_telegramClaim.js';
 import { notifyAdmins } from '../_alert.js';
 import { checkRateLimit, getClientIp } from '../_rateLimit.js';
 import { generateOpenRouterImage, startOpenRouterVideo } from '../_openrouter.js';
+
+// Server-side equivalent of PosterGen.tsx's applyLogoWatermark (that one uses
+// the browser Canvas API, unavailable here) -- same top-left placement/ratios,
+// so a Content Plan image gets the business's actual logo instead of shipping
+// as a generic AI image with no real branding on it.
+const LOGO_MARGIN_RATIO = 0.04;
+const LOGO_WIDTH_RATIO = 0.16;
+export const applyLogoWatermarkServer = async (imageDataUrl, logoDataUrl) => {
+  if (!logoDataUrl) return imageDataUrl;
+  try {
+    const baseMatch = String(imageDataUrl).match(/^data:([^;,]+);base64,(.+)$/);
+    const logoMatch = String(logoDataUrl).match(/^data:([^;,]+);base64,(.+)$/);
+    if (!baseMatch || !logoMatch) return imageDataUrl;
+    const baseBuffer = Buffer.from(baseMatch[2], 'base64');
+    const logoBuffer = Buffer.from(logoMatch[2], 'base64');
+    const baseImage = sharp(baseBuffer);
+    const { width } = await baseImage.metadata();
+    if (!width) return imageDataUrl;
+    const margin = Math.round(width * LOGO_MARGIN_RATIO);
+    const logoWidth = Math.round(width * LOGO_WIDTH_RATIO);
+    const resizedLogo = await sharp(logoBuffer).resize({ width: logoWidth }).toBuffer();
+    const composited = await baseImage
+      .composite([{ input: resizedLogo, top: margin, left: margin }])
+      .png()
+      .toBuffer();
+    return `data:image/png;base64,${composited.toString('base64')}`;
+  } catch (error) {
+    console.error('Logo watermark failed, using the unwatermarked image:', error?.message || error);
+    return imageDataUrl;
+  }
+};
 
 const GUEST_TOKEN_RATE_LIMIT_PER_HOUR = Number(process.env.GUEST_TOKEN_RATE_LIMIT_PER_HOUR) || 30;
 
@@ -814,7 +846,9 @@ export default async function handler(req, res) {
       const item = claim.post;
       try {
         const image = await generateOpenRouterImage({ prompt: item.prompt, aspectRatio: '1:1' });
-        const uploaded = await uploadMediaDataUrl({ mediaDataUrl: image.imageUrl, mediaType: 'photo' });
+        const profileSnap = await db.collection('business_profiles').doc(item.userId).get().catch(() => null);
+        const watermarked = await applyLogoWatermarkServer(image.imageUrl, profileSnap?.data()?.logoDataUrl);
+        const uploaded = await uploadMediaDataUrl({ mediaDataUrl: watermarked, mediaType: 'photo' });
 
         const { token, chatId } = await resolveTelegramDestination(db, item.userId);
         if (!token || !chatId) {
