@@ -739,6 +739,13 @@ Response rules:
       planText = planText.slice(0, 60000);
 
       const text = await generateOpenRouterText({
+        // Gemini, not the default text model -- the video prompt below embeds a
+        // literal Khmer sentence for the video model to pronounce verbatim, and
+        // that sentence is only as good as the Khmer it's written in. Gemini's
+        // Khmer fluency is materially stronger than the general-purpose default,
+        // so composing the actual dialogue line here (not just the video model
+        // downstream) is the lever that actually controls speech quality.
+        model: process.env.OPEN_ROUTER_CONTENT_PLAN_MODEL || 'google/gemini-3.1-pro-preview',
         system: `You extract a content calendar from raw spreadsheet/CSV text (possibly multiple sheets from one workbook, separated by "--- Sheet: <name> ---" markers) and turn each dated row into a ready-to-use AI image/video generation prompt. Be generous, not strict: real content calendars rarely spell out a visual in plain words -- a row is a valid content item as long as it has a date and ANY topic, title, headline, or campaign name next to it, even if that text is abstract (e.g. "AI for educators: teach critical thinking, not shortcuts") rather than a literal scene description. Inventing a concrete visual concept from an abstract topic/headline is exactly your job here, not a reason to skip the row. Ignore sheets/rows that are clearly just strategy notes, KPI numbers, or config tables with no per-post dates.\n\n${CAMBODIA_MARKET_CONTEXT}`,
         prompt: `Here is the raw content plan (CSV or pasted spreadsheet text, possibly several sheets):\n\n${planText}\n\nToday's date is ${new Date().toISOString().slice(0, 10)}. For every row that has both a date (in any format: YYYY-MM-DD, DD/MM/YYYY, MM/DD/YYYY, a written date like "10 Sep" or "ថ្ងៃទី១០ខែកញ្ញា", a spreadsheet serial date, or an Excel date string) and a topic/title/headline/description/campaign for that post (it does not need to describe a visual, and does not need to be phrased as a request), produce one JSON object with:
 - "date": the date normalized to YYYY-MM-DD (infer the year as ${new Date().getFullYear()} if missing, or the following year if that date has already passed this year; if the format is genuinely ambiguous, e.g. "03/04", prefer DD/MM since this plan is for a Cambodian business)
