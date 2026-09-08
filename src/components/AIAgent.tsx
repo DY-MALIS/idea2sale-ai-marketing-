@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Bot, CalendarClock, Check, ChevronDown, Copy, History, Image as ImageIcon, ImagePlus, Loader2, Mic, MicOff, RefreshCw, Send, Sparkles, Trash2, UserRound, Video, X, Zap } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { AnimatePresence, motion } from 'motion/react';
-import { addDoc, collection, doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { addDoc, collection, doc, getDoc, onSnapshot, query, setDoc, serverTimestamp, where } from 'firebase/firestore';
 import readXlsxFile from 'read-excel-file/browser';
 import { db } from '../lib/firebase';
 import { uint8ArrayToBase64 } from '../lib/base64';
@@ -41,6 +41,15 @@ interface PlanItem {
   topic: string;
   prompt: string;
   selected: boolean;
+}
+
+interface SavedPlanItem {
+  id: string;
+  scheduledDate: string;
+  type: 'image' | 'video';
+  topic: string;
+  status: 'PENDING' | 'PROCESSING' | 'DONE' | 'FAILED';
+  errorMessage?: string;
 }
 
 interface AIAgentProps {
@@ -139,7 +148,34 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const [planSaving, setPlanSaving] = useState(false);
   const [planError, setPlanError] = useState<string | null>(null);
   const [planSavedCount, setPlanSavedCount] = useState<number | null>(null);
+  const [savedPlanItems, setSavedPlanItems] = useState<SavedPlanItem[]>([]);
   const planFileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isDemoMode || !user) return;
+    const q = query(collection(db, 'content_plan_items'), where('userId', '==', user.uid));
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const rows = snapshot.docs
+          .map((docSnap) => {
+            const data = docSnap.data();
+            return {
+              id: docSnap.id,
+              scheduledDate: String(data.scheduledDate || ''),
+              type: data.type === 'video' ? 'video' : 'image',
+              topic: String(data.topic || ''),
+              status: data.status || 'PENDING',
+              errorMessage: data.errorMessage || undefined,
+            } as SavedPlanItem;
+          })
+          .sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate));
+        setSavedPlanItems(rows);
+      },
+      (error) => console.error('Content plan status listener failed:', error),
+    );
+    return () => unsubscribe();
+  }, [user, isDemoMode]);
   // Holds the live mic recording session (not the browser's SpeechRecognition —
   // see toggleVoiceInput for why). 'compressed' (MediaRecorder producing webm/opus
   // or similar) is used whenever the browser supports it, since compressed audio
@@ -1141,6 +1177,52 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                       {planSaving ? <Loader2 size={16} className="animate-spin" /> : <CalendarClock size={16} />}
                       {language === 'km' ? 'រក្សាទុកផែនការ' : 'Save Plan'}
                     </button>
+                  </div>
+                )}
+
+                {savedPlanItems.length > 0 && (
+                  <div className="space-y-2 border-t border-brand-100 pt-4 dark:border-slate-700">
+                    <p className="text-xs font-black uppercase tracking-widest text-brand-500">
+                      {language === 'km' ? `ស្ថានភាពផែនការ (${savedPlanItems.length})` : `Plan Status (${savedPlanItems.length})`}
+                    </p>
+                    <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
+                      {savedPlanItems.map((item) => {
+                        const statusStyle: Record<SavedPlanItem['status'], string> = {
+                          PENDING: 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300',
+                          PROCESSING: 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300',
+                          DONE: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
+                          FAILED: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',
+                        };
+                        const statusLabel: Record<SavedPlanItem['status'], string> = {
+                          PENDING: language === 'km' ? 'រង់ចាំ' : 'Pending',
+                          PROCESSING: language === 'km' ? 'កំពុងបង្កើត' : 'Generating',
+                          DONE: language === 'km' ? 'រួចរាល់' : 'Done',
+                          FAILED: language === 'km' ? 'បរាជ័យ' : 'Failed',
+                        };
+                        return (
+                          <div
+                            key={item.id}
+                            className="flex items-start gap-3 rounded-xl border border-brand-100 bg-brand-50/50 p-3 dark:border-slate-700 dark:bg-slate-800/50"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-brand-500">
+                                <span>{item.scheduledDate}</span>
+                                <span className="rounded-full bg-white px-2 py-0.5 text-[10px] dark:bg-slate-700">
+                                  {item.type === 'video' ? (language === 'km' ? 'វីដេអូ' : 'Video') : (language === 'km' ? 'រូបភាព' : 'Image')}
+                                </span>
+                                <span className={`rounded-full px-2 py-0.5 text-[10px] ${statusStyle[item.status]}`}>
+                                  {statusLabel[item.status]}
+                                </span>
+                              </div>
+                              <p className="mt-1 truncate text-sm font-bold text-brand-700 dark:text-brand-300">{item.topic}</p>
+                              {item.status === 'FAILED' && item.errorMessage && (
+                                <p className="mt-1 truncate text-xs text-rose-500">{item.errorMessage}</p>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
               </>
