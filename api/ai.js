@@ -732,18 +732,20 @@ Response rules:
       }
 
       if (!planText) return res.status(400).json({ error: 'Please upload a CSV file or paste a Google Sheets link.' });
-      // A whole spreadsheet dump easily exceeds a reasonable prompt size for a
-      // plan that's meant to be a handful of calendar rows, not a data export.
-      planText = planText.slice(0, 20000);
+      // A whole multi-tab workbook dump (summary/KPI tabs plus the real
+      // calendar tab) is much larger than a single sheet, but still small
+      // relative to what the text model can take -- keep enough of it that
+      // a calendar tab appearing after other tabs doesn't get truncated away.
+      planText = planText.slice(0, 60000);
 
       const text = await generateOpenRouterText({
-        system: `You extract a content calendar from raw spreadsheet/CSV text and turn each row into a ready-to-use AI image/video generation prompt. Be generous, not strict: real spreadsheets are messy, use inconsistent date formats, and rarely phrase things as an explicit request -- a row that just says "Product photo, sunset beach" next to a date is a real content request, not something to skip for lacking a verb like "create".\n\n${CAMBODIA_MARKET_CONTEXT}`,
-        prompt: `Here is the raw content plan (CSV or pasted spreadsheet text):\n\n${planText}\n\nToday's date is ${new Date().toISOString().slice(0, 10)}. For every row that has a date (in any format: YYYY-MM-DD, DD/MM/YYYY, MM/DD/YYYY, a written date like "10 Sep" or "ថ្ងៃទី១០ខែកញ្ញា", a spreadsheet serial date, or an Excel date string) AND any description of visual content to make (a topic, product, scene, or caption -- it does not need to be phrased as a request), produce one JSON object with:
+        system: `You extract a content calendar from raw spreadsheet/CSV text (possibly multiple sheets from one workbook, separated by "--- Sheet: <name> ---" markers) and turn each dated row into a ready-to-use AI image/video generation prompt. Be generous, not strict: real content calendars rarely spell out a visual in plain words -- a row is a valid content item as long as it has a date and ANY topic, title, headline, or campaign name next to it, even if that text is abstract (e.g. "AI for educators: teach critical thinking, not shortcuts") rather than a literal scene description. Inventing a concrete visual concept from an abstract topic/headline is exactly your job here, not a reason to skip the row. Ignore sheets/rows that are clearly just strategy notes, KPI numbers, or config tables with no per-post dates.\n\n${CAMBODIA_MARKET_CONTEXT}`,
+        prompt: `Here is the raw content plan (CSV or pasted spreadsheet text, possibly several sheets):\n\n${planText}\n\nToday's date is ${new Date().toISOString().slice(0, 10)}. For every row that has both a date (in any format: YYYY-MM-DD, DD/MM/YYYY, MM/DD/YYYY, a written date like "10 Sep" or "ថ្ងៃទី១០ខែកញ្ញា", a spreadsheet serial date, or an Excel date string) and a topic/title/headline/description/campaign for that post (it does not need to describe a visual, and does not need to be phrased as a request), produce one JSON object with:
 - "date": the date normalized to YYYY-MM-DD (infer the year as ${new Date().getFullYear()} if missing, or the following year if that date has already passed this year; if the format is genuinely ambiguous, e.g. "03/04", prefer DD/MM since this plan is for a Cambodian business)
-- "type": "video" if the row mentions video/reel/clip/motion, otherwise "image"
-- "topic": a short (max 15 words) plain summary of what the row asked for, in ${language}
-- "prompt": a complete, vivid, ready-to-use AI image/video generation prompt in English (photorealistic product/marketing photography or video style, specific about subject/setting/mood), expanding the row's brief into real creative direction rather than repeating it verbatim
-Only skip a row if it truly has no date at all, or is clearly a header/blank/totals row. When in doubt about whether a row qualifies, include it rather than skip it. Return ONLY a valid JSON array of these objects, no markdown, no commentary. Return an empty array only if the text has no calendar-like rows whatsoever.`,
+- "type": "video" if the row (or its content pillar/format/column) mentions video/reel/clip/motion/podcast, otherwise "image"
+- "topic": a short (max 15 words) plain summary of what the row is about, in ${language}
+- "prompt": a complete, vivid, ready-to-use AI image/video generation prompt in English (photorealistic product/marketing photography or video style, specific about subject/setting/mood), turning the row's topic/headline into real creative direction -- if the row only has an abstract title or theme, invent a concrete, on-topic visual scene for it rather than skipping it
+Only skip a row if it truly has no date, or has a date but no topic/title/description of any kind, or is clearly a header/blank/totals/KPI row. When in doubt about whether a row qualifies, include it rather than skip it. Return ONLY a valid JSON array of these objects, no markdown, no commentary. Return an empty array only if the text has no calendar-like rows whatsoever.`,
       });
 
       const items = jsonFromText(text, [])

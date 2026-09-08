@@ -3,7 +3,7 @@ import { Bot, CalendarClock, Check, ChevronDown, Copy, History, Image as ImageIc
 import Markdown from 'react-markdown';
 import { AnimatePresence, motion } from 'motion/react';
 import { addDoc, collection, doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { readSheet } from 'read-excel-file/browser';
+import readXlsxFile from 'read-excel-file/browser';
 import { db } from '../lib/firebase';
 import { uint8ArrayToBase64 } from '../lib/base64';
 import { readImagesIntoState } from '../lib/imageUpload';
@@ -492,11 +492,17 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       setPlanExtracting(true);
       setPlanError(null);
       try {
-        const rows = await readSheet(file);
+        // Workbooks often spread the actual calendar across several tabs
+        // (e.g. a "Start Here" summary tab plus a "Master Calendar" tab with
+        // the real dated rows) -- read every sheet, not just the first one,
+        // or dated rows on later tabs are silently missed.
+        const sheets = await readXlsxFile(file);
         // A plain comma join is enough here -- this text is only ever read by
         // the AI extraction prompt, not parsed as strict RFC CSV, so it
         // doesn't need quoting/escaping for cells containing commas.
-        const planText = rows.map((row) => row.map((cell) => String(cell ?? '')).join(',')).join('\n');
+        const planText = sheets
+          .map(({ sheet, data }) => `--- Sheet: ${sheet} ---\n${data.map((row) => row.map((cell) => String(cell ?? '')).join(',')).join('\n')}`)
+          .join('\n\n');
         await runPlanExtraction({ planText });
       } catch (error: any) {
         setPlanExtracting(false);
