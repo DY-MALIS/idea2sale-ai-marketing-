@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Users, MessageCircle, Send, Loader2, Search, Tag, ShieldAlert, Heart } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { collection, doc, query, orderBy, limit, startAfter, getDocs, onSnapshot, QueryDocumentSnapshot, DocumentData } from 'firebase/firestore';
+import { collection, doc, query, where, orderBy, limit, startAfter, getDocs, onSnapshot, QueryDocumentSnapshot, DocumentData } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { cn } from '../lib/utils';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useAuth } from '../contexts/AuthContext';
 import { useIsAdmin } from '../hooks/useIsAdmin';
 
 interface TelegramLead {
@@ -33,7 +34,24 @@ const PAGE_SIZE = 30;
 
 const CRM: React.FC = () => {
   const { t } = useLanguage();
+  const { user, isDemoMode } = useAuth();
   const { isAdmin, checking: checkingAdmin } = useIsAdmin();
+  // A signed-in non-admin who has activated their own Telegram bot (see
+  // Business Profile) gets their own scoped leads view below, instead of the
+  // admin-only shared-bot one. Channel-wide reactions/comments tracking stays
+  // admin-only -- that's a shared-broadcast-channel feature that was never
+  // extended to per-user channels, unlike the per-user chat-reply leads.
+  const [hasOwnBot, setHasOwnBot] = useState(false);
+  useEffect(() => {
+    if (isDemoMode || !user) return;
+    const unsubscribe = onSnapshot(doc(db, 'business_profiles', user.uid), (snap) => {
+      setHasOwnBot(Boolean(snap.data()?.telegramBotActive));
+    }, (error) => {
+      console.error('Business profile bot-status listener error:', error);
+    });
+    return () => unsubscribe();
+  }, [user, isDemoMode]);
+  const canView = isAdmin || hasOwnBot;
   // Split into the realtime-tracked first page and manually-paginated pages
   // beyond it: the onSnapshot listener below used to overwrite one combined
   // `leads` array outright, so any live update to the top page (e.g. a new
@@ -70,21 +88,32 @@ const CRM: React.FC = () => {
   }, [liveLeads, extraLeads]);
 
   useEffect(() => {
-    if (checkingAdmin || !isAdmin) {
+    if (checkingAdmin || !canView) {
       setLoading(false);
       return;
     }
     hasLoadedMoreRef.current = false;
     setExtraLeads([]);
-    const q = query(collection(db, 'telegram_leads'), orderBy('lastMessageAt', 'desc'), limit(PAGE_SIZE));
+    // A non-admin bot owner's own leads: no orderBy (an ownerId equality
+    // filter plus an orderBy on a different field needs a composite index),
+    // sorted client-side instead, same simplification Automation.tsx's inbox
+    // uses -- and no server-side pagination, since this is one business's
+    // own leads rather than the admin's cross-business view.
+    const q = isAdmin
+      ? query(collection(db, 'telegram_leads'), orderBy('lastMessageAt', 'desc'), limit(PAGE_SIZE))
+      : query(collection(db, 'telegram_leads'), where('ownerId', '==', user!.uid), limit(200));
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
-        const rows = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as TelegramLead[];
-        setLiveLeads(rows.filter((lead) => !lead.kind?.endsWith('summary')));
+        let rows = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as TelegramLead[];
+        rows = rows.filter((lead) => !lead.kind?.endsWith('summary'));
+        if (!isAdmin) {
+          rows = rows.sort((a, b) => (b.lastMessageAt?.toDate?.().getTime() || 0) - (a.lastMessageAt?.toDate?.().getTime() || 0));
+        }
+        setLiveLeads(rows);
         if (!hasLoadedMoreRef.current) {
           setLastDoc(snapshot.docs[snapshot.docs.length - 1] || null);
-          setHasMore(snapshot.docs.length === PAGE_SIZE);
+          setHasMore(isAdmin && snapshot.docs.length === PAGE_SIZE);
         }
         setLoading(false);
       },
@@ -94,7 +123,7 @@ const CRM: React.FC = () => {
       }
     );
     return () => unsubscribe();
-  }, [checkingAdmin, isAdmin]);
+  }, [checkingAdmin, canView, isAdmin, user]);
 
   useEffect(() => {
     if (checkingAdmin || !isAdmin) return;
@@ -120,7 +149,10 @@ const CRM: React.FC = () => {
   }, [checkingAdmin, isAdmin]);
 
   const handleLoadMore = async () => {
-    if (!lastDoc || loadingMoreRef.current) return;
+    // Pagination (lastDoc/hasMore) is only ever populated for the admin's
+    // orderBy-paginated query -- a non-admin bot owner's query has neither,
+    // but guard explicitly rather than relying on hasMore staying false.
+    if (!isAdmin || !lastDoc || loadingMoreRef.current) return;
     loadingMoreRef.current = true;
     hasLoadedMoreRef.current = true;
     setLoadingMore(true);
@@ -208,61 +240,70 @@ const CRM: React.FC = () => {
             <p className="text-2xl font-bold text-brand-700 dark:text-brand-400">{tagCounts[tag] || 0}</p>
           </button>
         ))}
-        <div className="glass p-5 rounded-2xl border border-brand-100 text-left">
-          <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1.5">
-            <Heart size={12} className="text-rose-500" />
-            {t('telegramReactions')}
-          </p>
-          <p className="text-2xl font-bold text-brand-700 dark:text-brand-400">{reactionCount}</p>
-        </div>
-        <button
-          onClick={() => {
-            setViewMode('comments');
-            setTagFilter(null);
-          }}
-          className={cn(
-            'glass p-5 rounded-2xl border text-left transition-all',
-            viewMode === 'comments' ? 'border-brand-500 shadow-sm' : 'border-brand-100'
-          )}
-        >
-          <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1.5">
-            <MessageCircle size={12} className="text-sky-500" />
-            {t('telegramComments')}
-          </p>
-          <p className="text-2xl font-bold text-brand-700 dark:text-brand-400">{commentCount}</p>
-        </button>
+        {isAdmin && (
+          <>
+            <div className="glass p-5 rounded-2xl border border-brand-100 text-left">
+              <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1.5">
+                <Heart size={12} className="text-rose-500" />
+                {t('telegramReactions')}
+              </p>
+              <p className="text-2xl font-bold text-brand-700 dark:text-brand-400">{reactionCount}</p>
+            </div>
+            <button
+              onClick={() => {
+                setViewMode('comments');
+                setTagFilter(null);
+              }}
+              className={cn(
+                'glass p-5 rounded-2xl border text-left transition-all',
+                viewMode === 'comments' ? 'border-brand-500 shadow-sm' : 'border-brand-100'
+              )}
+            >
+              <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1.5">
+                <MessageCircle size={12} className="text-sky-500" />
+                {t('telegramComments')}
+              </p>
+              <p className="text-2xl font-bold text-brand-700 dark:text-brand-400">{commentCount}</p>
+            </button>
+          </>
+        )}
       </div>
 
-      <div className="grid grid-cols-2 gap-3 rounded-2xl border border-brand-100 dark:border-slate-700 bg-white/70 dark:bg-slate-900/60 p-3">
-        <button
-          onClick={() => {
-            setViewMode('leads');
-            setTagFilter(null);
-          }}
-          className={cn(
-            'rounded-xl px-4 py-3 text-sm font-bold border transition-all',
-            viewMode === 'leads'
-              ? 'bg-brand-700 text-white border-brand-700 shadow-sm'
-              : 'bg-white dark:bg-slate-800 text-brand-600 dark:text-brand-300 border-brand-100 dark:border-slate-600'
-          )}
-        >
-          {t('inboxMessagesLabel')}
-        </button>
-        <button
-          onClick={() => {
-            setViewMode('comments');
-            setTagFilter(null);
-          }}
-          className={cn(
-            'rounded-xl px-4 py-3 text-sm font-bold border transition-all',
-            viewMode === 'comments'
-              ? 'bg-brand-700 text-white border-brand-700 shadow-sm'
-              : 'bg-white dark:bg-slate-800 text-brand-600 dark:text-brand-300 border-brand-100 dark:border-slate-600'
-          )}
-        >
-          {t('inboxCommentsLabel')}
-        </button>
-      </div>
+      {/* Comments come only from the shared broadcast channel's discussion
+          group -- a feature never extended per-user, so a bot owner has
+          nothing to see there and gets just their message inbox. */}
+      {isAdmin && (
+        <div className="grid grid-cols-2 gap-3 rounded-2xl border border-brand-100 dark:border-slate-700 bg-white/70 dark:bg-slate-900/60 p-3">
+          <button
+            onClick={() => {
+              setViewMode('leads');
+              setTagFilter(null);
+            }}
+            className={cn(
+              'rounded-xl px-4 py-3 text-sm font-bold border transition-all',
+              viewMode === 'leads'
+                ? 'bg-brand-700 text-white border-brand-700 shadow-sm'
+                : 'bg-white dark:bg-slate-800 text-brand-600 dark:text-brand-300 border-brand-100 dark:border-slate-600'
+            )}
+          >
+            {t('inboxMessagesLabel')}
+          </button>
+          <button
+            onClick={() => {
+              setViewMode('comments');
+              setTagFilter(null);
+            }}
+            className={cn(
+              'rounded-xl px-4 py-3 text-sm font-bold border transition-all',
+              viewMode === 'comments'
+                ? 'bg-brand-700 text-white border-brand-700 shadow-sm'
+                : 'bg-white dark:bg-slate-800 text-brand-600 dark:text-brand-300 border-brand-100 dark:border-slate-600'
+            )}
+          >
+            {t('inboxCommentsLabel')}
+          </button>
+        </div>
+      )}
 
       <div className="relative">
         <input
@@ -280,7 +321,7 @@ const CRM: React.FC = () => {
           <div className="flex justify-center p-16">
             <Loader2 className="animate-spin text-brand-400" size={28} />
           </div>
-        ) : !isAdmin ? (
+        ) : !canView ? (
           <div className="text-center py-20 px-10">
             <div className="w-16 h-16 bg-amber-50 dark:bg-amber-900/30 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-100 dark:border-amber-800/60">
               <ShieldAlert size={24} className="text-amber-500" />
