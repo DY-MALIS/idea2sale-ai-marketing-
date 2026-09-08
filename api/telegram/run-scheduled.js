@@ -815,13 +815,28 @@ export default async function handler(req, res) {
     }
 
     // Auto-generate content-plan items (see extractContentPlan in api/ai.js
-    // and AIAgent.tsx's plan-upload UI) due today or earlier. Capped per run
-    // (cron fires once daily) so a backlog of due items can't all generate at
-    // once -- any items past the cap just roll over to be picked up on a
-    // later day's run instead.
+    // and AIAgent.tsx's plan-upload UI) due today or earlier.
+    //
+    // The cap must reflect how many have ALREADY been generated today across
+    // every invocation, not just this one -- capping only per-invocation
+    // (the original version of this) let each extra trigger on the same day
+    // (a manual re-run, a duplicate cron fire) add its own fresh 2/1 on top,
+    // and that's exactly what happened live: one day produced 8 images and 3
+    // videos instead of 2 and 1. countGeneratedToday makes the cap a real
+    // per-calendar-day ceiling no matter how many times this runs today.
     const DAILY_IMAGE_CAP = 2;
     const DAILY_VIDEO_CAP = 1;
     const todayStr = new Date().toISOString().slice(0, 10);
+    const countGeneratedToday = async (type, statuses) => {
+      const snapshot = await db.collection('content_plan_items').where('type', '==', type).where('status', 'in', statuses).get();
+      return snapshot.docs.filter((doc) => {
+        const data = doc.data();
+        const ts = data.completedAt || data.processingAt;
+        return ts?.toDate?.().toISOString().slice(0, 10) === todayStr;
+      }).length;
+    };
+    const imagesGeneratedToday = await countGeneratedToday('image', ['DONE']);
+    const remainingImageCap = Math.max(0, DAILY_IMAGE_CAP - imagesGeneratedToday);
     const planSnapshot = await db
       .collection('content_plan_items')
       .where('status', '==', 'PENDING')
@@ -830,7 +845,7 @@ export default async function handler(req, res) {
       .get();
     const duePlanItems = planSnapshot.docs
       .filter((planDoc) => String(planDoc.data()?.scheduledDate || '') <= todayStr)
-      .slice(0, DAILY_IMAGE_CAP);
+      .slice(0, remainingImageCap);
 
     for (const planDoc of duePlanItems) {
       // Same atomic compare-and-swap claimPendingPost already uses for
@@ -891,6 +906,11 @@ export default async function handler(req, res) {
     // completion -- a video job routinely takes minutes, far longer than this
     // once-a-day cron invocation should block on, so the actual wait happens
     // across separate short-lived QStash-triggered function calls instead.
+    // PROCESSING counts too, not just DONE -- a video started earlier today
+    // (job kicked off, still being polled by QStash) already consumed today's
+    // video quota even though it hasn't finished yet.
+    const videosGeneratedToday = await countGeneratedToday('video', ['DONE', 'PROCESSING']);
+    const remainingVideoCap = Math.max(0, DAILY_VIDEO_CAP - videosGeneratedToday);
     const videoPlanSnapshot = await db
       .collection('content_plan_items')
       .where('status', '==', 'PENDING')
@@ -899,7 +919,7 @@ export default async function handler(req, res) {
       .get();
     const dueVideoPlanItems = videoPlanSnapshot.docs
       .filter((planDoc) => String(planDoc.data()?.scheduledDate || '') <= todayStr)
-      .slice(0, DAILY_VIDEO_CAP);
+      .slice(0, remainingVideoCap);
 
     for (const planDoc of dueVideoPlanItems) {
       // Same atomic claim as the image loop above -- without it, two
