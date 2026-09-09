@@ -273,6 +273,25 @@ export const uploadMediaDataUrl = async ({ mediaDataUrl, mediaType }) => {
   };
 };
 
+const startPlanVideoJob = async (item, speech) => {
+  if (speech.mode === 'silent') {
+    return { job: await startOpenRouterVideo({ prompt: speech.prompt, duration: 8 }), avatarImage: null };
+  }
+  const image = await generateOpenRouterImage({ prompt: speech.avatarPrompt, aspectRatio: '16:9' });
+  const avatarImage = await uploadMediaDataUrl({ mediaDataUrl: image.imageUrl, mediaType: 'photo' });
+  const audio = await generateKhmerSpeech({ input: speech.script, voice: item.voiceGender || 'Female' });
+  const narrationAudio = await uploadMediaDataUrl({ mediaDataUrl: audio.audioUrl, mediaType: 'audio' });
+  if (!(narrationAudio.duration > 0 && narrationAudio.duration <= 8.5)) throw new Error('Khmer narration must fit within 8 seconds. Shorten the script.');
+  const job = await startOpenRouterVideo({
+    model: process.env.OPEN_ROUTER_KHMER_VIDEO_MODEL || 'bytedance/seedance-2.0:free',
+    prompt: `${speech.prompt}\n${speech.motionPrompt}`,
+    duration: 8,
+    referenceUrls: [avatarImage.mediaUrl],
+    audioReferenceUrls: [narrationAudio.mediaUrl],
+  });
+  return { job, avatarImage, narrationAudio };
+};
+
 // AI-generated images commonly come out as multi-megabyte, full-resolution (e.g.
 // 2048x2048) PNGs — Telegram's sendPhoto/sendVideo, when given a URL rather than a
 // direct file upload, silently refuses large files with the cryptic error "Bad
@@ -726,6 +745,44 @@ export default async function handler(req, res) {
     const db = initFirebaseAdmin();
     const nowIso = new Date().toISOString();
 
+    // Authenticated one-item trigger for an explicitly approved plan video.
+    // It returns before the normal cron loops, so no other due content runs.
+    const requestedPlanVideoId = String(req.query?.planVideoId || '').trim();
+    if (requestedPlanVideoId) {
+      if (!/^[A-Za-z0-9_-]{10,128}$/.test(requestedPlanVideoId)) {
+        return res.status(400).json({ ok: false, error: 'Invalid content plan video id.' });
+      }
+      const planRef = db.collection('content_plan_items').doc(requestedPlanVideoId);
+      const claim = await claimPendingPost(db, planRef);
+      if (!claim.post) {
+        return res.status(409).json({ ok: false, error: 'This content plan video is not pending.' });
+      }
+      const item = claim.post;
+      if (item.type !== 'video') {
+        await planRef.update({ status: 'PENDING', processingAt: null });
+        return res.status(400).json({ ok: false, error: 'The selected content plan item is not a video.' });
+      }
+      try {
+        const speech = await preparePlanVideoSpeech(item);
+        const { job, avatarImage, narrationAudio: generatedNarrationAudio } = await startPlanVideoJob(item, speech);
+        await planRef.update({
+          status: 'PROCESSING', videoJobId: job.jobId,
+          voiceOverText: speech.script, voiceOverMode: speech.mode,
+          generationPrompt: speech.prompt, performanceStyle: speech.performanceStyle || '',
+          ...(avatarImage ? { avatarImage } : {}),
+          ...(generatedNarrationAudio ? { narrationAudio: generatedNarrationAudio } : {}),
+          pollAttempts: 0, processingAt: FieldValue.serverTimestamp(),
+        });
+        await scheduleContentPlanPoll(req, requestedPlanVideoId);
+        return res.status(200).json({ ok: true, id: requestedPlanVideoId, videoStarted: true, jobId: job.jobId });
+      } catch (error) {
+        const message = error?.message || 'Could not start video generation.';
+        await planRef.update({ status: 'FAILED', errorMessage: message, failedAt: FieldValue.serverTimestamp() });
+        await notifyAdmins(`Content plan video item ${requestedPlanVideoId} failed to start manually: ${message}`);
+        return res.status(500).json({ ok: false, id: requestedPlanVideoId, error: message });
+      }
+    }
+
     // Recover posts that got claimed (PROCESSING) but never finished — e.g. the
     // function timed out or crashed mid-send between the atomic claim and the
     // PUBLISHED/FAILED update. Once claimed, a post is no longer PENDING, so
@@ -941,28 +998,28 @@ export default async function handler(req, res) {
         const speech = await preparePlanVideoSpeech(item);
         let narrationAudio = null;
         if (speech.mode === 'gemini') {
-          const audio = await generateKhmerSpeech({ input: speech.script, voice: item.voiceGender === 'Male' ? 'onyx' : 'nova', performanceStyle: item.performanceStyle || '', context: item.prompt });
+          const audio = await generateKhmerSpeech({ input: speech.script, voice: item.voiceGender === 'Male' ? 'onyx' : 'nova', performanceStyle: speech.performanceStyle, context: item.prompt });
           narrationAudio = await uploadMediaDataUrl({mediaDataUrl: audio.audioUrl, mediaType: 'audio'});
           if (!(narrationAudio.duration > 0 && narrationAudio.duration <= 8)) throw new Error('Gemini narration must fit within 8 seconds. Shorten the script.');
-          // A transcript mismatch here is logged, not fatal -- the narration
-          // still gets used, since blocking the (already cheap) audio would
-          // just leave the item stuck with no video at all.
           let speechVerification;
           try {
             speechVerification = await verifyUploadedVideoSpeech(narrationAudio.mediaUrl, speech.script);
           } catch (verifyError) {
             speechVerification = verifyError?.speechVerification || { passed: false };
-            await notifyAdmins(`Content plan item ${planDoc.id}: Khmer narration did not verify, using it anyway: ${verifyError?.message || 'unknown error'}`);
+            await notifyAdmins(`Content plan item ${planDoc.id}: Khmer narration verification needs review; continuing video generation: ${verifyError?.message || 'unknown error'}`);
           }
           await planDoc.ref.update({ narrationAudio, speechVerification });
         }
-        const job = await startOpenRouterVideo({ prompt: speech.prompt, duration: 8 });
+        const { job, avatarImage, narrationAudio: generatedNarrationAudio } = await startPlanVideoJob(item, speech);
         await planDoc.ref.update({
           status: 'PROCESSING',
           videoJobId: job.jobId,
           voiceOverText: speech.script,
           voiceOverMode: speech.mode,
           generationPrompt: speech.prompt,
+          performanceStyle: speech.performanceStyle || '',
+          ...(avatarImage ? { avatarImage } : {}),
+          ...(generatedNarrationAudio ? { narrationAudio: generatedNarrationAudio } : {}),
           pollAttempts: 0,
           processingAt: FieldValue.serverTimestamp(),
         });

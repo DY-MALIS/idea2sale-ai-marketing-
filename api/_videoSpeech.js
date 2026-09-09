@@ -10,7 +10,17 @@ export async function preparePlanVideoSpeech(item) {
   const script = String(item.voiceOverText || embedded || await createKhmerNarration(prompt, 8)).trim();
   if (!/[\u1780-\u17ff]/u.test(script)) throw new Error('Khmer dialogue is required for this plan video.');
   splitKhmerScript(script, [8]);
-  return { script, mode: 'gemini', prompt: `${extractVideoDialogue(prompt).visual}\nVisual footage only. No speech or mouth movements simulating speech. A separate Gemini narration track will be added. Energetic, lively pacing: people move, gesture and react at a natural brisk everyday speed, not in slow motion or with sluggish, deliberate movements.` };
+  const performanceStyle = String(item.performanceStyle || 'Warm and trustworthy. Begin with curious energy, explain with calm confidence, emphasize the key benefit, and finish with an encouraging settled tone. Use natural Khmer rhythm, short phrase-boundary pauses, varied pitch and no theatrical exaggeration.');
+  const visual = extractVideoDialogue(prompt).visual;
+  const presenter = item.voiceGender === 'Male' ? 'adult Cambodian man' : 'adult Cambodian woman';
+  return {
+    script,
+    mode: 'edge-seedance',
+    performanceStyle,
+    prompt: `${visual}\nThe same ${presenter} in the reference image speaks naturally to camera in Khmer. Match mouth movement precisely to the supplied audio.`,
+    avatarPrompt: `${visual}\nCreate one photorealistic ${presenter} presenter facing the camera in a relaxed upright pose. Stable eye-level medium shot, face, chest and both hands visible, mouth gently closed, even flattering light, simple authentic Cambodian workplace background. No other people, text, captions, logos or exaggerated pose.`,
+    motionPrompt: `Natural presenter delivery. ${performanceStyle} Use one restrained gesture tied to the key idea, relaxed hands between phrases, subtle blinking and facial reactions. No repeated waving, random pointing, oversized gestures or slow motion.`,
+  };
 }
 
 export async function verifyUploadedVideoSpeech(videoUrl, expected) {

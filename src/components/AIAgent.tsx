@@ -43,6 +43,8 @@ interface PlanItem {
   headline?: string;
   cta?: string;
   voiceGender?: 'Male' | 'Female';
+  voiceOverText?: string;
+  performanceStyle?: string;
   selected: boolean;
 }
 
@@ -514,6 +516,8 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         headline: item.headline || '',
         cta: item.cta || '',
         voiceGender: item.voiceGender === 'Male' ? 'Male' : 'Female',
+        voiceOverText: item.voiceOverText || '',
+        performanceStyle: item.performanceStyle || '',
         selected: true,
       }));
       if (!items.length) {
@@ -616,7 +620,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           prompt: item.prompt,
           ...(item.type === 'image'
             ? { headline: item.headline || '', cta: item.cta || '' }
-            : { voiceGender: item.voiceGender || 'Female' }),
+            : { voiceGender: item.voiceGender || 'Female', voiceOverText: item.voiceOverText || '', performanceStyle: item.performanceStyle || '', voiceOverWanted: true, voiceOverMode: 'edge-seedance' }),
           status: 'PENDING',
           createdAt: serverTimestamp(),
         });

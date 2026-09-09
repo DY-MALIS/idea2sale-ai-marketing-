@@ -618,23 +618,48 @@ export async function generateOpenRouterSpeech({
   throw lastError || new Error('OpenRouter speech request failed.');
 }
 
-export async function startOpenRouterVideo({ prompt, images, model, duration }) {
+export async function startOpenRouterVideo({ prompt, images, referenceUrls, audioReferenceUrls, model, duration, voiceId, motionPrompt, expressiveness }) {
+  const selectedModel = model || process.env.OPEN_ROUTER_VIDEO_MODEL || 'google/veo-3.1-fast';
   const body = {
     // Veo 3.1 Fast: same Google Veo family, ~4x cheaper ($0.10/s vs $0.40/s)
     // than standard Veo 3.1, chosen to keep multi-segment (16s/24s) video
     // generation affordable. Override via OPEN_ROUTER_VIDEO_MODEL if needed.
-    model: model || process.env.OPEN_ROUTER_VIDEO_MODEL || 'google/veo-3.1-fast',
+    model: selectedModel,
     prompt,
     aspect_ratio: '16:9',
     resolution: '720p',
     duration: Number.isFinite(duration) && duration > 0 ? duration : 8,
   };
 
+  if (selectedModel === 'heygen/avatar-iv') {
+    // Avatar IV derives output duration from the spoken script. Its model
+    // metadata does not advertise fixed duration or frame-image support.
+    delete body.duration;
+    const urls = Array.isArray(referenceUrls) ? referenceUrls.filter(url => /^https:\/\//.test(url)) : [];
+    if (!urls.length) throw new Error('HeyGen Avatar IV requires one uploaded presenter image.');
+    body.input_references = [{ type: 'image_url', image_url: { url: urls[0] } }];
+    if (voiceId) body.voice_id = String(voiceId);
+    if (motionPrompt) body.motion_prompt = String(motionPrompt).slice(0, 1000);
+    if (Number.isFinite(expressiveness)) body.expressiveness = expressiveness;
+  }
+
+  if (selectedModel.startsWith('bytedance/seedance-2.0')) {
+    const refs = [];
+    for (const url of Array.isArray(referenceUrls) ? referenceUrls : []) {
+      if (/^https:\/\//.test(url)) refs.push({ type: 'image_url', image_url: { url } });
+    }
+    for (const url of Array.isArray(audioReferenceUrls) ? audioReferenceUrls : []) {
+      if (/^https:\/\//.test(url)) refs.push({ type: 'audio_url', audio_url: { url } });
+    }
+    if (refs.length) body.input_references = refs;
+    body.generate_audio = false;
+  }
+
   const imageList = Array.isArray(images)
     ? images.filter((image) => image?.base64 && image?.mimeType)
     : [];
 
-  if (imageList.length) {
+  if (imageList.length && selectedModel !== 'heygen/avatar-iv' && !selectedModel.startsWith('bytedance/seedance-2.0')) {
     // The first uploaded image is the actual opening frame, not merely a loose
     // style reference. OpenRouter gives frame_images precedence and routes the
     // request through image-to-video; using input_references alone lets the

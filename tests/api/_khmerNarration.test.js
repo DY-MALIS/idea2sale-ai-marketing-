@@ -1,28 +1,23 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ azure: vi.fn(), translate: vi.fn(), text: vi.fn(), gemini: vi.fn() }));
-vi.mock('../../api/_geminiSpeech.js', () => ({ generateGeminiSpeech: mocks.gemini }));
-vi.mock('../../api/_azureSpeech.js', () => ({ synthesizeKhmerSpeechViaAzure: mocks.azure }));
+const mocks = vi.hoisted(() => ({ edge: vi.fn(), translate: vi.fn(), text: vi.fn() }));
+vi.mock('../../api/_edgeSpeech.js', () => ({ synthesizeKhmerSpeechViaEdge: mocks.edge }));
 vi.mock('../../api/_openrouter.js', () => ({ generateTranslateSpeech: mocks.translate, generateOpenRouterText: mocks.text }));
 import { createKhmerNarration, generateKhmerSpeech, replaceCloudinaryAudio } from '../../api/_khmerNarration.js';
 afterEach(() => { vi.unstubAllEnvs(); vi.resetAllMocks(); });
 describe('Khmer narration', () => {
-  it('uses Gemini with the selected voice even when Azure is configured', async () => {
-    vi.stubEnv('AZURE_SPEECH_KEY', 'test'); vi.stubEnv('AZURE_SPEECH_REGION', 'test');
-    mocks.gemini.mockResolvedValue({ audioUrl: 'khmer' });
+  it('uses the Edge male Khmer voice for a male selection', async () => {
+    mocks.edge.mockResolvedValue({ audioUrl: 'khmer' });
     expect(await generateKhmerSpeech({ input: 'សួស្តី', voice: 'onyx' })).toEqual({ audioUrl: 'khmer' });
-    expect(mocks.gemini).toHaveBeenCalledWith({ input: 'សួស្តី', voice: 'onyx', context: '', performanceStyle: '' });
-    expect(mocks.azure).not.toHaveBeenCalled();
+    expect(mocks.edge).toHaveBeenCalledWith({ input: 'សួស្តី', voice: 'km-KH-PisethNeural', rate: '+10%' });
     expect(mocks.translate).not.toHaveBeenCalled();
   });
-  it('passes performance directions to Gemini', async () => {
-    vi.stubEnv('AZURE_SPEECH_KEY', ''); vi.stubEnv('AZURE_SPEECH_REGION', '');
-    mocks.gemini.mockResolvedValue({ audioUrl: 'khmer', provider: 'gemini' });
-    expect(await generateKhmerSpeech({ input: 'សួស្តី', performanceStyle: 'warm', context: 'training' })).toMatchObject({ audioUrl: 'khmer', provider: 'gemini' });
-    expect(mocks.gemini).toHaveBeenCalledWith(expect.objectContaining({performanceStyle:'warm',context:'training'}));
+  it('uses the Edge female Khmer voice by default', async () => {
+    mocks.edge.mockResolvedValue({ audioUrl: 'khmer', provider: 'edge' });
+    expect(await generateKhmerSpeech({ input: 'សួស្តី', performanceStyle: 'warm', context: 'training' })).toMatchObject({ audioUrl: 'khmer', provider: 'edge' });
+    expect(mocks.edge).toHaveBeenCalledWith({ input: 'សួស្តី', voice: 'km-KH-SreymomNeural', rate: '+10%' });
   });
-  it('surfaces Gemini failure instead of silently changing providers', async () => {
-    vi.stubEnv('AZURE_SPEECH_KEY', 'test'); vi.stubEnv('AZURE_SPEECH_REGION', 'test');
-    mocks.gemini.mockRejectedValue(new Error('auth failed'));
+  it('surfaces Edge failure instead of silently changing providers', async () => {
+    mocks.edge.mockRejectedValue(new Error('auth failed'));
     await expect(generateKhmerSpeech({ input: 'សួស្តី' })).rejects.toThrow('auth failed');
     expect(mocks.translate).not.toHaveBeenCalled();
   });

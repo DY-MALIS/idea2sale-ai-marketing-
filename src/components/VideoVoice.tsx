@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { uint8ArrayToBase64 } from '../lib/base64';
-import { extractVideoDialogue, splitKhmerScript, wantsSilentVideo } from '../../shared/videoSpeech.js';
+import { extractVideoDialogue, nativeSpeechPrompt, splitKhmerScript, wantsSilentVideo } from '../../shared/videoSpeech.js';
 import { readImagesIntoState } from '../lib/imageUpload';
 import { motion, AnimatePresence } from 'motion/react';
 import { doc, getDoc } from 'firebase/firestore';
@@ -618,21 +618,12 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
           // otherwise chained clips can jump-cut to an unrelated scene.
           segmentPrompt = `${prompt}\n\nThis is a direct continuation of the previous shot in the same video, picking up exactly where it left off. Keep the same subject, character appearance and outfit, location, lighting, and camera style throughout — do not cut to a different scene, restart the action, or change the setting.`;
         }
-        let narrationAudio: string | null = null;
         if (spokenSegments) {
-          segmentPrompt = `${extractVideoDialogue(segmentPrompt).visual}\nVisual footage only. No speech or mouth movements simulating speech. Narration will be added separately.`;
-          if (spokenSegments[i]) {
-            const response = await fetchAiWithTimeout({ action: 'ttsGenerate', input: spokenSegments[i], voice: voiceGender === 'Male' ? 'onyx' : 'nova', context: promptText, performanceStyle: 'Warm conversational delivery with natural pauses, expressive rising and falling intonation, meaningful emphasis and an unhurried pace.' });
-            const audio = await response.json();
-            if (!response.ok || !audio.audioUrl || audio.provider !== 'gemini') throw new Error(audio.error || 'Gemini TTS did not return audio.');
-            if (await mediaDuration(audio.audioUrl, 'audio') > segments[i]) throw new Error('សំឡេង Gemini វែងជាងឈុត។ សូមបន្ថយអត្ថបទ។');
-            narrationAudio = audio.audioUrl;
-          }
+          segmentPrompt = nativeSpeechPrompt(segmentPrompt, spokenSegments[i] || '', voiceGender, 'Sound warm and confident, emphasize the main benefit, and end cleanly without slowing down.');
         }
         let clip = await generateVideoClip(segmentPrompt, referenceImages, segments[i]);
         if (spokenSegments?.[i]) {
           try {
-            clip = await applyVoiceOver(clip, narrationAudio!, 1);
             await verifyClipSpeech(clip, spokenSegments[i]);
           } catch (error) {
             setGeneratedVideo(clip);
@@ -713,7 +704,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       setGeneratedVideo(video);
       if (spokenSegments) setVideoVoiceQualityNotice(language === 'km'
         ? 'សំឡេងនិទាន Gemini TTS។ បានផ្ទៀងផ្ទាត់អត្ថបទដោយស្វ័យប្រវត្តិ ប៉ុន្តែសូមស្តាប់វាយតម្លៃភាពធម្មជាតិមុនផ្សព្វផ្សាយ។ មិនមានការផ្គូផ្គងចលនាមាត់ដោយស្វ័យប្រវត្តិទេ។'
-        : 'Gemini TTS narration. Speech text checked automatically; listen before publishing. Automatic lip sync is not included.');
+        : 'Native Khmer speech generated with the presenter. Speech text is checked automatically; review pronunciation and lip sync before publishing.');
       return;
     } catch (error: any) {
       console.error(error);

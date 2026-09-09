@@ -47,7 +47,7 @@ const fakeDb = (data, updateSpy) => ({
 });
 
 describe('processContentPlanVideo', () => {
-  it('still sends the video when speech verification fails, but records the mismatch', async () => {
+  it('records a speech mismatch and still sends the scheduled video', async () => {
     mockPollOpenRouterVideo.mockResolvedValue({ videoUrl: 'native-video' });
     mockUploadMediaDataUrl.mockResolvedValue({ mediaUrl: 'uploaded-native-video' });
     mockResolveTelegramDestination.mockResolvedValue({ token: 'token', chatId: 'chat' });

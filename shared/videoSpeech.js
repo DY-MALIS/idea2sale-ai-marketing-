@@ -35,16 +35,22 @@ export function splitKhmerScript(text, durations) {
   let index = 0;
   for (const token of tokens) {
     // Conservative text budget, not a claim about measured speech duration.
-    while (index < lines.length && (lines[index] + token).trim().length > durations[index] * 6) index++;
+    while (index < lines.length && (lines[index] + token).trim().length > durations[index] * 8) index++;
     if (index === lines.length) throw new Error('អត្ថបទនិយាយវែងពេក។ សូមបន្ថយអត្ថបទ ឬជ្រើសវីដេអូវែងជាងនេះ។');
     lines[index] += token;
   }
   return lines.map(s => s.trim());
 }
 
-export function nativeSpeechPrompt(visual, script, gender = 'Female') {
+export function nativeSpeechPrompt(visual, script, gender = 'Female', performanceStyle = '') {
+  const male = gender === 'Male';
+  const presenter = male ? 'adult Cambodian man' : 'adult Cambodian woman';
+  const voice = male
+    ? 'an unmistakably adult Cambodian male voice with a natural masculine pitch and resonance'
+    : 'an unmistakably adult Cambodian female voice with a natural feminine pitch and resonance';
+  const delivery = String(performanceStyle || '').trim();
   return `${extractVideoDialogue(visual).visual}\n\nAUDIO DIRECTION: Generate audio together with the video. ${script
-    ? `One native Cambodian ${gender === 'Male' ? 'male' : 'female'} speaker says exactly in Khmer: ${JSON.stringify(script)}. Natural human conversational delivery, clear pronunciation, gentle emotion and unhurried pauses. No additional dialogue. Synchronize visible speaking mouths with the words.`
+    ? `Cast exactly one ${presenter}. The visible speaker's face, body and voice must all match that sex consistently. Use ${voice}; never substitute an androgynous voice, a childlike voice, or a voice of the other sex. The presenter speaks directly to the camera and says exactly in Cambodian Khmer: ${JSON.stringify(script)}. The visible presenter is the only source of the voice. Generate the voice, breathing, facial performance and mouth movements together in the original video; do not add off-camera narration or a separate voice-over. Use crisp native Cambodian Khmer pronunciation at a normal brisk everyday conversational pace. Do not speak slowly, stretch vowels, insert long dramatic pauses, rush, sing or recite. Use only brief natural pauses at phrase boundaries and finish every word clearly. ${delivery ? `PERFORMANCE DIRECTION: ${delivery}. ` : ''}Synchronize lips, jaw and facial motion precisely with every spoken word. Derive gestures from the meaning of each phrase: one small illustrative gesture on the key idea, relaxed hands between phrases, natural blinking and subtle weight shifts. Time each gesture to begin with its related phrase and settle when that phrase ends. Avoid generic waving, repeated nodding, pointing at empty space, random hand motion, oversized movements, frozen poses and theatrical reactions. Keep both hands below shoulder height and preserve a relaxed upright posture. Use one continuous stable eye-level medium shot with face, chest and hands visible. No additional dialogue, subtitles, captions, text, music, group montage or slow motion.`
     : 'No speech or dialogue in this segment; ambient sound only.'}`;
 }
 

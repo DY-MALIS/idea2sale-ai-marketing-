@@ -1,65 +1,24 @@
-# Khmer video speech
+# Khmer avatar video speech
 
-Khmer narration uses Gemini TTS through OpenRouter's `/api/v1/audio/speech`
-with the existing server-only `OPEN_ROUTER_API_KEY` (or `OPENROUTER_API_KEY`)
-and optional `OPEN_ROUTER_TTS_GEMINI_MODEL` (default
-`google/gemini-3.1-flash-tts-preview`). No separate Google TTS key is required.
-The browser never receives this key. A missing
-key fails explicitly, and a provider failure does not switch to Azure, Translate
-or a different speech model. The existing OpenRouter integration still generates video.
+Khmer Content Plan videos synthesize the exact Khmer script with Edge Neural
+TTS, upload that audio and a presenter portrait, then send both references to
+`bytedance/seedance-2.0:free` through OpenRouter for an audio-driven talking video.
 
-Gemini receives exact script text plus separate performance and plan context.
-Male maps to Charon and female to Kore. Audio is decoded as mono PCM and wrapped
-in a WAV container at Gemini's 24 kHz rate (or the explicit returned rate).
-OpenRouter's generation ID is returned for usage tracking. Video footage is requested
-without dialogue, then Gemini narration replaces the original audio. This is
-narration, not automatic lip synchronization. Khmer remains unverified for
-naturalness; selecting Gemini does not guarantee pronunciation quality.
+- `voiceOverText` stores the exact 35-55 character Khmer sentence.
+- `voiceOverMode` is `edge-seedance` for new plan videos.
+- `voiceGender` controls whether the portrait is an adult Cambodian man or woman.
+- Optional `OPEN_ROUTER_HEYGEN_MALE_VOICE_ID` and
+  `OPEN_ROUTER_HEYGEN_FEMALE_VOICE_ID` select explicit Khmer-compatible voices.
+- `motionPrompt` asks for one meaning-based gesture and rejects repeated waving,
+  random pointing, oversized movements and slow delivery.
+- Generated audio is transcribed after video generation. A mismatch is recorded
+  and reported, while scheduled Telegram delivery continues as requested.
 
-- Visual prompt translation protects the original Khmer characters with
-  placeholders. Missing, duplicated or reordered placeholders restore the
-  original prompt instead of changing the spoken words.
-- Browser generation divides the script at Khmer word boundaries across the
-  requested 4/6/8-second clips. Text that exceeds the conservative character
-  budget is rejected before creating video jobs. This budget is a heuristic,
-  not a measurement of speaking duration.
-- Each clip receives its own Gemini narration using the selected voice.
-  Duration is checked without speeding up or truncating speech. Calendar audio
-  is generated, uploaded and transcribed before starting the video job, then
-  reused at delivery rather than generated again.
-- Calendar generation prepares and saves `voiceOverText`, `voiceOverMode` and
-  `generationPrompt` alongside the job, with mode `gemini`. Existing embedded Khmer dialogue is
-  preserved; a missing script is generated before starting the video.
-- Browser clips are transcribed from extracted WAV audio and blocked from being
-  used if under 90% normalized character similarity, since the browser flow can
-  regenerate the same clip on the spot. Calendar videos use Cloudinary's 16 kHz
-  WAV rendition for the same comparison, but do not block on it: a mismatch is
-  recorded as `speechVerification` and reported via `notifyAdmins`, and the
-  narration/video is used anyway. Blocking a scheduled, unattended calendar
-  post on an imperfect ASR comparison would just leave it stuck with no video
-  at all, so verification there is observability, not a gate.
-- `resultMediaUrl` and `speechVerification` are visible on the `content_plan_items`
-  document (surfaced in AIAgent.tsx's Plan Status list) so a mismatch can still
-  be reviewed after the fact even though it did not block delivery.
+Standalone Khmer narration uses the online neural voices provided by Microsoft
+Edge without Azure credentials. Male requests map to `km-KH-PisethNeural` and
+female requests map to `km-KH-SreymomNeural`. The audio is provided as a
+Seedance reference so the generated mouth motion can follow the same track that
+viewers hear.
 
-Transcript matching does not evaluate naturalness, emotional delivery, voice
-continuity or lip sync. `naturalnessReviewed: false` records this explicitly.
-Listen to the output and inspect the visible speaker before treating a sample
-as a quality reference. ASR errors can reject otherwise correct speech.
-
-Validation: `npm test`, `npm run lint`, `npm run build`. The optional manual
-`scratchpad/native-khmer-check.mjs` creates one persisted 8-second test job with
-`start`, then downloads and verifies the same job with `poll`. It never sends
-to Telegram, changes a plan row, or silently starts another job.
-
-## Live verification, 2026-09-09
-
-Two 8-second samples used the exact line `ចាប់ផ្តើមពីការងារដដែលៗ។`:
-the configured default video model and an explicit `google/veo-3.1` comparison.
-Both samples generated downloadable videos but failed transcription comparison.
-Rechecking the standard sample as WAV also returned non-Khmer transcription.
-The existing standard Khmer TTS reference returned Khmer with a word mismatch
-(approximately 89.4% similarity), demonstrating that transcription can itself
-make errors. Neither new video was published to Telegram. These results do not
-establish human speech naturalness or lip sync; human listening is still needed.
-The comparison does not change the application's configured video model.
+No live generation should run without explicit approval because the portrait,
+Seedance video and transcription can each incur provider charges.

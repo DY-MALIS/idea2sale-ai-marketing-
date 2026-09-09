@@ -22,7 +22,7 @@ describe('native Khmer video speech', () => {
     const prompt = nativeSpeechPrompt('A presenter says in Khmer: សួស្តី AI។ (no subtitles).', 'អរគុណ។');
     expect(prompt).not.toContain('សួស្តី');
     expect(prompt).toContain('អរគុណ។');
-    expect(prompt).toContain('(no subtitles)');
+    expect(prompt).toContain('No additional dialogue, subtitles');
     expect(nativeSpeechPrompt('says in Khmer: "សួស្តី។"', '')).not.toContain('សួស្តី');
   });
   it('preserves Khmer words verbatim and fails closed on dropped or reordered placeholders', async () => {
@@ -36,24 +36,33 @@ describe('native Khmer video speech', () => {
     const lines = splitKhmerScript(text, [8,8,8]);
     expect(lines.filter(Boolean).length).toBeGreaterThan(1);
     expect(lines.join('').replace(/\s/g,'')).toBe(text.replace(/\s/g,''));
-    expect(lines.every(line => line.length <= 48)).toBe(true);
+    expect(lines.every(line => line.length <= 64)).toBe(true);
     expect(() => splitKhmerScript(text,[4])).toThrow();
   });
   it('uses the selected gender and suppresses dialogue in unused segments', () => {
-    expect(nativeSpeechPrompt('Office','សួស្តី','Male')).toContain('male speaker');
-    expect(nativeSpeechPrompt('Office','សួស្តី','Female')).toContain('female speaker');
+    const male = nativeSpeechPrompt('Office','សួស្តី','Male');
+    const female = nativeSpeechPrompt('Office','សួស្តី','Female');
+    expect(male).toContain('adult Cambodian man');
+    expect(male).toContain('adult Cambodian male voice');
+    expect(female).toContain('adult Cambodian woman');
+    expect(female).toContain('adult Cambodian female voice');
+    expect(male).toContain('normal brisk everyday conversational pace');
+    expect(male).toContain('Time each gesture to begin with its related phrase');
     expect(nativeSpeechPrompt('Office','')).toContain('No speech');
   });
   it('compares actual words, rejects missing, wrong-language and repeated speech', () => {
     expect(compareKhmerTranscript('សួស្តី។','សួស្តី').passed).toBe(true);
     for (const actual of ['', 'hello', 'សួស្តីសួស្តី', 'អរគុណ']) expect(compareKhmerTranscript('សួស្តី',actual).passed).toBe(false);
   });
-  it('keeps plan dialogue for Gemini and requests footage without spoken words', async () => {
+  it('prepares an Edge-audio Seedance avatar and meaning-based motion', async () => {
     const prepared = await preparePlanVideoSpeech({ prompt:'Office',voiceOverText:'សួស្តី', voiceGender:'Male' });
     expect(prepared.script).toBe('សួស្តី');
-    expect(prepared.prompt).not.toContain('សួស្តី');
-    expect(prepared.prompt).toContain('No speech');
-    expect(prepared.mode).toBe('gemini');
+    expect(prepared.prompt).toContain('supplied audio');
+    expect(prepared.avatarPrompt).toContain('adult Cambodian man');
+    expect(prepared.avatarPrompt).toContain('mouth gently closed');
+    expect(prepared.motionPrompt).toContain('one restrained gesture');
+    expect(prepared.mode).toBe('edge-seedance');
+    expect(prepared.performanceStyle).toContain('varied pitch');
     expect(mocks.narration).not.toHaveBeenCalled();
   });
   it('fills legacy plans with missing dialogue but respects silent requests', async () => {
