@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Bot, CalendarClock, Check, ChevronDown, Copy, History, Image as ImageIcon, ImagePlus, Loader2, Mic, MicOff, RefreshCw, Send, Sparkles, Trash2, UserRound, Video, X, Zap } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { AnimatePresence, motion } from 'motion/react';
-import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, setDoc, serverTimestamp, where } from 'firebase/firestore';
+import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, setDoc, serverTimestamp, updateDoc, where } from 'firebase/firestore';
 import readXlsxFile from 'read-excel-file/browser';
 import { db } from '../lib/firebase';
 import { uint8ArrayToBase64 } from '../lib/base64';
@@ -50,6 +50,8 @@ interface SavedPlanItem {
   topic: string;
   status: 'PENDING' | 'PROCESSING' | 'DONE' | 'FAILED';
   errorMessage?: string;
+  resultMediaUrl?: string;
+  speechVerification?: { passed: boolean; similarity: number; transcript?: string; expected?: string };
 }
 
 interface AIAgentProps {
@@ -168,6 +170,8 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
               topic: String(data.topic || ''),
               status: data.status || 'PENDING',
               errorMessage: data.errorMessage || undefined,
+              resultMediaUrl: data.resultMediaUrl || undefined,
+              speechVerification: data.speechVerification || undefined,
             } as SavedPlanItem;
           })
           .sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate));
@@ -625,6 +629,19 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     }
     setPlanSavedCount(savedCount > 0 ? savedCount : null);
     setPlanSaving(false);
+  };
+
+  const handleRetryPlanItem = async (itemId: string) => {
+    try {
+      await updateDoc(doc(db, 'content_plan_items', itemId), {
+        status: 'PENDING',
+        errorMessage: null,
+        resultMediaUrl: null,
+        speechVerification: null,
+      });
+    } catch (error) {
+      console.error('Failed to retry content plan item:', error);
+    }
   };
 
   const handleImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1244,7 +1261,36 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                               </div>
                               <p className="mt-1 truncate text-sm font-bold text-brand-700 dark:text-brand-300">{item.topic}</p>
                               {item.status === 'FAILED' && item.errorMessage && (
-                                <p className="mt-1 truncate text-xs text-rose-500">{item.errorMessage}</p>
+                                <p className="mt-1 break-words text-xs text-rose-500">{item.errorMessage}</p>
+                              )}
+                              {item.status === 'FAILED' && item.resultMediaUrl && (
+                                <div className="mt-2 space-y-1">
+                                  <video src={item.resultMediaUrl} controls className="w-full max-w-xs rounded-lg" />
+                                  <a href={item.resultMediaUrl} download className="text-[10px] font-bold text-brand-600 underline dark:text-brand-400">
+                                    {language === 'km' ? 'ទាញយកវីដេអូនេះមកពិនិត្យ' : 'Download this video to review'}
+                                  </a>
+                                </div>
+                              )}
+                              {item.status === 'FAILED' && item.speechVerification && (
+                                <div className="mt-1 space-y-0.5 text-[10px] text-slate-500 dark:text-slate-400">
+                                  <p>
+                                    {language === 'km' ? 'ត្រូវការនិយាយ' : 'Expected'}: {item.speechVerification.expected || '—'}
+                                  </p>
+                                  <p>
+                                    {language === 'km' ? 'ស្តាប់បាន' : 'Heard'}: {item.speechVerification.transcript || '—'}
+                                    {' '}({Math.round((item.speechVerification.similarity || 0) * 100)}%)
+                                  </p>
+                                </div>
+                              )}
+                              {item.status === 'FAILED' && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRetryPlanItem(item.id)}
+                                  className="mt-2 inline-flex items-center gap-1 rounded-full border border-rose-200 bg-white px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-rose-600 hover:bg-rose-50 dark:border-rose-900/60 dark:bg-slate-800 dark:text-rose-300 dark:hover:bg-rose-900/30"
+                                >
+                                  <RefreshCw size={10} />
+                                  {language === 'km' ? 'ព្យាយាមម្តងទៀត' : 'Retry'}
+                                </button>
                               )}
                             </div>
                           </div>
