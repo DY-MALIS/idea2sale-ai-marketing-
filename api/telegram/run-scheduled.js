@@ -8,6 +8,8 @@ import { claimPendingPost, findRecentDuplicateTelegramPost } from '../_telegramC
 import { notifyAdmins } from '../_alert.js';
 import { checkRateLimit, getClientIp } from '../_rateLimit.js';
 import { generateOpenRouterImage, startOpenRouterVideo } from '../_openrouter.js';
+import { preparePlanVideoSpeech, verifyUploadedVideoSpeech } from '../_videoSpeech.js';
+import { generateKhmerSpeech } from '../_khmerNarration.js';
 
 // Server-side equivalent of PosterGen.tsx's applyLogoWatermark (that one uses
 // the browser Canvas API, unavailable here) -- same top-left placement/ratios,
@@ -265,7 +267,8 @@ export const uploadMediaDataUrl = async ({ mediaDataUrl, mediaType }) => {
 
   return {
     mediaUrl: applyCloudinaryDeliveryTransform(data.secure_url, resolvedMediaType),
-    mediaType: resolvedMediaType
+    mediaType: resolvedMediaType,
+    ...(mediaType === 'audio' ? { publicId: data.public_id, duration: data.duration } : {}),
   };
 };
 
@@ -933,10 +936,22 @@ export default async function handler(req, res) {
       }
       const item = claim.post;
       try {
-        const job = await startOpenRouterVideo({ prompt: item.prompt, duration: 8 });
+        const speech = await preparePlanVideoSpeech(item);
+        let narrationAudio = null;
+        if (speech.mode === 'gemini') {
+          const audio = await generateKhmerSpeech({ input: speech.script, voice: item.voiceGender === 'Male' ? 'onyx' : 'nova', performanceStyle: item.performanceStyle || '', context: item.prompt });
+          narrationAudio = await uploadMediaDataUrl({mediaDataUrl: audio.audioUrl, mediaType: 'audio'});
+          if (!(narrationAudio.duration > 0 && narrationAudio.duration <= 8)) throw new Error('Gemini narration must fit within 8 seconds. Shorten the script.');
+          const speechVerification = await verifyUploadedVideoSpeech(narrationAudio.mediaUrl, speech.script);
+          await planDoc.ref.update({ narrationAudio, speechVerification });
+        }
+        const job = await startOpenRouterVideo({ prompt: speech.prompt, duration: 8 });
         await planDoc.ref.update({
           status: 'PROCESSING',
           videoJobId: job.jobId,
+          voiceOverText: speech.script,
+          voiceOverMode: speech.mode,
+          generationPrompt: speech.prompt,
           pollAttempts: 0,
           processingAt: FieldValue.serverTimestamp(),
         });

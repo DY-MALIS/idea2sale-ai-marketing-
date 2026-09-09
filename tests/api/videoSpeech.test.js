@@ -1,0 +1,76 @@
+import { describe, expect, it, vi, afterEach } from 'vitest';
+import { preserveKhmerDuringTranslation, splitKhmerScript, nativeSpeechPrompt, compareKhmerTranscript, extractVideoDialogue, wantsSilentVideo } from '../../shared/videoSpeech.js';
+const mocks = vi.hoisted(() => ({ narration: vi.fn(), transcribe: vi.fn() }));
+vi.mock('../../api/_khmerNarration.js', () => ({ createKhmerNarration: mocks.narration }));
+vi.mock('../../api/_openrouter.js', () => ({ transcribeAudioWithOpenRouter: mocks.transcribe }));
+import { preparePlanVideoSpeech, verifyUploadedVideoSpeech } from '../../api/_videoSpeech.js';
+afterEach(() => { vi.resetAllMocks(); vi.unstubAllGlobals(); });
+
+describe('native Khmer video speech', () => {
+  it('preserves mixed Khmer dialogue with English product names and numbers', async () => {
+    const line = 'សួស្តី AI ជួយការងារ 24 ម៉ោង។';
+    expect((await preparePlanVideoSpeech({prompt:`A presenter says in Khmer: ${line}`})).script).toBe(line);
+    expect(extractVideoDialogue(`says in Khmer: "${line}". Office lighting.`)).toEqual({script:line,visual:'speaks to the camera. Office lighting.'});
+    expect(extractVideoDialogue(`says in Khmer: “${line}” (no subtitles)` ).script).toBe(line);
+    expect(mocks.narration).not.toHaveBeenCalled();
+  });
+  it('distinguishes native speech without overdubbing from an actual silent request', () => {
+    for (const prompt of ['Use native Khmer dialogue, no voice-over replacement.', 'Native speech, no voice over.', 'No narration replacement.']) expect(wantsSilentVideo(prompt)).toBe(false);
+    for (const prompt of ['silent video', 'no speech', 'no dialogue', 'គ្មានសំឡេង']) expect(wantsSilentVideo(prompt)).toBe(true);
+  });
+  it('removes old dialogue before adding a segment-specific line', () => {
+    const prompt = nativeSpeechPrompt('A presenter says in Khmer: សួស្តី AI។ (no subtitles).', 'អរគុណ។');
+    expect(prompt).not.toContain('សួស្តី');
+    expect(prompt).toContain('អរគុណ។');
+    expect(prompt).toContain('(no subtitles)');
+    expect(nativeSpeechPrompt('says in Khmer: "សួស្តី។"', '')).not.toContain('សួស្តី');
+  });
+  it('preserves Khmer words verbatim and fails closed on dropped or reordered placeholders', async () => {
+    const prompt = 'Say សួស្តី មិត្តភក្តិ';
+    expect(await preserveKhmerDuringTranslation(prompt, async s => s.replace('Say', 'Speak'))).toBe('Speak សួស្តី មិត្តភក្តិ');
+    expect(await preserveKhmerDuringTranslation(prompt, async () => 'Say hello')).toBe(prompt);
+    expect(await preserveKhmerDuringTranslation(prompt, async () => '__KHMER_1__ __KHMER_0__')).toBe(prompt);
+  });
+  it('distributes every word once across clips without cutting Khmer characters', () => {
+    const text = 'សួស្តី មិត្តភក្តិ។ '.repeat(5).trim();
+    const lines = splitKhmerScript(text, [8,8,8]);
+    expect(lines.filter(Boolean).length).toBeGreaterThan(1);
+    expect(lines.join('').replace(/\s/g,'')).toBe(text.replace(/\s/g,''));
+    expect(lines.every(line => line.length <= 48)).toBe(true);
+    expect(() => splitKhmerScript(text,[4])).toThrow();
+  });
+  it('uses the selected gender and suppresses dialogue in unused segments', () => {
+    expect(nativeSpeechPrompt('Office','សួស្តី','Male')).toContain('male speaker');
+    expect(nativeSpeechPrompt('Office','សួស្តី','Female')).toContain('female speaker');
+    expect(nativeSpeechPrompt('Office','')).toContain('No speech');
+  });
+  it('compares actual words, rejects missing, wrong-language and repeated speech', () => {
+    expect(compareKhmerTranscript('សួស្តី។','សួស្តី').passed).toBe(true);
+    for (const actual of ['', 'hello', 'សួស្តីសួស្តី', 'អរគុណ']) expect(compareKhmerTranscript('សួស្តី',actual).passed).toBe(false);
+  });
+  it('keeps plan dialogue for Gemini and requests footage without spoken words', async () => {
+    const prepared = await preparePlanVideoSpeech({ prompt:'Office',voiceOverText:'សួស្តី', voiceGender:'Male' });
+    expect(prepared.script).toBe('សួស្តី');
+    expect(prepared.prompt).not.toContain('សួស្តី');
+    expect(prepared.prompt).toContain('No speech');
+    expect(prepared.mode).toBe('gemini');
+    expect(mocks.narration).not.toHaveBeenCalled();
+  });
+  it('fills legacy plans with missing dialogue but respects silent requests', async () => {
+    mocks.narration.mockResolvedValue('សួស្តី');
+    expect((await preparePlanVideoSpeech({prompt:'Office'})).script).toBe('សួស្តី');
+    mocks.narration.mockClear();
+    expect((await preparePlanVideoSpeech({prompt:'Office',voiceOverWanted:false})).mode).toBe('silent');
+    expect(mocks.narration).not.toHaveBeenCalled();
+  });
+  it('blocks delivery verification on missing audio or mismatched transcription', async () => {
+    vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,arrayBuffer:async()=>new Uint8Array([1,2]).buffer}));
+    mocks.transcribe.mockResolvedValue('hello');
+    await expect(verifyUploadedVideoSpeech('https://res.cloudinary.com/demo/video/upload/v1/test.mp4','សួស្តី')).rejects.toMatchObject({ speechVerification: { passed: false, transcript: 'hello', expected: 'សួស្តី' } });
+    mocks.transcribe.mockResolvedValue('សួស្តី');
+    expect(await verifyUploadedVideoSpeech('https://res.cloudinary.com/demo/video/upload/v1/test.mp4','សួស្តី')).toMatchObject({passed:true,naturalnessReviewed:false});
+    expect(mocks.transcribe).toHaveBeenLastCalledWith(expect.objectContaining({format:'wav',languageHint:'Khmer'}));
+    expect(String(global.fetch.mock.calls[0][0])).toContain('/f_wav,af_16000/');
+    await expect(verifyUploadedVideoSpeech('https://example.com/test.mp4','សួស្តី')).rejects.toThrow('Invalid');
+  });
+});

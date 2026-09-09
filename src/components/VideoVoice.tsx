@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { uint8ArrayToBase64 } from '../lib/base64';
+import { extractVideoDialogue, splitKhmerScript, wantsSilentVideo } from '../../shared/videoSpeech.js';
 import { readImagesIntoState } from '../lib/imageUpload';
 import { motion, AnimatePresence } from 'motion/react';
 import { doc, getDoc } from 'firebase/firestore';
@@ -123,7 +124,32 @@ const cleanupFfmpegFiles = async (ffmpeg: any, names: string[]) => {
   }));
 };
 
+const mediaDuration = (url: string, kind: 'audio' | 'video'): Promise<number> => new Promise((resolve, reject) => {
+  const media = document.createElement(kind);
+  const finish = (error?: Error) => {
+    clearTimeout(timer);
+    const duration = media.duration;
+    media.onloadedmetadata = null;
+    media.onerror = null;
+    media.removeAttribute('src');
+    media.load();
+    if (error || !Number.isFinite(duration) || duration <= 0) reject(error || new Error('Could not read media duration.'));
+    else resolve(duration);
+  };
+  const timer = window.setTimeout(() => finish(new Error('Reading media duration timed out.')), 15000);
+  media.onloadedmetadata = () => finish();
+  media.onerror = () => finish(new Error('Could not read media duration.'));
+  media.preload = 'metadata';
+  media.src = url;
+});
+
 const applyVoiceOver = async (videoDataUrl: string, audioDataUrl: string, speed = 1): Promise<string> => {
+  const [videoDuration, audioDuration] = await Promise.all([
+    mediaDuration(videoDataUrl, 'video'), mediaDuration(audioDataUrl, 'audio'),
+  ]);
+  if (audioDuration > videoDuration + 0.1) {
+    throw new Error('សំឡេងវែងជាងវីដេអូ។ សូមបន្ថយអត្ថបទ ឬជ្រើសវីដេអូវែងជាងនេះ។');
+  }
   const audioExt = audioDataUrl.startsWith('data:audio/wav') ? 'wav' : 'mp3';
   const ffmpeg = await getFFmpeg();
   try {
@@ -142,7 +168,7 @@ const applyVoiceOver = async (videoDataUrl: string, audioDataUrl: string, speed 
       '-map', '0:v:0',
       '-map', '1:a:0',
       '-c:v', 'copy',
-      '-filter:a', `atempo=${safeSpeed}`,
+      '-filter:a', `atempo=${safeSpeed},apad`,
       '-c:a', 'aac',
       '-shortest',
       'vo_output.mp4',
@@ -156,8 +182,7 @@ const applyVoiceOver = async (videoDataUrl: string, audioDataUrl: string, speed 
       reader.readAsDataURL(blob);
     });
   } catch (error) {
-    console.error('Voice-over merge failed, keeping the original video audio:', error);
-    return videoDataUrl;
+    throw new Error('Could not merge narration into the video. Please try again.');
   } finally {
     await cleanupFfmpegFiles(ffmpeg, ['vo_input.mp4', `vo_audio.${audioExt}`, 'vo_output.mp4']);
   }
@@ -253,6 +278,22 @@ const concatenateVideoClips = async (clipUrls: string[]): Promise<string> => {
   }
 };
 
+const verifyClipSpeech = async (video: string, expected: string) => {
+  const ffmpeg = await getFFmpeg();
+  const { fetchFile } = await import('@ffmpeg/util');
+  try {
+    await ffmpeg.writeFile('speech_check.mp4', await fetchFile(video));
+    const code = await ffmpeg.exec(['-i', 'speech_check.mp4', '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', 'speech_check.wav']);
+    if (code !== 0) throw new Error('Could not extract video speech.');
+    const bytes = await ffmpeg.readFile('speech_check.wav');
+    const response = await fetchAiWithTimeout({ action: 'verifyVideoSpeech', expected, audioBase64: uint8ArrayToBase64(bytes as Uint8Array) });
+    const result = await response.json();
+    if (!response.ok || !result.passed) throw new Error(result.error || 'សំឡេងក្នុងវីដេអូមិនទាន់ផ្ទៀងផ្ទាត់ថាត្រូវនឹងអត្ថបទខ្មែរ។ សូមសាកល្បងម្ដងទៀត។');
+  } finally {
+    await cleanupFfmpegFiles(ffmpeg, ['speech_check.mp4', 'speech_check.wav']);
+  }
+};
+
 // Starts one Veo generation and polls until the clip is ready.
 const attemptGenerateVideoClip = async (
   prompt: string,
@@ -302,7 +343,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   const { user, isDemoMode } = useAuth();
   const { notify, ToastHost } = useToast();
   const [watermarking, setWatermarking] = useState(false);
-  const [voiceOverEnabled, setVoiceOverEnabled] = useState(false);
+  const [voiceOverEnabled, setVoiceOverEnabled] = useState(true);
   const [voiceOverText, setVoiceOverText] = useState('');
   const [addingVoiceOver, setAddingVoiceOver] = useState(false);
   const [activeTool, setActiveTool] = useState<ToolType>('video');
@@ -316,6 +357,8 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   const [selectedEnglishVoiceURI, setSelectedEnglishVoiceURI] = useState('');
   const [loading, setLoading] = useState(false);
   const [generatedVideo, setGeneratedVideo] = useState<string | null>(null);
+  const [videoNeedsReview, setVideoNeedsReview] = useState(false);
+  const [retainedClips, setRetainedClips] = useState<string[]>([]);
   const [videoVoiceQualityNotice, setVideoVoiceQualityNotice] = useState<string | null>(null);
   const [ttsText, setTtsText] = useState('');
   const [generatedAudio, setGeneratedAudio] = useState<string | null>(null);
@@ -480,6 +523,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   };
 
   const handlePostToTikTok = async (videoUrl: string) => {
+    if (videoNeedsReview) return;
     if (!aiCaption) {
       notify("Please generate or write a caption first.", 'error');
       return;
@@ -530,22 +574,38 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     if (loading || audioLoading) return;
     const promptText = typeof promptOverride === 'string' ? promptOverride.trim() : videoPrompt.trim();
     const generationLanguage = languageOverride || videoLanguage;
-    const voiceOverContent = (typeof voiceOverTextOverride === 'string' ? voiceOverTextOverride : (voiceOverEnabled ? voiceOverText : '')).trim();
+    let voiceOverContent = (typeof voiceOverTextOverride === 'string' ? voiceOverTextOverride : (voiceOverEnabled ? voiceOverText : '')).trim();
     if (!promptText && !videoImages.length) return;
 
     setLoading(true);
     setGeneratedVideo(null);
+    setVideoNeedsReview(false);
+    setRetainedClips([]);
     setVideoVoiceQualityNotice(null);
     setSegmentProgress(null);
     setMergingSegments(false);
     try {
+      if (!voiceOverContent && generationLanguage === 'Khmer' && voiceOverEnabled && voiceOverTextOverride === undefined) {
+        voiceOverContent = extractVideoDialogue(promptText).script;
+      }
+      if (voiceOverEnabled && voiceOverTextOverride === undefined && !voiceOverContent && generationLanguage === 'Khmer' && !wantsSilentVideo(promptText)) {
+        const response = await fetchAiWithTimeout({ action: 'videoNarration', prompt: promptText || 'Product introduction', duration: durationOverride || videoDuration });
+        const data = await response.json();
+        if (!response.ok || !data.text) throw new Error(data.error || 'Could not prepare Khmer narration.');
+        voiceOverContent = data.text;
+        setVoiceOverText(data.text);
+      }
       // Start this generation with a clean ffmpeg.wasm memory slate instead of
       // whatever accumulated from earlier videos generated in this browser tab.
       await resetFFmpeg();
-      const prompt = `${generationLanguage === 'Khmer' ? 'Khmer/Cambodian context. ' : ''}${promptText || 'Create a realistic short marketing video from the uploaded reference image.'}`;
+      const nativeKhmerSpeech = generationLanguage === 'Khmer';
+      const audioDirection = nativeKhmerSpeech ? 'Khmer/Cambodian context. '
+        : (voiceOverContent ? 'Visual footage only. No speech or dialogue; narration is added separately. ' : '');
+      const prompt = `${audioDirection}${promptText || 'Create a realistic short marketing video from the uploaded reference image.'}`;
       const segments = getVideoSegments(
         VIDEO_LENGTH_OPTIONS.includes(durationOverride as typeof VIDEO_LENGTH_OPTIONS[number]) ? (durationOverride as number) : videoDuration,
       );
+      const spokenSegments = nativeKhmerSpeech && voiceOverContent ? splitKhmerScript(voiceOverContent, segments) : null;
       const clipUrls: string[] = [];
       let referenceImages = videoImages;
       for (let i = 0; i < segments.length; i += 1) {
@@ -558,7 +618,33 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
           // otherwise chained clips can jump-cut to an unrelated scene.
           segmentPrompt = `${prompt}\n\nThis is a direct continuation of the previous shot in the same video, picking up exactly where it left off. Keep the same subject, character appearance and outfit, location, lighting, and camera style throughout — do not cut to a different scene, restart the action, or change the setting.`;
         }
-        clipUrls.push(await generateVideoClip(segmentPrompt, referenceImages, segments[i]));
+        let narrationAudio: string | null = null;
+        if (spokenSegments) {
+          segmentPrompt = `${extractVideoDialogue(segmentPrompt).visual}\nVisual footage only. No speech or mouth movements simulating speech. Narration will be added separately.`;
+          if (spokenSegments[i]) {
+            const response = await fetchAiWithTimeout({ action: 'ttsGenerate', input: spokenSegments[i], voice: voiceGender === 'Male' ? 'onyx' : 'nova', context: promptText, performanceStyle: 'Warm conversational delivery with natural pauses, expressive rising and falling intonation, meaningful emphasis and an unhurried pace.' });
+            const audio = await response.json();
+            if (!response.ok || !audio.audioUrl || audio.provider !== 'gemini') throw new Error(audio.error || 'Gemini TTS did not return audio.');
+            if (await mediaDuration(audio.audioUrl, 'audio') > segments[i]) throw new Error('សំឡេង Gemini វែងជាងឈុត។ សូមបន្ថយអត្ថបទ។');
+            narrationAudio = audio.audioUrl;
+          }
+        }
+        let clip = await generateVideoClip(segmentPrompt, referenceImages, segments[i]);
+        if (spokenSegments?.[i]) {
+          try {
+            clip = await applyVoiceOver(clip, narrationAudio!, 1);
+            await verifyClipSpeech(clip, spokenSegments[i]);
+          } catch (error) {
+            setGeneratedVideo(clip);
+            setRetainedClips([...clipUrls, clip]);
+            setVideoNeedsReview(true);
+            setVideoVoiceQualityNotice(language === 'km'
+              ? 'មិនអាចផ្ទៀងផ្ទាត់សំឡេងបាន។ ឈុតដែលបានបង្កើតរក្សាទុកនៅខាងក្រោមសម្រាប់មើល ស្តាប់ និងទាញយក។ ការផ្សព្វផ្សាយត្រូវបានបិទ។ ការបង្កើតម្ដងទៀតអាចចំណាយបន្ថែម។'
+              : 'Speech could not be verified. Generated clips are retained below for review and download. Publishing is disabled. Generating again may incur additional charges.');
+            throw error;
+          }
+        }
+        clipUrls.push(clip);
       }
       setSegmentProgress(null);
 
@@ -595,7 +681,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         }
       }
 
-      if (voiceOverContent) {
+      if (voiceOverContent && !nativeKhmerSpeech) {
         setAddingVoiceOver(true);
         try {
           const persona = voicePersonas[voicePersona];
@@ -609,35 +695,25 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
           });
           const ttsData = await ttsResponse.json();
           if (ttsResponse.ok && ttsData.audioUrl) {
-            // No artificial speed-up: Gemini TTS (the current primary engine)
-            // already speaks at a natural human pace, and any further atempo
-            // stretch — even a mild one — trades naturalness for fitting more
-            // words into the clip, which is the wrong trade for how this
-            // narration is meant to sound. (The Google Translate fallback
-            // renders at 2x speed at its own source, unrelated to this factor.)
+            // Preserve natural speech speed; never rush or truncate Khmer words.
             video = await applyVoiceOver(video, ttsData.audioUrl, 1);
             if (ttsData.fallbackReason && hasKhmerText) {
               setVideoVoiceQualityNotice(language === 'km'
-                ? 'សំឡេងក្នុង video នេះបានប្រើសំឡេងបម្រុង (Google TTS) ដែលអានមិនច្បាស់ ព្រោះម៉ូដែលសំឡេងសំខាន់មិនអាចប្រើបានពេលនេះ។ សូមសាកល្បងបង្កើត video ម្តងទៀត។'
-                : 'This video used a lower-quality backup voice (Google TTS) because the main voice model was unavailable. Try generating the video again for clearer narration.');
+                ? 'វីដេអូនេះប្រើសំឡេងខ្មែរស្តង់ដារ។ សំឡេងខ្មែរធម្មជាតិមិនទាន់បានភ្ជាប់នៅឡើយ។'
+                : 'This video uses standard Khmer speech. Natural Khmer voices have not been connected yet.');
             }
           } else {
-            console.error('Voice-over TTS generation failed:', ttsData.error);
-            setVideoVoiceQualityNotice(language === 'km'
-              ? 'មិនអាចបន្ថែមសំឡេងនិទានទៅវីដេអូនេះបានទេ។ វីដេអូនៅមានប៉ុន្តែគ្មានសំឡេងនិទាន។'
-              : 'Could not add narration to this video. The video was still created, just without a voice-over.');
+            throw new Error(ttsData.error || 'Could not generate narration.');
           }
-        } catch (voiceError) {
-          console.error('Voice-over generation failed, keeping the original video audio:', voiceError);
-          setVideoVoiceQualityNotice(language === 'km'
-            ? 'មិនអាចបន្ថែមសំឡេងនិទានទៅវីដេអូនេះបានទេ។ វីដេអូនៅមានប៉ុន្តែគ្មានសំឡេងនិទាន។'
-            : 'Could not add narration to this video. The video was still created, just without a voice-over.');
         } finally {
           setAddingVoiceOver(false);
         }
       }
 
       setGeneratedVideo(video);
+      if (spokenSegments) setVideoVoiceQualityNotice(language === 'km'
+        ? 'សំឡេងនិទាន Gemini TTS។ បានផ្ទៀងផ្ទាត់អត្ថបទដោយស្វ័យប្រវត្តិ ប៉ុន្តែសូមស្តាប់វាយតម្លៃភាពធម្មជាតិមុនផ្សព្វផ្សាយ។ មិនមានការផ្គូផ្គងចលនាមាត់ដោយស្វ័យប្រវត្តិទេ។'
+        : 'Gemini TTS narration. Speech text checked automatically; listen before publishing. Automatic lip sync is not included.');
       return;
     } catch (error: any) {
       console.error(error);
@@ -826,6 +902,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   };
 
   const handleScheduleThisVideo = () => {
+    if (videoNeedsReview) return;
     if (!generatedVideo) return;
     // Telegram (and most platforms) reject captions over ~1024 characters, and the raw
     // generation prompt can easily run to several times that — cap the fallback so
@@ -1318,12 +1395,19 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                       {videoVoiceQualityNotice}
                     </div>
                   )}
-                  <video src={generatedVideo} controls className="w-full rounded-3xl shadow-2xl" />
+                  {videoNeedsReview ? retainedClips.map((clip, index) => (
+                    <div key={index} className="space-y-2">
+                      <video src={clip} controls className="w-full rounded-3xl shadow-2xl" />
+                      <a href={clip} download={`review-clip-${index + 1}.mp4`} className="text-brand-700 underline">
+                        {language === 'km' ? 'ទាញយកឈុត' : 'Download clip'} {index + 1}
+                      </a>
+                    </div>
+                  )) : <video src={generatedVideo} controls className="w-full rounded-3xl shadow-2xl" />}
                   <div className="flex gap-4">
                     {tiktokUser ? (
                       <button 
                         onClick={() => handlePostToTikTok(generatedVideo!)}
-                        disabled={isPostingTikTok}
+                        disabled={isPostingTikTok || videoNeedsReview}
                         className="flex-1 bg-black text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-3 shadow-xl hover:bg-slate-900 transition-all disabled:opacity-50"
                       >
                         {isPostingTikTok ? <Loader2 size={20} className="animate-spin" /> : (
@@ -1349,6 +1433,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                     )}
                     <button
                       onClick={handleScheduleThisVideo}
+                      disabled={videoNeedsReview}
                       className="p-4 bg-brand-100 text-brand-700 rounded-2xl hover:bg-brand-200 transition-all border border-brand-200"
                       title="Schedule for later"
                     >

@@ -10,7 +10,8 @@ import {
   resolveOpenRouterTextModel,
   redactSecrets,
 } from './_openrouter.js';
-import { synthesizeKhmerSpeechViaAzure } from './_azureSpeech.js';
+import { createKhmerNarration, generateKhmerSpeech } from './_khmerNarration.js';
+import { preserveKhmerDuringTranslation, compareKhmerTranscript } from '../shared/videoSpeech.js';
 import { initFirebaseAdmin } from './_firebaseAdmin.js';
 import { checkRateLimit, getClientIp } from './_rateLimit.js';
 import { notifyAdmins } from './_alert.js';
@@ -48,19 +49,6 @@ const GEMINI_VOICE_BY_OPENAI_VOICE = {
   echo: 'Puck',
   fable: 'Kore',
   shimmer: 'Kore',
-};
-
-// Azure has dedicated Khmer Neural voices matching the same Sreymom/Piseth
-// personas above -- these are tried first for Khmer text (see the
-// ttsGenerate handler) since they're the only voices that speak Khmer
-// naturally instead of failing or mispronouncing it.
-const AZURE_KHMER_VOICE_BY_OPENAI_VOICE = {
-  nova: 'km-KH-SreymomNeural',
-  onyx: 'km-KH-PisethNeural',
-  alloy: 'km-KH-SreymomNeural',
-  echo: 'km-KH-PisethNeural',
-  fable: 'km-KH-SreymomNeural',
-  shimmer: 'km-KH-SreymomNeural',
 };
 
 const MAX_AGENT_IMAGES = 4;
@@ -205,12 +193,13 @@ const normalizeMediaPrompt = async (prompt, mediaType) => {
   if (!containsKhmerScript(prompt)) return prompt;
 
   try {
-    const normalized = await generateOpenRouterText({
+    const translate = async (source) => generateOpenRouterText({
       system: `You are a Khmer-to-English visual prompt interpreter for an AI ${mediaType} generator. Understand natural Khmer accurately, including informal wording and Khmer mixed with English. Return only one detailed English production prompt—no heading, explanation, markdown, alternatives, or commentary. Preserve every explicitly requested person, count, identity, action, object, product, location, camera direction, era, mood, color, composition, and constraint. Do not add a different culture or replace Khmer/Cambodian identity with a generic Asian identity. Do not turn requested wording into visible signs or captions; treat brand names and slogans as creative context unless the user explicitly asks for a physical text element.`,
-      prompt: `Interpret this Khmer or Khmer-mixed request as a precise ${mediaType} production prompt:\n\n${prompt}`,
+      prompt: `Interpret this request as a precise ${mediaType} production prompt. Preserve every __KHMER_N__ placeholder exactly once, in order; these contain original Khmer wording and must not be translated or omitted.\n\n${source}`,
       temperature: 0.1,
       maxTokens: 2500,
     });
+    const normalized = mediaType === 'video' ? await preserveKhmerDuringTranslation(prompt, translate) : await translate(prompt);
     return normalized.trim() || prompt;
   } catch (error) {
     // A translation/provider hiccup should not block generation entirely. The
@@ -827,6 +816,21 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
       return res.status(200).json(image);
     }
 
+    if (action === 'verifyVideoSpeech') {
+      const expected = String(req.body?.expected || '').trim();
+      const audioBase64 = String(req.body?.audioBase64 || '');
+      if (!expected || expected.length > 1000 || !audioBase64 || audioBase64.length > 8000000) return res.status(400).json({ error: 'Invalid speech verification input.' });
+      const transcript = await transcribeAudioWithOpenRouter({ audioBase64, format: 'wav', languageHint: 'Khmer' });
+      return res.status(200).json({ ...compareKhmerTranscript(expected, transcript), transcript });
+    }
+
+    if (action === 'videoNarration') {
+      const prompt = String(req.body?.prompt || '').trim();
+      if (!prompt) return res.status(400).json({ error: 'Video description is required.' });
+      const text = await createKhmerNarration(prompt, Number(req.body?.duration) || 8);
+      return res.status(200).json({ text });
+    }
+
     if (action === 'ttsGenerate') {
       const input = String(req.body?.input || '').trim();
       const voice = String(req.body?.voice || process.env.OPEN_ROUTER_TTS_VOICE || 'alloy');
@@ -834,21 +838,8 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
       const performanceStyle = String(req.body?.performanceStyle || 'warm, expressive, natural, emotional human voice with realistic pauses');
       if (!input) return res.status(400).json({ error: 'Text is required.' });
 
-      // Azure's Khmer Neural voices are tried first for Khmer text -- confirmed via
-      // live testing that every OpenRouter audio model either errors out on Khmer
-      // script (Gemini TTS) or hallucinates a confused reply in the wrong language
-      // instead of reading it (gpt-audio/gpt-audio-mini), so without this tier Khmer
-      // narration always fell through to the Google Translate voice below, which is
-      // real Khmer speech but sounds flat and mechanical. Silently skipped (falls
-      // through to the tiers below) until AZURE_SPEECH_KEY/AZURE_SPEECH_REGION are set.
-      if (containsKhmerScript(input) && process.env.AZURE_SPEECH_KEY) {
-        try {
-          const azureVoice = AZURE_KHMER_VOICE_BY_OPENAI_VOICE[voice] || 'km-KH-SreymomNeural';
-          const audio = await synthesizeKhmerSpeechViaAzure({ input, voice: azureVoice });
-          return res.status(200).json(audio);
-        } catch (azureError) {
-          console.error('Azure Khmer TTS failed, falling back:', azureError?.message);
-        }
+      if (containsKhmerScript(input)) {
+        return res.status(200).json(await generateKhmerSpeech({ input, voice, performanceStyle, context: String(req.body?.context || '') }));
       }
 
       // Gemini's dedicated TTS model is tried next \u2014 it advertises much broader

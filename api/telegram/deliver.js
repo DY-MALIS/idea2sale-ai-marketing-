@@ -13,6 +13,9 @@ import {
 import { pollOpenRouterVideo } from '../_openrouter.js';
 import { claimPendingPost, findRecentDuplicateTelegramPost } from '../_telegramClaim.js';
 import { notifyAdmins } from '../_alert.js';
+import { createKhmerNarration, generateKhmerSpeech, replaceCloudinaryAudio } from '../_khmerNarration.js';
+import { verifyUploadedVideoSpeech } from '../_videoSpeech.js';
+import { wantsSilentVideo } from '../../shared/videoSpeech.js';
 
 // A stuck/broken video job should not poll forever: 40 attempts at the
 // default ~20s spacing is roughly 13 minutes, comfortably past how long a
@@ -45,6 +48,30 @@ export const processContentPlanVideo = async (db, itemId, req) => {
     }
 
     const uploaded = await uploadMediaDataUrl({ mediaDataUrl: result.videoUrl, mediaType: 'video' });
+    const wantsNarration = ['gemini', 'separate'].includes(item.voiceOverMode) && item.voiceOverWanted !== false && item.prompt
+      && !wantsSilentVideo(item.prompt);
+    if (wantsNarration) {
+      const script = item.voiceOverText || await createKhmerNarration(item.prompt, 8);
+      let narration = item.narrationAudio;
+      if (!narration) {
+        const audio = await generateKhmerSpeech({ input: script, voice: item.voiceGender === 'Male' ? 'onyx' : 'nova', performanceStyle: item.performanceStyle || '', context: item.prompt });
+        narration = await uploadMediaDataUrl({ mediaDataUrl: audio.audioUrl, mediaType: 'audio' });
+      }
+      if (!Number.isFinite(narration.duration) || narration.duration <= 0) throw new Error('Could not verify Khmer narration duration.');
+      if (narration.duration > 8) throw new Error('Khmer narration exceeds 8 seconds. Shorten the dialogue and retry.');
+      uploaded.mediaUrl = replaceCloudinaryAudio(uploaded.mediaUrl, narration.publicId);
+      // Materialize the transformed asset before asking Telegram to download it.
+      const rendered = await fetch(uploaded.mediaUrl);
+      if (!rendered.ok) throw new Error('Could not render the Khmer narration video.');
+      await rendered.arrayBuffer();
+    }
+    if (item.voiceOverWanted !== false && item.voiceOverMode !== 'silent' && item.prompt && !wantsSilentVideo(item.prompt)) {
+      // Retain the generated asset even if speech validation fails, for review
+      // without spending on another generation.
+      await ref.update({ resultMediaUrl: uploaded.mediaUrl });
+      const speechVerification = await verifyUploadedVideoSpeech(uploaded.mediaUrl, item.voiceOverText);
+      await ref.update({ speechVerification });
+    }
     const { token, chatId } = await resolveTelegramDestination(db, item.userId);
     if (!token || !chatId) {
       throw new Error('No Telegram bot/channel is connected to deliver this to. Connect one in Business Profile.');
@@ -75,7 +102,7 @@ export const processContentPlanVideo = async (db, itemId, req) => {
     return { ok: true };
   } catch (error) {
     const message = error?.message || 'Video generation failed.';
-    await ref.update({ status: 'FAILED', errorMessage: message, failedAt: FieldValue.serverTimestamp() });
+    await ref.update({ status: 'FAILED', errorMessage: message, failedAt: FieldValue.serverTimestamp(), ...(error?.speechVerification ? { speechVerification: error.speechVerification } : {}) });
     await notifyAdmins(`Content plan video item ${itemId} failed: ${message}`);
     return { ok: false, error: message };
   }

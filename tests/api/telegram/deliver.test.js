@@ -1,7 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const { mockPollOpenRouterVideo } = vi.hoisted(() => ({ mockPollOpenRouterVideo: vi.fn() }));
+const { mockVerifySpeech } = vi.hoisted(() => ({ mockVerifySpeech: vi.fn().mockResolvedValue({ passed: true }) }));
+vi.mock('../../../api/_videoSpeech.js', () => ({ verifyUploadedVideoSpeech: mockVerifySpeech }));
 vi.mock('../../../api/_openrouter.js', () => ({ pollOpenRouterVideo: mockPollOpenRouterVideo }));
+const narrationMocks = vi.hoisted(() => ({ script: vi.fn(), speech: vi.fn(), replace: vi.fn() }));
+vi.mock('../../../api/_khmerNarration.js', () => ({
+  createKhmerNarration: narrationMocks.script,
+  generateKhmerSpeech: narrationMocks.speech,
+  replaceCloudinaryAudio: narrationMocks.replace,
+}));
 
 const { mockScheduleContentPlanPoll, mockUploadMediaDataUrl, mockResolveTelegramDestination } = vi.hoisted(() => ({
   mockScheduleContentPlanPoll: vi.fn(),
@@ -39,6 +47,52 @@ const fakeDb = (data, updateSpy) => ({
 });
 
 describe('processContentPlanVideo', () => {
+  it('retains a video for review and never sends it when speech verification fails', async () => {
+    mockPollOpenRouterVideo.mockResolvedValue({ videoUrl: 'native-video' });
+    mockUploadMediaDataUrl.mockResolvedValue({ mediaUrl: 'uploaded-native-video' });
+    mockVerifySpeech.mockRejectedValueOnce(new Error('Speech mismatch'));
+    global.fetch = vi.fn();
+    const updates = [];
+    const result = await processContentPlanVideo(fakeDb({ status: 'PROCESSING', videoJobId: 'job', prompt: 'Khmer dialogue', voiceOverText: 'សួស្តី' }, p => updates.push(p)), 'item', {});
+    expect(result.ok).toBe(false);
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(updates).toContainEqual({resultMediaUrl: 'uploaded-native-video'});
+    expect(updates.at(-1)).toMatchObject({status:'FAILED', errorMessage:'Speech mismatch'});
+  });
+  it('preserves native Veo speech for Khmer calendar videos by default', async () => {
+    mockPollOpenRouterVideo.mockResolvedValue({ videoUrl: 'native-video' });
+    mockUploadMediaDataUrl.mockResolvedValue({ mediaUrl: 'uploaded-native-video' });
+    mockResolveTelegramDestination.mockResolvedValue({ token: 'token', chatId: 'chat' });
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
+    const result = await processContentPlanVideo(fakeDb({ status: 'PROCESSING', videoJobId: 'job', prompt: 'Natural Khmer dialogue', voiceOverWanted: true }), 'item', {});
+    expect(result.ok).toBe(true);
+    expect(narrationMocks.speech).not.toHaveBeenCalled();
+    expect(narrationMocks.replace).not.toHaveBeenCalled();
+    expect(JSON.parse(global.fetch.mock.calls[0][1].body).video).toBe('uploaded-native-video');
+  });
+  it('adds Khmer speech before delivering a calendar video', async () => {
+    mockPollOpenRouterVideo.mockResolvedValue({ videoUrl: 'raw' });
+    mockUploadMediaDataUrl.mockResolvedValueOnce({ mediaUrl: 'uploaded' }).mockResolvedValueOnce({ publicId: 'voice', duration: 4 });
+    narrationMocks.script.mockResolvedValue('សួស្តី');
+    narrationMocks.speech.mockResolvedValue({ audioUrl: 'khmer-audio' });
+    narrationMocks.replace.mockReturnValue('narrated-video');
+    mockResolveTelegramDestination.mockResolvedValue({ token: 'token', chatId: 'chat' });
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, arrayBuffer: async () => new ArrayBuffer(0), json: async () => ({ ok: true }) });
+    const result = await processContentPlanVideo(fakeDb({ status: 'PROCESSING', videoJobId: 'job', voiceOverMode: 'separate', prompt: 'A presenter says in Khmer: សួស្តី' }), 'item', {});
+    expect(result.ok).toBe(true);
+    expect(narrationMocks.speech).toHaveBeenCalledWith(expect.objectContaining({ input: 'សួស្តី', voice: 'nova' }));
+    expect(JSON.parse(global.fetch.mock.calls[1][1].body).video).toBe('narrated-video');
+  });
+
+  it('does not send the native video when Khmer speech fails', async () => {
+    mockPollOpenRouterVideo.mockResolvedValue({ videoUrl: 'raw' });
+    mockUploadMediaDataUrl.mockResolvedValue({ mediaUrl: 'uploaded' });
+    narrationMocks.script.mockRejectedValue(new Error('Khmer narration failed'));
+    global.fetch = vi.fn();
+    const result = await processContentPlanVideo(fakeDb({ status: 'PROCESSING', videoJobId: 'job', voiceOverMode: 'separate', prompt: 'Product' }), 'item', {});
+    expect(result.ok).toBe(false);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
   it('does nothing for an item that is no longer PROCESSING (idempotent against duplicate QStash delivery)', async () => {
     const db = fakeDb({ status: 'DONE', videoJobId: 'job-1' });
     const result = await processContentPlanVideo(db, 'item-1', {});
