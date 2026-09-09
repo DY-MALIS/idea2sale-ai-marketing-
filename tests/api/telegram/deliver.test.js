@@ -47,17 +47,18 @@ const fakeDb = (data, updateSpy) => ({
 });
 
 describe('processContentPlanVideo', () => {
-  it('retains a video for review and never sends it when speech verification fails', async () => {
+  it('still sends the video when speech verification fails, but records the mismatch', async () => {
     mockPollOpenRouterVideo.mockResolvedValue({ videoUrl: 'native-video' });
     mockUploadMediaDataUrl.mockResolvedValue({ mediaUrl: 'uploaded-native-video' });
-    mockVerifySpeech.mockRejectedValueOnce(new Error('Speech mismatch'));
-    global.fetch = vi.fn();
+    mockResolveTelegramDestination.mockResolvedValue({ token: 'token', chatId: 'chat' });
+    mockVerifySpeech.mockRejectedValueOnce(Object.assign(new Error('Speech mismatch'), { speechVerification: { passed: false, similarity: 0.4 } }));
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
     const updates = [];
     const result = await processContentPlanVideo(fakeDb({ status: 'PROCESSING', videoJobId: 'job', prompt: 'Khmer dialogue', voiceOverText: 'សួស្តី' }, p => updates.push(p)), 'item', {});
-    expect(result.ok).toBe(false);
-    expect(global.fetch).not.toHaveBeenCalled();
-    expect(updates).toContainEqual({resultMediaUrl: 'uploaded-native-video'});
-    expect(updates.at(-1)).toMatchObject({status:'FAILED', errorMessage:'Speech mismatch'});
+    expect(result.ok).toBe(true);
+    expect(global.fetch).toHaveBeenCalled();
+    expect(updates).toContainEqual({ speechVerification: { passed: false, similarity: 0.4 } });
+    expect(updates.at(-1)).toMatchObject({ status: 'DONE' });
   });
   it('preserves native Veo speech for Khmer calendar videos by default', async () => {
     mockPollOpenRouterVideo.mockResolvedValue({ videoUrl: 'native-video' });

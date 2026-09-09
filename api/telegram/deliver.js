@@ -66,11 +66,18 @@ export const processContentPlanVideo = async (db, itemId, req) => {
       await rendered.arrayBuffer();
     }
     if (item.voiceOverWanted !== false && item.voiceOverMode !== 'silent' && item.prompt && !wantsSilentVideo(item.prompt)) {
-      // Retain the generated asset even if speech validation fails, for review
-      // without spending on another generation.
       await ref.update({ resultMediaUrl: uploaded.mediaUrl });
-      const speechVerification = await verifyUploadedVideoSpeech(uploaded.mediaUrl, item.voiceOverText);
-      await ref.update({ speechVerification });
+      // A speech mismatch is logged for visibility but does not hold back
+      // delivery -- the video was already generated, and it is still the
+      // best available result.
+      try {
+        const speechVerification = await verifyUploadedVideoSpeech(uploaded.mediaUrl, item.voiceOverText);
+        await ref.update({ speechVerification });
+      } catch (verifyError) {
+        const speechVerification = verifyError?.speechVerification || { passed: false };
+        await ref.update({ speechVerification });
+        await notifyAdmins(`Content plan video item ${itemId}: Khmer speech did not verify, sending anyway: ${verifyError?.message || 'unknown error'}`);
+      }
     }
     const { token, chatId } = await resolveTelegramDestination(db, item.userId);
     if (!token || !chatId) {

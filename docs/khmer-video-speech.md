@@ -30,14 +30,17 @@ naturalness; selecting Gemini does not guarantee pronunciation quality.
 - Calendar generation prepares and saves `voiceOverText`, `voiceOverMode` and
   `generationPrompt` alongside the job, with mode `gemini`. Existing embedded Khmer dialogue is
   preserved; a missing script is generated before starting the video.
-- Browser clips are transcribed from extracted WAV audio. Calendar videos use
-  Cloudinary's 16 kHz WAV rendition. Normalized character similarity must be at least
-  90%; empty or non-Khmer transcription fails. Errors fail closed. No automatic
-  paid regeneration is triggered by a speech mismatch.
-- On calendar verification failure, `resultMediaUrl` is retained and the item
-  is marked `FAILED` with an explanation. Telegram delivery is skipped. An older
-  in-flight job without reference dialogue also requires review rather than
-  being sent unverified.
+- Browser clips are transcribed from extracted WAV audio and blocked from being
+  used if under 90% normalized character similarity, since the browser flow can
+  regenerate the same clip on the spot. Calendar videos use Cloudinary's 16 kHz
+  WAV rendition for the same comparison, but do not block on it: a mismatch is
+  recorded as `speechVerification` and reported via `notifyAdmins`, and the
+  narration/video is used anyway. Blocking a scheduled, unattended calendar
+  post on an imperfect ASR comparison would just leave it stuck with no video
+  at all, so verification there is observability, not a gate.
+- `resultMediaUrl` and `speechVerification` are visible on the `content_plan_items`
+  document (surfaced in AIAgent.tsx's Plan Status list) so a mismatch can still
+  be reviewed after the fact even though it did not block delivery.
 
 Transcript matching does not evaluate naturalness, emotional delivery, voice
 continuity or lip sync. `naturalnessReviewed: false` records this explicitly.

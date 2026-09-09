@@ -942,7 +942,16 @@ export default async function handler(req, res) {
           const audio = await generateKhmerSpeech({ input: speech.script, voice: item.voiceGender === 'Male' ? 'onyx' : 'nova', performanceStyle: item.performanceStyle || '', context: item.prompt });
           narrationAudio = await uploadMediaDataUrl({mediaDataUrl: audio.audioUrl, mediaType: 'audio'});
           if (!(narrationAudio.duration > 0 && narrationAudio.duration <= 8)) throw new Error('Gemini narration must fit within 8 seconds. Shorten the script.');
-          const speechVerification = await verifyUploadedVideoSpeech(narrationAudio.mediaUrl, speech.script);
+          // A transcript mismatch here is logged, not fatal -- the narration
+          // still gets used, since blocking the (already cheap) audio would
+          // just leave the item stuck with no video at all.
+          let speechVerification;
+          try {
+            speechVerification = await verifyUploadedVideoSpeech(narrationAudio.mediaUrl, speech.script);
+          } catch (verifyError) {
+            speechVerification = verifyError?.speechVerification || { passed: false };
+            await notifyAdmins(`Content plan item ${planDoc.id}: Khmer narration did not verify, using it anyway: ${verifyError?.message || 'unknown error'}`);
+          }
           await planDoc.ref.update({ narrationAudio, speechVerification });
         }
         const job = await startOpenRouterVideo({ prompt: speech.prompt, duration: 8 });

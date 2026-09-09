@@ -8,7 +8,9 @@ export async function generateGeminiSpeech({ input, voice = 'alloy', performance
   const model = process.env.OPEN_ROUTER_TTS_GEMINI_MODEL || 'google/gemini-3.1-flash-tts-preview';
   if (!/^google\/gemini-[\w.-]+-tts(?:-preview)?$/.test(model)) throw new Error('Invalid OpenRouter Gemini TTS model configuration.');
   const voiceName = ['onyx', 'echo', 'ash', 'ballad', 'Charon'].includes(voice) ? 'Charon' : 'Kore';
-  const prompt = `Read only the SCRIPT verbatim, in its original language. If Khmer, speak Cambodian Khmer; do not translate or transliterate the text. Do not read the directions or context aloud. Use a warm human conversational delivery, varied intonation, gentle emphasis on meaningful words, natural pauses and a clear settled ending. Do not rush. Follow the meaning of the script rather than exaggerating every phrase.\nDelivery direction: ${String(performanceStyle).slice(0, 1500)}\nPlan context (context only, never spoken): ${JSON.stringify(String(context).slice(0, 3000))}\nSCRIPT:\n${text}`;
+  const style = String(performanceStyle).trim()
+    || 'Warm, clear conversational delivery. Unhurried, moderate pace with natural pauses between phrases, and crisp, distinct enunciation of every Khmer syllable so each word is easy to make out.';
+  const prompt = `Read only the SCRIPT verbatim, in its original language. If Khmer, speak Cambodian Khmer; do not translate or transliterate the text. Do not read the directions or context aloud. Use a warm human conversational delivery, varied intonation, gentle emphasis on meaningful words, natural pauses and a clear settled ending. Do not rush. Follow the meaning of the script rather than exaggerating every phrase.\nDelivery direction: ${style.slice(0, 1500)}\nPlan context (context only, never spoken): ${JSON.stringify(String(context).slice(0, 3000))}\nSCRIPT:\n${text}`;
   const response = await fetch('https://openrouter.ai/api/v1/audio/speech', {
     method: 'POST', signal: AbortSignal.timeout(50000),
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
