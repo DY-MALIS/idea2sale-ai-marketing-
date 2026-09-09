@@ -42,6 +42,7 @@ interface PlanItem {
   prompt: string;
   headline?: string;
   cta?: string;
+  voiceGender?: 'Male' | 'Female';
   selected: boolean;
 }
 
@@ -512,6 +513,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         prompt: item.prompt || '',
         headline: item.headline || '',
         cta: item.cta || '',
+        voiceGender: item.voiceGender === 'Male' ? 'Male' : 'Female',
         selected: true,
       }));
       if (!items.length) {
@@ -612,7 +614,9 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           type: item.type,
           topic: item.topic,
           prompt: item.prompt,
-          ...(item.type === 'image' ? { headline: item.headline || '', cta: item.cta || '' } : {}),
+          ...(item.type === 'image'
+            ? { headline: item.headline || '', cta: item.cta || '' }
+            : { voiceGender: item.voiceGender || 'Female' }),
           status: 'PENDING',
           createdAt: serverTimestamp(),
         });

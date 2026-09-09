@@ -10,7 +10,7 @@ export async function preparePlanVideoSpeech(item) {
   const script = String(item.voiceOverText || embedded || await createKhmerNarration(prompt, 8)).trim();
   if (!/[\u1780-\u17ff]/u.test(script)) throw new Error('Khmer dialogue is required for this plan video.');
   splitKhmerScript(script, [8]);
-  return { script, mode: 'gemini', prompt: `${extractVideoDialogue(prompt).visual}\nVisual footage only. No speech or mouth movements simulating speech. A separate Gemini narration track will be added.` };
+  return { script, mode: 'gemini', prompt: `${extractVideoDialogue(prompt).visual}\nVisual footage only. No speech or mouth movements simulating speech. A separate Gemini narration track will be added. Energetic, lively pacing: people move, gesture and react at a natural brisk everyday speed, not in slow motion or with sluggish, deliberate movements.` };
 }
 
 export async function verifyUploadedVideoSpeech(videoUrl, expected) {
