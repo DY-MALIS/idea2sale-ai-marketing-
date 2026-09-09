@@ -40,6 +40,8 @@ interface PlanItem {
   type: 'image' | 'video';
   topic: string;
   prompt: string;
+  headline?: string;
+  cta?: string;
   selected: boolean;
 }
 
@@ -508,6 +510,8 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         type: item.type === 'video' ? 'video' : 'image',
         topic: item.topic || '',
         prompt: item.prompt || '',
+        headline: item.headline || '',
+        cta: item.cta || '',
         selected: true,
       }));
       if (!items.length) {
@@ -608,6 +612,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           type: item.type,
           topic: item.topic,
           prompt: item.prompt,
+          ...(item.type === 'image' ? { headline: item.headline || '', cta: item.cta || '' } : {}),
           status: 'PENDING',
           createdAt: serverTimestamp(),
         });

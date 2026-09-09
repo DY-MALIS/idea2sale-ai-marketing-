@@ -10,6 +10,7 @@ import { checkRateLimit, getClientIp } from '../_rateLimit.js';
 import { generateOpenRouterImage, startOpenRouterVideo } from '../_openrouter.js';
 import { preparePlanVideoSpeech, verifyUploadedVideoSpeech } from '../_videoSpeech.js';
 import { generateKhmerSpeech } from '../_khmerNarration.js';
+import { applyPosterTextOverlay } from '../_posterOverlay.js';
 
 // Server-side equivalent of PosterGen.tsx's applyLogoWatermark (that one uses
 // the browser Canvas API, unavailable here) -- same top-left placement/ratios,
@@ -865,7 +866,8 @@ export default async function handler(req, res) {
       try {
         const image = await generateOpenRouterImage({ prompt: item.prompt, aspectRatio: '1:1' });
         const profileSnap = await db.collection('business_profiles').doc(item.userId).get().catch(() => null);
-        const watermarked = await applyLogoWatermarkServer(image.imageUrl, profileSnap?.data()?.logoDataUrl);
+        const postered = await applyPosterTextOverlay(image.imageUrl, item.headline || '', item.cta || '');
+        const watermarked = await applyLogoWatermarkServer(postered, profileSnap?.data()?.logoDataUrl);
         const uploaded = await uploadMediaDataUrl({ mediaDataUrl: watermarked, mediaType: 'photo' });
 
         const { token, chatId } = await resolveTelegramDestination(db, item.userId);
