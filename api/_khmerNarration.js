@@ -10,7 +10,7 @@ const edgeKhmerVoice = (voice) => {
 
 export async function generateKhmerSpeech({ input, voice = 'Female' }) {
   if (!/[\u1780-\u17ff]/.test(input)) throw new Error('Khmer narration text is required.');
-  return synthesizeKhmerSpeechViaEdge({ input, voice: edgeKhmerVoice(voice), rate: '+10%' });
+  return synthesizeKhmerSpeechViaEdge({ input, voice: edgeKhmerVoice(voice), rate: '+20%' });
 }
 
 export async function createKhmerNarration(prompt, duration = 8) {

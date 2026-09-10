@@ -143,6 +143,25 @@ const mediaDuration = (url: string, kind: 'audio' | 'video'): Promise<number> =>
   media.src = url;
 });
 
+const removeVideoAudio = async (videoUrl: string): Promise<string> => {
+  const ffmpeg = await getFFmpeg();
+  try {
+    const { fetchFile } = await import('@ffmpeg/util');
+    await ffmpeg.writeFile('silent_input.mp4', await fetchFile(videoUrl));
+    const code = await ffmpeg.exec(['-i', 'silent_input.mp4', '-map', '0:v:0', '-c:v', 'copy', '-an', 'silent_output.mp4']);
+    if (code !== 0) throw new Error('Could not remove video audio.');
+    const data = await ffmpeg.readFile('silent_output.mp4');
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error('Could not finalize silent video.'));
+      reader.readAsDataURL(new Blob([data.buffer], { type: 'video/mp4' }));
+    });
+  } finally {
+    await cleanupFfmpegFiles(ffmpeg, ['silent_input.mp4', 'silent_output.mp4']);
+  }
+};
+
 const applyVoiceOver = async (videoDataUrl: string, audioDataUrl: string, speed = 1): Promise<string> => {
   const [videoDuration, audioDuration] = await Promise.all([
     mediaDuration(videoDataUrl, 'video'), mediaDuration(audioDataUrl, 'audio'),
@@ -299,8 +318,9 @@ const attemptGenerateVideoClip = async (
   prompt: string,
   images: { base64: string; mimeType: string }[],
   duration: number,
+  khmerSpeech?: { script: string; voiceGender: string },
 ): Promise<string> => {
-  const response = await fetchAiWithTimeout({ action: 'videoGenerate', prompt, images, duration });
+  const response = await fetchAiWithTimeout({ action: 'videoGenerate', prompt, images, duration, khmerSpeech });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || 'Video generation failed.');
   const jobId = data.jobId;
@@ -309,28 +329,16 @@ const attemptGenerateVideoClip = async (
     const statusResponse = await fetchAiWithTimeout({ action: 'videoStatus', jobId });
     const statusData = await statusResponse.json();
     if (!statusResponse.ok) throw new Error(statusData.error || 'Video generation failed.');
-    if (statusData.videoUrl) return statusData.videoUrl;
+    if (statusData.videoUrl) {
+      if (khmerSpeech && !data.narrationAudioUrl) throw new Error('Missing original Khmer reference audio.');
+      return khmerSpeech ? await applyVoiceOver(statusData.videoUrl, data.narrationAudioUrl, 1) : statusData.videoUrl;
+    }
   }
   throw new Error('Video is still processing. Please try again shortly.');
 };
 
-// The underlying Veo model occasionally reports a job as finished but produces
-// zero video output (e.g. "Video generation completed with no output") — a
-// provider-side hiccup rather than a real problem with the prompt, so one
-// automatic retry before surfacing an error to the user is worth the cost,
-// the same resilience pattern already used for speech transcription retries.
-const generateVideoClip = async (
-  prompt: string,
-  images: { base64: string; mimeType: string }[],
-  duration: number,
-): Promise<string> => {
-  try {
-    return await attemptGenerateVideoClip(prompt, images, duration);
-  } catch (error) {
-    console.error('Video segment generation failed, retrying once:', error);
-    return await attemptGenerateVideoClip(prompt, images, duration);
-  }
-};
+// Do not automatically start a second paid job when polling or verification fails.
+const generateVideoClip = attemptGenerateVideoClip;
 
 interface VideoVoiceProps {
   automationRequest?: CreativeAutomationRequest | null;
@@ -358,6 +366,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   const [loading, setLoading] = useState(false);
   const [generatedVideo, setGeneratedVideo] = useState<string | null>(null);
   const [videoNeedsReview, setVideoNeedsReview] = useState(false);
+  const [performanceNeedsReview, setPerformanceNeedsReview] = useState(false);
   const [retainedClips, setRetainedClips] = useState<string[]>([]);
   const [videoVoiceQualityNotice, setVideoVoiceQualityNotice] = useState<string | null>(null);
   const [ttsText, setTtsText] = useState('');
@@ -523,7 +532,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   };
 
   const handlePostToTikTok = async (videoUrl: string) => {
-    if (videoNeedsReview) return;
+    if (videoNeedsReview || performanceNeedsReview) return;
     if (!aiCaption) {
       notify("Please generate or write a caption first.", 'error');
       return;
@@ -580,6 +589,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     setLoading(true);
     setGeneratedVideo(null);
     setVideoNeedsReview(false);
+    setPerformanceNeedsReview(false);
     setRetainedClips([]);
     setVideoVoiceQualityNotice(null);
     setSegmentProgress(null);
@@ -598,7 +608,9 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       // Start this generation with a clean ffmpeg.wasm memory slate instead of
       // whatever accumulated from earlier videos generated in this browser tab.
       await resetFFmpeg();
-      const nativeKhmerSpeech = generationLanguage === 'Khmer';
+      const silentRequested = !voiceOverEnabled || wantsSilentVideo(promptText);
+      if (silentRequested) voiceOverContent = '';
+      const nativeKhmerSpeech = generationLanguage === 'Khmer' && !silentRequested;
       const audioDirection = nativeKhmerSpeech ? 'Khmer/Cambodian context. '
         : (voiceOverContent ? 'Visual footage only. No speech or dialogue; narration is added separately. ' : '');
       const prompt = `${audioDirection}${promptText || 'Create a realistic short marketing video from the uploaded reference image.'}`;
@@ -618,10 +630,12 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
           // otherwise chained clips can jump-cut to an unrelated scene.
           segmentPrompt = `${prompt}\n\nThis is a direct continuation of the previous shot in the same video, picking up exactly where it left off. Keep the same subject, character appearance and outfit, location, lighting, and camera style throughout — do not cut to a different scene, restart the action, or change the setting.`;
         }
-        if (spokenSegments) {
-          segmentPrompt = nativeSpeechPrompt(segmentPrompt, spokenSegments[i] || '', voiceGender, 'Sound warm and confident, emphasize the main benefit, and end cleanly without slowing down.');
+        if (silentRequested || (spokenSegments && !spokenSegments[i])) {
+          segmentPrompt = nativeSpeechPrompt(segmentPrompt, '');
         }
-        let clip = await generateVideoClip(segmentPrompt, referenceImages, segments[i]);
+        let clip = await generateVideoClip(segmentPrompt, referenceImages, segments[i],
+          spokenSegments?.[i] ? { script: spokenSegments[i], voiceGender } : undefined);
+        if (silentRequested || (spokenSegments && !spokenSegments[i])) clip = await removeVideoAudio(clip);
         if (spokenSegments?.[i]) {
           try {
             await verifyClipSpeech(clip, spokenSegments[i]);
@@ -702,9 +716,10 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       }
 
       setGeneratedVideo(video);
+      if (spokenSegments) setPerformanceNeedsReview(true);
       if (spokenSegments) setVideoVoiceQualityNotice(language === 'km'
-        ? 'សំឡេងនិទាន Gemini TTS។ បានផ្ទៀងផ្ទាត់អត្ថបទដោយស្វ័យប្រវត្តិ ប៉ុន្តែសូមស្តាប់វាយតម្លៃភាពធម្មជាតិមុនផ្សព្វផ្សាយ។ មិនមានការផ្គូផ្គងចលនាមាត់ដោយស្វ័យប្រវត្តិទេ។'
-        : 'Native Khmer speech generated with the presenter. Speech text is checked automatically; review pronunciation and lip sync before publishing.');
+        ? 'បានផ្ទៀងផ្ទាត់ពាក្យខ្មែរដោយស្វ័យប្រវត្តិ។ សូមមើល និងស្តាប់ ដើម្បីបញ្ជាក់ភាពច្បាស់ ល្បឿននិយាយ ចលនាមាត់ និងកាយវិការមុនផ្សព្វផ្សាយ។'
+        : 'Khmer reference audio is attached to the presenter video. Words are checked automatically; review pronunciation, pace, lip sync and gestures before publishing.');
       return;
     } catch (error: any) {
       console.error(error);
@@ -893,7 +908,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   };
 
   const handleScheduleThisVideo = () => {
-    if (videoNeedsReview) return;
+    if (videoNeedsReview || performanceNeedsReview) return;
     if (!generatedVideo) return;
     // Telegram (and most platforms) reject captions over ~1024 characters, and the raw
     // generation prompt can easily run to several times that — cap the fallback so
@@ -1394,11 +1409,17 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                       </a>
                     </div>
                   )) : <video src={generatedVideo} controls className="w-full rounded-3xl shadow-2xl" />}
+                  {performanceNeedsReview && !videoNeedsReview && (
+                    <label className="flex items-start gap-3 text-sm">
+                      <input type="checkbox" checked={false} onChange={() => setPerformanceNeedsReview(false)} />
+                      {language === 'km' ? 'ខ្ញុំបានមើល និងស្តាប់៖ ពាក្យច្បាស់ ល្បឿនធម្មតា ចលនាមាត់ និងកាយវិការត្រឹមត្រូវ។' : 'I watched and listened: pronunciation, pace, lip sync and gestures are acceptable.'}
+                    </label>
+                  )}
                   <div className="flex gap-4">
                     {tiktokUser ? (
                       <button 
                         onClick={() => handlePostToTikTok(generatedVideo!)}
-                        disabled={isPostingTikTok || videoNeedsReview}
+                        disabled={isPostingTikTok || videoNeedsReview || performanceNeedsReview}
                         className="flex-1 bg-black text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-3 shadow-xl hover:bg-slate-900 transition-all disabled:opacity-50"
                       >
                         {isPostingTikTok ? <Loader2 size={20} className="animate-spin" /> : (
@@ -1424,7 +1445,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                     )}
                     <button
                       onClick={handleScheduleThisVideo}
-                      disabled={videoNeedsReview}
+                      disabled={videoNeedsReview || performanceNeedsReview}
                       className="p-4 bg-brand-100 text-brand-700 rounded-2xl hover:bg-brand-200 transition-all border border-brand-200"
                       title="Schedule for later"
                     >

@@ -48,11 +48,19 @@ export const processContentPlanVideo = async (db, itemId, req) => {
     }
 
     const uploaded = await uploadMediaDataUrl({ mediaDataUrl: result.videoUrl, mediaType: 'video' });
-    const wantsNarration = ['gemini', 'separate'].includes(item.voiceOverMode) && item.voiceOverWanted !== false && item.prompt
+    if (item.voiceOverMode === 'silent' || item.voiceOverWanted === false || wantsSilentVideo(item.prompt || '')) {
+      uploaded.mediaUrl = uploaded.mediaUrl.replace('/video/upload/', '/video/upload/ac_none/');
+    }
+    const wantsNarration = ['edge-seedance', 'gemini', 'separate'].includes(item.voiceOverMode) && item.voiceOverWanted !== false && item.prompt
       && !wantsSilentVideo(item.prompt);
     if (wantsNarration) {
       const script = item.voiceOverText || await createKhmerNarration(item.prompt, 8);
       let narration = item.narrationAudio;
+      // Lip movement was generated from this exact track. Regenerating it here
+      // can change word timing and break synchronization.
+      if (item.voiceOverMode === 'edge-seedance' && !narration?.publicId) {
+        throw new Error('Missing original Khmer reference audio. Regenerate the video to restore lip sync.');
+      }
       if (!narration) {
         const audio = await generateKhmerSpeech({ input: script, voice: item.voiceGender === 'Male' ? 'onyx' : 'nova', performanceStyle: item.performanceStyle || '', context: item.prompt });
         narration = await uploadMediaDataUrl({ mediaDataUrl: audio.audioUrl, mediaType: 'audio' });
@@ -73,8 +81,10 @@ export const processContentPlanVideo = async (db, itemId, req) => {
       } catch (verifyError) {
         const speechVerification = verifyError?.speechVerification || { passed: false };
         await ref.update({ speechVerification });
-        await notifyAdmins(`Content plan video item ${itemId}: Khmer speech verification needs review; sending to Telegram as scheduled: ${verifyError?.message || 'unknown error'}`);
+        throw verifyError;
       }
+      await ref.update({ status: 'REVIEW', errorMessage: null });
+      return { ok: true, needsReview: true };
     }
     const { token, chatId } = await resolveTelegramDestination(db, item.userId);
     if (!token || !chatId) {

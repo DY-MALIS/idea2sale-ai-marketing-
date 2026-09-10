@@ -6,7 +6,7 @@ import { EdgeTTS } from 'node-edge-tts';
 
 const KHMER_VOICES = new Set(['km-KH-SreymomNeural', 'km-KH-PisethNeural']);
 
-export async function synthesizeKhmerSpeechViaEdge({ input, voice = 'km-KH-SreymomNeural', rate = '+10%' }) {
+export async function synthesizeKhmerSpeechViaEdge({ input, voice = 'km-KH-SreymomNeural', rate = '+20%' }) {
   if (!/[\u1780-\u17ff]/u.test(input || '')) throw new Error('Khmer narration text is required.');
   if (!KHMER_VOICES.has(voice)) throw new Error('Unsupported Edge Khmer voice.');
 

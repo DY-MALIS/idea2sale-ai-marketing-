@@ -19,7 +19,7 @@ export async function preparePlanVideoSpeech(item) {
     performanceStyle,
     prompt: `${visual}\nThe same ${presenter} in the reference image speaks naturally to camera in Khmer. Match mouth movement precisely to the supplied audio.`,
     avatarPrompt: `${visual}\nCreate one photorealistic ${presenter} presenter facing the camera in a relaxed upright pose. Stable eye-level medium shot, face, chest and both hands visible, mouth gently closed, even flattering light, simple authentic Cambodian workplace background. No other people, text, captions, logos or exaggerated pose.`,
-    motionPrompt: `Natural presenter delivery. ${performanceStyle} Use one restrained gesture tied to the key idea, relaxed hands between phrases, subtle blinking and facial reactions. No repeated waving, random pointing, oversized gestures or slow motion.`,
+    motionPrompt: `Natural presenter delivery. ${performanceStyle} Use one restrained gesture tied to the key idea, relaxed hands between phrases, subtle blinking and facial reactions. TIMING OVERRIDE: Use lively real-time conversational movement. Begin the gesture with its related spoken phrase and settle promptly when that phrase ends. Keep gestures small in distance, not slow in speed. Follow the supplied audio without lengthening pauses or stretching syllables. No repeated waving, random pointing, oversized gestures or slow motion.`,
   };
 }
 

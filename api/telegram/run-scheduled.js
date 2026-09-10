@@ -1,3 +1,4 @@
+import { startKhmerVideoJob } from '../_khmerVideo.js';
 import admin from 'firebase-admin';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { createHash } from 'crypto';
@@ -8,7 +9,7 @@ import { claimPendingPost, findRecentDuplicateTelegramPost } from '../_telegramC
 import { notifyAdmins } from '../_alert.js';
 import { checkRateLimit, getClientIp } from '../_rateLimit.js';
 import { generateOpenRouterImage, startOpenRouterVideo } from '../_openrouter.js';
-import { preparePlanVideoSpeech, verifyUploadedVideoSpeech } from '../_videoSpeech.js';
+import { preparePlanVideoSpeech } from '../_videoSpeech.js';
 import { generateKhmerSpeech } from '../_khmerNarration.js';
 import { applyPosterTextOverlay } from '../_posterOverlay.js';
 
@@ -273,24 +274,7 @@ export const uploadMediaDataUrl = async ({ mediaDataUrl, mediaType }) => {
   };
 };
 
-const startPlanVideoJob = async (item, speech) => {
-  if (speech.mode === 'silent') {
-    return { job: await startOpenRouterVideo({ prompt: speech.prompt, duration: 8 }), avatarImage: null };
-  }
-  const image = await generateOpenRouterImage({ prompt: speech.avatarPrompt, aspectRatio: '16:9' });
-  const avatarImage = await uploadMediaDataUrl({ mediaDataUrl: image.imageUrl, mediaType: 'photo' });
-  const audio = await generateKhmerSpeech({ input: speech.script, voice: item.voiceGender || 'Female' });
-  const narrationAudio = await uploadMediaDataUrl({ mediaDataUrl: audio.audioUrl, mediaType: 'audio' });
-  if (!(narrationAudio.duration > 0 && narrationAudio.duration <= 8.5)) throw new Error('Khmer narration must fit within 8 seconds. Shorten the script.');
-  const job = await startOpenRouterVideo({
-    model: process.env.OPEN_ROUTER_KHMER_VIDEO_MODEL || 'bytedance/seedance-2.0:free',
-    prompt: `${speech.prompt}\n${speech.motionPrompt}`,
-    duration: 8,
-    referenceUrls: [avatarImage.mediaUrl],
-    audioReferenceUrls: [narrationAudio.mediaUrl],
-  });
-  return { job, avatarImage, narrationAudio };
-};
+const startPlanVideoJob = (item, speech) => startKhmerVideoJob(item, speech, uploadMediaDataUrl);
 
 // AI-generated images commonly come out as multi-megabyte, full-resolution (e.g.
 // 2048x2048) PNGs — Telegram's sendPhoto/sendVideo, when given a URL rather than a
@@ -996,20 +980,6 @@ export default async function handler(req, res) {
       const item = claim.post;
       try {
         const speech = await preparePlanVideoSpeech(item);
-        let narrationAudio = null;
-        if (speech.mode === 'gemini') {
-          const audio = await generateKhmerSpeech({ input: speech.script, voice: item.voiceGender === 'Male' ? 'onyx' : 'nova', performanceStyle: speech.performanceStyle, context: item.prompt });
-          narrationAudio = await uploadMediaDataUrl({mediaDataUrl: audio.audioUrl, mediaType: 'audio'});
-          if (!(narrationAudio.duration > 0 && narrationAudio.duration <= 8)) throw new Error('Gemini narration must fit within 8 seconds. Shorten the script.');
-          let speechVerification;
-          try {
-            speechVerification = await verifyUploadedVideoSpeech(narrationAudio.mediaUrl, speech.script);
-          } catch (verifyError) {
-            speechVerification = verifyError?.speechVerification || { passed: false };
-            await notifyAdmins(`Content plan item ${planDoc.id}: Khmer narration verification needs review; continuing video generation: ${verifyError?.message || 'unknown error'}`);
-          }
-          await planDoc.ref.update({ narrationAudio, speechVerification });
-        }
         const { job, avatarImage, narrationAudio: generatedNarrationAudio } = await startPlanVideoJob(item, speech);
         await planDoc.ref.update({
           status: 'PROCESSING',

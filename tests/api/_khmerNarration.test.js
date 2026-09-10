@@ -8,13 +8,13 @@ describe('Khmer narration', () => {
   it('uses the Edge male Khmer voice for a male selection', async () => {
     mocks.edge.mockResolvedValue({ audioUrl: 'khmer' });
     expect(await generateKhmerSpeech({ input: 'សួស្តី', voice: 'onyx' })).toEqual({ audioUrl: 'khmer' });
-    expect(mocks.edge).toHaveBeenCalledWith({ input: 'សួស្តី', voice: 'km-KH-PisethNeural', rate: '+10%' });
+    expect(mocks.edge).toHaveBeenCalledWith({ input: 'សួស្តី', voice: 'km-KH-PisethNeural', rate: '+20%' });
     expect(mocks.translate).not.toHaveBeenCalled();
   });
   it('uses the Edge female Khmer voice by default', async () => {
     mocks.edge.mockResolvedValue({ audioUrl: 'khmer', provider: 'edge' });
     expect(await generateKhmerSpeech({ input: 'សួស្តី', performanceStyle: 'warm', context: 'training' })).toMatchObject({ audioUrl: 'khmer', provider: 'edge' });
-    expect(mocks.edge).toHaveBeenCalledWith({ input: 'សួស្តី', voice: 'km-KH-SreymomNeural', rate: '+10%' });
+    expect(mocks.edge).toHaveBeenCalledWith({ input: 'សួស្តី', voice: 'km-KH-SreymomNeural', rate: '+20%' });
   });
   it('surfaces Edge failure instead of silently changing providers', async () => {
     mocks.edge.mockRejectedValue(new Error('auth failed'));

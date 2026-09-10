@@ -53,7 +53,7 @@ interface SavedPlanItem {
   scheduledDate: string;
   type: 'image' | 'video';
   topic: string;
-  status: 'PENDING' | 'PROCESSING' | 'DONE' | 'FAILED';
+  status: 'PENDING' | 'PROCESSING' | 'DONE' | 'FAILED' | 'REVIEW';
   errorMessage?: string;
   resultMediaUrl?: string;
   speechVerification?: { passed: boolean; similarity: number; transcript?: string; expected?: string };
@@ -644,16 +644,19 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     setPlanSaving(false);
   };
 
-  const handleRetryPlanItem = async (itemId: string) => {
+  const handleReviewPlanItem = async (itemId: string, action: 'approve' | 'retry', mediaUrl?: string) => {
     try {
-      await updateDoc(doc(db, 'content_plan_items', itemId), {
-        status: 'PENDING',
-        errorMessage: null,
-        resultMediaUrl: null,
-        speechVerification: null,
+      if (!user) throw new Error('Please sign in.');
+      const response = await fetch('/api/telegram/review-video', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + await user.getIdToken() },
+        body: JSON.stringify({ itemId, action, mediaUrl }),
       });
-    } catch (error) {
-      console.error('Failed to retry content plan item:', error);
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Could not update video.');
+      if (action === 'approve') notify(language === 'km' ? 'បានដាក់ក្នុងជួរបញ្ជូន Telegram។' : 'Queued for Telegram delivery.', 'success');
+    } catch (error: any) {
+      notify(error.message || 'Could not update video.', 'error');
     }
   };
 
@@ -1249,12 +1252,14 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                           PENDING: 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300',
                           PROCESSING: 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300',
                           DONE: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
+                          REVIEW: 'bg-amber-100 text-amber-800',
                           FAILED: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',
                         };
                         const statusLabel: Record<SavedPlanItem['status'], string> = {
                           PENDING: language === 'km' ? 'រង់ចាំ' : 'Pending',
                           PROCESSING: language === 'km' ? 'កំពុងបង្កើត' : 'Generating',
                           DONE: language === 'km' ? 'រួចរាល់' : 'Done',
+                          REVIEW: language === 'km' ? 'រង់ចាំពិនិត្យ' : 'Needs review',
                           FAILED: language === 'km' ? 'បរាជ័យ' : 'Failed',
                         };
                         return (
@@ -1276,7 +1281,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                               {item.status === 'FAILED' && item.errorMessage && (
                                 <p className="mt-1 break-words text-xs text-rose-500">{item.errorMessage}</p>
                               )}
-                              {item.status === 'FAILED' && item.resultMediaUrl && (
+                              {['FAILED', 'REVIEW'].includes(item.status) && item.resultMediaUrl && (
                                 <div className="mt-2 space-y-1">
                                   <video src={item.resultMediaUrl} controls className="w-full max-w-xs rounded-lg" />
                                   <a href={item.resultMediaUrl} download className="text-[10px] font-bold text-brand-600 underline dark:text-brand-400">
@@ -1284,7 +1289,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                                   </a>
                                 </div>
                               )}
-                              {item.status === 'FAILED' && item.speechVerification && (
+                              {['FAILED', 'REVIEW'].includes(item.status) && item.speechVerification && (
                                 <div className="mt-1 space-y-0.5 text-[10px] text-slate-500 dark:text-slate-400">
                                   <p>
                                     {language === 'km' ? 'ត្រូវការនិយាយ' : 'Expected'}: {item.speechVerification.expected || '—'}
@@ -1295,10 +1300,15 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                                   </p>
                                 </div>
                               )}
-                              {item.status === 'FAILED' && (
+                              {item.status === 'REVIEW' && (
+                                <button type="button" onClick={() => handleReviewPlanItem(item.id, 'approve', item.resultMediaUrl)} className="mt-2 rounded-lg bg-brand-600 p-2 text-xs text-white">
+                                  {language === 'km' ? 'បានមើល និងស្តាប់៖ ពាក្យ ល្បឿន មាត់ និងកាយវិការត្រឹមត្រូវ — ដាក់ក្នុងជួរបញ្ជូន Telegram' : 'Reviewed pronunciation, pace, lips and gestures — queue for Telegram'}
+                                </button>
+                              )}
+                              {['FAILED', 'REVIEW'].includes(item.status) && (
                                 <button
                                   type="button"
-                                  onClick={() => handleRetryPlanItem(item.id)}
+                                  onClick={() => handleReviewPlanItem(item.id, 'retry')}
                                   className="mt-2 inline-flex items-center gap-1 rounded-full border border-rose-200 bg-white px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-rose-600 hover:bg-rose-50 dark:border-rose-900/60 dark:bg-slate-800 dark:text-rose-300 dark:hover:bg-rose-900/30"
                                 >
                                   <RefreshCw size={10} />
