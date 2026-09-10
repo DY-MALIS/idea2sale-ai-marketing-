@@ -20,6 +20,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useIsAdmin } from '../hooks/useIsAdmin';
 import { getStoredScheduledPosts, mergeStoredScheduleHistory } from '../lib/scheduledPosts';
+import { useToast } from '../hooks/useToast';
 
 const getLocalTelegramPosts = () => {
   return getStoredScheduledPosts().filter((post) => post.platform === 'TELEGRAM');
@@ -29,7 +30,9 @@ const TikTokAnalytics: React.FC = () => {
   const { t } = useLanguage();
   const { user, isDemoMode } = useAuth();
   const { isAdmin, checking: checkingAdmin } = useIsAdmin();
+  const { notify, ToastHost } = useToast();
   const [telegramPosts, setTelegramPosts] = useState<any[]>([]);
+  const [disconnecting, setDisconnecting] = useState(false);
   const [handle, setHandle] = useState(() => localStorage.getItem('tiktok_handle') || 'ai.cafe4');
   const [isEditingHandle, setIsEditingHandle] = useState(false);
   const [tempHandle, setTempHandle] = useState(handle);
@@ -80,6 +83,28 @@ const TikTokAnalytics: React.FC = () => {
     } finally {
       window.clearTimeout(statsTimeoutId);
       setSyncing(false);
+    }
+  };
+
+  const disconnectTikTok = async () => {
+    setDisconnecting(true);
+    try {
+      if (!user) throw new Error('Sign in to disconnect TikTok.');
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/tiktok/me?action=disconnect', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      localStorage.removeItem('tiktok_stats');
+      setPublicStats(null);
+      setStatsError(null);
+      setStatsErrorCode('not_connected');
+      notify(t('tiktokDisconnected'), 'success');
+    } catch (err: any) {
+      notify(err.message || 'Could not disconnect TikTok.', 'error');
+    } finally {
+      setDisconnecting(false);
     }
   };
 
@@ -292,7 +317,14 @@ const TikTokAnalytics: React.FC = () => {
           >
             <RefreshCw size={20} className={cn(syncing && "animate-spin")} />
           </button>
-          <button 
+          <button
+            onClick={disconnectTikTok}
+            disabled={disconnecting}
+            className="px-4 py-3 bg-brand-50 dark:bg-slate-800 text-brand-600 dark:text-brand-400 rounded-2xl font-bold hover:bg-brand-100 dark:hover:bg-slate-700 transition-all disabled:opacity-50"
+          >
+            {t('disconnectAccount')}
+          </button>
+          <button
             onClick={() => window.open('/api/auth/tiktok/redirect', '_blank')}
             className="px-6 py-3 bg-black text-white rounded-2xl font-bold flex items-center gap-2 hover:bg-neutral-800 transition-all shadow-lg"
           >
@@ -301,6 +333,7 @@ const TikTokAnalytics: React.FC = () => {
           </button>
         </div>
       </header>
+      <ToastHost />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         {[

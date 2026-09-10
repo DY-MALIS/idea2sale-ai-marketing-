@@ -73,6 +73,9 @@
       "schema": "TikTokPost",
       "description": "Individual TikTok post tracking"
     },
+    "/tiktok_automation_tokens/default": {
+      "description": "Server-only OAuth access/refresh token for the shared TikTok connection used by the cron auto-publisher. Never exposed to clients."
+    },
     "/scheduled_posts/{postId}": {
       "schema": "SchedulePost",
       "description": "Queue of posts to be published"

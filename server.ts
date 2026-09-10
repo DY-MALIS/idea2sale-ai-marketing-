@@ -8,7 +8,6 @@ import dotenv from "dotenv";
 import admin from "firebase-admin";
 import { GoogleGenAI } from "@google/genai";
 import runScheduledHandler from "./api/telegram/run-scheduled.js";
-import reviewVideoHandler from "./api/telegram/review-video.js";
 import aiHandler from "./api/ai.js";
 import publishPhotoHandler from "./api/tiktok/publish-photo.js";
 
@@ -131,7 +130,6 @@ async function startServer() {
   app.all("/api/telegram/run-scheduled", async (req, res) => {
     await runScheduledHandler(req, res);
   });
-  app.all("/api/telegram/review-video", async (req, res) => { await reviewVideoHandler(req, res); });
   app.all("/api/ai", async (req, res) => { await aiHandler(req, res); });
 
   app.post("/api/product-research", rateLimit("product-research", 20, 60_000), async (req, res) => {

@@ -44,10 +44,16 @@ const fakeDoc = (data, updateSpy) => ({
 
 const fakeDb = (data, updateSpy) => ({
   collection: () => ({ doc: () => fakeDoc(data, updateSpy) }),
+  async runTransaction(fn) {
+    return fn({
+      get: (ref) => ref.get(),
+      update: (ref, patch) => { ref.update(patch); },
+    });
+  },
 });
 
 describe('processContentPlanVideo', () => {
-  it('delivers the exact Edge reference track used for lip sync', async () => {
+  it('auto-posts the exact Edge reference track used for lip sync', async () => {
     mockPollOpenRouterVideo.mockResolvedValue({ videoUrl: 'raw' });
     mockUploadMediaDataUrl.mockResolvedValue({ mediaUrl: 'uploaded' });
     narrationMocks.replace.mockReturnValue('video-with-original-audio');
@@ -62,9 +68,10 @@ describe('processContentPlanVideo', () => {
     expect(narrationMocks.speech).not.toHaveBeenCalled();
     expect(narrationMocks.replace).toHaveBeenCalledWith('uploaded', 'original-reference');
     expect(mockVerifySpeech).toHaveBeenCalledWith('video-with-original-audio', 'សួស្តី');
-    expect(result.needsReview).toBe(true);
-    expect(global.fetch).toHaveBeenCalledTimes(1);
-    expect(mockResolveTelegramDestination).not.toHaveBeenCalled();
+    expect(result).toEqual({ ok: true });
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(mockResolveTelegramDestination).toHaveBeenCalled();
+    expect(global.fetch.mock.calls[1][0]).toContain('/sendVideo');
   });
 
   it.each([undefined, { publicId: 'voice', duration: 8.3 }])('rejects missing or overlong Edge reference audio', async (narrationAudio) => {
@@ -93,7 +100,20 @@ describe('processContentPlanVideo', () => {
     expect(updates).toContainEqual({ speechVerification: { passed: false, similarity: 0.4 } });
     expect(updates.at(-1)).toMatchObject({ status: 'FAILED' });
   });
-  it('preserves native Veo speech for Khmer calendar videos by default', async () => {
+  it('skips sending when a concurrent/duplicate invocation already claimed delivery', async () => {
+    mockPollOpenRouterVideo.mockResolvedValue({ videoUrl: 'native-video' });
+    mockUploadMediaDataUrl.mockResolvedValue({ mediaUrl: 'uploaded-native-video' });
+    mockResolveTelegramDestination.mockResolvedValue({ token: 'token', chatId: 'chat' });
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
+    const result = await processContentPlanVideo(fakeDb({
+      status: 'PROCESSING', videoJobId: 'job', prompt: 'Natural Khmer dialogue', voiceOverWanted: true,
+      deliveryClaimedAt: { toMillis: () => Date.now() },
+    }), 'item', {});
+    expect(result).toEqual({ ok: true, skipped: 'already-sending' });
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(mockResolveTelegramDestination).not.toHaveBeenCalled();
+  });
+  it('preserves and auto-posts native Veo speech for Khmer calendar videos by default', async () => {
     mockPollOpenRouterVideo.mockResolvedValue({ videoUrl: 'native-video' });
     mockUploadMediaDataUrl.mockResolvedValue({ mediaUrl: 'uploaded-native-video' });
     mockResolveTelegramDestination.mockResolvedValue({ token: 'token', chatId: 'chat' });
@@ -102,10 +122,11 @@ describe('processContentPlanVideo', () => {
     expect(result.ok).toBe(true);
     expect(narrationMocks.speech).not.toHaveBeenCalled();
     expect(narrationMocks.replace).not.toHaveBeenCalled();
-    expect(result.needsReview).toBe(true);
-    expect(global.fetch).not.toHaveBeenCalled();
+    expect(result).toEqual({ ok: true });
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(global.fetch.mock.calls[0][0]).toContain('/sendVideo');
   });
-  it('adds Khmer speech before delivering a calendar video', async () => {
+  it('adds Khmer speech before auto-posting a calendar video', async () => {
     mockPollOpenRouterVideo.mockResolvedValue({ videoUrl: 'raw' });
     mockUploadMediaDataUrl.mockResolvedValueOnce({ mediaUrl: 'uploaded' }).mockResolvedValueOnce({ publicId: 'voice', duration: 4 });
     narrationMocks.script.mockResolvedValue('សួស្តី');
@@ -116,8 +137,9 @@ describe('processContentPlanVideo', () => {
     const result = await processContentPlanVideo(fakeDb({ status: 'PROCESSING', videoJobId: 'job', voiceOverMode: 'separate', prompt: 'A presenter says in Khmer: សួស្តី' }), 'item', {});
     expect(result.ok).toBe(true);
     expect(narrationMocks.speech).toHaveBeenCalledWith(expect.objectContaining({ input: 'សួស្តី', voice: 'nova' }));
-    expect(result.needsReview).toBe(true);
-    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ ok: true });
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(global.fetch.mock.calls[1][0]).toContain('/sendVideo');
   });
 
   it('does not send the native video when Khmer speech fails', async () => {
@@ -179,7 +201,7 @@ describe('processContentPlanVideo', () => {
     const sentBody = JSON.parse(global.fetch.mock.calls[0][1].body);
     expect(sentBody.chat_id).toBe('-100123');
     expect(sentBody.video).toBe('https://res.cloudinary.com/demo/video/upload/v1/foo.mp4');
-    expect(updates[0]).toMatchObject({ status: 'DONE', resultMediaUrl: 'https://res.cloudinary.com/demo/video/upload/v1/foo.mp4' });
+    expect(updates.at(-1)).toMatchObject({ status: 'DONE', resultMediaUrl: 'https://res.cloudinary.com/demo/video/upload/v1/foo.mp4' });
   });
 
   it('fails the item if no Telegram destination is connected', async () => {
@@ -192,6 +214,6 @@ describe('processContentPlanVideo', () => {
     const result = await processContentPlanVideo(db, 'item-1', {});
 
     expect(result.ok).toBe(false);
-    expect(updates[0].status).toBe('FAILED');
+    expect(updates.at(-1).status).toBe('FAILED');
   });
 });

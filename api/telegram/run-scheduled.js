@@ -12,6 +12,9 @@ import { generateOpenRouterImage, startOpenRouterVideo } from '../_openrouter.js
 import { preparePlanVideoSpeech } from '../_videoSpeech.js';
 import { generateKhmerSpeech } from '../_khmerNarration.js';
 import { applyPosterTextOverlay } from '../_posterOverlay.js';
+import reviewVideoHandler from './_review-video.js';
+
+export const GENERATED_VIDEO_STATUSES = Object.freeze(['DONE', 'PROCESSING', 'REVIEW']);
 
 // Server-side equivalent of PosterGen.tsx's applyLogoWatermark (that one uses
 // the browser Canvas API, unavailable here) -- same top-left placement/ratios,
@@ -653,7 +656,12 @@ export const sendTelegram = async (post, db) => {
     throw new Error(data?.description || 'Telegram could not publish this message.');
   }
 
-  return data.result?.message_id || null;
+  // chatId is returned alongside the message id (not just logged) so callers can
+  // persist which chat a delivery actually landed in -- resolveTelegramDestination
+  // silently falls back between a user's own bot and the shared one, which made a
+  // "why isn't this in the channel I'm looking at" report impossible to debug
+  // without this trail.
+  return { messageId: data.result?.message_id || null, chatId };
 };
 
 export default async function handler(req, res) {
@@ -708,6 +716,10 @@ export default async function handler(req, res) {
         error: error?.message || 'Could not prepare the media upload.'
       });
     }
+  }
+
+  if (req.method === 'POST' && req.query?.action === 'review-video') {
+    return reviewVideoHandler(req, res);
   }
 
   if (req.method === 'POST' && req.query?.action === 'post') {
@@ -800,6 +812,49 @@ export default async function handler(req, res) {
       });
     }));
 
+    const results = [];
+
+    // Older narrated videos may already be waiting in REVIEW from the former
+    // manual-approval flow. Move every successfully verified one into the same
+    // deterministic scheduled-post outbox used by manual approval, so enabling
+    // auto-post also drains that backlog without generating or sending twice.
+    const verifiedReviewSnapshot = await db
+      .collection('content_plan_items')
+      .where('status', '==', 'REVIEW')
+      .where('type', '==', 'video')
+      .limit(10)
+      .get();
+    for (const reviewDoc of verifiedReviewSnapshot.docs) {
+      let queued = false;
+      await db.runTransaction(async (tx) => {
+        const freshSnap = await tx.get(reviewDoc.ref);
+        const item = freshSnap.data();
+        if (item?.status !== 'REVIEW' || item?.type !== 'video' || item?.speechVerification?.passed !== true || !item?.resultMediaUrl) return;
+
+        const outboxRef = db.collection('scheduled_posts').doc(`review-${reviewDoc.id}`);
+        tx.set(outboxRef, {
+          userId: item.userId,
+          content: item.topic || '',
+          platform: 'TELEGRAM',
+          mediaUrl: item.resultMediaUrl,
+          mediaType: 'video',
+          status: 'PENDING',
+          scheduledTime: nowIso,
+          publishMode: 'TELEGRAM_AUTO_POST',
+          createdAt: FieldValue.serverTimestamp(),
+          aiSuggested: false,
+        });
+        tx.update(reviewDoc.ref, {
+          status: 'DONE',
+          completedAt: FieldValue.serverTimestamp(),
+          autoApproved: true,
+          approvedPostId: outboxRef.id,
+        });
+        queued = true;
+      });
+      if (queued) results.push({ id: reviewDoc.id, ok: true, contentPlan: true, legacyVideoQueued: true });
+    }
+
     const snapshot = await db
       .collection('scheduled_posts')
       .where('platform', '==', 'TELEGRAM')
@@ -807,7 +862,6 @@ export default async function handler(req, res) {
       .limit(25)
       .get();
 
-    const results = [];
     const dueDocs = snapshot.docs
       .filter((doc) => String(doc.data()?.scheduledTime || '') <= nowIso)
       .sort((a, b) => String(a.data()?.scheduledTime || '').localeCompare(String(b.data()?.scheduledTime || '')))
@@ -837,11 +891,12 @@ export default async function handler(req, res) {
       }
 
       try {
-        const messageId = await sendTelegram(post, db);
+        const { messageId, chatId } = await sendTelegram(post, db);
 
         await doc.ref.update({
           status: 'PUBLISHED',
           telegramMessageId: messageId,
+          deliveredChatId: chatId,
           publishedAt: FieldValue.serverTimestamp(),
           errorMessage: null
         });
@@ -935,6 +990,7 @@ export default async function handler(req, res) {
         await planDoc.ref.update({
           status: 'DONE',
           resultMediaUrl: uploaded.mediaUrl,
+          deliveredChatId: chatId,
           completedAt: FieldValue.serverTimestamp(),
           errorMessage: null,
         });
@@ -952,10 +1008,10 @@ export default async function handler(req, res) {
     // completion -- a video job routinely takes minutes, far longer than this
     // once-a-day cron invocation should block on, so the actual wait happens
     // across separate short-lived QStash-triggered function calls instead.
-    // PROCESSING counts too, not just DONE -- a video started earlier today
-    // (job kicked off, still being polled by QStash) already consumed today's
-    // video quota even though it hasn't finished yet.
-    const videosGeneratedToday = await countGeneratedToday('video', ['DONE', 'PROCESSING']);
+    // PROCESSING and REVIEW count too, not just DONE -- a video started earlier
+    // today already consumed today's quota while it is being generated or waits
+    // for the required human quality check.
+    const videosGeneratedToday = await countGeneratedToday('video', GENERATED_VIDEO_STATUSES);
     const remainingVideoCap = Math.max(0, DAILY_VIDEO_CAP - videosGeneratedToday);
     const videoPlanSnapshot = await db
       .collection('content_plan_items')

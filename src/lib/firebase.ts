@@ -29,6 +29,11 @@ export const authPersistenceReady = setPersistence(auth, browserLocalPersistence
 });
 export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
+// Without this, Google silently reauthenticates with whichever account already
+// has an active session in the browser instead of showing the account picker --
+// e.g. an unrelated personal Google account signed into Chrome would get used
+// with no way to pick a different one.
+googleProvider.setCustomParameters({ prompt: 'select_account' });
 
 export const signInWithGoogle = async () => {
   try {

@@ -45,6 +45,14 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /tiktok_automation_tokens/{docId} {
+      // Access/refresh tokens for the shared TikTok connection used by the cron
+      // auto-publisher (api/tiktok/publish.js's ?action=cron). Written and read
+      // only by the server via the Admin SDK, which bypasses these rules --
+      // denied to every client, admin included, since these are live secrets.
+      allow read, write: if false;
+    }
+
     match /tiktok_posts/{postId} {
       allow read: if isAdmin()
         || (isSignedIn() && resource.data.userId == request.auth.uid);

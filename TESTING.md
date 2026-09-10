@@ -34,6 +34,27 @@ see [README.md](README.md) and the in-app Security Overview page for what "share
 - `TIKTOK_POST_MODE=inbox` (default) lands content in the TikTok inbox/draft; test `direct` mode separately since
   it requires an audited app and a valid `privacy_level`.
 
+## Scheduler (TikTok)
+
+- Connecting TikTok (any "Connect TikTok" button) persists an access/refresh token to the server-only
+  `tiktok_automation_tokens` collection (`api/tiktok/callback.js`) — confirm no client SDK can read or write that
+  collection (Firestore rules deny it outright, admins included).
+- A TikTok post scheduled a few seconds in the future via Smart Scheduler is accepted, not rejected as "in the
+  past", and stays `PENDING` until the cron picks it up.
+- `api/tiktok/publish.js?action=cron` (protected by `CRON_SECRET`, same header/query-param check as
+  `api/telegram/run-scheduled.js`) publishes due `PENDING` TikTok posts and flips them to `PUBLISHED`/`FAILED`;
+  a successful run also creates a `tiktok_posts` doc so it shows up in the "Recent TikTok Syncs" widget.
+- If TikTok has never been connected (no stored automation token), the cron leaves due posts `PENDING` instead of
+  failing them — connecting TikTok afterward should let the next cron tick publish them automatically.
+- A post stuck in `PROCESSING` for more than 3 minutes (simulated timeout) gets reset to `PENDING` by the next
+  cron run's stale-recovery step, instead of being stuck forever.
+- Two separate `scheduled_posts` docs with the same `videoUrl` (a double-submitted schedule form) only publish
+  once to TikTok — the second is flipped straight to `PUBLISHED` with `duplicateSkipped: true` instead of posting
+  again (`findRecentDuplicateTikTokPost` in `api/_telegramClaim.js`).
+- Disconnecting TikTok (`TikTokAnalytics.tsx`'s "Disconnect" button → `api/tiktok/me.js?action=disconnect`)
+  requires a signed-in Firebase user — an unauthenticated `POST` to that endpoint is rejected with 401 and does
+  not delete the stored automation token.
+
 ## Scheduler (Telegram)
 
 - Scheduling a post for a time a few seconds in the future is accepted (grace-period check), not rejected as "in
@@ -43,6 +64,10 @@ see [README.md](README.md) and the in-app Security Overview page for what "share
   delivers it within its polling window.
 - A scheduled post fails with a clear error if `TELEGRAM_CHAT_ID` is not configured, instead of hanging silently.
 - Media over 48 MB is rejected with a clear error before upload.
+- A duplicate/late QStash delivery for the same Content Plan video item (both invocations see `status:
+  PROCESSING`) only posts to Telegram once — the second invocation's delivery claim fails and it returns
+  `skipped: 'already-sending'` instead of sending a second copy (`processContentPlanVideo` in
+  `api/telegram/deliver.js`).
 
 ## AI Features
 

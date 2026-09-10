@@ -647,7 +647,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const handleReviewPlanItem = async (itemId: string, action: 'approve' | 'retry', mediaUrl?: string) => {
     try {
       if (!user) throw new Error('Please sign in.');
-      const response = await fetch('/api/telegram/review-video', {
+      const response = await fetch('/api/telegram/run-scheduled?action=review-video', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + await user.getIdToken() },
         body: JSON.stringify({ itemId, action, mediaUrl }),

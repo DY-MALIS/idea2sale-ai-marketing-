@@ -22,6 +22,25 @@ import { wantsSilentVideo } from '../../shared/videoSpeech.js';
 // healthy Veo job takes, after which this is treated as a real failure.
 const MAX_VIDEO_POLL_ATTEMPTS = 40;
 
+// Claims the final "ready to send" step so a duplicate/late QStash delivery
+// racing a still-in-flight invocation -- both read status PROCESSING at the
+// top of this function, then both finish polling/uploading/verifying around
+// the same time -- can't both post the same video to Telegram. A stale claim
+// (the invocation that took it crashed mid-send) is abandoned after this
+// window so QStash's own redelivery can still recover it, per the retry this
+// function's idempotency comment already relies on.
+const DELIVERY_CLAIM_STALE_MS = 2 * 60 * 1000;
+
+const claimDelivery = async (db, ref) => db.runTransaction(async (tx) => {
+  const freshSnap = await tx.get(ref);
+  const freshItem = freshSnap.data();
+  if (freshItem?.status !== 'PROCESSING') return false;
+  const claimedAtMs = freshItem?.deliveryClaimedAt?.toMillis?.();
+  if (typeof claimedAtMs === 'number' && Date.now() - claimedAtMs < DELIVERY_CLAIM_STALE_MS) return false;
+  tx.update(ref, { deliveryClaimedAt: FieldValue.serverTimestamp() });
+  return true;
+});
+
 export const processContentPlanVideo = async (db, itemId, req) => {
   const ref = db.collection('content_plan_items').doc(itemId);
   const snap = await ref.get();
@@ -83,8 +102,13 @@ export const processContentPlanVideo = async (db, itemId, req) => {
         await ref.update({ speechVerification });
         throw verifyError;
       }
-      await ref.update({ status: 'REVIEW', errorMessage: null });
-      return { ok: true, needsReview: true };
+    }
+    // Speech verification is the automated quality gate. Once it passes, send
+    // the video immediately instead of pausing in REVIEW for a manual approval.
+    // A failed verification still follows the catch path below and is never
+    // published.
+    if (!(await claimDelivery(db, ref))) {
+      return { ok: true, skipped: 'already-sending' };
     }
     const { token, chatId } = await resolveTelegramDestination(db, item.userId);
     if (!token || !chatId) {
@@ -110,6 +134,7 @@ export const processContentPlanVideo = async (db, itemId, req) => {
     await ref.update({
       status: 'DONE',
       resultMediaUrl: uploaded.mediaUrl,
+      deliveredChatId: chatId,
       completedAt: FieldValue.serverTimestamp(),
       errorMessage: null,
     });
@@ -209,10 +234,11 @@ export default async function handler(req, res) {
     }
 
     try {
-      const messageId = await sendTelegram(post, db);
+      const { messageId, chatId } = await sendTelegram(post, db);
       await ref.update({
         status: 'PUBLISHED',
         telegramMessageId: messageId,
+        deliveredChatId: chatId,
         publishedAt: FieldValue.serverTimestamp(),
         errorMessage: null,
       });

@@ -1,4 +1,4 @@
-name: Telegram scheduled posts
+name: Scheduled posts (Telegram + TikTok)
 
 on:
   schedule:
@@ -14,3 +14,8 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           curl -sf -X POST -H "Authorization: Bearer $CRON_SECRET" https://aime.angkorgate.ai/api/telegram/run-scheduled
+      - name: Trigger due TikTok posts
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -sf -X POST -H "Authorization: Bearer $CRON_SECRET" "https://aime.angkorgate.ai/api/tiktok/publish?action=cron"

@@ -28,19 +28,33 @@ export async function claimPendingPost(db, ref) {
 const DUPLICATE_WINDOW_MS = 15 * 60 * 1000;
 
 export async function findRecentDuplicateTelegramPost(db, post) {
-  const mediaUrl = String(post?.mediaUrl || '').trim();
-  if (!mediaUrl) return null;
+  return findRecentDuplicatePost(db, 'TELEGRAM', post.id, 'mediaUrl', post?.mediaUrl);
+}
+
+// Same cross-document safety net, for TikTok's scheduled_posts docs (see
+// runTikTokCron in api/tiktok/publish.js) -- a double-submitted Smart Scheduler
+// form there is just as capable of creating two separate PENDING docs for the
+// same video, and claimPendingPost alone can't stop two *different* docs from
+// each independently publishing it. TikTok posts store the video under
+// `videoUrl` (see SchedulerHub.tsx), not `mediaUrl`.
+export async function findRecentDuplicateTikTokPost(db, post) {
+  return findRecentDuplicatePost(db, 'TIKTOK', post.id, 'videoUrl', post?.videoUrl);
+}
+
+async function findRecentDuplicatePost(db, platform, postId, urlField, url) {
+  url = String(url || '').trim();
+  if (!url) return null;
 
   const snapshot = await db
     .collection('scheduled_posts')
-    .where('platform', '==', 'TELEGRAM')
-    .where('mediaUrl', '==', mediaUrl)
+    .where('platform', '==', platform)
+    .where(urlField, '==', url)
     .where('status', '==', 'PUBLISHED')
     .get();
 
   const cutoff = Date.now() - DUPLICATE_WINDOW_MS;
   const match = snapshot.docs.find((docSnap) => {
-    if (docSnap.id === post.id) return false;
+    if (docSnap.id === postId) return false;
     const publishedAtMs = docSnap.data()?.publishedAt?.toMillis?.();
     return typeof publishedAtMs === 'number' && publishedAtMs >= cutoff;
   });

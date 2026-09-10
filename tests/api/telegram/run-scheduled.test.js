@@ -18,7 +18,7 @@ vi.mock('firebase-admin/firestore', async (importOriginal) => ({
   getFirestore: mockGetFirestore,
 }));
 
-const { applyCloudinaryDeliveryTransform, escapeTelegramHtml, formatTelegramHtml, postTelegramMessage, sendTelegram, truncateForTelegram } =
+const { GENERATED_VIDEO_STATUSES, applyCloudinaryDeliveryTransform, escapeTelegramHtml, formatTelegramHtml, postTelegramMessage, sendTelegram, truncateForTelegram } =
   await import('../../../api/telegram/run-scheduled.js');
 
 const originalEnv = { ...process.env };
@@ -53,6 +53,10 @@ const fakeDbWithProfile = (profileData) => ({
 const okTelegramResponse = () => ({
   ok: true,
   json: async () => ({ ok: true, result: { message_id: 42 } }),
+});
+
+it('counts videos waiting for human review against the daily generation quota', () => {
+  expect(GENERATED_VIDEO_STATUSES).toEqual(['DONE', 'PROCESSING', 'REVIEW']);
 });
 
 describe('truncateForTelegram', () => {

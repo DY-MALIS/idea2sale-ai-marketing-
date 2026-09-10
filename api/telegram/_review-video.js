@@ -2,7 +2,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { FieldValue } from 'firebase-admin/firestore';
 import { initFirebaseAdmin } from '../_firebaseAdmin.js';
 
-export default async function handler(req, res) {
+export default async function reviewVideoHandler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed.' });
   const token = String(req.headers.authorization || '').replace(/^Bearer /, '');
   if (!token) return res.status(401).json({ error: 'Sign in to review videos.' });
@@ -28,7 +28,6 @@ export default async function handler(req, res) {
       if (item.status !== 'REVIEW' || item.type !== 'video' || !item.speechVerification?.passed || !mediaUrl || mediaUrl !== item.resultMediaUrl) {
         throw new Error('This video is not ready for approval. Refresh and review the current video.');
       }
-      // A deterministic outbox ID makes repeated approval requests idempotent.
       const post = db.collection('scheduled_posts').doc(`review-${itemId}`);
       transaction.set(post, {
         userId: user.uid, content: item.topic || '', platform: 'TELEGRAM',

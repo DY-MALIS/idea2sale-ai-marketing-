@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ verify: vi.fn(), init: vi.fn() }));
 vi.mock('firebase-admin/auth', () => ({ getAuth: () => ({ verifyIdToken: mocks.verify }) }));
 vi.mock('../../../api/_firebaseAdmin.js', () => ({ initFirebaseAdmin: mocks.init }));
-import handler from '../../../api/telegram/review-video.js';
+import handler from '../../../api/telegram/_review-video.js';
 afterEach(() => vi.resetAllMocks());
 const response = () => ({ statusCode: 200, status(n) { this.statusCode = n; return this; }, json(body) { this.body = body; return this; } });
 function setup(item) {

@@ -1,4 +1,5 @@
-import { getRedirectUri, verifyAndClearOAuthState } from '../_tiktok.js';
+import { getRedirectUri, verifyAndClearOAuthState, saveAutomationTokens } from '../_tiktok.js';
+import { initFirebaseAdmin } from '../_firebaseAdmin.js';
 
 export default async function handler(req, res) {
   const code = req.query?.code;
@@ -41,6 +42,24 @@ export default async function handler(req, res) {
     }
 
     const token = data.access_token || '';
+
+    // Best-effort: persists the refresh token so the cron auto-publisher
+    // (api/tiktok/publish.js's ?action=cron) can keep posting scheduled TikTok
+    // content after this cookie expires -- must never block the connect flow
+    // below from completing, since that's what the user is actually waiting on.
+    try {
+      const db = initFirebaseAdmin();
+      await saveAutomationTokens(db, {
+        accessToken: token,
+        refreshToken: data.refresh_token,
+        expiresIn: data.expires_in,
+        refreshExpiresIn: data.refresh_expires_in,
+        openId: data.open_id,
+      });
+    } catch (persistError) {
+      console.error('Failed to persist TikTok automation tokens:', persistError?.message || persistError);
+    }
+
     // Append, don't replace -- verifyAndClearOAuthState above already queued the
     // state cookie's clearing header, and setHeader() overwrites rather than adds.
     const existingSetCookie = res.getHeader('Set-Cookie');

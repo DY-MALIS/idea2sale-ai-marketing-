@@ -1,7 +1,7 @@
 import { createHash } from 'crypto';
 import admin, { initFirebaseAdmin } from '../_firebaseAdmin.js';
 import { logAudit } from '../_audit.js';
-import { getCookie } from '../_tiktok.js';
+import { getCookie, recordTikTokPostSync } from '../_tiktok.js';
 
 // Best-effort: TikTok publishing is authenticated via the tiktok_token cookie
 // (one shared TikTok connection for the app), not Firebase Auth, so there is
@@ -153,6 +153,18 @@ export default async function handler(req, res) {
         action: 'tiktok_publish_photo',
         actorUid,
         meta: { publishId, mode: directPost ? 'direct' : 'inbox' },
+      });
+      // Feeds the "Recent TikTok Syncs" widget in TikTokAnalytics.tsx, which reads
+      // this collection -- server.ts (local dev) writes it for video publishes, but
+      // this production handler didn't write it at all, so photo publishes never
+      // showed up there.
+      await recordTikTokPostSync(db, {
+        publishId,
+        title,
+        videoUrl: photoUrl,
+        mediaType: 'photo',
+        userId: actorUid,
+        mode: directPost ? 'direct' : 'inbox',
       });
     } catch (auditError) {
       console.error('Audit log failed for tiktok_publish_photo:', auditError?.message || auditError);

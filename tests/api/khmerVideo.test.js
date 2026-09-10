@@ -11,7 +11,7 @@ it('uses the same measured audio and supplied portrait for manual video lip sync
   const result = await startKhmerVideoJob({ voiceGender: 'Male' }, { script: 'សួស្តី', prompt: 'Presenter', motionPrompt: 'Normal speed' }, upload, { duration: 4, images: [{ mimeType: 'image/png', base64: 'AAAA' }] });
   expect(mocks.image).not.toHaveBeenCalled();
   expect(mocks.speech).toHaveBeenCalledWith({ input: 'សួស្តី', voice: 'Male' });
-  expect(mocks.video).toHaveBeenCalledWith(expect.objectContaining({ duration: 4, referenceUrls: ['https://image'], audioReferenceUrls: ['https://audio'], prompt: expect.stringContaining('3.40 seconds') }));
+  expect(mocks.video).toHaveBeenCalledWith(expect.objectContaining({ model: 'bytedance/seedance-2.0-mini', duration: 4, referenceUrls: ['https://image'], audioReferenceUrls: ['https://audio'], prompt: expect.stringContaining('3.40 seconds') }));
   expect(result.narrationAudio.mediaUrl).toBe('https://audio');
 });
 it('does not start a video when speech would be cut off', async () => {

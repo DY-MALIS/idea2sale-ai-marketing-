@@ -77,6 +77,13 @@ npm run dev
 4. Leave `TIKTOK_POST_MODE=inbox` (default) until your TikTok app has been audited by TikTok — unaudited apps are
    restricted to private viewing regardless, and `direct` mode requires a `privacy_level` that matches what
    `/creator_info/query/` returns for the connected account.
+5. **Scheduled/auto-post videos** (Smart Scheduler → TikTok) publish via a cron job
+   (`api/tiktok/publish.js?action=cron`), not a browser session, so it needs its own persisted token: connect
+   TikTok once (any "Connect TikTok" button) after deploying — `api/tiktok/callback.js` then stores the
+   access/refresh token in the `tiktok_automation_tokens` collection for the cron to use and auto-refresh. Until
+   that first connect happens, scheduled TikTok posts stay `PENDING` (not `FAILED`) and publish automatically as
+   soon as someone connects. The cron runs via `vercel.json` (once daily) and the GitHub Action fallback poller
+   (`telegram-scheduler.yml`, every 10 minutes) — same `CRON_SECRET` as the Telegram poller.
 
 ## Telegram Setup
 
