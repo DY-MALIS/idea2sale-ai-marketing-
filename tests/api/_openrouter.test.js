@@ -40,7 +40,7 @@ describe('resolveOpenRouterTextModel', () => {
 describe('resolveOpenRouterImageModel', () => {
   it('falls back to the default image model when nothing is configured', () => {
     delete process.env.OPEN_ROUTER_IMAGE_MODEL;
-    expect(resolveOpenRouterImageModel()).toBe('openai/gpt-image-2');
+    expect(resolveOpenRouterImageModel()).toBe('bytedance-seed/seedream-5-0-pro');
   });
 
   it('passes through an explicit model unchanged', () => {

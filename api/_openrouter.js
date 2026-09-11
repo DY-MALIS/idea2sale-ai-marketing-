@@ -57,7 +57,13 @@ const openRouterJson = async (path, body) => {
 const fileToDataUrl = (base64, mimeType) => `data:${mimeType};base64,${base64}`;
 
 const DEFAULT_REASONING_MODEL = 'openai/gpt-5.6-luna';
-const DEFAULT_IMAGE_MODEL = 'openai/gpt-image-2';
+// GPT Image 2 was tried as the default (similar cost, slightly better
+// benchmark scores) but its photorealism is realistic enough that Seedance
+// 2.0 rejects the resulting avatar photo outright with
+// InputImageSensitiveContentDetected.PrivacyInformation ("may contain real
+// person"), blocking every Khmer avatar video. Seedream renders people with
+// enough of an AI-generated look to pass that filter reliably.
+const DEFAULT_IMAGE_MODEL = 'bytedance-seed/seedream-5-0-pro';
 const LEGACY_MINI_MODEL_PATTERN = /(?:^|\/)(?:gpt-)?(?:4o-mini|5-mini|gpt-5-mini)$/i;
 
 export const resolveOpenRouterTextModel = (model) => {
