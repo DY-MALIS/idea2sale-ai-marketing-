@@ -15,11 +15,13 @@ import { preparePlanVideoSpeech } from './_videoSpeech.js';
 import { startKhmerVideoJob } from './_khmerVideo.js';
 import { preserveKhmerDuringTranslation, compareKhmerTranscript } from '../shared/videoSpeech.js';
 import { initFirebaseAdmin } from './_firebaseAdmin.js';
+import admin from './_firebaseAdmin.js';
 import { checkRateLimit, getClientIp } from './_rateLimit.js';
 import { notifyAdmins } from './_alert.js';
 import { searchCompetitorAds } from './_facebookAdLibrary.js';
 import { searchBusinessesOnWeb } from './_webBusinessSearch.js';
 import { uploadMediaDataUrl } from './_cloudinaryUpload.js';
+import { sendOutreachEmail } from './_email.js';
 
 // This endpoint has no auth check (it's used from guest/demo sessions with no
 // Firebase login), so without a limit a single connection can script unlimited
@@ -32,6 +34,10 @@ const AI_RATE_LIMIT_PER_HOUR = Number(process.env.AI_RATE_LIMIT_PER_HOUR) || 60;
 // per-IP quota, but still need *some* cap so a broken page stuck in a retry
 // loop can't spam the admin Telegram alert channel indefinitely.
 const CLIENT_ERROR_RATE_LIMIT_PER_HOUR = Number(process.env.CLIENT_ERROR_RATE_LIMIT_PER_HOUR) || 30;
+// Sending a real email to a real inbox is more abuse-prone than a generated
+// AI reply (spam complaints, sender reputation damage) -- a tighter, separate
+// per-IP budget than the general AI quota above.
+const EMAIL_RATE_LIMIT_PER_HOUR = Number(process.env.EMAIL_RATE_LIMIT_PER_HOUR) || 20;
 
 // Vercel's default serverless function timeout (10s on Hobby) is too short for
 // transcribing a long voice recording (the AI Agent's voice input now allows up to
@@ -1224,6 +1230,39 @@ Return ONLY a single valid JSON object with this exact structure:
       if (!mediaDataUrl) return res.status(400).json({ error: 'Media data is required.' });
       const uploaded = await uploadMediaDataUrl({ mediaDataUrl, mediaType });
       return res.status(200).json(uploaded);
+    }
+
+    // Automated lead outreach (Facebook Scanner "Send Email" action). Signed-in
+    // only -- unlike every other action in this file, this one sends real mail
+    // to a real third-party inbox, so a guest/demo session must not be able to
+    // script it, and it gets its own tighter rate-limit budget above.
+    if (action === 'sendOutreachEmail') {
+      const authHeader = req.headers.authorization || '';
+      const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+      if (!idToken) return res.status(401).json({ error: 'Please sign in to send outreach emails.' });
+      try {
+        await admin.auth().verifyIdToken(idToken, true);
+      } catch {
+        return res.status(401).json({ error: 'Sign-in verification failed.' });
+      }
+
+      try {
+        const db = initFirebaseAdmin();
+        const { allowed } = await checkRateLimit(db, { scope: 'email', key: getClientIp(req), limit: EMAIL_RATE_LIMIT_PER_HOUR });
+        if (!allowed) return res.status(429).json({ error: 'Too many outreach emails sent from this connection. Please wait a bit and try again.' });
+      } catch (error) {
+        console.error('Email rate limit check failed, allowing request through:', error?.message || error);
+      }
+
+      const to = String(req.body?.to || '').trim();
+      const subject = String(req.body?.subject || '').trim().slice(0, 200);
+      const body = String(req.body?.body || '').trim().slice(0, 5000);
+      const fromName = String(req.body?.fromName || '').trim().slice(0, 100);
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return res.status(400).json({ error: 'A valid recipient email is required.' });
+      if (!subject || !body) return res.status(400).json({ error: 'Subject and body are required.' });
+
+      const sent = await sendOutreachEmail({ to, subject, body, fromName });
+      return res.status(200).json({ ok: true, id: sent.id });
     }
 
     if (action === 'verifyVideoSpeech') {

@@ -15,6 +15,7 @@ import {
   FileSpreadsheet,
   Heart,
   Loader2,
+  Mail,
   MessageCircle,
   Radar,
   Search,
@@ -120,6 +121,38 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     }
   };
 
+  const [emailSendingIndex, setEmailSendingIndex] = useState<number | null>(null);
+  const [emailSentIndex, setEmailSentIndex] = useState<number | null>(null);
+
+  // Unlike Telegram, email has no "must message us first" restriction, so
+  // this can actually send automatically instead of just copying a link.
+  const sendLeadEmail = async (lead: FacebookPotentialLead, index: number) => {
+    if (!user || isDemoMode || !lead.email) return;
+    setEmailSendingIndex(index);
+    try {
+      const idToken = await user.getIdToken();
+      const response = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({
+          action: 'sendOutreachEmail',
+          to: lead.email,
+          subject: businessName || (isKm ? 'សេចក្តីណែនាំពីអាជីវកម្មរបស់យើង' : 'A quick introduction'),
+          body: ensureBusinessInInboxMessage(lead.inboxMessage, businessName),
+          fromName: businessName || undefined,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) throw new Error(data.error || 'Failed to send email.');
+      setEmailSentIndex(index);
+      window.setTimeout(() => setEmailSentIndex((current) => (current === index ? null : current)), 2500);
+    } catch (err: any) {
+      setError(err?.message || (isKm ? 'មិនអាចផ្ញើអ៊ីមែលបានទេ។' : 'Could not send the email.'));
+    } finally {
+      setEmailSendingIndex(null);
+    }
+  };
+
   const [telegramBotUsername, setTelegramBotUsername] = useState('');
   const [telegramBotActive, setTelegramBotActive] = useState(false);
   const [chattingLeadIndex, setChattingLeadIndex] = useState<number | null>(null);
@@ -157,6 +190,8 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     leadSource: 'រកឃើញតាមរយៈការស្វែងរកលើវេប (OpenRouter)',
     exportContacts: 'នាំចេញជា Excel',
     chatViaBot: 'ជជែកតាម Bot',
+    sendEmail: 'ផ្ញើអ៊ីមែល',
+    emailSent: 'បានផ្ញើ!',
     noVerifiedLeads: 'មិនទាន់មាន Lead ដែលបានផ្ទៀងផ្ទាត់ទេ។ សូមសាកល្បងស្គេនម្តងទៀត ដើម្បីទទួលបានឈ្មោះអាជីវកម្មពិត។',
     needSignals: 'សញ្ញាថាត្រូវការ Content/Video',
     recommendedService: 'សេវាកម្មដែលគួរផ្តល់ជូន',
@@ -216,6 +251,8 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     leadSource: 'Discovered via web search (OpenRouter)',
     exportContacts: 'Export to Excel',
     chatViaBot: 'Chat via Bot',
+    sendEmail: 'Send Email',
+    emailSent: 'Sent!',
     noVerifiedLeads: 'No verified leads yet. Try scanning again to receive real business names.',
     needSignals: 'Signals they may need content/video',
     recommendedService: 'Recommended service',
@@ -557,6 +594,12 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                       <button onClick={() => void copyInboxMessage(ensureBusinessInInboxMessage(lead.inboxMessage, businessName), index)} className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">{copiedLead === index ? <Check size={14} /> : <Copy size={14} />}{copiedLead === index ? text.copied : text.copyInbox}</button>
                       {!isDemoMode && !!user && telegramBotActive && telegramBotUsername && (
                         <button onClick={() => void startBotChat(lead, index)} title={isKm ? 'ចម្លងតំណ Telegram Bot ដើម្បីផ្ញើទៅអតិថិជន' : 'Copies a Telegram bot link to send this lead'} className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-3 py-2 text-xs font-bold text-white hover:bg-sky-700">{chattingLeadIndex === index ? <Check size={14} /> : <MessageCircle size={14} />}{chattingLeadIndex === index ? text.copied : text.chatViaBot}</button>
+                      )}
+                      {!isDemoMode && !!user && lead.email && (
+                        <button onClick={() => void sendLeadEmail(lead, index)} disabled={emailSendingIndex === index} className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-3 py-2 text-xs font-bold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50">
+                          {emailSendingIndex === index ? <Loader2 size={14} className="animate-spin" /> : emailSentIndex === index ? <Check size={14} /> : <Mail size={14} />}
+                          {emailSentIndex === index ? text.emailSent : text.sendEmail}
+                        </button>
                       )}
                     </div>
                   </article>
