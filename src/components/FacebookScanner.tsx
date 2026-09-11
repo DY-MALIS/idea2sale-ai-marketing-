@@ -27,6 +27,8 @@ import {
 import { motion } from 'motion/react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { CreativeAutomationRequest, FacebookScanResult, FacebookVideoPlanItem } from '../types';
+import { deleteGenerationHistory, GenerationHistoryEntry, saveGenerationHistory, useGenerationHistory } from '../lib/generationHistory';
+import HistoryPanel from './HistoryPanel';
 
 interface FacebookScannerProps {
   onCreativeAutomation: (request: CreativeAutomationRequest) => void;
@@ -202,12 +204,29 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data?.error || 'Facebook research could not be completed.');
       setResult(data as FacebookScanResult);
+      const leadCount = Array.isArray(data.potentialLeads) ? data.potentialLeads.length : 0;
+      void saveGenerationHistory({
+        user, isDemoMode, type: 'facebook_scan',
+        title: cleanQuery,
+        summary: isKm ? `Lead ចំនួន ${leadCount}` : `${leadCount} lead${leadCount === 1 ? '' : 's'} found`,
+        payload: { query: cleanQuery, country, days, result: data },
+      }).catch((historyError) => console.error('Failed to save scan history:', historyError));
     } catch (scanError: any) {
       setError(scanError?.message || (isKm ? 'មិនអាចវិភាគបានទេ។ សូមព្យាយាមម្តងទៀត។' : 'The scan failed. Please try again.'));
     } finally {
       setLoading(false);
     }
   };
+
+  const scanHistory = useGenerationHistory(user, isDemoMode, 'facebook_scan');
+  const restoreScanHistory = (entry: GenerationHistoryEntry) => {
+    const payload = (entry.payload || {}) as Record<string, unknown>;
+    if (typeof payload.query === 'string') setQuery(payload.query);
+    if (typeof payload.country === 'string') setCountry(payload.country);
+    if (typeof payload.days === 'number') setDays(payload.days);
+    if (payload.result) setResult(payload.result as FacebookScanResult);
+  };
+  const deleteScanHistory = (id: string) => { void deleteGenerationHistory({ user, isDemoMode, type: 'facebook_scan', id }); };
 
   const createVideo = (item: FacebookVideoPlanItem) => {
     onCreativeAutomation({
@@ -318,6 +337,8 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
         </button>
         {error && <div className="mt-4 flex items-start gap-2 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300"><AlertCircle className="shrink-0" size={18} />{error}</div>}
       </section>
+
+      <HistoryPanel entries={scanHistory} onRestore={restoreScanHistory} onDelete={deleteScanHistory} />
 
       {result && (
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="space-y-8">

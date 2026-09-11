@@ -21,6 +21,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../hooks/useToast';
 import { CreativeAutomationRequest, ScheduleHandoffRequest } from '../types';
 import { getLatestBusinessBranding } from '../lib/businessBranding';
+import { deleteGenerationHistory, GenerationHistoryEntry, saveGenerationHistory, useGenerationHistory } from '../lib/generationHistory';
+import HistoryPanel from './HistoryPanel';
 
 type ToolType = 'video' | 'voice';
 type VoiceGender = 'Female' | 'Male';
@@ -380,6 +382,23 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   const [automationNotice, setAutomationNotice] = useState<string | null>(null);
   const handledAutomationRef = React.useRef<string | null>(null);
 
+  const videoHistory = useGenerationHistory(user, isDemoMode, 'video');
+  const restoreVideoHistory = (entry: GenerationHistoryEntry) => {
+    const payload = (entry.payload || {}) as Record<string, unknown>;
+    if (typeof payload.prompt === 'string') setVideoPrompt(payload.prompt);
+    if (payload.videoLanguage === 'Khmer' || payload.videoLanguage === 'English') setVideoLanguage(payload.videoLanguage);
+    if (typeof payload.voiceOverText === 'string') setVoiceOverText(payload.voiceOverText);
+    if (payload.voiceGender === 'Male' || payload.voiceGender === 'Female') setVoiceGender(payload.voiceGender);
+    if (payload.voicePersona === 'sreymom' || payload.voicePersona === 'piseth') setVoicePersona(payload.voicePersona);
+    if (typeof payload.videoDuration === 'number') setVideoDuration(payload.videoDuration);
+    setActiveTool('video');
+    setVideoNeedsReview(false);
+    setPerformanceNeedsReview(false);
+    setVideoVoiceQualityNotice(null);
+    if (entry.mediaUrl) setGeneratedVideo(entry.mediaUrl);
+  };
+  const deleteVideoHistory = (id: string) => { void deleteGenerationHistory({ user, isDemoMode, type: 'video', id }); };
+
   const [aiCaption, setAiCaption] = useState('');
   const [captionLanguage, setCaptionLanguage] = useState<'Khmer' | 'English'>('Khmer');
   const [isGeneratingCaption, setIsGeneratingCaption] = useState(false);
@@ -703,6 +722,34 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       }
 
       setGeneratedVideo(video);
+      // Fire-and-forget: uploads the finished video to a small hosted URL (the
+      // raw base64 result is far too large for a Firestore history doc) and
+      // logs it to the history panel. Never blocks or fails the generation
+      // itself -- a history-save hiccup shouldn't cost the user their result.
+      void (async () => {
+        try {
+          const uploadResponse = await fetchAiWithTimeout({ action: 'uploadMedia', mediaDataUrl: video, mediaType: 'video' });
+          const uploadData = await uploadResponse.json();
+          if (!uploadResponse.ok || !uploadData.mediaUrl) return;
+          await saveGenerationHistory({
+            user, isDemoMode, type: 'video',
+            title: (promptText || voiceOverContent || 'Video').slice(0, 200),
+            summary: voiceOverContent || undefined,
+            mediaUrl: uploadData.mediaUrl,
+            mediaType: 'video',
+            payload: {
+              prompt: promptText,
+              videoLanguage: generationLanguage,
+              voiceOverText: voiceOverContent,
+              voiceGender,
+              voicePersona,
+              videoDuration: durationOverride || videoDuration,
+            },
+          });
+        } catch (historyError) {
+          console.error('Failed to save video history:', historyError);
+        }
+      })();
       if (spokenSegments) setPerformanceNeedsReview(true);
       if (spokenSegments) setVideoVoiceQualityNotice(language === 'km'
         ? 'បានផ្ទៀងផ្ទាត់ពាក្យខ្មែរដោយស្វ័យប្រវត្តិ។ សូមមើល និងស្តាប់ ដើម្បីបញ្ជាក់ភាពច្បាស់ ល្បឿននិយាយ ចលនាមាត់ និងកាយវិការមុនផ្សព្វផ្សាយ។'
@@ -1485,6 +1532,10 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
           </div>
         </div>
       </div>
+
+      {activeTool === 'video' && (
+        <HistoryPanel entries={videoHistory} onRestore={restoreVideoHistory} onDelete={deleteVideoHistory} />
+      )}
     </div>
   );
 };

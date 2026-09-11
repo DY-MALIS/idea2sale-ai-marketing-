@@ -19,6 +19,7 @@ import { checkRateLimit, getClientIp } from './_rateLimit.js';
 import { notifyAdmins } from './_alert.js';
 import { searchCompetitorAds } from './_facebookAdLibrary.js';
 import { searchBusinessesOnWeb } from './_webBusinessSearch.js';
+import { uploadMediaDataUrl } from './_cloudinaryUpload.js';
 
 // This endpoint has no auth check (it's used from guest/demo sessions with no
 // Firebase login), so without a limit a single connection can script unlimited
@@ -1211,6 +1212,18 @@ Return ONLY a single valid JSON object with this exact structure:
       const normalizedPrompt = await normalizeMediaPrompt(prompt, 'image');
       const image = await generateOpenRouterImage({ prompt: photorealImagePrompt(normalizedPrompt), aspectRatio });
       return res.status(200).json(image);
+    }
+
+    // Generated images/videos live only as huge base64 data: URLs in the
+    // frontend's React state -- too large to store in a Firestore history
+    // document (1MB doc limit). This turns one into a small, permanent
+    // Cloudinary URL so a history entry can reference it cheaply.
+    if (action === 'uploadMedia') {
+      const mediaDataUrl = String(req.body?.mediaDataUrl || '');
+      const mediaType = ['photo', 'video', 'audio'].includes(req.body?.mediaType) ? req.body.mediaType : undefined;
+      if (!mediaDataUrl) return res.status(400).json({ error: 'Media data is required.' });
+      const uploaded = await uploadMediaDataUrl({ mediaDataUrl, mediaType });
+      return res.status(200).json(uploaded);
     }
 
     if (action === 'verifyVideoSpeech') {

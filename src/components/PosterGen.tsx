@@ -14,6 +14,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../hooks/useToast';
 import { CreativeAutomationRequest, ScheduleHandoffRequest } from '../types';
 import { getLatestBusinessBranding } from '../lib/businessBranding';
+import { deleteGenerationHistory, GenerationHistoryEntry, saveGenerationHistory, useGenerationHistory } from '../lib/generationHistory';
+import HistoryPanel from './HistoryPanel';
 
 const LOGO_MARGIN_RATIO = 0.04;
 const LOGO_WIDTH_RATIO = 0.16;
@@ -248,6 +250,37 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
   const [isGeneratingScheduleCaption, setIsGeneratingScheduleCaption] = useState(false);
   const handledAutomationRef = React.useRef<string | null>(null);
 
+  const imageHistory = useGenerationHistory(user, isDemoMode, 'image');
+  const persistImageHistory = async (imageDataUrl: string, title: string, payload: Record<string, unknown>) => {
+    try {
+      const uploadResponse = await fetchImageGenerate({ action: 'uploadMedia', mediaDataUrl: imageDataUrl, mediaType: 'photo' });
+      const uploadData = await uploadResponse.json();
+      if (!uploadResponse.ok || !uploadData.mediaUrl) return;
+      await saveGenerationHistory({
+        user, isDemoMode, type: 'image',
+        title: title.slice(0, 200),
+        mediaUrl: uploadData.mediaUrl,
+        mediaType: 'photo',
+        payload,
+      });
+    } catch (historyError) {
+      console.error('Failed to save image history:', historyError);
+    }
+  };
+  const restoreImageHistory = (entry: GenerationHistoryEntry) => {
+    const payload = (entry.payload || {}) as Record<string, unknown>;
+    if (payload.tool === 'poster') {
+      setActiveTool('poster');
+      if (typeof payload.posterPrompt === 'string') setPosterPrompt(payload.posterPrompt);
+      if (payload.posterDetails && typeof payload.posterDetails === 'object') setPosterDetails(payload.posterDetails as typeof posterDetails);
+    } else {
+      setActiveTool('visual');
+      if (typeof payload.visualPrompt === 'string') setVisualPrompt(payload.visualPrompt);
+    }
+    if (entry.mediaUrl) setGeneratedImage(entry.mediaUrl);
+  };
+  const deleteImageHistory = (id: string) => { void deleteGenerationHistory({ user, isDemoMode, type: 'image', id }); };
+
   // PosterGen stays mounted for the app's entire lifetime once it's first
   // rendered (see App.tsx -- it's kept alive via CSS visibility across tab
   // switches so a background generation never gets silently killed by an
@@ -394,7 +427,9 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Image generation failed.');
       const withLogo = await applyLogoWatermark(data.imageUrl, businessContext.logoDataUrl);
-      setGeneratedImage(await overlayPosterText(withLogo, posterDetails.headline, posterDetails.cta));
+      const finalImage = await overlayPosterText(withLogo, posterDetails.headline, posterDetails.cta);
+      setGeneratedImage(finalImage);
+      void persistImageHistory(finalImage, posterDetails.headline || posterPrompt, { tool: 'poster', posterPrompt, posterDetails });
     } catch (error: any) {
       console.error(error);
       if (error?.name === 'AbortError') {
@@ -430,7 +465,9 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
       const response = await fetchImageGenerate({ action: 'imageGenerate', prompt: brandedPrompt, aspectRatio });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Image generation failed.');
-      setGeneratedImage(await applyLogoWatermark(data.imageUrl, businessContext.logoDataUrl));
+      const finalImage = await applyLogoWatermark(data.imageUrl, businessContext.logoDataUrl);
+      setGeneratedImage(finalImage);
+      void persistImageHistory(finalImage, prompt, { tool: 'visual', visualPrompt: prompt });
     } catch (error: any) {
       console.error(error);
       if (error?.name === 'AbortError') {
@@ -773,6 +810,8 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
           </div>
         </div>
       </div>
+
+      <HistoryPanel entries={imageHistory} onRestore={restoreImageHistory} onDelete={deleteImageHistory} />
     </div>
   );
 };

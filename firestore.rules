@@ -124,6 +124,30 @@ service cloud.firestore {
       allow update: if false;
     }
 
+    match /generation_history/{entryId} {
+      // A per-user log of past AI generations (video, image, Facebook scan)
+      // shown in each tool's "history" panel so a result isn't lost on
+      // refresh. Written directly by the client (unlike content_plan_items,
+      // which the server writes), since it's just a record of what the
+      // user's own browser already generated.
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+
+      allow create: if isSignedIn()
+        && isValidId(entryId)
+        && incoming().userId == request.auth.uid
+        && incoming().type in ['video', 'image', 'facebook_scan']
+        && incoming().title is string
+        && incoming().title.size() <= 200
+        && (!('summary' in incoming()) || (incoming().summary is string && incoming().summary.size() <= 500))
+        && (!('mediaUrl' in incoming()) || (incoming().mediaUrl is string && incoming().mediaUrl.size() <= 1000))
+        && (!('mediaType' in incoming()) || incoming().mediaType in ['photo', 'video'])
+        && (!('payload' in incoming()) || incoming().payload is map);
+
+      allow delete: if isAdmin() || (isSignedIn() && existing().userId == request.auth.uid);
+      allow update: if false;
+    }
+
     match /audience_activity/{activityId} {
       allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
       allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
