@@ -252,6 +252,57 @@ export async function generateOpenRouterText({
   return content;
 }
 
+// Grounds a text request in live web search results via OpenRouter's "web" plugin
+// (Exa-powered), instead of the model answering from training-data memory alone.
+// Used where a claim needs to be backed by a real, checkable source URL -- e.g.
+// finding real local businesses in a market Meta's Ad Library API cannot search
+// (ordinary Cambodian ads) and Google Places would require a billing account for.
+// Returns both the raw text and any citation URLs OpenRouter attached as
+// annotations. In practice those annotations only attach reliably to a single
+// inline citation in free-flowing prose, not bulk/structured output, so
+// callers needing to verify a specific claim (e.g. a business's URL is real)
+// should independently check it themselves rather than depend on this array
+// being populated -- see _webBusinessSearch.js for that pattern.
+export async function generateOpenRouterWebSearch({ prompt, system = 'You are a careful research assistant. Only state facts you can find in the search results.', model, maxResults = 8 }) {
+  const apiKey = getApiKey();
+
+  const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': process.env.APP_URL || 'https://aime.angkorgate.ai',
+      'X-Title': 'aime.angkorgate',
+    },
+    body: JSON.stringify({
+      model: resolveOpenRouterTextModel(model),
+      plugins: [{ id: 'web', max_results: maxResults }],
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: prompt },
+      ],
+      reasoning: { effort: 'high' },
+    }),
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(redactSecrets(data?.error?.message || data?.message || 'OpenRouter web search request failed.'));
+  }
+
+  const message = data?.choices?.[0]?.message;
+  const content = message?.content || '';
+  const citations = (Array.isArray(message?.annotations) ? message.annotations : [])
+    .filter((annotation) => annotation?.type === 'url_citation' && annotation?.url_citation?.url)
+    .map((annotation) => ({
+      url: String(annotation.url_citation.url),
+      title: String(annotation.url_citation.title || ''),
+      snippet: String(annotation.url_citation.content || '').slice(0, 500),
+    }));
+
+  return { content, citations };
+}
+
 // If the configured/current default image model fails (unavailable, erroring,
 // or simply not returning image data), one retry against this previously-
 // stable model is far better than the whole generation coming back as a bare

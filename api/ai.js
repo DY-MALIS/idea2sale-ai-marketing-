@@ -18,6 +18,8 @@ import { initFirebaseAdmin } from './_firebaseAdmin.js';
 import { checkRateLimit, getClientIp } from './_rateLimit.js';
 import { notifyAdmins } from './_alert.js';
 import { searchCompetitorAds } from './_facebookAdLibrary.js';
+import { searchLocalBusinesses } from './_googlePlaces.js';
+import { searchBusinessesOnWeb } from './_webBusinessSearch.js';
 
 // This endpoint has no auth check (it's used from guest/demo sessions with no
 // Firebase login), so without a limit a single connection can script unlimited
@@ -867,6 +869,36 @@ Return ONLY a valid JSON array of these objects, no markdown, no commentary.`,
         }
       }
 
+      // Meta's Ad Library API only covers political/social-issue ads worldwide
+      // or any ads in the UK/EU -- it cannot search ordinary Cambodian business
+      // ads. Google Places gives real, publicly listed local businesses instead.
+      let rawPlaces = [];
+      let placesApiAvailable = false;
+      if (process.env.GOOGLE_PLACES_API_KEY) {
+        try {
+          rawPlaces = await searchLocalBusinesses({ searchTerms: query, region: (countries[0] || 'KH').toLowerCase() });
+          placesApiAvailable = true;
+        } catch (error) {
+          console.warn('Google Places lookup failed or skipped:', error?.message);
+        }
+      }
+
+      // Zero-signup fallback/companion source: reuses the OpenRouter key this
+      // app already has for every other AI feature, grounded in live web
+      // search rather than model memory. Only used when Google Places itself
+      // returned nothing, so a working Places key is never overridden by a
+      // noisier, less-structured web search result.
+      let rawWebBusinesses = [];
+      let webSearchAvailable = false;
+      if (!rawPlaces.length) {
+        try {
+          rawWebBusinesses = await searchBusinessesOnWeb({ searchTerms: query, country: 'Cambodia' });
+          webSearchAvailable = true;
+        } catch (error) {
+          console.warn('OpenRouter web business search failed or skipped:', error?.message);
+        }
+      }
+
       let xContext = '';
       try {
         xContext = await fetchXContextForEntity(query);
@@ -881,6 +913,18 @@ Return ONLY a valid JSON array of these objects, no markdown, no commentary.`,
           }).join('\n')
         : 'Meta Ad Library API not connected or returned 0 ads. Use realistic market data and established consumer behaviors for Cambodian & Southeast Asian Facebook social commerce.';
 
+      const placesSummary = rawPlaces.length
+        ? rawPlaces.slice(0, 12).map((place, idx) => {
+            return `[Business ${idx + 1}] Name: ${place.businessName} | Address: ${place.address || 'not available'} | Phone: ${place.phone || 'not available'} | Website: ${place.website || 'not available'} | Google Maps URL: ${place.mapsUrl || 'not available'} | Rating: ${place.rating != null ? `${place.rating} (${place.ratingCount || 0} reviews)` : 'not available'} | Status: ${place.businessStatus || 'not available'}`;
+          }).join('\n')
+        : 'Google Places API not connected or returned 0 businesses.';
+
+      const webBusinessSummary = rawWebBusinesses.length
+        ? rawWebBusinesses.slice(0, 12).map((biz, idx) => {
+            return `[Web Business ${idx + 1}] Name: ${biz.businessName} | Type: ${biz.businessType} | Address: ${biz.address || 'not available'} | Phone: ${biz.phone || 'not available'} | Website: ${biz.website || 'not available'} | Source URL: ${biz.sourceUrl}`;
+          }).join('\n')
+        : 'Live web business search not connected or returned 0 verified businesses.';
+
       const today = new Date();
       const todayStr = today.toISOString().slice(0, 10);
 
@@ -894,6 +938,12 @@ ${CAMBODIA_MARKET_CONTEXT}
 
 Live Meta Ad Library & Social Context:
 ${adsSummary}
+
+Live Google Places Local Business Context (Cambodia-friendly, since Meta Ad Library cannot search ordinary Cambodian business ads):
+${placesSummary}
+
+Live Web Search Business Context (only present when Google Places found nothing; each entry is backed by a real search citation URL):
+${webBusinessSummary}
 ${xContext ? `Live social signals: ${xContext.slice(0, 800)}` : ''}
 
 CRITICAL TASK:
@@ -911,12 +961,13 @@ Deeply scan and analyze Facebook customer behavior, pain points, competitor stra
    - Competitor gaps/weaknesses (e.g. slow response, poor video quality, hidden fees, lack of clear tutorials) and how our business can outmaneuver them.
 
 3. POTENTIAL CLIENT LEADS (អាជីវកម្មដែលអាចត្រូវការសេវាផលិត Content/Video):
-   - Use ONLY real Page names explicitly present in the Live Meta Ad Library context above. Never invent a business, Page, URL, phone number, email address, or contact identity.
-   - If the Meta context says it is not connected or contains no real ads, return an empty "potentialLeads" array.
-   - For each real Page, infer its business type and identify concrete creative/marketing signals visible in its public ad copy that suggest it may benefit from professional content or video production.
-   - Rate leadLevel as "Hot" only for strong active-spend plus clear creative-need signals, "Warm" for moderate signals, or "Cold" for weak signals.
+   - Use ONLY real businesses explicitly present in the Live Meta Ad Library context, the Live Google Places Local Business Context, OR the Live Web Search Business Context above. Never invent a business, Page, URL, phone number, email address, or contact identity.
+   - If all three contexts say they are not connected or contain 0 results, return an empty "potentialLeads" array.
+   - For each real business, infer its business type and identify concrete signals (from ad copy, or from having no/weak online presence despite being an active local business) suggesting it may benefit from professional content, video production, or digital marketing.
+   - Rate leadLevel as "Hot" only for strong active-spend or strong demand signals plus clear creative-need signals, "Warm" for moderate signals, or "Cold" for weak signals.
    - Recommend the most relevant service and write one concise, polite, personalized Khmer Inbox message. Do not claim we inspected private data.
-   - Copy facebookUrl and evidenceSourceUrl EXACTLY from the live context. Set publicContact to an empty string unless an actual public contact value is explicitly present in the context.
+   - Set "source" to "facebook_ads" for a business found in the Meta context, "google_places" for one found in the Google Places context, or "web_search" for one found in the Web Search Business Context.
+   - Copy pageName/facebookUrl/evidenceSourceUrl EXACTLY from the Meta context for a facebook_ads lead. Copy businessName/address/phone/website/mapsUrl EXACTLY from the Google Places context for a google_places lead. Copy businessName/address/phone/website/evidenceSourceUrl (use the Source URL) EXACTLY from the Web Search context for a web_search lead. Never mix fields between sources or fabricate any field left blank in the source context.
 
 4. VIDEO PRODUCTION CALENDAR (កាលវិភាគសម្រាប់ការធ្វើ Plan បង្កើតវីដេអូ):
    - Create exactly ${requestedDays} daily video items (one per day starting from ${todayStr}, format: YYYY-MM-DD).
@@ -958,16 +1009,21 @@ Return ONLY a single valid JSON object with this exact structure:
   ],
   "potentialLeads": [
     {
+      "source": "facebook_ads, google_places, or web_search",
       "businessName": "exact real business/Page name from live context",
-      "pageName": "exact real Facebook Page name from live context",
+      "pageName": "exact real Facebook Page name from live context (facebook_ads leads only, else empty string)",
       "businessType": "...",
-      "needSignals": ["signal grounded in public ad 1", "signal 2"],
-      "facebookUrl": "exact URL from live context",
+      "needSignals": ["signal grounded in public ad or listing 1", "signal 2"],
+      "facebookUrl": "exact URL from live context (facebook_ads leads only, else empty string)",
+      "address": "exact address from live context (google_places leads only, else empty string)",
+      "phone": "exact phone from live context (google_places leads only, else empty string)",
+      "website": "exact website from live context (google_places leads only, else empty string)",
+      "mapsUrl": "exact Google Maps URL from live context (google_places leads only, else empty string)",
       "publicContact": "",
       "leadLevel": "Hot",
       "recommendedService": "...",
       "inboxMessage": "personalized Khmer outreach message",
-      "evidenceSourceUrl": "exact public ad evidence URL from live context"
+      "evidenceSourceUrl": "exact public ad evidence URL from live context (facebook_ads leads only, else empty string)"
     }
   ],
   "videoPlan": [
@@ -1018,36 +1074,89 @@ Return ONLY a single valid JSON object with this exact structure:
         };
       });
 
-      // Only return leads whose Page name exactly matches a real advertiser
-      // returned by Meta. Source URLs always come from Meta, never model text.
+      // Only return leads whose name exactly matches a real business returned
+      // by Meta or Google Places. Contact fields always come from those APIs,
+      // never from model text.
       const adsByPageName = new Map();
       rawAds.forEach((ad) => {
         const key = String(ad.pageName || '').trim().toLocaleLowerCase();
         if (key && !adsByPageName.has(key)) adsByPageName.set(key, ad);
       });
-      const seenLeadPages = new Set();
+      const placesByName = new Map();
+      rawPlaces.forEach((place) => {
+        const key = String(place.businessName || '').trim().toLocaleLowerCase();
+        if (key && !placesByName.has(key)) placesByName.set(key, place);
+      });
+      const webBusinessesByName = new Map();
+      rawWebBusinesses.forEach((biz) => {
+        const key = String(biz.businessName || '').trim().toLocaleLowerCase();
+        if (key && !webBusinessesByName.has(key)) webBusinessesByName.set(key, biz);
+      });
+      const seenLeadKeys = new Set();
       const potentialLeads = (Array.isArray(parsed?.potentialLeads) ? parsed.potentialLeads : [])
         .map((lead) => {
-          const requestedPageName = String(lead?.pageName || lead?.businessName || '').trim();
-          const key = requestedPageName.toLocaleLowerCase();
+          const requestedName = String(lead?.pageName || lead?.businessName || '').trim();
+          const key = requestedName.toLocaleLowerCase();
+          if (!key || seenLeadKeys.has(key)) return null;
+
           const sourceAd = adsByPageName.get(key);
-          if (!sourceAd || seenLeadPages.has(key)) return null;
-          seenLeadPages.add(key);
-          return {
-            businessName: sourceAd.pageName,
-            pageName: sourceAd.pageName,
+          const sourcePlace = !sourceAd ? placesByName.get(key) : null;
+          const sourceWebBiz = (!sourceAd && !sourcePlace) ? webBusinessesByName.get(key) : null;
+          if (!sourceAd && !sourcePlace && !sourceWebBiz) return null;
+          seenLeadKeys.add(key);
+
+          const shared = {
             businessType: String(lead?.businessType || 'Business').slice(0, 120),
             needSignals: (Array.isArray(lead?.needSignals) ? lead.needSignals : [])
               .map((signal) => String(signal).slice(0, 300))
               .filter(Boolean)
               .slice(0, 5),
-            facebookUrl: sourceAd.pageUrl || '',
-            // Ad Library does not expose phone/email; never let AI invent it.
+            // Ad Library/Places do not expose email; never let AI invent it.
             publicContact: '',
             leadLevel: ['Hot', 'Warm', 'Cold'].includes(lead?.leadLevel) ? lead.leadLevel : 'Warm',
             recommendedService: String(lead?.recommendedService || '').slice(0, 300),
             inboxMessage: String(lead?.inboxMessage || '').slice(0, 1200),
-            evidenceSourceUrl: sourceAd.snapshotUrl || '',
+          };
+
+          if (sourceAd) {
+            return {
+              ...shared,
+              source: 'facebook_ads',
+              businessName: sourceAd.pageName,
+              pageName: sourceAd.pageName,
+              facebookUrl: sourceAd.pageUrl || '',
+              evidenceSourceUrl: sourceAd.snapshotUrl || '',
+              address: '',
+              phone: '',
+              website: '',
+              mapsUrl: '',
+            };
+          }
+          if (sourcePlace) {
+            return {
+              ...shared,
+              source: 'google_places',
+              businessName: sourcePlace.businessName,
+              pageName: '',
+              facebookUrl: '',
+              evidenceSourceUrl: '',
+              address: sourcePlace.address || '',
+              phone: sourcePlace.phone || '',
+              website: sourcePlace.website || '',
+              mapsUrl: sourcePlace.mapsUrl || '',
+            };
+          }
+          return {
+            ...shared,
+            source: 'web_search',
+            businessName: sourceWebBiz.businessName,
+            pageName: '',
+            facebookUrl: '',
+            evidenceSourceUrl: sourceWebBiz.sourceUrl || '',
+            address: sourceWebBiz.address || '',
+            phone: sourceWebBiz.phone || '',
+            website: sourceWebBiz.website || '',
+            mapsUrl: '',
           };
         })
         .filter(Boolean)
@@ -1058,6 +1167,10 @@ Return ONLY a single valid JSON object with this exact structure:
         query,
         adsFound: rawAds.length,
         metaApiAvailable,
+        placesFound: rawPlaces.length,
+        placesApiAvailable,
+        webBusinessesFound: rawWebBusinesses.length,
+        webSearchAvailable,
         customerInsights: {
           whatTheyBought: Array.isArray(parsed?.customerInsights?.whatTheyBought) ? parsed.customerInsights.whatTheyBought : [],
           whatTheyLike: Array.isArray(parsed?.customerInsights?.whatTheyLike) ? parsed.customerInsights.whatTheyLike : [],

@@ -54,11 +54,16 @@ export interface FacebookCompetitorInsight {
 }
 
 export interface FacebookPotentialLead {
+  source?: 'facebook_ads' | 'google_places' | 'web_search';
   businessName: string;
   pageName: string;
   businessType: string;
   needSignals: string[];
   facebookUrl: string;
+  address?: string;
+  phone?: string;
+  website?: string;
+  mapsUrl?: string;
   publicContact: string;
   leadLevel: 'Hot' | 'Warm' | 'Cold';
   recommendedService: string;
@@ -87,6 +92,10 @@ export interface FacebookScanResult {
   query: string;
   adsFound?: number;
   metaApiAvailable?: boolean;
+  placesFound?: number;
+  placesApiAvailable?: boolean;
+  webBusinessesFound?: number;
+  webSearchAvailable?: boolean;
   customerInsights: FacebookCustomerInsights;
   competitors: FacebookCompetitorInsight[];
   potentialLeads: FacebookPotentialLead[];

@@ -68,8 +68,8 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     personas: 'ក្រុមអតិថិជនគោលដៅ',
     competitors: 'ការវិភាគគូប្រជែង',
     leads: 'អាជីវកម្មដែលអាចក្លាយជាអតិថិជន',
-    leadSource: 'រកឃើញពីការផ្សាយពាណិជ្ជកម្មសាធារណៈរបស់ Facebook',
-    noVerifiedLeads: 'មិនទាន់មាន Lead ដែលបានផ្ទៀងផ្ទាត់ទេ។ ត្រូវភ្ជាប់ Meta Ad Library token ហើយស្គេនម្តងទៀត ដើម្បីទទួលបានឈ្មោះ Page ពិត។',
+    leadSource: 'រកឃើញពី Google Places (អាជីវកម្មពិត) និងការផ្សាយពាណិជ្ជកម្មសាធារណៈរបស់ Facebook',
+    noVerifiedLeads: 'មិនទាន់មាន Lead ដែលបានផ្ទៀងផ្ទាត់ទេ។ ត្រូវភ្ជាប់ Google Places API key (ឬ Meta Ad Library token) ហើយស្គេនម្តងទៀត ដើម្បីទទួលបានឈ្មោះអាជីវកម្មពិត។',
     needSignals: 'សញ្ញាថាត្រូវការ Content/Video',
     recommendedService: 'សេវាកម្មដែលគួរផ្តល់ជូន',
     publicContact: 'ព័ត៌មានទំនាក់ទំនងសាធារណៈ',
@@ -88,6 +88,12 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     live: 'Meta Ad Library បានភ្ជាប់',
     estimated: 'AI market estimate',
     ads: 'ផ្សាយពាណិជ្ជកម្មសាធារណៈត្រូវបានរកឃើញ',
+    places: 'អាជីវកម្មពិតត្រូវបានរកឃើញ (Google Places)',
+    webBusinesses: 'អាជីវកម្មពិតត្រូវបានរកឃើញ (ស្វែងរកលើវេប)',
+    viewMap: 'មើលលើ Google Maps',
+    call: 'ទូរស័ព្ទ',
+    visitWebsite: 'ចូលទស្សនាគេហទំព័រ',
+    address: 'អាសយដ្ឋាន',
   } : {
     eyebrow: 'Facebook Audience Intelligence',
     title: 'Customer & competitor scanner',
@@ -107,8 +113,8 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     personas: 'Target customer groups',
     competitors: 'Competitor intelligence',
     leads: 'Potential content-production clients',
-    leadSource: 'Discovered from public Facebook advertising signals',
-    noVerifiedLeads: 'No verified leads yet. Connect a Meta Ad Library token and scan again to receive real Page names.',
+    leadSource: 'Discovered from Google Places (real businesses) and public Facebook advertising signals',
+    noVerifiedLeads: 'No verified leads yet. Connect a Google Places API key (or Meta Ad Library token) and scan again to receive real business names.',
     needSignals: 'Signals they may need content/video',
     recommendedService: 'Recommended service',
     publicContact: 'Public contact',
@@ -127,6 +133,12 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     live: 'Meta Ad Library connected',
     estimated: 'AI market estimate',
     ads: 'public ads found',
+    places: 'real businesses found (Google Places)',
+    webBusinesses: 'real businesses found (web search)',
+    viewMap: 'View on Google Maps',
+    call: 'Call',
+    visitWebsite: 'Visit website',
+    address: 'Address',
   };
 
   const scan = async () => {
@@ -256,11 +268,13 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
       {result && (
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="space-y-8">
           <div className="flex flex-wrap items-center gap-3">
-            <span className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-bold ${result.metaApiAvailable ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300'}`}>
-              {result.metaApiAvailable ? <Check size={15} /> : <Sparkles size={15} />}
-              {result.metaApiAvailable ? text.live : text.estimated}
+            <span className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-bold ${(result.metaApiAvailable || result.placesApiAvailable || result.webSearchAvailable) ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300'}`}>
+              {(result.metaApiAvailable || result.placesApiAvailable || result.webSearchAvailable) ? <Check size={15} /> : <Sparkles size={15} />}
+              {(result.metaApiAvailable || result.placesApiAvailable || result.webSearchAvailable) ? text.live : text.estimated}
             </span>
-            <span className="rounded-full bg-blue-50 px-4 py-2 text-xs font-bold text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">{result.adsFound || 0} {text.ads}</span>
+            {!!result.metaApiAvailable && <span className="rounded-full bg-blue-50 px-4 py-2 text-xs font-bold text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">{result.adsFound || 0} {text.ads}</span>}
+            {!!result.placesApiAvailable && <span className="rounded-full bg-blue-50 px-4 py-2 text-xs font-bold text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">{result.placesFound || 0} {text.places}</span>}
+            {!!result.webSearchAvailable && <span className="rounded-full bg-blue-50 px-4 py-2 text-xs font-bold text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">{result.webBusinessesFound || 0} {text.webBusinesses}</span>}
           </div>
 
           <div className="grid gap-5 xl:grid-cols-3">
@@ -345,12 +359,21 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                       <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">{lead.inboxMessage}</p>
                     </div>
 
+                    {(lead.source === 'google_places' || lead.source === 'web_search') && (lead.address || lead.phone) && (
+                      <div className="mt-4 space-y-1 rounded-2xl border border-brand-100 bg-white/70 p-4 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300">
+                        {lead.address && <p><span className="font-bold text-slate-400">{text.address}: </span>{lead.address}</p>}
+                        {lead.phone && <p><span className="font-bold text-slate-400">{text.call}: </span>{lead.phone}</p>}
+                      </div>
+                    )}
+
                     <div className="mt-4 flex flex-wrap gap-2">
                       {lead.facebookUrl && <a href={lead.facebookUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white"><ExternalLink size={14} />{text.viewPage}</a>}
                       {lead.evidenceSourceUrl && <a href={lead.evidenceSourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-brand-200 bg-white/70 px-3 py-2 text-xs font-bold text-brand-700 dark:bg-slate-900 dark:text-brand-300"><ExternalLink size={14} />{text.viewEvidence}</a>}
+                      {lead.mapsUrl && <a href={lead.mapsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white"><ExternalLink size={14} />{text.viewMap}</a>}
+                      {lead.website && <a href={lead.website} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-brand-200 bg-white/70 px-3 py-2 text-xs font-bold text-brand-700 dark:bg-slate-900 dark:text-brand-300"><ExternalLink size={14} />{text.visitWebsite}</a>}
                       <button onClick={() => void copyInboxMessage(lead.inboxMessage, index)} className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">{copiedLead === index ? <Check size={14} /> : <Copy size={14} />}{copiedLead === index ? text.copied : text.copyInbox}</button>
                     </div>
-                    <p className="mt-3 text-xs text-slate-400">{text.publicContact}: {lead.publicContact || (isKm ? 'មើលនៅលើ Page សាធារណៈ' : 'See the public Page')}</p>
+                    {lead.source === 'facebook_ads' && <p className="mt-3 text-xs text-slate-400">{text.publicContact}: {lead.publicContact || (isKm ? 'មើលនៅលើ Page សាធារណៈ' : 'See the public Page')}</p>}
                   </article>
                 ))}
               </div>
