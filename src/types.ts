@@ -29,7 +29,56 @@ export type TabType =
   | 'ai-agent'
   | 'crm'
   | 'automation'
-  | 'security-center';
+  | 'security-center'
+  | 'facebook-scanner';
+
+export interface TargetPersona {
+  name: string;
+  description: string;
+  buyingTriggers: string;
+}
+
+export interface FacebookCustomerInsights {
+  whatTheyBought: string[];
+  whatTheyLike: string[];
+  contentDesires: string[];
+  targetPersonas: TargetPersona[];
+}
+
+export interface FacebookCompetitorInsight {
+  pageName: string;
+  topAngle: string;
+  offerStrategy: string;
+  weakness: string;
+  counterStrategy: string;
+}
+
+export interface FacebookVideoPlanItem {
+  date: string;
+  day: string;
+  type: 'video';
+  topic: string;
+  hook: string;
+  targetDesire: string;
+  prompt: string;
+  voiceGender: 'Male' | 'Female';
+  voiceOverText: string;
+  performanceStyle: string;
+  suggestedPostTime: string;
+  cta: string;
+  selected?: boolean;
+}
+
+export interface FacebookScanResult {
+  success: boolean;
+  query: string;
+  adsFound?: number;
+  metaApiAvailable?: boolean;
+  customerInsights: FacebookCustomerInsights;
+  competitors: FacebookCompetitorInsight[];
+  videoPlan: FacebookVideoPlanItem[];
+  summaryReport: string;
+}
 
 export interface CreativeAutomationRequest {
   id: string;

@@ -13,6 +13,7 @@ import {
   Users,
   MessagesSquare,
   Send,
+  ScanSearch,
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { TabType } from '../types';
@@ -34,6 +35,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onLogout, on
       title: t('researchStrategy'),
       items: [
         { id: 'ai-agent', label: 'AI Agent', icon: Bot },
+        { id: 'facebook-scanner', label: t('facebookScannerLabel'), icon: ScanSearch },
       ]
     },
     {

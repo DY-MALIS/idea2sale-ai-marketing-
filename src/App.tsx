@@ -17,6 +17,7 @@ import Auth from './components/Auth';
 import LegalPage from './components/LegalPage';
 import PublicWebsite from './components/PublicWebsite';
 import SecurityCenter from './components/SecurityCenter';
+import FacebookScanner from './components/FacebookScanner';
 import BusinessProfile from './components/BusinessProfile';
 import ErrorBoundary from './components/ErrorBoundary';
 import { CreativeAutomationRequest, ScheduleHandoffRequest, TabType } from './types';
@@ -101,6 +102,7 @@ export default function App() {
       case 'crm': return <CRM />;
       case 'automation': return <Automation />;
       case 'security-center': return <SecurityCenter />;
+      case 'facebook-scanner': return <FacebookScanner onCreativeAutomation={handleCreativeAutomation} />;
       default: return <Copywriter />;
     }
   };

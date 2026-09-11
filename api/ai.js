@@ -17,6 +17,7 @@ import { preserveKhmerDuringTranslation, compareKhmerTranscript } from '../share
 import { initFirebaseAdmin } from './_firebaseAdmin.js';
 import { checkRateLimit, getClientIp } from './_rateLimit.js';
 import { notifyAdmins } from './_alert.js';
+import { searchCompetitorAds } from './_facebookAdLibrary.js';
 
 // This endpoint has no auth check (it's used from guest/demo sessions with no
 // Firebase login), so without a limit a single connection can script unlimited
@@ -190,6 +191,45 @@ export const googleSheetsUrlToCsvExportUrl = (planUrl) => {
   const gidMatch = planUrl.match(/[?&#]gid=(\d+)/);
   return `https://docs.google.com/spreadsheets/d/${sheetMatch[1]}/export?format=csv${gidMatch ? `&gid=${gidMatch[1]}` : ''}`;
 };
+
+// The per-item JSON schema/rules shared by every flow that turns a piece of
+// source material (a spreadsheet row, a competitor-research summary) into a
+// ready-to-generate content-plan item -- these constraints (8-second Khmer
+// speech timing, no-on-screen-text, the exact "says in Khmer:" prompt pattern
+// the video model needs to lip-sync correctly) took multiple rounds of live
+// tuning, so extractContentPlan and researchFacebookCompetitors both call this
+// instead of keeping their own drifting copies.
+const contentPlanItemFieldRules = (language, dateInstruction) => `- "date": ${dateInstruction}
+- "type": "video" if the item should be a video/reel/clip, otherwise "image"
+- "topic": a short (max 15 words) plain summary of what the item is about, in ${language}
+- "headline": ONLY if "type" is "image" -- a short, punchy poster headline in ENGLISH (max 8 words). Omit or leave empty for "type": "video".
+- "cta": ONLY if "type" is "image" -- a short call-to-action button phrase in ENGLISH (2-4 words, e.g. "Learn More", "Join Now", "Get Started") fitting the item's intent. Omit or leave empty for "type": "video".
+- "voiceGender": ONLY if "type" is "video" -- pick exactly "Male" or "Female" for the presenter, whichever fits the topic/audience. The spoken narration is generated separately from the video and must match the presenter shown on screen, so this decision has to be explicit here, not left as "whichever fits" inside the prompt text. Omit or leave empty for "type": "image".
+- "voiceOverText": ONLY if "type" is "video" -- one concise, natural Cambodian Khmer sentence that fits comfortably inside eight seconds at normal speed. It must sound like a real person explaining one useful idea, not a slogan or literal translation. Use simple familiar words, correct Khmer punctuation and no stage directions.
+- "performanceStyle": ONLY if "type" is "video" -- an English direction for Gemini TTS describing the emotional arc and delivery for this exact item: opening attitude, meaningful words to emphasize, phrase-boundary pauses, pitch movement and closing tone. Keep it natural and restrained, never theatrical.
+- "prompt": a complete, vivid, ready-to-use AI image/video generation prompt, written ENTIRELY in English with no other script mixed in EXCEPT the literal quoted Khmer dialogue line described below (photorealistic product/marketing photography or video style, specific about subject/setting/mood, sharp focus, high production quality), turning the item's topic into real creative direction -- if the item only has an abstract theme, invent a concrete, on-topic visual scene for it rather than skipping it. The prompt must explicitly direct that the image/video contains NO on-screen text, captions, subtitles, titles, or written words of any kind rendered in the scene -- AI image/video models reliably garble rendered text into gibberish, so describe only visuals (and spoken audio for video) never text-on-screen. If "type" is "video": the video clip is only 8 seconds total and needs time for the presenter to appear/settle before speaking and for gestures around the line, so a spoken line anywhere near 8 seconds of actual speech reliably gets rushed or cut off mid-word -- the video model can also only speak a line correctly if given the EXACT words to say, not just an instruction to "speak Khmer" (an instruction alone produces mispronounced speech). So compose ONE natural, complete Khmer sentence targeting 35-55 KHMER CHARACTERS and never exceeding 60 characters total, punctuation included (real Khmer script, something a presenter would actually say about this topic -- Khmer has no spaces between words so count actual characters, not words, to judge length; use most of the 8-second clip while leaving a brief settling moment) and embed it in the prompt using this exact pattern with a colon (not quotation marks, to avoid triggering subtitles): a real-looking Cambodian MALE or FEMALE presenter (use the literal word "male" or "female", matching the "voiceGender" field exactly -- never leave this as "whichever gender fits" in the actual prompt text, because the visible presenter and native voice are generated together and must match) speaks about the product clearly and carefully, at a natural, brisk everyday pace -- not rushed, not slow or dragging -- and looks at the camera and says in Khmer: <the actual Khmer phrase here>. (no subtitles). Also direct energetic, lively hand gestures/facial expressions while speaking at a natural brisk speed, moving like a real person rather than standing stiff, static, or in slow motion, and authentic real-life footage quality, not obviously synthetic (the surrounding instruction still written in English, e.g. "...a Cambodian female presenter speaks about the product clearly and carefully at a brisk, natural pace, looks at the camera with a warm smile, and says in Khmer: ស្វាគមន៍មកកាន់ហាង។ (no subtitles), with energetic natural hand gestures, like real authentic footage...")
+FINAL VIDEO OVERRIDE: Khmer plan videos use a Khmer neural speech track and an audio-driven presenter video. For every video, write a visual-only English "prompt" for a single photorealistic adult Cambodian presenter in a stable eye-level medium shot with face, chest and both hands visible; the server uses it to create the source portrait. Put all spoken Khmer only in "voiceOverText" as one natural complete 35-55 character sentence, never over 60 characters. Set "voiceGender" explicitly to Male or Female so the source portrait and Khmer neural voice match. Put delivery emotion and emphasis in "performanceStyle". Do not embed dialogue inside the visual prompt. The server synthesizes the exact Khmer script and uses that audio to drive lip sync. Request lively normal-speed movement, clear conversational delivery and small gestures timed to the spoken phrase; never slow motion or drawn-out pauses. Forbid additional people, text, captions, exaggerated poses, repeated waving and random pointing. This FINAL VIDEO OVERRIDE supersedes earlier native-video or separate-narration instructions.`;
+
+// Shared by extractContentPlan and researchFacebookCompetitors: turns the raw
+// AI JSON response into the exact PlanItem shape the frontend's plan-review
+// UI and content_plan_items schema expect, with the same field length caps.
+const parseContentPlanItems = (text) => jsonFromText(text, [])
+  .filter((item) => item && /^\d{4}-\d{2}-\d{2}$/.test(item.date) && item.prompt)
+  .map((item) => ({
+    date: item.date,
+    type: item.type === 'video' ? 'video' : 'image',
+    topic: String(item.topic || '').slice(0, 200),
+    prompt: String(item.prompt || '').slice(0, 2000),
+    ...(item.type !== 'video' ? {
+      headline: String(item.headline || '').slice(0, 80),
+      cta: String(item.cta || '').slice(0, 30),
+    } : {
+      voiceGender: item.voiceGender === 'Male' ? 'Male' : 'Female',
+      voiceOverText: String(item.voiceOverText || '').trim().slice(0, 500),
+      performanceStyle: String(item.performanceStyle || '').trim().slice(0, 1000),
+    }),
+  }))
+  .slice(0, 60);
 
 const normalizeMediaPrompt = async (prompt, mediaType) => {
   if (!containsKhmerScript(prompt)) return prompt;
@@ -739,38 +779,238 @@ Response rules:
         model: process.env.OPEN_ROUTER_CONTENT_PLAN_MODEL || 'google/gemini-3.1-pro-preview',
         system: `You extract a content calendar from raw spreadsheet/CSV text (possibly multiple sheets from one workbook, separated by "--- Sheet: <name> ---" markers) and turn each dated row into a ready-to-use AI image/video generation prompt. Be generous, not strict: real content calendars rarely spell out a visual in plain words -- a row is a valid content item as long as it has a date and ANY topic, title, headline, or campaign name next to it, even if that text is abstract (e.g. "AI for educators: teach critical thinking, not shortcuts") rather than a literal scene description. Inventing a concrete visual concept from an abstract topic/headline is exactly your job here, not a reason to skip the row. Ignore sheets/rows that are clearly just strategy notes, KPI numbers, or config tables with no per-post dates.\n\n${CAMBODIA_MARKET_CONTEXT}`,
         prompt: `Here is the raw content plan (CSV or pasted spreadsheet text, possibly several sheets):\n\n${planText}\n\nToday's date is ${new Date().toISOString().slice(0, 10)}. For every row that has both a date (in any format: YYYY-MM-DD, DD/MM/YYYY, MM/DD/YYYY, a written date like "10 Sep" or "ថ្ងៃទី១០ខែកញ្ញា", a spreadsheet serial date, or an Excel date string) and a topic/title/headline/description/campaign for that post (it does not need to describe a visual, and does not need to be phrased as a request), produce one JSON object with:
-- "date": the date normalized to YYYY-MM-DD (infer the year as ${new Date().getFullYear()} if missing, or the following year if that date has already passed this year; if the format is genuinely ambiguous, e.g. "03/04", prefer DD/MM since this plan is for a Cambodian business)
-- "type": "video" if the row (or its content pillar/format/column) mentions video/reel/clip/motion/podcast, otherwise "image"
-- "topic": a short (max 15 words) plain summary of what the row is about, in ${language}
-- "headline": ONLY if "type" is "image" -- a short, punchy poster headline in ENGLISH (max 8 words), adapted from the row's own title/headline column, not the raw "topic" summary. Omit or leave empty for "type": "video".
-- "cta": ONLY if "type" is "image" -- a short call-to-action button phrase in ENGLISH (2-4 words, e.g. "Learn More", "Join Now", "Get Started") fitting the row's intent. Omit or leave empty for "type": "video".
-- "voiceGender": ONLY if "type" is "video" -- pick exactly "Male" or "Female" for the presenter, whichever fits the topic/audience. The spoken narration is generated separately from the video and must match the presenter shown on screen, so this decision has to be explicit here, not left as "whichever fits" inside the prompt text. Omit or leave empty for "type": "image".
-- "voiceOverText": ONLY if "type" is "video" -- one concise, natural Cambodian Khmer sentence that fits comfortably inside eight seconds at normal speed. It must sound like a real person explaining one useful idea, not a slogan or literal translation. Use simple familiar words, correct Khmer punctuation and no stage directions.
-- "performanceStyle": ONLY if "type" is "video" -- an English direction for Gemini TTS describing the emotional arc and delivery for this exact row: opening attitude, meaningful words to emphasize, phrase-boundary pauses, pitch movement and closing tone. Keep it natural and restrained, never theatrical.
-- "prompt": a complete, vivid, ready-to-use AI image/video generation prompt, written ENTIRELY in English with no other script mixed in EXCEPT the literal quoted Khmer dialogue line described below (photorealistic product/marketing photography or video style, specific about subject/setting/mood, sharp focus, high production quality), turning the row's topic/headline into real creative direction -- if the row only has an abstract title or theme, invent a concrete, on-topic visual scene for it rather than skipping it. The prompt must explicitly direct that the image/video contains NO on-screen text, captions, subtitles, titles, or written words of any kind rendered in the scene -- AI image/video models reliably garble rendered text into gibberish, so describe only visuals (and spoken audio for video) never text-on-screen. If "type" is "video": the video clip is only 8 seconds total and needs time for the presenter to appear/settle before speaking and for gestures around the line, so a spoken line anywhere near 8 seconds of actual speech reliably gets rushed or cut off mid-word -- the video model can also only speak a line correctly if given the EXACT words to say, not just an instruction to "speak Khmer" (an instruction alone produces mispronounced speech). So compose ONE natural, complete Khmer sentence targeting 35-55 KHMER CHARACTERS and never exceeding 60 characters total, punctuation included (real Khmer script, something a presenter would actually say about this topic -- Khmer has no spaces between words so count actual characters, not words, to judge length; use most of the 8-second clip while leaving a brief settling moment) and embed it in the prompt using this exact pattern with a colon (not quotation marks, to avoid triggering subtitles): a real-looking Cambodian MALE or FEMALE presenter (use the literal word "male" or "female", matching the "voiceGender" field exactly -- never leave this as "whichever gender fits" in the actual prompt text, because the visible presenter and native voice are generated together and must match) speaks about the product clearly and carefully, at a natural, brisk everyday pace -- not rushed, not slow or dragging -- and looks at the camera and says in Khmer: <the actual Khmer phrase here>. (no subtitles). Also direct energetic, lively hand gestures/facial expressions while speaking at a natural brisk speed, moving like a real person rather than standing stiff, static, or in slow motion, and authentic real-life footage quality, not obviously synthetic (the surrounding instruction still written in English, e.g. "...a Cambodian female presenter speaks about the product clearly and carefully at a brisk, natural pace, looks at the camera with a warm smile, and says in Khmer: ស្វាគមន៍មកកាន់ហាង។ (no subtitles), with energetic natural hand gestures, like real authentic footage...")
-FINAL VIDEO OVERRIDE: Khmer plan videos use a Khmer neural speech track and an audio-driven presenter video. For every video, write a visual-only English "prompt" for a single photorealistic adult Cambodian presenter in a stable eye-level medium shot with face, chest and both hands visible; the server uses it to create the source portrait. Put all spoken Khmer only in "voiceOverText" as one natural complete 35-55 character sentence, never over 60 characters. Set "voiceGender" explicitly to Male or Female so the source portrait and Khmer neural voice match. Put delivery emotion and emphasis in "performanceStyle". Do not embed dialogue inside the visual prompt. The server synthesizes the exact Khmer script and uses that audio to drive lip sync. Request lively normal-speed movement, clear conversational delivery and small gestures timed to the spoken phrase; never slow motion or drawn-out pauses. Forbid additional people, text, captions, exaggerated poses, repeated waving and random pointing. This FINAL VIDEO OVERRIDE supersedes earlier native-video or separate-narration instructions.
+${contentPlanItemFieldRules(language, `the date normalized to YYYY-MM-DD (infer the year as ${new Date().getFullYear()} if missing, or the following year if that date has already passed this year; if the format is genuinely ambiguous, e.g. "03/04", prefer DD/MM since this plan is for a Cambodian business)`)}
 Only skip a row if it truly has no date, or has a date but no topic/title/description of any kind, or is clearly a header/blank/totals/KPI row. When in doubt about whether a row qualifies, include it rather than skip it. Return ONLY a valid JSON array of these objects, no markdown, no commentary. Return an empty array only if the text has no calendar-like rows whatsoever.`,
       });
 
-      const items = jsonFromText(text, [])
-        .filter((item) => item && /^\d{4}-\d{2}-\d{2}$/.test(item.date) && item.prompt)
-        .map((item) => ({
-          date: item.date,
-          type: item.type === 'video' ? 'video' : 'image',
-          topic: String(item.topic || '').slice(0, 200),
-          prompt: String(item.prompt || '').slice(0, 2000),
-          ...(item.type !== 'video' ? {
-            headline: String(item.headline || '').slice(0, 80),
-            cta: String(item.cta || '').slice(0, 30),
-          } : {
-            voiceGender: item.voiceGender === 'Male' ? 'Male' : 'Female',
-            voiceOverText: String(item.voiceOverText || '').trim().slice(0, 500),
-            performanceStyle: String(item.performanceStyle || '').trim().slice(0, 1000),
-          }),
-        }))
-        .slice(0, 60);
+      return res.status(200).json({ items: parseContentPlanItems(text) });
+    }
 
-      return res.status(200).json({ items });
+    // Competitor research from Meta's public Ad Library (real ads currently
+    // running on Facebook for a search term) -- not scraping personal
+    // profiles/posts, only what advertisers already chose to publish
+    // publicly as ads. See api/_facebookAdLibrary.js. Feeds straight into the
+    // same content-plan review UI as extractContentPlan (AIAgent.tsx's plan
+    // items list), so the AI proposes original video/image ideas informed by
+    // what competitors are actively running rather than copying them.
+    if (action === 'researchFacebookCompetitors') {
+      const query = String(req.body?.query || '').trim().slice(0, 200);
+      if (!query) return res.status(400).json({ error: 'Enter a competitor Page name or product keyword to search.' });
+      const countries = (Array.isArray(req.body?.countries) ? req.body.countries : ['US'])
+        .map((code) => String(code).trim().toUpperCase())
+        .filter((code) => /^[A-Z]{2}$/.test(code))
+        .slice(0, 5);
+
+      let ads;
+      try {
+        ads = await searchCompetitorAds({ searchTerms: query, countries });
+      } catch (error) {
+        const status = error?.code === 'missing_token' ? 500 : 502;
+        return res.status(status).json({ error: error.message, code: error?.code });
+      }
+
+      if (!ads.length) {
+        return res.status(200).json({
+          items: [],
+          competitors: [],
+          message: 'No active Facebook ads found for this search. Try a broader keyword, a specific Page name, or a different country.',
+        });
+      }
+
+      const researchSummary = ads.slice(0, 15).map((ad, index) => {
+        const text = ad.bodies[0] || ad.linkTitles[0] || ad.linkCaptions[0] || '(no ad text available)';
+        return `${index + 1}. Page: ${ad.pageName}\nPlatforms: ${ad.platforms.join(', ') || 'unknown'}\nRunning since: ${ad.startDate || 'unknown'}\nAd text: ${text.slice(0, 400)}`;
+      }).join('\n\n');
+
+      const text = await generateOpenRouterText({
+        model: process.env.OPEN_ROUTER_CONTENT_PLAN_MODEL || 'google/gemini-3.1-pro-preview',
+        system: `You are a social media strategist for a Cambodian business, studying real competitor ads currently active on Facebook to propose a fresh, ORIGINAL content calendar. Never copy or closely imitate a competitor's exact wording, offer, or creative -- only learn from the themes, formats, and angles they are actively investing in, then propose something that differentiates this business instead.\n\n${CAMBODIA_MARKET_CONTEXT}`,
+        prompt: `Here are ${ads.length} real ads currently active on Facebook for the search "${query}":\n\n${researchSummary}\n\nBased on what topics, offers, and formats these competitors are actively running, propose 6 original content calendar items for the next 6 days starting ${new Date().toISOString().slice(0, 10)} (one per day) that differentiate this business rather than copy competitors. For each, produce one JSON object with:
+${contentPlanItemFieldRules(language, 'the next available date in YYYY-MM-DD starting today, one per day, in the order you list the items')}
+Return ONLY a valid JSON array of these objects, no markdown, no commentary.`,
+      });
+
+      return res.status(200).json({
+        items: parseContentPlanItems(text),
+        competitors: ads.slice(0, 15).map((ad) => ({
+          pageName: ad.pageName,
+          adText: (ad.bodies[0] || ad.linkTitles[0] || ad.linkCaptions[0] || '').slice(0, 400),
+          startDate: ad.startDate,
+          snapshotUrl: ad.snapshotUrl,
+          platforms: ad.platforms,
+        })),
+      });
+    }
+
+    // Comprehensive Facebook Customer & Competitor Scanner with Video Planning Calendar
+    if (action === 'facebookIntelligenceScan') {
+      const query = String(req.body?.query || '').trim().slice(0, 250);
+      if (!query) return res.status(400).json({ error: 'Please enter a product niche, category, or Facebook competitor page name.' });
+
+      const requestedDays = Math.min(Math.max(Number(req.body?.days) || 7, 3), 14);
+      const isKhmer = containsKhmerScript(query) || languageCode === 'km';
+      const outputLanguage = isKhmer ? 'Khmer' : 'English';
+      const countries = (Array.isArray(req.body?.countries) ? req.body.countries : ['KH'])
+        .map((code) => String(code).trim().toUpperCase())
+        .filter((code) => /^[A-Z]{2}$/.test(code))
+        .slice(0, 5);
+      if (!countries.length) countries.push('KH');
+
+      let rawAds = [];
+      let metaApiAvailable = false;
+      if (process.env.FACEBOOK_ACCESS_TOKEN) {
+        try {
+          rawAds = await searchCompetitorAds({ searchTerms: query, countries });
+          metaApiAvailable = true;
+        } catch (error) {
+          console.warn('Meta Ad Library lookup failed or skipped:', error?.message);
+        }
+      }
+
+      let xContext = '';
+      try {
+        xContext = await fetchXContextForEntity(query);
+      } catch (err) {
+        console.warn('Social context lookup skipped:', err?.message);
+      }
+
+      const adsSummary = rawAds.length
+        ? rawAds.slice(0, 12).map((ad, idx) => {
+            const text = ad.bodies[0] || ad.linkTitles[0] || ad.linkCaptions[0] || '';
+            return `[Ad ${idx + 1}] Page: ${ad.pageName} | Platforms: ${ad.platforms.join(', ')} | Text: ${text.slice(0, 300)}`;
+          }).join('\n')
+        : 'Meta Ad Library API not connected or returned 0 ads. Use realistic market data and established consumer behaviors for Cambodian & Southeast Asian Facebook social commerce.';
+
+      const today = new Date();
+      const todayStr = today.toISOString().slice(0, 10);
+
+      const prompt = `You are an elite Facebook social-commerce market researcher, consumer psychologist, and AI video creative director specialized in the Cambodian and Southeast Asian market.
+
+Target Niche / Product / Competitor: "${query}"
+Target Market: ${countries.join(', ')}
+Video Schedule Length: ${requestedDays} days starting ${todayStr}
+
+${CAMBODIA_MARKET_CONTEXT}
+
+Live Meta Ad Library & Social Context:
+${adsSummary}
+${xContext ? `Live social signals: ${xContext.slice(0, 800)}` : ''}
+
+CRITICAL TASK:
+Deeply scan and analyze Facebook customer behavior, pain points, competitor strategies, and produce a complete day-by-day Video Production Schedule.
+
+1. CUSTOMER INTELLIGENCE (ស្វែងរកអតិថិជន):
+   - What they bought / need ("គេបានអ្វី / គេទិញអ្វី"): Detail concrete products, variations, bundles, and price thresholds (e.g. $10-$25 COD) that customers actually buy, plus specific real-life pain points they solve.
+   - What they like / appreciate ("គេចូលចិត្តអ្វី"): Concrete trust and satisfaction drivers (e.g. fast delivery in Phnom Penh, free gifts, genuine unboxing, polite sellers using "បង/អូន", clear pricing, COD reliability).
+   - Content they want to see ("គេចង់ឱ្យបង្កើត content ប្រភេទអ្វី"): Exact video formats and angles that Facebook/TikTok buyers crave (e.g. Real transformation Before/After, honest test demonstrations, comedic relatable skits, price breakdown vs fake goods, live Q&A).
+   - Target personas: 2-3 specific customer profiles with demographics and exact buying triggers.
+
+2. COMPETITOR INTELLIGENCE (ស្វែងរក និងវិភាគគូប្រជែងពី Facebook):
+   - 3-4 top competitor pages, stores, or brands in this niche on Facebook.
+   - Their current main angles, promotion hooks, and pricing tactics.
+   - Competitor gaps/weaknesses (e.g. slow response, poor video quality, hidden fees, lack of clear tutorials) and how our business can outmaneuver them.
+
+3. VIDEO PRODUCTION CALENDAR (កាលវិភាគសម្រាប់ការធ្វើ Plan បង្កើតវីដេអូ):
+   - Create exactly ${requestedDays} daily video items (one per day starting from ${todayStr}, format: YYYY-MM-DD).
+   - Each video item is formatted for AI video generation (Veo / Seedance) with high-converting short-form hooks (8 seconds).
+   - For EACH video item include:
+     * "date": "YYYY-MM-DD" (sequential dates starting ${todayStr})
+     * "day": "Day 1", "Day 2", etc.
+     * "topic": Short title in ${outputLanguage} (max 12 words)
+     * "hook": High-converting 3-second hook in ${outputLanguage} designed to stop scrolling
+     * "targetDesire": Which specific customer desire or pain point this video solves
+     * "prompt": English-only photorealistic video visual direction for a single adult Cambodian presenter in an eye-level medium shot with face, chest, and hands visible, stable background, natural movement, authentic lighting. NO text on screen, NO subtitles, NO captions.
+     * "voiceGender": "Male" or "Female"
+     * "voiceOverText": Exactly ONE natural, fluent Cambodian Khmer sentence (35-55 Khmer characters, max 60 characters total) that sounds like a real person sharing an authentic insight. Must fit cleanly in 8 seconds.
+     * "performanceStyle": English delivery direction (tone, emphasis, pause).
+     * "suggestedPostTime": Best posting hour for Cambodian Facebook users (e.g. "11:30 AM" or "19:45 PM").
+     * "cta": Call to action in ${outputLanguage} (e.g. "ឆាតចូលផេកដើម្បីទទួលការប្រឹក្សាឥតគិតថ្លៃ").
+
+4. SUMMARY REPORT (របាយការណ៍សង្ខេប):
+   - A comprehensive Markdown report in ${outputLanguage} using clean headings, emojis, bullet points, and practical strategic takeaways.
+
+Return ONLY a single valid JSON object with this exact structure:
+{
+  "customerInsights": {
+    "whatTheyBought": ["point 1", "point 2", "point 3", "point 4"],
+    "whatTheyLike": ["point 1", "point 2", "point 3", "point 4"],
+    "contentDesires": ["point 1", "point 2", "point 3", "point 4"],
+    "targetPersonas": [
+      { "name": "...", "description": "...", "buyingTriggers": "..." }
+    ]
+  },
+  "competitors": [
+    {
+      "pageName": "...",
+      "topAngle": "...",
+      "offerStrategy": "...",
+      "weakness": "...",
+      "counterStrategy": "..."
+    }
+  ],
+  "videoPlan": [
+    {
+      "date": "YYYY-MM-DD",
+      "day": "Day 1",
+      "topic": "...",
+      "hook": "...",
+      "targetDesire": "...",
+      "prompt": "...",
+      "voiceGender": "Female",
+      "voiceOverText": "...",
+      "performanceStyle": "...",
+      "suggestedPostTime": "...",
+      "cta": "..."
+    }
+  ],
+  "summaryReport": "..."
+}`;
+
+      const text = await generateOpenRouterText({
+        model: process.env.OPEN_ROUTER_CONTENT_PLAN_MODEL || 'google/gemini-3.1-pro-preview',
+        system: 'You are an elite Facebook social commerce market research and video creative director. Respond with valid JSON only.',
+        prompt,
+      });
+
+      const parsed = jsonFromText(text, {});
+
+      const rawPlan = Array.isArray(parsed?.videoPlan) ? parsed.videoPlan : [];
+      const normalizedPlan = rawPlan.map((item, idx) => {
+        const itemDate = item?.date && /^\d{4}-\d{2}-\d{2}$/.test(item.date)
+          ? item.date
+          : new Date(today.getTime() + idx * 86400000).toISOString().slice(0, 10);
+        return {
+          date: itemDate,
+          day: String(item?.day || `Day ${idx + 1}`),
+          type: 'video',
+          topic: String(item?.topic || '').slice(0, 200),
+          hook: String(item?.hook || '').slice(0, 200),
+          targetDesire: String(item?.targetDesire || '').slice(0, 250),
+          prompt: String(item?.prompt || '').slice(0, 2000),
+          voiceGender: item?.voiceGender === 'Male' ? 'Male' : 'Female',
+          voiceOverText: String(item?.voiceOverText || '').trim().slice(0, 500),
+          performanceStyle: String(item?.performanceStyle || '').trim().slice(0, 1000),
+          suggestedPostTime: String(item?.suggestedPostTime || '11:30 AM').slice(0, 30),
+          cta: String(item?.cta || '').slice(0, 120),
+          selected: true,
+        };
+      });
+
+      return res.status(200).json({
+        success: true,
+        query,
+        adsFound: rawAds.length,
+        metaApiAvailable,
+        customerInsights: {
+          whatTheyBought: Array.isArray(parsed?.customerInsights?.whatTheyBought) ? parsed.customerInsights.whatTheyBought : [],
+          whatTheyLike: Array.isArray(parsed?.customerInsights?.whatTheyLike) ? parsed.customerInsights.whatTheyLike : [],
+          contentDesires: Array.isArray(parsed?.customerInsights?.contentDesires) ? parsed.customerInsights.contentDesires : [],
+          targetPersonas: Array.isArray(parsed?.customerInsights?.targetPersonas) ? parsed.customerInsights.targetPersonas : [],
+        },
+        competitors: Array.isArray(parsed?.competitors) ? parsed.competitors : [],
+        videoPlan: normalizedPlan,
+        summaryReport: String(parsed?.summaryReport || ''),
+      });
     }
 
     if (action === 'plannerAuto') {
