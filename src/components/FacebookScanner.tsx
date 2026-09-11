@@ -112,6 +112,14 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     facebookPage: 'Facebook Page / Channel',
     publicContacts: 'ព័ត៌មានទំនាក់ទំនងសាធារណៈ',
     notFoundPublic: 'រកមិនឃើញជាសាធារណៈ',
+    tryAsking: 'ឬសាកល្បងសួរ៖',
+    suggestions: [
+      'ហាងសម្លៀកបំពាក់នារី',
+      'Skincare Cambodia',
+      'ភោជនីយដ្ឋានកម្ពុជា',
+      'សេវាកម្មសម្ផស្ស និង Spa',
+      'អចលនទ្រព្យ ភ្នំពេញ',
+    ],
   } : {
     eyebrow: 'Facebook Audience Intelligence',
     title: 'Customer & competitor scanner',
@@ -163,6 +171,14 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     facebookPage: 'Facebook Page / Channel',
     publicContacts: 'Public contact details',
     notFoundPublic: 'Not found publicly',
+    tryAsking: 'Or try asking:',
+    suggestions: [
+      "Women's fashion shop",
+      'Skincare Cambodia',
+      'Cambodia restaurant',
+      'Beauty salon & spa services',
+      'Real estate Phnom Penh',
+    ],
   };
 
   const scan = async () => {
@@ -272,6 +288,19 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                 placeholder={text.placeholder}
                 className="h-14 w-full bg-transparent text-sm font-medium text-slate-800 outline-none placeholder:text-slate-400 dark:text-white"
               />
+            </div>
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <span className="text-xs font-medium text-slate-400">{text.tryAsking}</span>
+              {text.suggestions.map((suggestion) => (
+                <button
+                  key={suggestion}
+                  type="button"
+                  onClick={() => setQuery(suggestion)}
+                  className="rounded-full border border-brand-200 bg-white/70 px-3 py-1 text-xs font-semibold text-brand-700 transition hover:bg-brand-50 dark:border-brand-800 dark:bg-slate-900/60 dark:text-brand-300 dark:hover:bg-slate-800"
+                >
+                  {suggestion}
+                </button>
+              ))}
             </div>
           </label>
           <label className="space-y-2">
