@@ -33,6 +33,12 @@ it('atomically queues only the reviewed video and records its reviewer', async (
   expect(tx.set).toHaveBeenCalledWith({ name: 'scheduled_posts', id: 'review-abcdefghijk' }, expect.objectContaining({ mediaUrl: 'https://video', status: 'PENDING', userId: 'owner' }));
   expect(tx.update).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ reviewedBy: 'owner', 'speechVerification.naturalnessReviewed': true }));
 });
+it('allows the owner to manually approve when automatic transcription was unavailable', async () => {
+  const tx = setup({ userId: 'owner', type: 'video', status: 'REVIEW', resultMediaUrl: 'https://video', speechVerification: { passed: false, unavailable: true } });
+  const res = response(); await handler(request(), res);
+  expect(res.statusCode).toBe(200);
+  expect(tx.set).toHaveBeenCalledWith({ name: 'scheduled_posts', id: 'review-abcdefghijk' }, expect.objectContaining({ mediaUrl: 'https://video', status: 'PENDING' }));
+});
 it('retries only an owned failed/review item and clears stale generation data', async () => {
   const tx = setup({ userId: 'owner', status: 'FAILED' });
   const res = response(); await handler(request({ action: 'retry' }), res);

@@ -977,6 +977,11 @@ export default async function handler(req, res) {
         const postered = await applyPosterTextOverlay(image.imageUrl, item.headline || '', item.cta || '');
         const watermarked = await applyLogoWatermarkServer(postered, profileSnap?.data()?.logoDataUrl);
         const uploaded = await uploadMediaDataUrl({ mediaDataUrl: watermarked, mediaType: 'photo' });
+        // Persist the durable Cloudinary URL as soon as the (paid) image exists, before
+        // the Telegram send that follows can fail -- otherwise a transient delivery
+        // failure (rate limit, timeout, missing bot config) hits the catch below and
+        // discards an already-generated image, forcing a costly full regeneration on retry.
+        await planDoc.ref.update({ resultMediaUrl: uploaded.mediaUrl });
 
         const { token, chatId } = await resolveTelegramDestination(db, item.userId);
         if (!token || !chatId) {

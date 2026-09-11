@@ -34,11 +34,17 @@ type VoicePersona = 'sreymom' | 'piseth';
 // indefinitely. 70s covers ordinary calls, matching the pattern already used
 // in src/lib/geminiService.ts.
 const AI_FETCH_TIMEOUT_MS = 70000;
-// videoStatus is the exception: once OpenRouter reports a clip "completed",
-// api/ai.js's poll downloads the full video and base64-encodes it into the
-// same response (see pollOpenRouterVideo in api/_openrouter.js) -- a multi-MB
-// transfer, not a quick status check. The generic 70s timeout was aborting
-// that specific request (surfacing as "Video generation took too long") even
+// videoStatus and videoGenerate are exceptions to the generic 70s budget:
+// - videoStatus: once OpenRouter reports a clip "completed", api/ai.js's poll
+//   downloads the full video and base64-encodes it into the same response
+//   (see pollOpenRouterVideo in api/_openrouter.js) -- a multi-MB transfer,
+//   not a quick status check.
+// - videoGenerate: for a Khmer-speech avatar video, this one request chains
+//   an avatar image generation, a Cloudinary upload, a TTS narration call and
+//   a second Cloudinary upload (see startKhmerVideoJob in api/_khmerVideo.js)
+//   before it ever returns a jobId.
+// Either can easily run past 70s. The generic timeout was aborting them
+// client-side (surfacing as "Video generation took too long"/"failed") even
 // though the server (given up to 300s via vercel.json) was still working.
 const VIDEO_STATUS_FETCH_TIMEOUT_MS = 240000;
 const fetchAiWithTimeout = (body: unknown, timeoutMs: number = AI_FETCH_TIMEOUT_MS) => {
@@ -326,7 +332,7 @@ const attemptGenerateVideoClip = async (
   duration: number,
   khmerSpeech?: { script: string; voiceGender: string; businessName?: string },
 ): Promise<string> => {
-  const response = await fetchAiWithTimeout({ action: 'videoGenerate', prompt, images, duration, khmerSpeech });
+  const response = await fetchAiWithTimeout({ action: 'videoGenerate', prompt, images, duration, khmerSpeech }, VIDEO_STATUS_FETCH_TIMEOUT_MS);
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || 'Video generation failed.');
   const jobId = data.jobId;

@@ -56,7 +56,7 @@ interface SavedPlanItem {
   status: 'PENDING' | 'PROCESSING' | 'DONE' | 'FAILED' | 'REVIEW';
   errorMessage?: string;
   resultMediaUrl?: string;
-  speechVerification?: { passed: boolean; similarity: number; transcript?: string; expected?: string };
+  speechVerification?: { passed: boolean; similarity?: number; transcript?: string; expected?: string; unavailable?: boolean };
 }
 
 interface AIAgentProps {
@@ -1284,14 +1284,27 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                               )}
                               {['FAILED', 'REVIEW'].includes(item.status) && item.resultMediaUrl && (
                                 <div className="mt-2 space-y-1">
-                                  <video src={item.resultMediaUrl} controls className="w-full max-w-xs rounded-lg" />
+                                  {item.type === 'video' ? (
+                                    <video src={item.resultMediaUrl} controls className="w-full max-w-xs rounded-lg" />
+                                  ) : (
+                                    <img src={item.resultMediaUrl} alt={item.topic} className="w-full max-w-xs rounded-lg" />
+                                  )}
                                   <a href={item.resultMediaUrl} download className="text-[10px] font-bold text-brand-600 underline dark:text-brand-400">
-                                    {language === 'km' ? 'ទាញយកវីដេអូនេះមកពិនិត្យ' : 'Download this video to review'}
+                                    {item.type === 'video'
+                                      ? (language === 'km' ? 'ទាញយកវីដេអូនេះមកពិនិត្យ' : 'Download this video to review')
+                                      : (language === 'km' ? 'ទាញយករូបភាពនេះមកពិនិត្យ' : 'Download this image to review')}
                                   </a>
                                 </div>
                               )}
                               {['FAILED', 'REVIEW'].includes(item.status) && item.speechVerification && (
                                 <div className="mt-1 space-y-0.5 text-[10px] text-slate-500 dark:text-slate-400">
+                                  {item.speechVerification.unavailable && (
+                                    <p className="font-bold text-amber-600 dark:text-amber-300">
+                                      {language === 'km'
+                                        ? 'ប្រព័ន្ធផ្ទៀងផ្ទាត់សំឡេងមិនអាចប្រើបាន។ សូមមើល និងស្តាប់វីដេអូដោយផ្ទាល់មុនអនុម័ត។'
+                                        : 'Automatic speech verification was unavailable. Watch and listen to the video before approving it.'}
+                                    </p>
+                                  )}
                                   <p>
                                     {language === 'km' ? 'ត្រូវការនិយាយ' : 'Expected'}: {item.speechVerification.expected || '—'}
                                   </p>

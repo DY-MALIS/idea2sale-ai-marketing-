@@ -152,6 +152,11 @@ export interface BusinessDirectoryEntry {
 export interface BusinessProfileData {
   businessName: string;
   logoDataUrl: string;
+  // What the business actually sells/offers, in the owner's own words -- the
+  // one piece of self-knowledge every AI feature (competitor research, ad
+  // copy, video prompts) needs before it can judge what's actually relevant,
+  // rather than working from the business name alone.
+  businessDescription?: string;
   directory: BusinessDirectoryEntry[];
   // Optional: lets a user post scheduled Telegram content to their own channel
   // instead of the app's shared default one (TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID).

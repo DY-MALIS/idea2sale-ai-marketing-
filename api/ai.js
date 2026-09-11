@@ -20,6 +20,7 @@ import { checkRateLimit, getClientIp } from './_rateLimit.js';
 import { notifyAdmins } from './_alert.js';
 import { searchCompetitorAds } from './_facebookAdLibrary.js';
 import { searchBusinessesOnWeb } from './_webBusinessSearch.js';
+import { researchCompetitors } from './_competitorResearch.js';
 import { uploadMediaDataUrl } from './_cloudinaryUpload.js';
 import { sendOutreachEmail } from './_email.js';
 
@@ -912,13 +913,22 @@ Return ONLY a valid JSON array of these objects, no markdown, no commentary.`,
         .slice(0, 5);
       if (!countries.length) countries.push('KH');
 
-      // Web search and X/social context are independent, so they run
-      // concurrently rather than one-after-another -- this scan still has a
-      // full LLM generation call after these, and sequential awaits here were
-      // previously pushing the whole request past Vercel's maxDuration.
-      const [webSearchSettled, xContextSettled] = await Promise.allSettled([
+      // Web search, X/social context, and competitor research are independent,
+      // so they run concurrently rather than one-after-another -- this scan
+      // still has a full LLM generation call after these, and sequential
+      // awaits here were previously pushing the whole request past Vercel's
+      // maxDuration.
+      // Self-lookup: before judging what counts as a competitor, the scan needs
+      // to actually know what OUR OWN business is/does -- not just its saved
+      // name. This is never asked of the user as a form field (that would just
+      // be another thing to keep in sync); it's derived the same way target/
+      // competitor research is, from a live, citation-backed web search on the
+      // business's own name.
+      const [webSearchSettled, xContextSettled, competitorResearchSettled, ownBusinessResearchSettled] = await Promise.allSettled([
         searchBusinessesOnWeb({ searchTerms: query, country: 'Cambodia' }),
         fetchXContextForEntity(query),
+        researchCompetitors({ query, country: 'Cambodia' }),
+        userBusinessName ? researchCompetitors({ query: userBusinessName, country: 'Cambodia' }) : Promise.resolve(null),
       ]);
 
       let rawWebBusinesses = [];
@@ -937,11 +947,39 @@ Return ONLY a valid JSON array of these objects, no markdown, no commentary.`,
         console.warn('Social context lookup skipped:', xContextSettled.reason?.message);
       }
 
+      // No result here means "treat the query as a general niche" -- the prompt
+      // below is written so an empty/failed lookup still produces a safe,
+      // non-fabricated output (an empty competitors array) rather than falling
+      // back to the model guessing names from memory.
+      let verifiedCompetitors = [];
+      let targetEntitySummary = '';
+      if (competitorResearchSettled.status === 'fulfilled') {
+        verifiedCompetitors = competitorResearchSettled.value.competitors;
+        targetEntitySummary = competitorResearchSettled.value.entitySummary;
+      } else {
+        console.warn('Competitor research failed or skipped:', competitorResearchSettled.reason?.message);
+      }
+
+      // Empty/failed means live search found nothing about this business name --
+      // proceed without self-grounding rather than blocking the scan on it.
+      let ownBusinessSummary = '';
+      if (ownBusinessResearchSettled.status === 'fulfilled' && ownBusinessResearchSettled.value) {
+        ownBusinessSummary = ownBusinessResearchSettled.value.entitySummary;
+      } else if (ownBusinessResearchSettled.status === 'rejected') {
+        console.warn('Own-business self-lookup failed or skipped:', ownBusinessResearchSettled.reason?.message);
+      }
+
       const webBusinessSummary = rawWebBusinesses.length
         ? rawWebBusinesses.slice(0, 12).map((biz, idx) => {
             return `[Web Business ${idx + 1}] Name: ${biz.businessName} | Type: ${biz.businessType} | Address: ${biz.address || 'not available'} | Phone: ${biz.phone || 'not available'} | Email: ${biz.email || 'not available'} | Telegram: ${biz.telegram || 'not available'} | Website: ${biz.website || 'not available'} | Facebook Page: ${biz.facebookPageName || 'not available'} | Facebook Page URL: ${biz.facebookPageUrl || 'not available'} | Source URL: ${biz.sourceUrl}`;
           }).join('\n')
         : 'Live web business search not connected or returned 0 verified businesses.';
+
+      const competitorResearchSummary = verifiedCompetitors.length
+        ? verifiedCompetitors.map((c, idx) => (
+            `[Verified Competitor ${idx + 1}] Name: ${c.name}${c.positioning ? ` | Positioning: ${c.positioning}` : ''} | Source: ${c.sourceUrl}`
+          )).join('\n')
+        : 'Live competitor search found 0 verified real competitors for this target.';
 
       const today = new Date();
       const todayStr = today.toISOString().slice(0, 10);
@@ -952,12 +990,17 @@ Target Niche / Product / Competitor: "${query}"
 Target Market: ${countries.join(', ')}
 Video Schedule Length: ${requestedDays} days starting ${todayStr}
 ${userBusinessName ? `Our Business Name (the business this content is FOR, not a competitor): "${userBusinessName}"` : ''}
+${userBusinessName ? `What our own business actually is, per live web search (empty if not found -- never assume from the name alone): ${ownBusinessSummary || '(not found in live search -- proceed using only the target/niche context below)'}` : ''}
 
 ${CAMBODIA_MARKET_CONTEXT}
 
 Live Web Search Business Context (each entry is backed by a real search citation URL):
 ${webBusinessSummary}
 ${xContext ? `Live social signals: ${xContext.slice(0, 800)}` : ''}
+
+Verified Competitor Research (each competitor is backed by a real, independently-checked source URL -- see section 2 below for how to use this):
+${targetEntitySummary ? `What "${query}" actually is, per live search: ${targetEntitySummary}` : ''}
+${competitorResearchSummary}
 
 CRITICAL TASK:
 Deeply scan and analyze Facebook customer behavior, pain points, competitor strategies, and produce a complete day-by-day Video Production Schedule.
@@ -969,9 +1012,11 @@ Deeply scan and analyze Facebook customer behavior, pain points, competitor stra
    - Target personas: 2-3 specific customer profiles with demographics and exact buying triggers.
 
 2. COMPETITOR INTELLIGENCE (ស្វែងរក និងវិភាគគូប្រជែងពី Facebook):
-   - 3-4 top competitor pages, stores, or brands in this niche on Facebook.
-   - Their current main angles, promotion hooks, and pricing tactics.
-   - Competitor gaps/weaknesses (e.g. slow response, poor video quality, hidden fees, lack of clear tutorials) and how our business can outmaneuver them.
+   - Use ONLY the businesses listed in the "Verified Competitor Research" context above as your competitors. Never add, substitute, or invent a competitor name that is not listed there -- if that context found 0 verified competitors, return an empty "competitors" array. Guessing a plausible-sounding name is never acceptable, even if the list would otherwise be short or empty.
+   - For each verified competitor, infer its likely current main angle, promotion hooks, and pricing tactics using sound Cambodian social-commerce marketing reasoning grounded in its listed positioning (if given) and business type -- but never state a specific unverifiable fact (an exact price, a specific complaint, a specific stat) as if it were confirmed; phrase inferred tactics as reasoned analysis, not as observed fact.
+   - Competitor gaps/weaknesses (e.g. slow response, poor video quality, hidden fees, lack of clear tutorials) and how our business can outmaneuver them -- same rule: reasoned analysis, not fabricated specifics.
+   - "counterStrategy" MUST pick the lever(s) that most directly attack THIS competitor's specific weakness, not a generic pep talk. Choose from concrete Cambodian social-commerce differentiation levers: (1) Trust & proof -- visible reviews, live-selling showing the real product/seller, a clear return/exchange policy where the competitor is opaque; (2) Speed -- faster delivery or faster message response where the competitor is slow; (3) Content quality -- more authentic, higher-production video/photo (Before/After, honest demos) where the competitor's content is weak or generic; (4) Price/value clarity -- transparent all-in pricing or clearer bundles where the competitor hides fees or is confusing; (5) Service depth -- tutorials, after-sale support, or personalization where the competitor offers none. Name the specific lever(s) used, not just "be better."
+   - Ground "counterStrategy" in what our own business actually is, per the "What our own business actually is" line above, when it was found -- do not propose a counter-strategy that only makes sense for a generic/different kind of business than ours. If it was not found, keep the counter-strategy general enough to fit any business in this niche rather than inventing specifics about ours.
 
 3. POTENTIAL CLIENT LEADS (អាជីវកម្មដែលអាចត្រូវការសេវាផលិត Content/Video):
    - Use ONLY real businesses explicitly present in the Live Web Search Business Context above. Never invent a business, Page, URL, phone number, email address, or contact identity.
@@ -984,6 +1029,7 @@ Deeply scan and analyze Facebook customer behavior, pain points, competitor stra
    - Copy businessName/address/phone/email/telegram/website/facebookPageName/facebookPageUrl/evidenceSourceUrl (use the Source URL) EXACTLY from the Web Search context. Never fabricate any field left blank in the source context.
 
 4. VIDEO PRODUCTION CALENDAR (កាលវិភាគសម្រាប់ការធ្វើ Plan បង្កើតវីដេអូ):
+   - This calendar is where the differentiation levers from section 2's "counterStrategy" entries actually get executed, not a separate list of generic content ideas -- across the ${requestedDays} days, distribute videos that each visibly act on at least one specific competitor weakness/counterStrategy identified above (e.g. a competitor's opaque pricing -> a video with transparent price breakdown; a competitor's weak/generic content -> an authentic Before/After or honest demo). If 0 verified competitors were found, fall back to targeting the general customer pain points from section 1 instead.
    - Create exactly ${requestedDays} daily video items (one per day starting from ${todayStr}, format: YYYY-MM-DD).
    - Each video item is formatted for AI video generation (Veo / Seedance) with high-converting short-form hooks (8 seconds).
    - For EACH video item include:
@@ -1001,6 +1047,7 @@ Deeply scan and analyze Facebook customer behavior, pain points, competitor stra
 
 5. SUMMARY REPORT (របាយការណ៍សង្ខេប):
    - A comprehensive Markdown report in ${outputLanguage} using clean headings, emojis, bullet points, and practical strategic takeaways.
+   - MUST include a dedicated "How to outperform them" section that synthesizes across ALL verified competitors (not repeating each one's counterStrategy verbatim): pick the 2-3 differentiation levers (from section 2's list) that appear most often as real gaps, and state them as a prioritized action list -- what to do first, second, third. If 0 verified competitors were found, state that plainly instead of inventing a synthesis.
 
 Return ONLY a single valid JSON object with this exact structure:
 {

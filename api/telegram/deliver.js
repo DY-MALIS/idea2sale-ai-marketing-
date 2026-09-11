@@ -151,6 +151,16 @@ export const processContentPlanVideo = async (db, itemId, req) => {
     return { ok: true };
   } catch (error) {
     const message = error?.message || 'Video generation failed.';
+    if (error?.verificationUnavailable && error?.speechVerification) {
+      await ref.update({
+        status: 'REVIEW',
+        errorMessage: message,
+        speechVerification: error.speechVerification,
+        reviewRequestedAt: FieldValue.serverTimestamp(),
+      });
+      await notifyAdmins(`Content plan video item ${itemId} needs manual review: ${message}`);
+      return { ok: false, reviewRequired: true, error: message };
+    }
     await ref.update({ status: 'FAILED', errorMessage: message, failedAt: FieldValue.serverTimestamp(), ...(error?.speechVerification ? { speechVerification: error.speechVerification } : {}) });
     await notifyAdmins(`Content plan video item ${itemId} failed: ${message}`);
     return { ok: false, error: message };

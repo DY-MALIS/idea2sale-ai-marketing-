@@ -101,6 +101,22 @@ describe('processContentPlanVideo', () => {
     expect(updates).toContainEqual({ speechVerification: { passed: false, similarity: 0.4 } });
     expect(updates.at(-1)).toMatchObject({ status: 'FAILED' });
   });
+  it('keeps a generated video for review when transcription infrastructure is unavailable', async () => {
+    mockPollOpenRouterVideo.mockResolvedValue({ videoUrl: 'native-video' });
+    mockUploadMediaDataUrl.mockResolvedValue({ mediaUrl: 'uploaded-native-video' });
+    mockVerifySpeech.mockRejectedValueOnce(Object.assign(new Error('Verification unavailable'), {
+      verificationUnavailable: true,
+      speechVerification: { passed: false, unavailable: true },
+    }));
+    global.fetch = vi.fn();
+    const updates = [];
+    const result = await processContentPlanVideo(fakeDb({
+      status: 'PROCESSING', videoJobId: 'job', prompt: 'Khmer dialogue', voiceOverText: 'សួស្តី',
+    }, p => updates.push(p)), 'item', {});
+    expect(result).toMatchObject({ ok: false, reviewRequired: true });
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(updates.at(-1)).toMatchObject({ status: 'REVIEW', speechVerification: { unavailable: true } });
+  });
   it('skips sending when a concurrent/duplicate invocation already claimed delivery', async () => {
     mockPollOpenRouterVideo.mockResolvedValue({ videoUrl: 'native-video' });
     mockUploadMediaDataUrl.mockResolvedValue({ mediaUrl: 'uploaded-native-video' });

@@ -25,7 +25,7 @@ const jsonFromText = (text) => {
   }
 };
 
-async function urlIsReachable(url, timeoutMs = 6000) {
+export async function urlIsReachable(url, timeoutMs = 6000) {
   if (!/^https?:\/\//i.test(url)) return false;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);

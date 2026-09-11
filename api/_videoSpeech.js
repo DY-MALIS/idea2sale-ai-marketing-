@@ -32,7 +32,27 @@ export async function verifyUploadedVideoSpeech(videoUrl, expected) {
   if (!audio.ok) throw new Error('Could not extract video audio for verification.');
   const bytes = Buffer.from(await audio.arrayBuffer());
   if (!bytes.length || bytes.length > 6000000) throw new Error('Invalid verification audio size.');
-  const transcript = await transcribeAudioWithOpenRouter({ audioBase64: bytes.toString('base64'), format: 'wav', languageHint: 'Khmer' });
+  let transcript;
+  try {
+    transcript = await transcribeAudioWithOpenRouter({ audioBase64: bytes.toString('base64'), format: 'wav', languageHint: 'Khmer' });
+  } catch (cause) {
+    // The generated video is still a valid, paid-for artifact when the separate
+    // STT provider is unavailable. Distinguish that infrastructure failure from
+    // an actual transcript mismatch so the delivery worker can retain the video
+    // for human review instead of presenting generation itself as FAILED (and
+    // encouraging a second paid generation attempt).
+    const error = new Error('Automatic Khmer speech verification is temporarily unavailable. Video retained for manual review; not sent to Telegram.');
+    error.verificationUnavailable = true;
+    error.cause = cause;
+    error.speechVerification = {
+      passed: false,
+      unavailable: true,
+      expected,
+      method: 'transcription-unavailable',
+      naturalnessReviewed: false,
+    };
+    throw error;
+  }
   const check = compareKhmerTranscript(expected, transcript);
   const verification = { ...check, transcript, expected, method: 'transcript-comparison', naturalnessReviewed: false };
   if (!check.passed) {

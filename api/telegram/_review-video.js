@@ -25,7 +25,9 @@ export default async function reviewVideoHandler(req, res) {
         transaction.update(ref, { status: 'PENDING', errorMessage: null, resultMediaUrl: null, speechVerification: null, narrationAudio: null, videoJobId: null });
         return;
       }
-      if (item.status !== 'REVIEW' || item.type !== 'video' || !item.speechVerification?.passed || !mediaUrl || mediaUrl !== item.resultMediaUrl) {
+      const verificationAllowsManualReview = item.speechVerification?.passed === true
+        || item.speechVerification?.unavailable === true;
+      if (item.status !== 'REVIEW' || item.type !== 'video' || !verificationAllowsManualReview || !mediaUrl || mediaUrl !== item.resultMediaUrl) {
         throw new Error('This video is not ready for approval. Refresh and review the current video.');
       }
       const post = db.collection('scheduled_posts').doc(`review-${itemId}`);

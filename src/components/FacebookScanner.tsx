@@ -123,12 +123,18 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
 
   const [emailSendingIndex, setEmailSendingIndex] = useState<number | null>(null);
   const [emailSentIndex, setEmailSentIndex] = useState<number | null>(null);
+  // Kept separate from the top-of-page `error` (used for scan failures) so a
+  // failed "Send Email" click on one lead card shows its error next to that
+  // button instead of jumping to the top and looking like the scan itself
+  // (an unrelated action) just failed.
+  const [emailError, setEmailError] = useState<{ index: number; message: string } | null>(null);
 
   // Unlike Telegram, email has no "must message us first" restriction, so
   // this can actually send automatically instead of just copying a link.
   const sendLeadEmail = async (lead: FacebookPotentialLead, index: number) => {
     if (!user || isDemoMode || !lead.email) return;
     setEmailSendingIndex(index);
+    setEmailError(null);
     try {
       const idToken = await user.getIdToken();
       const response = await fetch('/api/ai', {
@@ -147,7 +153,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
       setEmailSentIndex(index);
       window.setTimeout(() => setEmailSentIndex((current) => (current === index ? null : current)), 2500);
     } catch (err: any) {
-      setError(err?.message || (isKm ? 'មិនអាចផ្ញើអ៊ីមែលបានទេ។' : 'Could not send the email.'));
+      setEmailError({ index, message: err?.message || (isKm ? 'មិនអាចផ្ញើអ៊ីមែលបានទេ។' : 'Could not send the email.') });
     } finally {
       setEmailSendingIndex(null);
     }
@@ -193,6 +199,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     sendEmail: 'ផ្ញើអ៊ីមែល',
     emailSent: 'បានផ្ញើ!',
     noVerifiedLeads: 'មិនទាន់មាន Lead ដែលបានផ្ទៀងផ្ទាត់ទេ។ សូមសាកល្បងស្គេនម្តងទៀត ដើម្បីទទួលបានឈ្មោះអាជីវកម្មពិត។',
+    noVerifiedCompetitors: 'ការស្វែងរកលើវេបផ្ទាល់មិនរកឃើញឈ្មោះគូប្រកួតប្រជែងពិតដែលអាចផ្ទៀងផ្ទាត់បានទេ។ ប្រព័ន្ធនឹងមិនស្មានឈ្មោះឡើយ។',
     needSignals: 'សញ្ញាថាត្រូវការ Content/Video',
     recommendedService: 'សេវាកម្មដែលគួរផ្តល់ជូន',
     publicContact: 'ព័ត៌មានទំនាក់ទំនងសាធារណៈ',
@@ -254,6 +261,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     sendEmail: 'Send Email',
     emailSent: 'Sent!',
     noVerifiedLeads: 'No verified leads yet. Try scanning again to receive real business names.',
+    noVerifiedCompetitors: 'Live web search found no real, verifiable competitor names. The system will not guess any.',
     needSignals: 'Signals they may need content/video',
     recommendedService: 'Recommended service',
     publicContact: 'Public contact',
@@ -494,9 +502,9 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
             </section>
           )}
 
-          {!!result.competitors.length && (
-            <section>
-              <h3 className="mb-4 flex items-center gap-2 text-xl font-black text-slate-800 dark:text-white"><BarChart3 className="text-indigo-500" />{text.competitors}</h3>
+          <section>
+            <h3 className="mb-4 flex items-center gap-2 text-xl font-black text-slate-800 dark:text-white"><BarChart3 className="text-indigo-500" />{text.competitors}</h3>
+            {result.competitors.length ? (
               <div className="grid gap-4 lg:grid-cols-2">
                 {result.competitors.map((competitor, index) => (
                   <article key={`${competitor.pageName}-${index}`} className="glass rounded-3xl p-6">
@@ -510,8 +518,10 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                   </article>
                 ))}
               </div>
-            </section>
-          )}
+            ) : (
+              <div className="rounded-3xl border border-dashed border-amber-300 bg-amber-50/70 p-6 text-sm leading-6 text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">{text.noVerifiedCompetitors}</div>
+            )}
+          </section>
 
           <section>
             <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
@@ -602,6 +612,11 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                         </button>
                       )}
                     </div>
+                    {emailError?.index === index && (
+                      <div className="mt-2 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
+                        <AlertCircle className="mt-0.5 shrink-0" size={14} />{emailError.message}
+                      </div>
+                    )}
                   </article>
                 ))}
               </div>
