@@ -99,7 +99,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     copied: 'បានចម្លង',
     live: 'ការស្វែងរកលើវេបបានភ្ជាប់',
     estimated: 'AI market estimate',
-    webBusinesses: 'អាជីវកម្មពិតត្រូវបានរកឃើញ (ស្វែងរកលើវេប)',
+    webBusinesses: 'Lead ពិតដែលបានផ្ទៀងផ្ទាត់',
     viewMap: 'មើលលើ Google Maps',
     call: 'ទូរស័ព្ទ',
     visitWebsite: 'ចូលទស្សនាគេហទំព័រ',
@@ -156,7 +156,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     copied: 'Copied',
     live: 'Web search connected',
     estimated: 'AI market estimate',
-    webBusinesses: 'real businesses found (web search)',
+    webBusinesses: 'verified leads',
     viewMap: 'View on Google Maps',
     call: 'Call',
     visitWebsite: 'Visit website',
@@ -326,7 +326,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
               {result.webSearchAvailable ? <Check size={15} /> : <Sparkles size={15} />}
               {result.webSearchAvailable ? text.live : text.estimated}
             </span>
-            {!!result.webSearchAvailable && <span className="rounded-full bg-blue-50 px-4 py-2 text-xs font-bold text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">{result.webBusinessesFound || 0} {text.webBusinesses}</span>}
+            {!!result.webSearchAvailable && <span className="rounded-full bg-blue-50 px-4 py-2 text-xs font-bold text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">{result.potentialLeads?.length || 0} {text.webBusinesses}</span>}
           </div>
 
           <div className="grid gap-5 xl:grid-cols-3">
