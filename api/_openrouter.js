@@ -57,7 +57,7 @@ const openRouterJson = async (path, body) => {
 const fileToDataUrl = (base64, mimeType) => `data:${mimeType};base64,${base64}`;
 
 const DEFAULT_REASONING_MODEL = 'openai/gpt-5.6-luna';
-const DEFAULT_IMAGE_MODEL = 'bytedance-seed/seedream-5-0-pro';
+const DEFAULT_IMAGE_MODEL = 'openai/gpt-image-2';
 const LEGACY_MINI_MODEL_PATTERN = /(?:^|\/)(?:gpt-)?(?:4o-mini|5-mini|gpt-5-mini)$/i;
 
 export const resolveOpenRouterTextModel = (model) => {
