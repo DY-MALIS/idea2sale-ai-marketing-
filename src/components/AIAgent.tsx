@@ -504,7 +504,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       const response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'extractContentPlan', language, ...body }),
+        body: JSON.stringify({ action: 'extractContentPlan', language, businessContext: businessContext || undefined, ...body }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Could not read this content plan.');
@@ -618,6 +618,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           type: item.type,
           topic: item.topic,
           prompt: item.prompt,
+          businessName: businessContext?.businessName || '',
           ...(item.type === 'image'
             ? { headline: item.headline || '', cta: item.cta || '' }
             : { voiceGender: item.voiceGender || 'Female', voiceOverText: item.voiceOverText || '', performanceStyle: item.performanceStyle || '', voiceOverWanted: true, voiceOverMode: 'edge-seedance' }),

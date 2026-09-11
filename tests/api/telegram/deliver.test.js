@@ -24,6 +24,7 @@ vi.mock('../../../api/telegram/run-scheduled.js', () => ({
   sendTelegram: vi.fn(),
   scheduleContentPlanPoll: mockScheduleContentPlanPoll,
   uploadMediaDataUrl: mockUploadMediaDataUrl,
+  applyCloudinaryLogoOverlay: (url) => url,
   resolveTelegramDestination: mockResolveTelegramDestination,
 }));
 vi.mock('../../../api/_telegramClaim.js', () => ({ claimPendingPost: vi.fn(), findRecentDuplicateTelegramPost: vi.fn() }));

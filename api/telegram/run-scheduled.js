@@ -273,8 +273,18 @@ export const uploadMediaDataUrl = async ({ mediaDataUrl, mediaType }) => {
   return {
     mediaUrl: applyCloudinaryDeliveryTransform(data.secure_url, resolvedMediaType),
     mediaType: resolvedMediaType,
-    ...(mediaType === 'audio' ? { publicId: data.public_id, duration: data.duration } : {}),
+    publicId: data.public_id,
+    ...(mediaType === 'audio' ? { duration: data.duration } : {}),
   };
+};
+
+export const applyCloudinaryLogoOverlay = (videoUrl, logoPublicId) => {
+  if (!logoPublicId || !/^[\w/-]+$/.test(logoPublicId)) return videoUrl;
+  const marker = '/video/upload/';
+  if (!String(videoUrl).includes(marker)) return videoUrl;
+  const layerId = logoPublicId.replaceAll('/', ':');
+  const transform = `l_${layerId}/c_scale,fl_relative,w_0.16/fl_layer_apply,g_south_west,x_0.04,y_0.04/`;
+  return String(videoUrl).replace(marker, `${marker}${transform}`);
 };
 
 const startPlanVideoJob = (item, speech) => startKhmerVideoJob(item, speech, uploadMediaDataUrl);
@@ -759,6 +769,8 @@ export default async function handler(req, res) {
         return res.status(400).json({ ok: false, error: 'The selected content plan item is not a video.' });
       }
       try {
+        const profileSnap = await db.collection('business_profiles').doc(item.userId).get().catch(() => null);
+        item.businessName = String(item.businessName || profileSnap?.data()?.businessName || '').trim();
         const speech = await preparePlanVideoSpeech(item);
         const { job, avatarImage, narrationAudio: generatedNarrationAudio } = await startPlanVideoJob(item, speech);
         await planRef.update({
@@ -1035,6 +1047,8 @@ export default async function handler(req, res) {
       }
       const item = claim.post;
       try {
+        const profileSnap = await db.collection('business_profiles').doc(item.userId).get().catch(() => null);
+        item.businessName = String(item.businessName || profileSnap?.data()?.businessName || '').trim();
         const speech = await preparePlanVideoSpeech(item);
         const { job, avatarImage, narrationAudio: generatedNarrationAudio } = await startPlanVideoJob(item, speech);
         await planDoc.ref.update({

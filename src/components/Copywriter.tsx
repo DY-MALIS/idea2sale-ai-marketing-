@@ -10,9 +10,12 @@ import Markdown from 'react-markdown';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useAuth } from '../contexts/AuthContext';
+import { getLatestBusinessBranding } from '../lib/businessBranding';
 
 const Copywriter: React.FC = () => {
     const { t, language } = useLanguage();
+    const { user, isDemoMode } = useAuth();
     const [copyPrompt, setCopyPrompt] = useState(() => localStorage.getItem('copy_prompt') || '');
     const [contentType, setContentType] = useState<'caption' | 'salepage' | 'script' | 'seo'>(
       (localStorage.getItem('copy_content_type') as any) || 'caption'
@@ -27,6 +30,7 @@ const Copywriter: React.FC = () => {
       setResult(null);
       setNeedsApiKey(false);
       try {
+      const businessContext = await getLatestBusinessBranding(user, isDemoMode);
       // Without a bound, a hung response leaves `loading` stuck true forever (the
       // finally below never runs until this await settles) -- the Generate button
       // stays disabled with a permanent spinner. Same fix already applied to
@@ -38,7 +42,7 @@ const Copywriter: React.FC = () => {
         response = await fetch('/api/ai', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'copywriter', prompt: copyPrompt, contentType, language }),
+          body: JSON.stringify({ action: 'copywriter', prompt: copyPrompt, contentType, language, businessContext }),
           signal: controller.signal
         });
       } finally {

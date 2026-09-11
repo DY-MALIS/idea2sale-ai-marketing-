@@ -101,6 +101,39 @@ const copyPromptByType = {
   seo: (prompt) => `Generate 20 SEO keywords and a meta description for: ${prompt}. Target Google and social search intent.`,
 };
 
+const businessContextFromBody = (body = {}) => {
+  const source = body.businessContext && typeof body.businessContext === 'object' ? body.businessContext : body;
+  const businessName = String(source?.businessName || '').trim().slice(0, 120);
+  const directory = Array.isArray(source?.directory)
+    ? source.directory.filter((entry) => entry?.name).slice(0, 20).map((entry) => ({
+        name: String(entry.name).trim().slice(0, 100),
+        type: entry.type === 'INDIVIDUAL' ? 'individual' : 'company',
+      }))
+    : [];
+  return { businessName, directory };
+};
+
+const businessContentInstruction = ({ businessName, directory }, { requireName = false } = {}) => {
+  if (!businessName && !directory.length) return '';
+  const knownNames = directory.length
+    ? ` Known directory names: ${directory.map((entry) => `${entry.name} (${entry.type})`).join(', ')}.`
+    : '';
+  return `\nSAVED BUSINESS PROFILE: The content is for "${businessName || 'the user\'s business'}".${knownNames} Use these exact saved names; never invent a replacement company name.${businessName ? ` ${requireName ? 'Every customer-facing script, spoken dialogue, caption and CTA MUST naturally say the exact business name at least once.' : 'Naturally identify the business by this exact name whenever the content represents, promotes, or asks viewers to contact it.'}` : ''}`;
+};
+
+export const ensureBusinessInInboxMessage = (message, businessName) => {
+  const text = String(message || '').trim();
+  const name = String(businessName || '').trim();
+  if (!name || text.toLocaleLowerCase().includes(name.toLocaleLowerCase())) return text;
+  if (/[ក-៿]/u.test(text)) {
+    const sender = `ខ្ញុំមកពី ${name}។ `;
+    return /^សួស្តី/u.test(text)
+      ? text.replace(/^(សួស្តី(?:បង|លោក|លោកស្រី)?[!,។]?\s*)/u, `$1${sender}`)
+      : `សួស្តី! ${sender}${text}`;
+  }
+  return `Hello! I’m reaching out from ${name}. ${text}`;
+};
+
 const productResearchPrompt = (query, language) => `Analyze the following product, niche, or URL: "${query}".
 
 ${CAMBODIA_MARKET_CONTEXT}
@@ -207,15 +240,15 @@ const contentPlanItemFieldRules = (language, dateInstruction) => `- "date": ${da
 - "headline": ONLY if "type" is "image" -- a short, punchy poster headline in ENGLISH (max 8 words). Omit or leave empty for "type": "video".
 - "cta": ONLY if "type" is "image" -- a short call-to-action button phrase in ENGLISH (2-4 words, e.g. "Learn More", "Join Now", "Get Started") fitting the item's intent. Omit or leave empty for "type": "video".
 - "voiceGender": ONLY if "type" is "video" -- pick exactly "Male" or "Female" for the presenter, whichever fits the topic/audience. The spoken narration is generated separately from the video and must match the presenter shown on screen, so this decision has to be explicit here, not left as "whichever fits" inside the prompt text. Omit or leave empty for "type": "image".
-- "voiceOverText": ONLY if "type" is "video" -- one concise, natural Cambodian Khmer sentence that fits comfortably inside eight seconds at normal speed. It must sound like a real person explaining one useful idea, not a slogan or literal translation. Use simple familiar words, correct Khmer punctuation and no stage directions.
+- "voiceOverText": ONLY if "type" is "video" -- one natural Cambodian Khmer sentence with two connected short clauses, targeting 65-85 total characters (minimum 65, maximum 90, including spaces and punctuation) so it fills about 7-8 seconds at a clear normal pace. It must sound like a real person explaining one useful idea, not a slogan or literal translation. Use simple familiar words, correct Khmer punctuation and no stage directions. Count the characters before returning; a short hook by itself is not enough.
 - "performanceStyle": ONLY if "type" is "video" -- an English direction for Gemini TTS describing the emotional arc and delivery for this exact item: opening attitude, meaningful words to emphasize, phrase-boundary pauses, pitch movement and closing tone. Keep it natural and restrained, never theatrical.
-- "prompt": a complete, vivid, ready-to-use AI image/video generation prompt, written ENTIRELY in English with no other script mixed in EXCEPT the literal quoted Khmer dialogue line described below (photorealistic product/marketing photography or video style, specific about subject/setting/mood, sharp focus, high production quality), turning the item's topic into real creative direction -- if the item only has an abstract theme, invent a concrete, on-topic visual scene for it rather than skipping it. The prompt must explicitly direct that the image/video contains NO on-screen text, captions, subtitles, titles, or written words of any kind rendered in the scene -- AI image/video models reliably garble rendered text into gibberish, so describe only visuals (and spoken audio for video) never text-on-screen. If "type" is "video": the video clip is only 8 seconds total and needs time for the presenter to appear/settle before speaking and for gestures around the line, so a spoken line anywhere near 8 seconds of actual speech reliably gets rushed or cut off mid-word -- the video model can also only speak a line correctly if given the EXACT words to say, not just an instruction to "speak Khmer" (an instruction alone produces mispronounced speech). So compose ONE natural, complete Khmer sentence targeting 35-55 KHMER CHARACTERS and never exceeding 60 characters total, punctuation included (real Khmer script, something a presenter would actually say about this topic -- Khmer has no spaces between words so count actual characters, not words, to judge length; use most of the 8-second clip while leaving a brief settling moment) and embed it in the prompt using this exact pattern with a colon (not quotation marks, to avoid triggering subtitles): a real-looking Cambodian MALE or FEMALE presenter (use the literal word "male" or "female", matching the "voiceGender" field exactly -- never leave this as "whichever gender fits" in the actual prompt text, because the visible presenter and native voice are generated together and must match) speaks about the product clearly and carefully, at a natural, brisk everyday pace -- not rushed, not slow or dragging -- and looks at the camera and says in Khmer: <the actual Khmer phrase here>. (no subtitles). Also direct energetic, lively hand gestures/facial expressions while speaking at a natural brisk speed, moving like a real person rather than standing stiff, static, or in slow motion, and authentic real-life footage quality, not obviously synthetic (the surrounding instruction still written in English, e.g. "...a Cambodian female presenter speaks about the product clearly and carefully at a brisk, natural pace, looks at the camera with a warm smile, and says in Khmer: ស្វាគមន៍មកកាន់ហាង។ (no subtitles), with energetic natural hand gestures, like real authentic footage...")
-FINAL VIDEO OVERRIDE: Khmer plan videos use a Khmer neural speech track and an audio-driven presenter video. For every video, write a visual-only English "prompt" for a single photorealistic adult Cambodian presenter in a stable eye-level medium shot with face, chest and both hands visible; the server uses it to create the source portrait. Put all spoken Khmer only in "voiceOverText" as one natural complete 35-55 character sentence, never over 60 characters. Set "voiceGender" explicitly to Male or Female so the source portrait and Khmer neural voice match. Put delivery emotion and emphasis in "performanceStyle". Do not embed dialogue inside the visual prompt. The server synthesizes the exact Khmer script and uses that audio to drive lip sync. Request lively normal-speed movement, clear conversational delivery and small gestures timed to the spoken phrase; never slow motion or drawn-out pauses. Forbid additional people, text, captions, exaggerated poses, repeated waving and random pointing. This FINAL VIDEO OVERRIDE supersedes earlier native-video or separate-narration instructions.`;
+- "prompt": a complete, vivid, ready-to-use AI image/video generation prompt written entirely in English (photorealistic product/marketing style, specific subject, setting, mood, sharp focus and high production quality). Turn abstract themes into a concrete on-topic real-world activity instead of a static presenter pose: for example doing office work, using a laptop, reviewing a campaign, demonstrating a product, serving a customer or joining a small meeting. Choose one person for a naturally solo activity or multiple people when teamwork/customer interaction is more authentic. All visible people must be Cambodian young adults age 18-25 in clean professional company-appropriate clothing. Designate exactly one primary presenter matching "voiceGender" as the only speaker; supporting people remain silent, secondary and naturally active in the background. Use authentic real-life footage, clear visual focus on the speaker, direct camera engagement and lively but controlled normal-speed movement. Explicitly require NO on-screen text, captions, subtitles, titles or written words. Keep all spoken Khmer out of this visual prompt; put the exact 65-85 character narration only in "voiceOverText" so the separate audio-driven lip-sync pipeline remains authoritative.
+FINAL VIDEO OVERRIDE: Khmer plan videos use a Khmer neural speech track and an audio-driven presenter video. For every video, write a visual-only English "prompt" for one continuous believable real-world activity with either one person or several people, whichever genuinely fits the topic. All visible people are photorealistic Cambodian young adults age 18-25 wearing clean professional company-appropriate clothing. There must be exactly one clearly framed primary presenter whose face and hands remain visible and who is the only person speaking; any supporting people stay silent, visually secondary and perform subtle relevant background actions without visible lip articulation. Put all spoken Khmer only in "voiceOverText" as one natural complete sentence with two connected short clauses, 65-85 total characters and never over 90 characters. The line must use most of the 8-second clip and must not be only a short hook. Set "voiceGender" explicitly to Male or Female so the primary presenter and Khmer neural voice match. Put delivery emotion and emphasis in "performanceStyle". Do not embed dialogue inside the visual prompt. Request lively, confident real-time movement, direct camera engagement, expressive professional facial reactions and two purposeful hand or task actions timed to the spoken clauses; never slow motion, static posing or drawn-out pauses. Forbid text, captions, exaggerated poses, repeated waving, random pointing and chaotic crowd motion. This FINAL VIDEO OVERRIDE supersedes earlier native-video or separate-narration instructions.`;
 
 // Shared by extractContentPlan and researchFacebookCompetitors: turns the raw
 // AI JSON response into the exact PlanItem shape the frontend's plan-review
 // UI and content_plan_items schema expect, with the same field length caps.
-const parseContentPlanItems = (text) => jsonFromText(text, [])
+const parseContentPlanItems = (text, businessName = '') => jsonFromText(text, [])
   .filter((item) => item && /^\d{4}-\d{2}-\d{2}$/.test(item.date) && item.prompt)
   .map((item) => ({
     date: item.date,
@@ -227,7 +260,12 @@ const parseContentPlanItems = (text) => jsonFromText(text, [])
       cta: String(item.cta || '').slice(0, 30),
     } : {
       voiceGender: item.voiceGender === 'Male' ? 'Male' : 'Female',
-      voiceOverText: String(item.voiceOverText || '').trim().slice(0, 500),
+      voiceOverText: (() => {
+        const line = String(item.voiceOverText || '').trim();
+        return businessName && !line.toLocaleLowerCase().includes(businessName.toLocaleLowerCase())
+          ? `${businessName}៖ ${line}`.trim().slice(0, 80)
+          : line.slice(0, 500);
+      })(),
       performanceStyle: String(item.performanceStyle || '').trim().slice(0, 1000),
     }),
   }))
@@ -344,7 +382,7 @@ Core behavior:
 
 const creativeMediaPattern = /\b(image|photo|poster|visual|video|reel|short film|generate media|create media)\b|រូបភាព|រូបថត|ប៉ូស្ទ័រ|វីដេអូ|វីដេអូខ្លី|បង្កើតរូប|បង្កើតវីដេអូ/i;
 
-const buildCreativeAutomation = async ({ message, historyText, responseLanguage }) => {
+const buildCreativeAutomation = async ({ message, historyText, responseLanguage, businessContext }) => {
   const conversation = `${historyText}\nUser: ${message}`.trim();
   if (!creativeMediaPattern.test(conversation)) return null;
 
@@ -352,6 +390,7 @@ const buildCreativeAutomation = async ({ message, historyText, responseLanguage 
   try {
     rawPlan = await generateOpenRouterText({
       system: `You classify visual-asset creation requests for an AI marketing app.
+${businessContentInstruction(businessContext, { requireName: true })}
 Return only valid JSON, with no markdown or explanation.
 Do not create a plan for ordinary text content, questions, troubleshooting, greetings, thanks, captions, scripts, or strategy unless the user explicitly wants an image or video generated by the app.
 Use recent conversation to resolve short follow-ups.
@@ -418,7 +457,12 @@ Aspect ratio defaults: TikTok/Reels/Shorts video=9:16, TikTok image=4:5, Faceboo
     : fallbackRatio;
   const prompt = String(plan.prompt || '').trim().slice(0, 5000);
   const duration = TOTAL_VIDEO_DURATION_OPTIONS.includes(Number(plan.duration)) ? Number(plan.duration) : 8;
-  const voiceOverText = String(plan.voiceOverText || '').trim().slice(0, 2000);
+  const generatedVoiceOverText = String(plan.voiceOverText || '').trim().slice(0, 2000);
+  const voiceOverText = plan.kind === 'video' && plan.voiceOverWanted === true
+    && businessContext?.businessName
+    && !generatedVoiceOverText.toLocaleLowerCase().includes(businessContext.businessName.toLocaleLowerCase())
+      ? `${businessContext.businessName}៖ ${generatedVoiceOverText}`.trim().slice(0, 2000)
+      : generatedVoiceOverText;
   // Narration must be an explicit true/false decision for video, never inferred from silence — a video
   // is only ready once that choice is made, and if narration was wanted, the script must be filled in too.
   const narrationSettled = plan.kind !== 'video'
@@ -568,6 +612,7 @@ export default async function handler(req, res) {
     if (action === 'copywriter') {
       const prompt = String(req.body?.prompt || '').trim();
       const contentType = String(req.body?.contentType || 'caption');
+      const businessContext = businessContextFromBody(req.body);
       if (!prompt) return res.status(400).json({ error: 'Please enter a campaign goal.' });
       const contentPrompt = copyPromptByType[contentType]?.(prompt) || copyPromptByType.caption(prompt);
       // The campaign-goal text's own language takes priority over the app's fixed
@@ -577,8 +622,8 @@ export default async function handler(req, res) {
       // Same detection already used for the AI Agent's socialAgent action.
       const responseLanguage = containsKhmerScript(prompt) ? 'Khmer' : 'English';
       const text = await generateOpenRouterText({
-        system: `You are an expert marketing copywriter.\n\n${CAMBODIA_MARKET_CONTEXT}`,
-        prompt: `${contentPrompt}\n\nWrite primarily in ${responseLanguage}. Use practical, ready-to-copy formatting.`,
+        system: `You are an expert marketing copywriter.\n\n${CAMBODIA_MARKET_CONTEXT}${businessContentInstruction(businessContext, { requireName: true })}`,
+        prompt: `${contentPrompt}\n\nWrite primarily in ${responseLanguage}. Use practical, ready-to-copy formatting.${businessContext.businessName ? ` Every standalone customer-facing script or copy variation must naturally include the exact name "${businessContext.businessName}"; do not output a generic unnamed brand.` : ''}`,
       });
       return res.status(200).json({ text: text || 'No response generated.' });
     }
@@ -601,21 +646,16 @@ export default async function handler(req, res) {
         .filter((item) => item?.role === 'assistant' || item?.role === 'user')
         .map((item) => `${item.role === 'assistant' ? 'Assistant' : 'User'}: ${String(item.content || '').slice(0, 1800)}`)
         .join('\n');
-      const automation = await buildCreativeAutomation({ message, historyText, responseLanguage });
+      const businessContext = businessContextFromBody(req.body);
+      const automation = await buildCreativeAutomation({ message, historyText, responseLanguage, businessContext });
       const xContext = await fetchXContext(message);
 
       // Long-term memory: the user's saved Business Profile, so the agent knows the
       // business name and directory automatically instead of the user re-explaining
       // it every conversation. This is separate from (and persists across) the
       // recent-conversation window above, which only covers the current chat.
-      const businessContextInput = req.body?.businessContext;
-      const businessName = String(businessContextInput?.businessName || '').trim().slice(0, 200);
-      const businessDirectory = Array.isArray(businessContextInput?.directory)
-        ? businessContextInput.directory
-            .filter((entry) => entry?.name)
-            .slice(0, 20)
-            .map((entry) => `${String(entry.name).trim().slice(0, 100)} (${entry.type === 'INDIVIDUAL' ? 'individual' : 'company'})`)
-        : [];
+      const businessName = businessContext.businessName;
+      const businessDirectory = businessContext.directory.map((entry) => `${entry.name} (${entry.type})`);
       const businessContextText = businessName || businessDirectory.length
         ? `Business name: ${businessName || 'not set'}${businessDirectory.length ? `\nKnown people/companies in the user's directory: ${businessDirectory.join(', ')}` : ''}`
         : 'No saved business profile yet.';
@@ -636,6 +676,7 @@ Mode: ${mode}. If this is auto, infer the user's intent and answer that intent o
 
 Saved business profile (persistent memory across all conversations — use this naturally when relevant, never ask the user to repeat information already given here):
 ${businessContextText}
+${businessContentInstruction(businessContext, { requireName: true })}
 
 Creative automation: ${automation
   ? automation.ready
@@ -681,13 +722,14 @@ Response rules:
 
     if (action === 'adsStrategy') {
       const query = String(req.body?.query || '').trim();
+      const businessContext = businessContextFromBody(req.body);
       if (!query) return res.status(400).json({ error: 'Product or category is required.' });
       // The typed query's own language takes priority over the app's fixed UI
       // display-language toggle, same as every other free-text action below.
       const outputLanguage = containsKhmerScript(query) ? 'Khmer' : 'English';
       const strategy = await generateOpenRouterText({
-        system: `You are a practical paid social advertising strategist.\n\n${CAMBODIA_MARKET_CONTEXT}`,
-        prompt: `Create a concise digital advertising strategy for: "${query}". Write entirely in ${outputLanguage}. Include target audience, three-second hooks, campaign structure, and a practical test budget (in USD, matching how Cambodian sellers actually budget). Do not invent live ad-account metrics.`,
+        system: `You are a practical paid social advertising strategist.\n\n${CAMBODIA_MARKET_CONTEXT}${businessContentInstruction(businessContext)}`,
+        prompt: `Create a concise digital advertising strategy for: "${query}". Write entirely in ${outputLanguage}. Include target audience, three-second hooks, campaign structure, and a practical test budget (in USD, matching how Cambodian sellers actually budget). Do not invent live ad-account metrics.${businessContext.businessName ? ` Make every proposed customer-facing hook or CTA identify "${businessContext.businessName}" by its exact name.` : ''}`,
       });
       return res.status(200).json({ strategy: strategy || 'No strategy generated.' });
     }
@@ -711,25 +753,27 @@ Response rules:
 
     if (action === 'productResearch') {
       const query = String(req.body?.query || '').trim();
+      const businessContext = businessContextFromBody(req.body);
       if (!query) return res.status(400).json({ error: 'Please enter a product, niche, or URL to research.' });
       // The typed query's own language takes priority over the app's fixed UI
       // display-language toggle, same as every other free-text action here.
       const outputLanguageCode = containsKhmerScript(query) ? 'km' : 'en';
       const analysis = await generateOpenRouterText({
-        system: 'You are an expert e-commerce product researcher.',
-        prompt: productResearchPrompt(query, outputLanguageCode),
+        system: `You are an expert e-commerce product researcher.${businessContentInstruction(businessContext)}`,
+        prompt: `${productResearchPrompt(query, outputLanguageCode)}${businessContext.businessName ? `\nFrame the recommendations as practical opportunities for ${businessContext.businessName}, using that exact name.` : ''}`,
       });
       return res.status(200).json({ analysis });
     }
 
     if (action === 'competitorTracker') {
       const competitor = String(req.body?.competitor || '').trim();
+      const businessContext = businessContextFromBody(req.body);
       if (!competitor) return res.status(400).json({ error: 'Please enter a competitor, brand, or product to track.' });
       const outputLanguage = containsKhmerScript(competitor) ? 'Khmer' : 'English';
       const xContext = await fetchXContextForEntity(competitor);
       const report = await generateOpenRouterText({
-        system: 'You are a precise, practical competitive intelligence analyst.',
-        prompt: competitorTrackerPrompt(competitor, outputLanguage, xContext),
+        system: `You are a precise, practical competitive intelligence analyst.${businessContentInstruction(businessContext)}`,
+        prompt: `${competitorTrackerPrompt(competitor, outputLanguage, xContext)}${businessContext.businessName ? `\nWrite the counter-strategy specifically for ${businessContext.businessName}, named exactly.` : ''}`,
       });
       return res.status(200).json({ report: report || 'No report generated.' });
     }
@@ -749,6 +793,7 @@ Response rules:
     if (action === 'extractContentPlan') {
       const planUrl = String(req.body?.planUrl || '').trim();
       let planText = String(req.body?.planText || '').trim();
+      const businessContext = businessContextFromBody(req.body);
 
       if (!planText && planUrl) {
         const csvUrl = googleSheetsUrlToCsvExportUrl(planUrl);
@@ -779,13 +824,13 @@ Response rules:
         // so composing the actual dialogue line here (not just the video model
         // downstream) is the lever that actually controls speech quality.
         model: process.env.OPEN_ROUTER_CONTENT_PLAN_MODEL || 'google/gemini-3.1-pro-preview',
-        system: `You extract a content calendar from raw spreadsheet/CSV text (possibly multiple sheets from one workbook, separated by "--- Sheet: <name> ---" markers) and turn each dated row into a ready-to-use AI image/video generation prompt. Be generous, not strict: real content calendars rarely spell out a visual in plain words -- a row is a valid content item as long as it has a date and ANY topic, title, headline, or campaign name next to it, even if that text is abstract (e.g. "AI for educators: teach critical thinking, not shortcuts") rather than a literal scene description. Inventing a concrete visual concept from an abstract topic/headline is exactly your job here, not a reason to skip the row. Ignore sheets/rows that are clearly just strategy notes, KPI numbers, or config tables with no per-post dates.\n\n${CAMBODIA_MARKET_CONTEXT}`,
+        system: `You extract a content calendar from raw spreadsheet/CSV text (possibly multiple sheets from one workbook, separated by "--- Sheet: <name> ---" markers) and turn each dated row into a ready-to-use AI image/video generation prompt. Be generous, not strict: real content calendars rarely spell out a visual in plain words -- a row is a valid content item as long as it has a date and ANY topic, title, headline, or campaign name next to it, even if that text is abstract (e.g. "AI for educators: teach critical thinking, not shortcuts") rather than a literal scene description. Inventing a concrete visual concept from an abstract topic/headline is exactly your job here, not a reason to skip the row. Ignore sheets/rows that are clearly just strategy notes, KPI numbers, or config tables with no per-post dates.\n\n${CAMBODIA_MARKET_CONTEXT}${businessContentInstruction(businessContext, { requireName: true })}`,
         prompt: `Here is the raw content plan (CSV or pasted spreadsheet text, possibly several sheets):\n\n${planText}\n\nToday's date is ${new Date().toISOString().slice(0, 10)}. For every row that has both a date (in any format: YYYY-MM-DD, DD/MM/YYYY, MM/DD/YYYY, a written date like "10 Sep" or "ថ្ងៃទី១០ខែកញ្ញា", a spreadsheet serial date, or an Excel date string) and a topic/title/headline/description/campaign for that post (it does not need to describe a visual, and does not need to be phrased as a request), produce one JSON object with:
 ${contentPlanItemFieldRules(language, `the date normalized to YYYY-MM-DD (infer the year as ${new Date().getFullYear()} if missing, or the following year if that date has already passed this year; if the format is genuinely ambiguous, e.g. "03/04", prefer DD/MM since this plan is for a Cambodian business)`)}
 Only skip a row if it truly has no date, or has a date but no topic/title/description of any kind, or is clearly a header/blank/totals/KPI row. When in doubt about whether a row qualifies, include it rather than skip it. Return ONLY a valid JSON array of these objects, no markdown, no commentary. Return an empty array only if the text has no calendar-like rows whatsoever.`,
       });
 
-      return res.status(200).json({ items: parseContentPlanItems(text) });
+      return res.status(200).json({ items: parseContentPlanItems(text, businessContext.businessName) });
     }
 
     // Competitor research from Meta's public Ad Library (real ads currently
@@ -850,6 +895,7 @@ Return ONLY a valid JSON array of these objects, no markdown, no commentary.`,
       if (!query) return res.status(400).json({ error: 'Please enter a product niche, category, or Facebook competitor page name.' });
 
       const requestedDays = Math.min(Math.max(Number(req.body?.days) || 7, 3), 14);
+      const userBusinessName = String(req.body?.businessName || '').trim().slice(0, 120);
       const isKhmer = containsKhmerScript(query) || languageCode === 'km';
       const outputLanguage = isKhmer ? 'Khmer' : 'English';
       const countries = (Array.isArray(req.body?.countries) ? req.body.countries : ['KH'])
@@ -883,20 +929,71 @@ Return ONLY a valid JSON array of these objects, no markdown, no commentary.`,
         }
       }
 
-      // Zero-signup fallback/companion source: reuses the OpenRouter key this
-      // app already has for every other AI feature, grounded in live web
-      // search rather than model memory. Only used when Google Places itself
-      // returned nothing, so a working Places key is never overridden by a
-      // noisier, less-structured web search result.
+      // Web search is both a fallback and a contact-enrichment pass. Google
+      // Places usually has the company name/address/phone but not public email,
+      // Telegram or Facebook Page. Search the exact Places names so those fields
+      // can be attached to the same lead instead of disappearing whenever Places
+      // succeeds.
       let rawWebBusinesses = [];
       let webSearchAvailable = false;
-      if (!rawPlaces.length) {
-        try {
-          rawWebBusinesses = await searchBusinessesOnWeb({ searchTerms: query, country: 'Cambodia' });
-          webSearchAvailable = true;
-        } catch (error) {
-          console.warn('OpenRouter web business search failed or skipped:', error?.message);
-        }
+      try {
+        const knownBusinessNames = [
+          ...rawPlaces.map((place) => place.businessName),
+          ...rawAds.map((ad) => ad.pageName),
+        ].filter(Boolean);
+        const contactSearchTerms = knownBusinessNames.length
+          ? `Find the exact official public contacts for these companies and Facebook Pages: ${[...new Set(knownBusinessNames)].join(', ')}`
+          : query;
+        rawWebBusinesses = await searchBusinessesOnWeb({ searchTerms: contactSearchTerms, country: 'Cambodia' });
+        webSearchAvailable = true;
+      } catch (error) {
+        console.warn('OpenRouter web business search failed or skipped:', error?.message);
+      }
+
+      if ((rawPlaces.length || rawAds.length) && rawWebBusinesses.length) {
+        const normalizeBusinessName = (value) => String(value || '').normalize('NFKC').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+        const webByName = new Map(rawWebBusinesses.map((business) => [normalizeBusinessName(business.businessName), business]));
+        const findWebMatch = (name) => {
+          const key = normalizeBusinessName(name);
+          const exact = webByName.get(key);
+          if (exact) return { key, match: exact };
+          const related = [...webByName.entries()].find(([webKey]) =>
+            Math.min(key.length, webKey.length) >= 6 && (key.includes(webKey) || webKey.includes(key))
+          );
+          return related ? { key: related[0], match: related[1] } : { key, match: null };
+        };
+        const matchedWebNames = new Set();
+        rawPlaces = rawPlaces.map((place) => {
+          const { key, match } = findWebMatch(place.businessName);
+          if (!match) return place;
+          matchedWebNames.add(key);
+          return {
+            ...place,
+            email: match.email || '',
+            telegram: match.telegram || '',
+            facebookPageName: match.facebookPageName || '',
+            facebookPageUrl: match.facebookPageUrl || '',
+            contactSourceUrl: match.sourceUrl || '',
+            website: place.website || match.website || null,
+          };
+        });
+        rawAds = rawAds.map((ad) => {
+          const { key, match } = findWebMatch(ad.pageName);
+          if (!match) return ad;
+          matchedWebNames.add(key);
+          return {
+            ...ad,
+            email: match.email || '',
+            telegram: match.telegram || '',
+            facebookPageName: match.facebookPageName || ad.pageName || '',
+            pageUrl: ad.pageUrl || match.facebookPageUrl || '',
+            contactSourceUrl: match.sourceUrl || '',
+            website: match.website || '',
+          };
+        });
+        // Keep only additional businesses that were not already represented by
+        // a Google Places card, preventing duplicate leads in the result.
+        rawWebBusinesses = rawWebBusinesses.filter((business) => !matchedWebNames.has(normalizeBusinessName(business.businessName)));
       }
 
       let xContext = '';
@@ -909,19 +1006,19 @@ Return ONLY a valid JSON array of these objects, no markdown, no commentary.`,
       const adsSummary = rawAds.length
         ? rawAds.slice(0, 12).map((ad, idx) => {
             const text = ad.bodies[0] || ad.linkTitles[0] || ad.linkCaptions[0] || '';
-            return `[Ad ${idx + 1}] Page: ${ad.pageName} | Facebook Page URL: ${ad.pageUrl || 'not available'} | Public ad evidence: ${ad.snapshotUrl || 'not available'} | Platforms: ${ad.platforms.join(', ')} | Text: ${text.slice(0, 300)}`;
+            return `[Ad ${idx + 1}] Page: ${ad.pageName} | Facebook Page URL: ${ad.pageUrl || 'not available'} | Email: ${ad.email || 'not available'} | Telegram: ${ad.telegram || 'not available'} | Website: ${ad.website || 'not available'} | Contact source: ${ad.contactSourceUrl || 'not available'} | Public ad evidence: ${ad.snapshotUrl || 'not available'} | Platforms: ${ad.platforms.join(', ')} | Text: ${text.slice(0, 300)}`;
           }).join('\n')
         : 'Meta Ad Library API not connected or returned 0 ads. Use realistic market data and established consumer behaviors for Cambodian & Southeast Asian Facebook social commerce.';
 
       const placesSummary = rawPlaces.length
         ? rawPlaces.slice(0, 12).map((place, idx) => {
-            return `[Business ${idx + 1}] Name: ${place.businessName} | Address: ${place.address || 'not available'} | Phone: ${place.phone || 'not available'} | Website: ${place.website || 'not available'} | Google Maps URL: ${place.mapsUrl || 'not available'} | Rating: ${place.rating != null ? `${place.rating} (${place.ratingCount || 0} reviews)` : 'not available'} | Status: ${place.businessStatus || 'not available'}`;
+            return `[Business ${idx + 1}] Name: ${place.businessName} | Address: ${place.address || 'not available'} | Phone: ${place.phone || 'not available'} | Email: ${place.email || 'not available'} | Telegram: ${place.telegram || 'not available'} | Facebook Page: ${place.facebookPageName || 'not available'} | Facebook Page URL: ${place.facebookPageUrl || 'not available'} | Website: ${place.website || 'not available'} | Google Maps URL: ${place.mapsUrl || 'not available'} | Contact source: ${place.contactSourceUrl || 'not available'} | Rating: ${place.rating != null ? `${place.rating} (${place.ratingCount || 0} reviews)` : 'not available'} | Status: ${place.businessStatus || 'not available'}`;
           }).join('\n')
         : 'Google Places API not connected or returned 0 businesses.';
 
       const webBusinessSummary = rawWebBusinesses.length
         ? rawWebBusinesses.slice(0, 12).map((biz, idx) => {
-            return `[Web Business ${idx + 1}] Name: ${biz.businessName} | Type: ${biz.businessType} | Address: ${biz.address || 'not available'} | Phone: ${biz.phone || 'not available'} | Website: ${biz.website || 'not available'} | Source URL: ${biz.sourceUrl}`;
+            return `[Web Business ${idx + 1}] Name: ${biz.businessName} | Type: ${biz.businessType} | Address: ${biz.address || 'not available'} | Phone: ${biz.phone || 'not available'} | Email: ${biz.email || 'not available'} | Telegram: ${biz.telegram || 'not available'} | Website: ${biz.website || 'not available'} | Facebook Page: ${biz.facebookPageName || 'not available'} | Facebook Page URL: ${biz.facebookPageUrl || 'not available'} | Source URL: ${biz.sourceUrl}`;
           }).join('\n')
         : 'Live web business search not connected or returned 0 verified businesses.';
 
@@ -933,6 +1030,7 @@ Return ONLY a valid JSON array of these objects, no markdown, no commentary.`,
 Target Niche / Product / Competitor: "${query}"
 Target Market: ${countries.join(', ')}
 Video Schedule Length: ${requestedDays} days starting ${todayStr}
+${userBusinessName ? `Our Business Name (the business this content is FOR, not a competitor): "${userBusinessName}"` : ''}
 
 ${CAMBODIA_MARKET_CONTEXT}
 
@@ -942,7 +1040,7 @@ ${adsSummary}
 Live Google Places Local Business Context (Cambodia-friendly, since Meta Ad Library cannot search ordinary Cambodian business ads):
 ${placesSummary}
 
-Live Web Search Business Context (only present when Google Places found nothing; each entry is backed by a real search citation URL):
+Live Web Search Business Context (additional businesses not already matched to Google Places/Meta; each entry is backed by a real search citation URL):
 ${webBusinessSummary}
 ${xContext ? `Live social signals: ${xContext.slice(0, 800)}` : ''}
 
@@ -962,12 +1060,13 @@ Deeply scan and analyze Facebook customer behavior, pain points, competitor stra
 
 3. POTENTIAL CLIENT LEADS (អាជីវកម្មដែលអាចត្រូវការសេវាផលិត Content/Video):
    - Use ONLY real businesses explicitly present in the Live Meta Ad Library context, the Live Google Places Local Business Context, OR the Live Web Search Business Context above. Never invent a business, Page, URL, phone number, email address, or contact identity.
-   - If all three contexts say they are not connected or contain 0 results, return an empty "potentialLeads" array.
-   - For each real business, infer its business type and identify concrete signals (from ad copy, or from having no/weak online presence despite being an active local business) suggesting it may benefit from professional content, video production, or digital marketing.
+   - If all three contexts say they are not connected or contain 0 results, return an empty "potentialLeads" array. Otherwise you MUST include a "potentialLeads" entry for EVERY SINGLE business listed across all three contexts, with no exceptions and none skipped -- each context is already a short, real, pre-verified list (never more than 12 entries total), so there is no reason to omit any of them even if a business's specific need signal has to stay generic (e.g. "this business type typically relies on photo/video content to attract customers online").
+   - For each real business, infer its business type and identify concrete signals suggesting it may benefit from professional content, video production, or digital marketing. Only cite a signal you can actually support from the given context (the ad copy text, or the fact that this business type in Cambodia typically relies on visual content to sell, or that a small independent business rarely has in-house video production). NEVER claim specific unverifiable facts about the business itself that are not present in its context entry, such as "currently hiring for a marketing role," "actively expanding its team," or anything about its finances, staff, or internal plans -- the Google Places context only ever gives a name, category, address, phone, and website; the web search context only ever gives a name, category, address, phone, email, Telegram, website, and Facebook Page -- nothing about hiring or internal operations.
+   - Prefer small and mid-sized independent businesses (a single shop, cafe, clinic, small chain) over large corporations or franchises when both are present in the context -- they are the most realistic clients for affordable content/video services.
    - Rate leadLevel as "Hot" only for strong active-spend or strong demand signals plus clear creative-need signals, "Warm" for moderate signals, or "Cold" for weak signals.
-   - Recommend the most relevant service and write one concise, polite, personalized Khmer Inbox message. Do not claim we inspected private data.
+   - Recommend the most relevant service and write one concise, polite, personalized Khmer Inbox message. Do not claim we inspected private data.${userBusinessName ? ` EVERY Inbox message MUST explicitly introduce the sender using the exact sentence "ខ្ញុំមកពី ${userBusinessName}។" Never write an anonymous outreach message.` : ''}
    - Set "source" to "facebook_ads" for a business found in the Meta context, "google_places" for one found in the Google Places context, or "web_search" for one found in the Web Search Business Context.
-   - Copy pageName/facebookUrl/evidenceSourceUrl EXACTLY from the Meta context for a facebook_ads lead. Copy businessName/address/phone/website/mapsUrl EXACTLY from the Google Places context for a google_places lead. Copy businessName/address/phone/website/evidenceSourceUrl (use the Source URL) EXACTLY from the Web Search context for a web_search lead. Never mix fields between sources or fabricate any field left blank in the source context.
+   - Copy pageName/facebookUrl/evidenceSourceUrl EXACTLY from the Meta context for a facebook_ads lead. Copy businessName/address/phone/email/telegram/website/facebookPageName/facebookPageUrl/mapsUrl/contactSourceUrl EXACTLY from the enriched Google Places context for a google_places lead. Copy businessName/address/phone/email/telegram/website/facebookPageName/facebookPageUrl/evidenceSourceUrl (use the Source URL) EXACTLY from the Web Search context for a web_search lead. Never mix fields between sources or fabricate any field left blank in the source context.
 
 4. VIDEO PRODUCTION CALENDAR (កាលវិភាគសម្រាប់ការធ្វើ Plan បង្កើតវីដេអូ):
    - Create exactly ${requestedDays} daily video items (one per day starting from ${todayStr}, format: YYYY-MM-DD).
@@ -978,12 +1077,12 @@ Deeply scan and analyze Facebook customer behavior, pain points, competitor stra
      * "topic": Short title in ${outputLanguage} (max 12 words)
      * "hook": High-converting 3-second hook in ${outputLanguage} designed to stop scrolling
      * "targetDesire": Which specific customer desire or pain point this video solves
-     * "prompt": English-only photorealistic video visual direction for a single adult Cambodian presenter in an eye-level medium shot with face, chest, and hands visible, stable background, natural movement, authentic lighting. NO text on screen, NO subtitles, NO captions.
+     * "prompt": English-only photorealistic visual direction for one continuous real-world activity relevant to the topic. Use one Cambodian person for a solo task or several Cambodian people for teamwork, a meeting, customer service or a product demonstration. All visible people must be age 18-25 and wear clean professional company-appropriate clothing. Exactly one primary presenter matching "voiceGender" speaks and remains clearly framed; supporting people stay silent, secondary and perform subtle natural background actions without lip-syncing. Use authentic lighting, purposeful task movement and no static posing. NO text on screen, NO subtitles, NO captions.
      * "voiceGender": "Male" or "Female"
-     * "voiceOverText": Exactly ONE natural, fluent Cambodian Khmer sentence (35-55 Khmer characters, max 60 characters total) that sounds like a real person sharing an authentic insight. Must fit cleanly in 8 seconds.
+     * "voiceOverText": Exactly ONE natural, fluent Cambodian Khmer sentence made of two connected short clauses, 65-85 total characters (minimum 65, maximum 90, including spaces and punctuation). It must fill about 7-8 seconds at a clear normal speaking pace, not end after only 3-4 seconds. Count the characters before returning and never use the short hook alone as the narration.${userBusinessName ? ` It MUST include the exact company name "${userBusinessName}" in the spoken sentence for EVERY video item; never leave the company unnamed and never substitute a made-up brand.` : ''}
      * "performanceStyle": English delivery direction (tone, emphasis, pause).
      * "suggestedPostTime": Best posting hour for Cambodian Facebook users (e.g. "11:30 AM" or "19:45 PM").
-     * "cta": Call to action in ${outputLanguage} (e.g. "ឆាតចូលផេកដើម្បីទទួលការប្រឹក្សាឥតគិតថ្លៃ").
+     * "cta": Call to action in ${outputLanguage} (e.g. "ឆាតចូលផេកដើម្បីទទួលការប្រឹក្សាឥតគិតថ្លៃ").${userBusinessName ? ` The "cta" MUST name-drop "${userBusinessName}" by name so the viewer knows exactly who to contact (e.g. "ចង់ដឹងឈ្មោះគូប្រជែងទេ? ចូលមក ${userBusinessName} ដើម្បីស្វែងរកចម្លើយ" style -- naming the business is the whole point of the CTA, not optional). Weave "${userBusinessName}" into "hook" or "voiceOverText" too wherever it fits naturally without sounding forced or repeating the name in literally every single field of the same video item.` : ''}
 
 5. SUMMARY REPORT (របាយការណ៍សង្ខេប):
    - A comprehensive Markdown report in ${outputLanguage} using clean headings, emojis, bullet points, and practical strategic takeaways.
@@ -1014,16 +1113,20 @@ Return ONLY a single valid JSON object with this exact structure:
       "pageName": "exact real Facebook Page name from live context (facebook_ads leads only, else empty string)",
       "businessType": "...",
       "needSignals": ["signal grounded in public ad or listing 1", "signal 2"],
-      "facebookUrl": "exact URL from live context (facebook_ads leads only, else empty string)",
-      "address": "exact address from live context (google_places leads only, else empty string)",
-      "phone": "exact phone from live context (google_places leads only, else empty string)",
-      "website": "exact website from live context (google_places leads only, else empty string)",
+      "facebookUrl": "exact Facebook Page URL from live context (facebook_ads or enriched google_places leads only, else empty string)",
+      "address": "exact address from live context (google_places or web_search leads only, else empty string)",
+      "phone": "exact phone from live context (google_places or web_search leads only, else empty string)",
+      "email": "exact email from live context (enriched google_places or web_search leads only, else empty string)",
+      "telegram": "exact Telegram contact from live context (enriched google_places or web_search leads only, else empty string)",
+      "website": "exact website from live context (google_places or web_search leads only, else empty string)",
+      "facebookPageName": "exact Facebook Page name from live context (enriched google_places or web_search leads only, else empty string)",
+      "facebookPageUrl": "exact Facebook Page URL from live context (enriched google_places or web_search leads only, else empty string)",
       "mapsUrl": "exact Google Maps URL from live context (google_places leads only, else empty string)",
       "publicContact": "",
       "leadLevel": "Hot",
       "recommendedService": "...",
       "inboxMessage": "personalized Khmer outreach message",
-      "evidenceSourceUrl": "exact public ad evidence URL from live context (facebook_ads leads only, else empty string)"
+      "evidenceSourceUrl": "exact public ad evidence URL from live context (facebook_ads or web_search leads only, else empty string)"
     }
   ],
   "videoPlan": [
@@ -1054,6 +1157,10 @@ Return ONLY a single valid JSON object with this exact structure:
 
       const rawPlan = Array.isArray(parsed?.videoPlan) ? parsed.videoPlan : [];
       const normalizedPlan = rawPlan.map((item, idx) => {
+        const generatedVoiceOver = String(item?.voiceOverText || '').trim();
+        const brandedVoiceOver = userBusinessName && !generatedVoiceOver.toLocaleLowerCase().includes(userBusinessName.toLocaleLowerCase())
+          ? `${userBusinessName}៖ ${generatedVoiceOver}`.trim().slice(0, 90)
+          : generatedVoiceOver;
         const itemDate = item?.date && /^\d{4}-\d{2}-\d{2}$/.test(item.date)
           ? item.date
           : new Date(today.getTime() + idx * 86400000).toISOString().slice(0, 10);
@@ -1066,7 +1173,7 @@ Return ONLY a single valid JSON object with this exact structure:
           targetDesire: String(item?.targetDesire || '').slice(0, 250),
           prompt: String(item?.prompt || '').slice(0, 2000),
           voiceGender: item?.voiceGender === 'Male' ? 'Male' : 'Female',
-          voiceOverText: String(item?.voiceOverText || '').trim().slice(0, 500),
+          voiceOverText: brandedVoiceOver.slice(0, 500),
           performanceStyle: String(item?.performanceStyle || '').trim().slice(0, 1000),
           suggestedPostTime: String(item?.suggestedPostTime || '11:30 AM').slice(0, 30),
           cta: String(item?.cta || '').slice(0, 120),
@@ -1111,11 +1218,12 @@ Return ONLY a single valid JSON object with this exact structure:
               .map((signal) => String(signal).slice(0, 300))
               .filter(Boolean)
               .slice(0, 5),
-            // Ad Library/Places do not expose email; never let AI invent it.
+            // Contact fields below are copied only from verified public search
+            // results; never let the strategy model invent them.
             publicContact: '',
             leadLevel: ['Hot', 'Warm', 'Cold'].includes(lead?.leadLevel) ? lead.leadLevel : 'Warm',
             recommendedService: String(lead?.recommendedService || '').slice(0, 300),
-            inboxMessage: String(lead?.inboxMessage || '').slice(0, 1200),
+            inboxMessage: ensureBusinessInInboxMessage(lead?.inboxMessage, userBusinessName).slice(0, 1200),
           };
 
           if (sourceAd) {
@@ -1125,10 +1233,13 @@ Return ONLY a single valid JSON object with this exact structure:
               businessName: sourceAd.pageName,
               pageName: sourceAd.pageName,
               facebookUrl: sourceAd.pageUrl || '',
-              evidenceSourceUrl: sourceAd.snapshotUrl || '',
+              facebookPageName: sourceAd.facebookPageName || sourceAd.pageName || '',
+              email: sourceAd.email || '',
+              telegram: sourceAd.telegram || '',
+              evidenceSourceUrl: sourceAd.contactSourceUrl || sourceAd.snapshotUrl || '',
               address: '',
               phone: '',
-              website: '',
+              website: sourceAd.website || '',
               mapsUrl: '',
             };
           }
@@ -1137,9 +1248,12 @@ Return ONLY a single valid JSON object with this exact structure:
               ...shared,
               source: 'google_places',
               businessName: sourcePlace.businessName,
-              pageName: '',
-              facebookUrl: '',
-              evidenceSourceUrl: '',
+              pageName: sourcePlace.facebookPageName || '',
+              facebookUrl: sourcePlace.facebookPageUrl || '',
+              facebookPageName: sourcePlace.facebookPageName || '',
+              email: sourcePlace.email || '',
+              telegram: sourcePlace.telegram || '',
+              evidenceSourceUrl: sourcePlace.contactSourceUrl || '',
               address: sourcePlace.address || '',
               phone: sourcePlace.phone || '',
               website: sourcePlace.website || '',
@@ -1151,7 +1265,10 @@ Return ONLY a single valid JSON object with this exact structure:
             source: 'web_search',
             businessName: sourceWebBiz.businessName,
             pageName: '',
-            facebookUrl: '',
+            facebookUrl: sourceWebBiz.facebookPageUrl || '',
+            facebookPageName: sourceWebBiz.facebookPageName || '',
+            email: sourceWebBiz.email || '',
+            telegram: sourceWebBiz.telegram || '',
             evidenceSourceUrl: sourceWebBiz.sourceUrl || '',
             address: sourceWebBiz.address || '',
             phone: sourceWebBiz.phone || '',
@@ -1160,7 +1277,7 @@ Return ONLY a single valid JSON object with this exact structure:
           };
         })
         .filter(Boolean)
-        .slice(0, 10);
+        .slice(0, 12);
 
       return res.status(200).json({
         success: true,
@@ -1223,13 +1340,14 @@ Return ONLY a single valid JSON object with this exact structure:
 
     if (action === 'videoCaption') {
       const prompt = String(req.body?.prompt || '').trim();
+      const businessContext = businessContextFromBody(req.body);
       if (!prompt) return res.status(400).json({ error: 'Scene description is required.' });
       // The scene description's own language takes priority over the app's fixed
       // UI display-language toggle, same as every other free-text action here.
       const outputLanguage = containsKhmerScript(prompt) ? 'Khmer' : 'English';
       const text = await generateOpenRouterText({
-        system: `You are a social media expert who writes TikTok captions.\n\n${CAMBODIA_MARKET_CONTEXT}`,
-        prompt: `Create a catchy TikTok caption and trending hashtags for this scene: "${prompt}". Write entirely in ${outputLanguage}. Keep it ready to post.`,
+        system: `You are a social media expert who writes TikTok captions.\n\n${CAMBODIA_MARKET_CONTEXT}${businessContentInstruction(businessContext, { requireName: true })}`,
+        prompt: `Create a catchy TikTok caption and trending hashtags for this scene: "${prompt}". Write entirely in ${outputLanguage}. Keep it ready to post.${businessContext.businessName ? ` Name "${businessContext.businessName}" naturally in the caption or CTA.` : ''}`,
       });
       return res.status(200).json({ text });
     }
@@ -1253,8 +1371,9 @@ Return ONLY a single valid JSON object with this exact structure:
 
     if (action === 'videoNarration') {
       const prompt = String(req.body?.prompt || '').trim();
+      const businessContext = businessContextFromBody(req.body);
       if (!prompt) return res.status(400).json({ error: 'Video description is required.' });
-      const text = await createKhmerNarration(prompt, Number(req.body?.duration) || 8);
+      const text = await createKhmerNarration(prompt, Number(req.body?.duration) || 8, businessContext.businessName);
       return res.status(200).json({ text });
     }
 
@@ -1347,7 +1466,7 @@ Return ONLY a single valid JSON object with this exact structure:
           ), 8);
       if (req.body?.khmerSpeech?.script) {
         const script = String(req.body.khmerSpeech.script).trim();
-        const item = { prompt: normalizedPrompt, voiceOverText: script, voiceGender: req.body.khmerSpeech.voiceGender === 'Male' ? 'Male' : 'Female' };
+        const item = { prompt: normalizedPrompt, voiceOverText: script, voiceGender: req.body.khmerSpeech.voiceGender === 'Male' ? 'Male' : 'Female', businessName: String(req.body.khmerSpeech.businessName || '').trim().slice(0, 120) };
         const speech = await preparePlanVideoSpeech(item);
         const { uploadMediaDataUrl } = await import('./telegram/run-scheduled.js');
         const { job, narrationAudio } = await startKhmerVideoJob(item, speech, uploadMediaDataUrl, { duration, images });

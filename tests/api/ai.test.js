@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { googleSheetsUrlToCsvExportUrl } from '../../api/ai.js';
+import { ensureBusinessInInboxMessage, googleSheetsUrlToCsvExportUrl } from '../../api/ai.js';
 
 // Regression coverage for the Content Plan feature (AIAgent.tsx's plan-upload
 // UI + extractContentPlan action): a user pastes a Google Sheets link, and
@@ -31,5 +31,18 @@ describe('googleSheetsUrlToCsvExportUrl', () => {
     expect(googleSheetsUrlToCsvExportUrl('https://example.com/my-plan.pdf')).toBeNull();
     expect(googleSheetsUrlToCsvExportUrl('')).toBeNull();
     expect(googleSheetsUrlToCsvExportUrl(undefined)).toBeNull();
+  });
+});
+
+describe('ensureBusinessInInboxMessage', () => {
+  it('introduces the saved business in every Khmer outreach message', () => {
+    const result = ensureBusinessInInboxMessage('សួស្តីបង ខ្ញុំឃើញថាហាងមានឱកាសធ្វើវីដេអូខ្លី។', 'DGACADEMY');
+    expect(result).toContain('ខ្ញុំមកពី DGACADEMY។');
+    expect(result).toContain('ឱកាសធ្វើវីដេអូខ្លី');
+  });
+
+  it('does not duplicate a business name already present', () => {
+    const message = 'សួស្តី! ខ្ញុំមកពី DGACADEMY។ យើងចង់សហការជាមួយអ្នក។';
+    expect(ensureBusinessInInboxMessage(message, 'DGACADEMY')).toBe(message);
   });
 });

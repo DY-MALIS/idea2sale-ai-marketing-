@@ -8,6 +8,7 @@ import {
   scheduleContentPlanPoll,
   sendTelegram,
   truncateForTelegram,
+  applyCloudinaryLogoOverlay,
   uploadMediaDataUrl,
 } from './run-scheduled.js';
 import { pollOpenRouterVideo } from '../_openrouter.js';
@@ -91,6 +92,15 @@ export const processContentPlanVideo = async (db, itemId, req) => {
       const rendered = await fetch(uploaded.mediaUrl);
       if (!rendered.ok) throw new Error('Could not render the Khmer narration video.');
       await rendered.arrayBuffer();
+    }
+    // Scheduled videos do not pass through the browser-side ffmpeg watermark.
+    // Apply the same saved logo here through Cloudinary so every delivery path
+    // uses the Business Profile branding.
+    const profileSnap = await db.collection('business_profiles').doc(item.userId).get().catch(() => null);
+    const logoDataUrl = String(profileSnap?.data()?.logoDataUrl || '');
+    if (logoDataUrl) {
+      const uploadedLogo = await uploadMediaDataUrl({ mediaDataUrl: logoDataUrl, mediaType: 'photo' });
+      uploaded.mediaUrl = applyCloudinaryLogoOverlay(uploaded.mediaUrl, uploadedLogo.publicId);
     }
     if (item.voiceOverWanted !== false && item.voiceOverMode !== 'silent' && item.prompt && !wantsSilentVideo(item.prompt)) {
       await ref.update({ resultMediaUrl: uploaded.mediaUrl });

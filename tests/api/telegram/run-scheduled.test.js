@@ -18,7 +18,7 @@ vi.mock('firebase-admin/firestore', async (importOriginal) => ({
   getFirestore: mockGetFirestore,
 }));
 
-const { GENERATED_VIDEO_STATUSES, applyCloudinaryDeliveryTransform, escapeTelegramHtml, formatTelegramHtml, postTelegramMessage, sendTelegram, truncateForTelegram } =
+const { GENERATED_VIDEO_STATUSES, applyCloudinaryDeliveryTransform, applyCloudinaryLogoOverlay, escapeTelegramHtml, formatTelegramHtml, postTelegramMessage, sendTelegram, truncateForTelegram } =
   await import('../../../api/telegram/run-scheduled.js');
 
 const originalEnv = { ...process.env };
@@ -108,6 +108,22 @@ describe('applyCloudinaryDeliveryTransform', () => {
 
   it('leaves an empty string unchanged', () => {
     expect(applyCloudinaryDeliveryTransform('', 'photo')).toBe('');
+  });
+});
+
+describe('applyCloudinaryLogoOverlay', () => {
+  it('adds the saved logo as a relative bottom-left video layer', () => {
+    const result = applyCloudinaryLogoOverlay(
+      'https://res.cloudinary.com/demo/video/upload/q_auto,w_1280/v1/video.mp4',
+      'telegram-media/company-logo',
+    );
+    expect(result).toContain('l_telegram-media:company-logo/c_scale,fl_relative,w_0.16');
+    expect(result).toContain('fl_layer_apply,g_south_west,x_0.04,y_0.04');
+  });
+
+  it('leaves the video unchanged for an invalid logo id', () => {
+    const url = 'https://res.cloudinary.com/demo/video/upload/v1/video.mp4';
+    expect(applyCloudinaryLogoOverlay(url, '../bad id')).toBe(url);
   });
 });
 

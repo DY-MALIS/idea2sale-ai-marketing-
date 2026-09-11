@@ -9,12 +9,11 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../hooks/useToast';
-import { BusinessProfileData, CreativeAutomationRequest, ScheduleHandoffRequest } from '../types';
+import { CreativeAutomationRequest, ScheduleHandoffRequest } from '../types';
+import { getLatestBusinessBranding } from '../lib/businessBranding';
 
 const LOGO_MARGIN_RATIO = 0.04;
 const LOGO_WIDTH_RATIO = 0.16;
@@ -261,19 +260,15 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
   // always the logo actually saved *now*, at the small, one-time cost of a
   // Firestore read that's negligible next to the multi-second AI image call
   // it follows.
-  const fetchLatestLogoDataUrl = async (): Promise<string> => {
-    try {
-      if (isDemoMode || !user) {
-        const saved = JSON.parse(localStorage.getItem('demo_business_profile') || 'null');
-        return saved?.logoDataUrl || '';
+  React.useEffect(() => {
+    let cancelled = false;
+    void getLatestBusinessBranding(user, isDemoMode).then((branding) => {
+      if (!cancelled && branding.businessName) {
+        setPosterDetails((current) => ({ ...current, brand: branding.businessName }));
       }
-      const snap = await getDoc(doc(db, 'business_profiles', user.uid));
-      return (snap.data() as BusinessProfileData | undefined)?.logoDataUrl || '';
-    } catch (error) {
-      console.error('Failed to load business profile logo for watermarking:', error);
-      return '';
-    }
-  };
+    });
+    return () => { cancelled = true; };
+  }, [user, isDemoMode]);
 
   React.useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -373,6 +368,8 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
     setLoading(true);
     setGeneratedImage(null);
     try {
+      const businessContext = await getLatestBusinessBranding(user, isDemoMode);
+      const effectiveBrand = businessContext.businessName || posterDetails.brand;
       // Only mention headline/CTA when actually filled in -- sending literal
       // `The main headline is ""` noise for an empty field confuses the prompt.
       // Framed as "creative concept/mood" rather than literal text to render:
@@ -383,7 +380,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
       // through despite that constraint.
       const headlineNote = posterDetails.headline.trim() ? ` The creative concept/theme is "${posterDetails.headline.trim()}".` : '';
       const ctaNote = posterDetails.cta.trim() ? ` The call-to-action mood is "${posterDetails.cta.trim()}".` : '';
-      const fullPrompt = `Create a professional marketing poster scene for a brand named "${posterDetails.brand}".${headlineNote}${ctaNote} Style: ${posterDetails.style}.
+      const fullPrompt = `Create a professional marketing poster scene for a brand named "${effectiveBrand}".${headlineNote}${ctaNote} Style: ${posterDetails.style}.
       Visual description: ${posterPrompt}.
       Make the scene look like a real commercial photoshoot with a physical product, real environment, real light, realistic surfaces, and premium camera quality.
 
@@ -396,7 +393,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
       const response = await fetchImageGenerate({ action: 'imageGenerate', prompt: fullPrompt, aspectRatio: '3:4' });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Image generation failed.');
-      const withLogo = await applyLogoWatermark(data.imageUrl, await fetchLatestLogoDataUrl());
+      const withLogo = await applyLogoWatermark(data.imageUrl, businessContext.logoDataUrl);
       setGeneratedImage(await overlayPosterText(withLogo, posterDetails.headline, posterDetails.cta));
     } catch (error: any) {
       console.error(error);
@@ -426,10 +423,14 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
     setLoading(true);
     setGeneratedImage(null);
     try {
-      const response = await fetchImageGenerate({ action: 'imageGenerate', prompt, aspectRatio });
+      const businessContext = await getLatestBusinessBranding(user, isDemoMode);
+      const brandedPrompt = businessContext.businessName
+        ? `${prompt}\nThis visual is for ${businessContext.businessName}; do not render the name as generated text because the saved logo is applied afterward.`
+        : prompt;
+      const response = await fetchImageGenerate({ action: 'imageGenerate', prompt: brandedPrompt, aspectRatio });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Image generation failed.');
-      setGeneratedImage(await applyLogoWatermark(data.imageUrl, await fetchLatestLogoDataUrl()));
+      setGeneratedImage(await applyLogoWatermark(data.imageUrl, businessContext.logoDataUrl));
     } catch (error: any) {
       console.error(error);
       if (error?.name === 'AbortError') {
@@ -495,7 +496,8 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
     if (activeTool === 'visual') {
       setIsGeneratingScheduleCaption(true);
       try {
-        const response = await fetchImageGenerate({ action: 'videoCaption', prompt: visualPrompt, language });
+        const businessContext = await getLatestBusinessBranding(user, isDemoMode);
+        const response = await fetchImageGenerate({ action: 'videoCaption', prompt: visualPrompt, language, businessContext });
         const data = await response.json();
         if (response.ok && typeof data?.text === 'string' && data.text.trim()) {
           caption = data.text.trim().slice(0, 900);

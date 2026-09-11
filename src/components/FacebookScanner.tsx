@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Markdown from 'react-markdown';
+import { useAuth } from '../contexts/AuthContext';
+import { ensureBusinessInInboxMessage, getLatestBusinessBranding } from '../lib/businessBranding';
 import {
   AlertCircle,
   BarChart3,
@@ -39,6 +41,7 @@ const countryOptions = [
 
 const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation }) => {
   const { language } = useLanguage();
+  const { user, isDemoMode } = useAuth();
   const isKm = language === 'km';
   const [query, setQuery] = useState('');
   const [country, setCountry] = useState('KH');
@@ -48,6 +51,15 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
   const [result, setResult] = useState<FacebookScanResult | null>(null);
   const [copied, setCopied] = useState(false);
   const [copiedLead, setCopiedLead] = useState<number | null>(null);
+  const [businessName, setBusinessName] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    void getLatestBusinessBranding(user, isDemoMode).then((branding) => {
+      if (!cancelled) setBusinessName(branding.businessName);
+    });
+    return () => { cancelled = true; };
+  }, [user, isDemoMode]);
 
   const text = isKm ? {
     eyebrow: 'Facebook Audience Intelligence',
@@ -94,6 +106,12 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     call: 'ទូរស័ព្ទ',
     visitWebsite: 'ចូលទស្សនាគេហទំព័រ',
     address: 'អាសយដ្ឋាន',
+    email: 'អ៊ីមែល',
+    telegram: 'Telegram',
+    companyName: 'ឈ្មោះក្រុមហ៊ុន',
+    facebookPage: 'Facebook Page / Channel',
+    publicContacts: 'ព័ត៌មានទំនាក់ទំនងសាធារណៈ',
+    notFoundPublic: 'រកមិនឃើញជាសាធារណៈ',
   } : {
     eyebrow: 'Facebook Audience Intelligence',
     title: 'Customer & competitor scanner',
@@ -139,6 +157,12 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     call: 'Call',
     visitWebsite: 'Visit website',
     address: 'Address',
+    email: 'Email',
+    telegram: 'Telegram',
+    companyName: 'Company name',
+    facebookPage: 'Facebook Page / Channel',
+    publicContacts: 'Public contact details',
+    notFoundPublic: 'Not found publicly',
   };
 
   const scan = async () => {
@@ -147,6 +171,9 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     setLoading(true);
     setError('');
     try {
+      const businessContext = await getLatestBusinessBranding(user, isDemoMode);
+      const currentBusinessName = businessContext.businessName;
+      setBusinessName(currentBusinessName);
       const response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -156,6 +183,8 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
           countries: [country],
           days,
           language,
+          businessName: currentBusinessName,
+          businessContext,
         }),
       });
       const data = await response.json().catch(() => ({}));
@@ -355,23 +384,29 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                     </div>
 
                     <div className="mt-4 rounded-2xl border border-brand-100 bg-white/70 p-4 dark:border-slate-700 dark:bg-slate-900/60">
-                      <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-brand-500"><MessageCircle size={15} />Inbox</div>
-                      <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">{lead.inboxMessage}</p>
+                      <div className="flex flex-wrap items-center gap-2 text-xs font-black uppercase tracking-wider text-brand-500">
+                        <MessageCircle size={15} />Inbox
+                        {businessName && <span className="rounded-full bg-brand-50 px-2 py-1 normal-case tracking-normal text-brand-700 dark:bg-slate-800 dark:text-brand-300">{isKm ? 'ផ្ញើពី' : 'From'} {businessName}</span>}
+                      </div>
+                      <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">{ensureBusinessInInboxMessage(lead.inboxMessage, businessName)}</p>
                     </div>
 
-                    {(lead.source === 'google_places' || lead.source === 'web_search') && (lead.address || lead.phone) && (
-                      <div className="mt-4 space-y-1 rounded-2xl border border-brand-100 bg-white/70 p-4 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300">
+                    <div className="mt-4 space-y-1 rounded-2xl border border-brand-100 bg-white/70 p-4 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300">
+                        <p className="mb-2 text-xs font-black uppercase tracking-wider text-slate-400">{text.publicContacts}</p>
+                        <p><span className="font-bold text-slate-400">{text.companyName}: </span>{lead.businessName}</p>
                         {lead.address && <p><span className="font-bold text-slate-400">{text.address}: </span>{lead.address}</p>}
                         {lead.phone && <p><span className="font-bold text-slate-400">{text.call}: </span>{lead.phone}</p>}
-                      </div>
-                    )}
+                        <p><span className="font-bold text-slate-400">{text.email}: </span>{lead.email ? <a className="font-semibold text-blue-600 hover:underline" href={`mailto:${lead.email}`}>{lead.email}</a> : <span className="text-slate-400">{text.notFoundPublic}</span>}</p>
+                        <p><span className="font-bold text-slate-400">{text.telegram}: </span>{lead.telegram ? (/^(?:https?:\/\/|@)/i.test(lead.telegram) ? <a className="font-semibold text-sky-600 hover:underline" href={lead.telegram.startsWith('@') ? `https://t.me/${lead.telegram.slice(1)}` : lead.telegram} target="_blank" rel="noopener noreferrer">{lead.telegram}</a> : lead.telegram) : <span className="text-slate-400">{text.notFoundPublic}</span>}</p>
+                        <p><span className="font-bold text-slate-400">{text.facebookPage}: </span>{lead.facebookUrl ? <a className="font-semibold text-blue-600 hover:underline" href={lead.facebookUrl} target="_blank" rel="noopener noreferrer">{lead.facebookPageName || lead.businessName}</a> : (lead.facebookPageName || <span className="text-slate-400">{text.notFoundPublic}</span>)}</p>
+                    </div>
 
                     <div className="mt-4 flex flex-wrap gap-2">
                       {lead.facebookUrl && <a href={lead.facebookUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white"><ExternalLink size={14} />{text.viewPage}</a>}
                       {lead.evidenceSourceUrl && <a href={lead.evidenceSourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-brand-200 bg-white/70 px-3 py-2 text-xs font-bold text-brand-700 dark:bg-slate-900 dark:text-brand-300"><ExternalLink size={14} />{text.viewEvidence}</a>}
                       {lead.mapsUrl && <a href={lead.mapsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white"><ExternalLink size={14} />{text.viewMap}</a>}
                       {lead.website && <a href={lead.website} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-brand-200 bg-white/70 px-3 py-2 text-xs font-bold text-brand-700 dark:bg-slate-900 dark:text-brand-300"><ExternalLink size={14} />{text.visitWebsite}</a>}
-                      <button onClick={() => void copyInboxMessage(lead.inboxMessage, index)} className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">{copiedLead === index ? <Check size={14} /> : <Copy size={14} />}{copiedLead === index ? text.copied : text.copyInbox}</button>
+                      <button onClick={() => void copyInboxMessage(ensureBusinessInInboxMessage(lead.inboxMessage, businessName), index)} className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">{copiedLead === index ? <Check size={14} /> : <Copy size={14} />}{copiedLead === index ? text.copied : text.copyInbox}</button>
                     </div>
                     {lead.source === 'facebook_ads' && <p className="mt-3 text-xs text-slate-400">{text.publicContact}: {lead.publicContact || (isKm ? 'មើលនៅលើ Page សាធារណៈ' : 'See the public Page')}</p>}
                   </article>

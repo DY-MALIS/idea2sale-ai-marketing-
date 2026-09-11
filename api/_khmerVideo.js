@@ -11,10 +11,9 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, { dur
   const narrationAudio = await uploadMediaDataUrl({ mediaDataUrl: audio.audioUrl, mediaType: 'audio' });
   if (!(narrationAudio.duration > 0 && narrationAudio.duration <= duration)) throw new Error('Khmer narration must fit within the clip. Shorten the script.');
   const job = await startOpenRouterVideo({
-    // The former :free route can remain listed while having no live provider
-    // endpoint. Mini keeps the same image/audio-reference workflow and is the
-    // lowest-cost currently available Seedance 2.0 route.
-    model: process.env.OPEN_ROUTER_KHMER_VIDEO_MODEL || 'bytedance/seedance-2.0-mini',
+    // Use the full-quality route for the audio-driven presenter. The cheaper
+    // Mini route is less consistent on fine mouth articulation.
+    model: process.env.OPEN_ROUTER_KHMER_VIDEO_MODEL || 'bytedance/seedance-2.0',
     prompt: `${speech.prompt}\n${speech.motionPrompt}\nTIMING: The reference audio lasts ${narrationAudio.duration.toFixed(2)} seconds. Start speaking at the beginning and follow its original word timing exactly. Do not stretch the speech or gestures to fill the ${duration}-second clip. Once the audio ends, close the mouth and maintain an attentive natural expression. Real-time motion at normal conversational speed; no slow motion, prolonged hand movements or long pauses.`,
     duration,
     referenceUrls: [avatarImage.mediaUrl],

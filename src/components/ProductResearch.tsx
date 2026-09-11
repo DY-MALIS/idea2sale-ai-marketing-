@@ -12,9 +12,12 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useAuth } from '../contexts/AuthContext';
+import { getLatestBusinessBranding } from '../lib/businessBranding';
 
 const ProductResearch: React.FC = () => {
     const { t, language } = useLanguage();
+    const { user, isDemoMode } = useAuth();
     const [queryInput, setQueryInput] = useState(() => localStorage.getItem('research_query') || '');
     const [isSearching, setIsSearching] = useState(false);
     const [analysis, setAnalysis] = useState<string | null>(() => localStorage.getItem('research_analysis'));
@@ -37,10 +40,11 @@ const ProductResearch: React.FC = () => {
       setAnalysis(null);
       setResearchError(null);
       try {
+      const businessContext = await getLatestBusinessBranding(user, isDemoMode);
       const response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'productResearch', query, language }),
+        body: JSON.stringify({ action: 'productResearch', query, language, businessContext }),
       });
 
       const data = await response.json();
@@ -72,10 +76,11 @@ const ProductResearch: React.FC = () => {
     setCompetitorReport(null);
     setCompetitorError(null);
     try {
+      const businessContext = await getLatestBusinessBranding(user, isDemoMode);
       const response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'competitorTracker', competitor, language }),
+        body: JSON.stringify({ action: 'competitorTracker', competitor, language, businessContext }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error || t('errorPerformingResearch'));
@@ -95,10 +100,11 @@ const ProductResearch: React.FC = () => {
     setSentimentReport(null);
     setSentimentError(null);
     try {
+      const businessContext = await getLatestBusinessBranding(user, isDemoMode);
       const response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'brandSentiment', brand, language }),
+        body: JSON.stringify({ action: 'brandSentiment', brand, language, businessContext }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error || t('errorPerformingResearch'));

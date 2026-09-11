@@ -16,12 +16,11 @@ import { uint8ArrayToBase64 } from '../lib/base64';
 import { extractVideoDialogue, nativeSpeechPrompt, splitKhmerScript, wantsSilentVideo } from '../../shared/videoSpeech.js';
 import { readImagesIntoState } from '../lib/imageUpload';
 import { motion, AnimatePresence } from 'motion/react';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../hooks/useToast';
-import { BusinessProfileData, CreativeAutomationRequest, ScheduleHandoffRequest } from '../types';
+import { CreativeAutomationRequest, ScheduleHandoffRequest } from '../types';
+import { getLatestBusinessBranding } from '../lib/businessBranding';
 
 type ToolType = 'video' | 'voice';
 type VoiceGender = 'Female' | 'Male';
@@ -318,7 +317,7 @@ const attemptGenerateVideoClip = async (
   prompt: string,
   images: { base64: string; mimeType: string }[],
   duration: number,
-  khmerSpeech?: { script: string; voiceGender: string },
+  khmerSpeech?: { script: string; voiceGender: string; businessName?: string },
 ): Promise<string> => {
   const response = await fetchAiWithTimeout({ action: 'videoGenerate', prompt, images, duration, khmerSpeech });
   const data = await response.json();
@@ -422,20 +421,6 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   // tab switches), so a logo cached once at mount would go stale for the rest of
   // the session the moment the user saves a *new* logo in Business Profile.
   // Fetching fresh right before each watermark call keeps it always current.
-  const fetchLatestLogoDataUrl = async (): Promise<string> => {
-    try {
-      if (isDemoMode || !user) {
-        const saved = JSON.parse(localStorage.getItem('demo_business_profile') || 'null');
-        return saved?.logoDataUrl || '';
-      }
-      const snap = await getDoc(doc(db, 'business_profiles', user.uid));
-      return (snap.data() as BusinessProfileData | undefined)?.logoDataUrl || '';
-    } catch (error) {
-      console.error('Failed to load business profile logo for watermarking:', error);
-      return '';
-    }
-  };
-
   React.useEffect(() => {
     if (!('speechSynthesis' in window)) return;
 
@@ -480,7 +465,8 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     if (!videoPrompt) return;
     setIsGeneratingCaption(true);
     try {
-      const response = await fetchAiWithTimeout({ action: 'videoCaption', prompt: videoPrompt, language });
+      const businessContext = await getLatestBusinessBranding(user, isDemoMode);
+      const response = await fetchAiWithTimeout({ action: 'videoCaption', prompt: videoPrompt, language, businessContext });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to generate caption.');
       setAiCaption(data.text || '');
@@ -595,11 +581,12 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     setSegmentProgress(null);
     setMergingSegments(false);
     try {
+      const businessContext = await getLatestBusinessBranding(user, isDemoMode);
       if (!voiceOverContent && generationLanguage === 'Khmer' && voiceOverEnabled && voiceOverTextOverride === undefined) {
         voiceOverContent = extractVideoDialogue(promptText).script;
       }
       if (voiceOverEnabled && voiceOverTextOverride === undefined && !voiceOverContent && generationLanguage === 'Khmer' && !wantsSilentVideo(promptText)) {
-        const response = await fetchAiWithTimeout({ action: 'videoNarration', prompt: promptText || 'Product introduction', duration: durationOverride || videoDuration });
+        const response = await fetchAiWithTimeout({ action: 'videoNarration', prompt: promptText || 'Product introduction', duration: durationOverride || videoDuration, businessContext });
         const data = await response.json();
         if (!response.ok || !data.text) throw new Error(data.error || 'Could not prepare Khmer narration.');
         voiceOverContent = data.text;
@@ -613,7 +600,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       const nativeKhmerSpeech = generationLanguage === 'Khmer' && !silentRequested;
       const audioDirection = nativeKhmerSpeech ? 'Khmer/Cambodian context. '
         : (voiceOverContent ? 'Visual footage only. No speech or dialogue; narration is added separately. ' : '');
-      const prompt = `${audioDirection}${promptText || 'Create a realistic short marketing video from the uploaded reference image.'}`;
+      const prompt = `${audioDirection}${promptText || 'Create a realistic short marketing video from the uploaded reference image.'}${businessContext.businessName ? `\nThis marketing asset represents ${businessContext.businessName}. Do not render its name as AI-generated text; the app applies the saved logo afterward.` : ''}`;
       const segments = getVideoSegments(
         VIDEO_LENGTH_OPTIONS.includes(durationOverride as typeof VIDEO_LENGTH_OPTIONS[number]) ? (durationOverride as number) : videoDuration,
       );
@@ -634,7 +621,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
           segmentPrompt = nativeSpeechPrompt(segmentPrompt, '');
         }
         let clip = await generateVideoClip(segmentPrompt, referenceImages, segments[i],
-          spokenSegments?.[i] ? { script: spokenSegments[i], voiceGender } : undefined);
+          spokenSegments?.[i] ? { script: spokenSegments[i], voiceGender, businessName: businessContext.businessName } : undefined);
         if (silentRequested || (spokenSegments && !spokenSegments[i])) clip = await removeVideoAudio(clip);
         if (spokenSegments?.[i]) {
           try {
@@ -668,7 +655,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         video = clipUrls[0];
       }
 
-      const latestLogoDataUrl = await fetchLatestLogoDataUrl();
+      const latestLogoDataUrl = businessContext.logoDataUrl;
       if (latestLogoDataUrl) {
         setWatermarking(true);
         try {
@@ -1446,8 +1433,8 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                     <button
                       onClick={handleScheduleThisVideo}
                       disabled={videoNeedsReview || performanceNeedsReview}
-                      className="p-4 bg-brand-100 text-brand-700 rounded-2xl hover:bg-brand-200 transition-all border border-brand-200"
-                      title="Schedule for later"
+                      className="p-4 bg-brand-100 text-brand-700 rounded-2xl hover:bg-brand-200 transition-all border border-brand-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-brand-100"
+                      title={videoNeedsReview || performanceNeedsReview ? (language === 'km' ? 'សូមធីក Checkbox ពិនិត្យគុណភាពសិន' : 'Confirm the quality review checkbox first') : 'Schedule for later'}
                     >
                       <Calendar size={24} />
                     </button>

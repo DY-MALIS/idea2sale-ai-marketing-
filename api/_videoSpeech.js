@@ -1,25 +1,25 @@
 import { createKhmerNarration } from './_khmerNarration.js';
 import { transcribeAudioWithOpenRouter } from './_openrouter.js';
-import { compareKhmerTranscript, extractVideoDialogue, nativeSpeechPrompt, splitKhmerScript, wantsSilentVideo } from '../shared/videoSpeech.js';
+import { compareKhmerTranscript, extractVideoDialogue, nativeSpeechPrompt, splitKhmerScript, visualOnlyVideoPrompt, wantsSilentVideo } from '../shared/videoSpeech.js';
 
 export async function preparePlanVideoSpeech(item) {
   const prompt = String(item.prompt || '');
   if (item.voiceOverWanted === false || wantsSilentVideo(prompt)) return { prompt: nativeSpeechPrompt(prompt, ''), script: '', mode: 'silent' };
   // Calendar imports may embed exact dialogue in older English visual prompts.
   const embedded = extractVideoDialogue(prompt).script;
-  const script = String(item.voiceOverText || embedded || await createKhmerNarration(prompt, 8)).trim();
+  const script = String(item.voiceOverText || embedded || await createKhmerNarration(prompt, 8, item.businessName)).trim();
   if (!/[\u1780-\u17ff]/u.test(script)) throw new Error('Khmer dialogue is required for this plan video.');
   splitKhmerScript(script, [8]);
   const performanceStyle = String(item.performanceStyle || 'Warm and trustworthy. Begin with curious energy, explain with calm confidence, emphasize the key benefit, and finish with an encouraging settled tone. Use natural Khmer rhythm, short phrase-boundary pauses, varied pitch and no theatrical exaggeration.');
-  const visual = extractVideoDialogue(prompt).visual;
-  const presenter = item.voiceGender === 'Male' ? 'adult Cambodian man' : 'adult Cambodian woman';
+  const visual = visualOnlyVideoPrompt(prompt);
+  const presenter = item.voiceGender === 'Male' ? 'young adult Cambodian man, age 18 to 25' : 'young adult Cambodian woman, age 18 to 25';
   return {
     script,
     mode: 'edge-seedance',
     performanceStyle,
-    prompt: `${visual}\nThe same ${presenter} in the reference image speaks naturally to camera in Khmer. Match mouth movement precisely to the supplied audio.`,
-    avatarPrompt: `${visual}\nCreate one photorealistic ${presenter} presenter facing the camera in a relaxed upright pose. Stable eye-level medium shot, face, chest and both hands visible, mouth gently closed, even flattering light, simple authentic Cambodian workplace background. No other people, text, captions, logos or exaggerated pose.`,
-    motionPrompt: `Natural presenter delivery. ${performanceStyle} Use one restrained gesture tied to the key idea, relaxed hands between phrases, subtle blinking and facial reactions. TIMING OVERRIDE: Use lively real-time conversational movement. Begin the gesture with its related spoken phrase and settle promptly when that phrase ends. Keep gestures small in distance, not slow in speed. Follow the supplied audio without lengthening pauses or stretching syllables. No repeated waving, random pointing, oversized gestures or slow motion.`,
+    prompt: `${visual}\nCASTING OVERRIDE: The same ${presenter} in the reference image performs the supplied audio; never age the presenter above 25. They look polished and work-ready in clean, tasteful modern company-office clothing. The supplied audio waveform is the only authority for phonemes and timing: derive every lip, jaw and tongue movement from it. Do not invent, translate, paraphrase or silently articulate any English words.`,
+    avatarPrompt: `${visual}\nCASTING OVERRIDE: Create one primary photorealistic ${presenter}; do not depict anyone younger than 18 or older than 25. The primary presenter faces the camera with a friendly, confident, professional appearance and wears clean, tasteful modern company-office attire: a neat collared shirt or modest blouse with a fitted blazer, well groomed, no partywear and no revealing clothing. Match the number of people to the real activity: a solo task may show only the presenter, while a meeting, customer service or teamwork scene may include contextually relevant supporting Cambodian coworkers or customers, all age 18 to 25, naturally positioned and doing the real task. Supporting people remain secondary, silent, and slightly out of focus with mouths at rest so the primary speaker stays unambiguous. Relaxed upright pose, stable eye-level medium shot, primary face, chest and both hands visible, primary mouth gently closed, even flattering light, authentic Cambodian workplace. No text, captions, logos or exaggerated poses.`,
+    motionPrompt: `Clear, confident and lively presenter delivery during a believable real-world activity. ${performanceStyle} Show one continuous action relevant to the topic, such as using a laptop, reviewing work, demonstrating a product, serving a customer or participating in a small meeting, instead of merely standing and posing. The scene may stay solo or include supporting people when the activity naturally requires them. Only the primary presenter speaks; all supporting people stay silent, do not lip-sync, and continue subtle natural background activity. Use expressive but professional facial reactions and two small purposeful hand or task gestures tied to the meaning of the two spoken clauses, with relaxed movement between phrases and natural blinking. TIMING OVERRIDE: Use energetic real-time conversational movement. Begin each gesture or task action with its related spoken phrase and settle promptly when that phrase ends. Follow the supplied audio without lengthening pauses or stretching syllables. Maintain clear visual focus on the speaker and finish with a warm confident expression. No repeated waving, random pointing, oversized gestures, dancing, theatrical acting, chaotic crowd movement or slow motion.`,
   };
 }
 

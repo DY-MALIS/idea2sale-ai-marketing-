@@ -60,8 +60,11 @@ export interface FacebookPotentialLead {
   businessType: string;
   needSignals: string[];
   facebookUrl: string;
+  facebookPageName?: string;
   address?: string;
   phone?: string;
+  email?: string;
+  telegram?: string;
   website?: string;
   mapsUrl?: string;
   publicContact: string;

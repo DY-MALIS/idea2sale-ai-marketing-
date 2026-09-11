@@ -17,9 +17,12 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { cn } from '../lib/utils';
+import { useAuth } from '../contexts/AuthContext';
+import { getLatestBusinessBranding } from '../lib/businessBranding';
 
 const AdsManager: React.FC = () => {
   const { t, language } = useLanguage();
+  const { user, isDemoMode } = useAuth();
   const [targetQuery, setTargetQuery] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [strategy, setStrategy] = useState<string | null>(() => localStorage.getItem('ads_strategy'));
@@ -45,6 +48,7 @@ const AdsManager: React.FC = () => {
     if (!strategy) return;
     setIsGettingScalingAdvice(true);
     try {
+      const businessContext = await getLatestBusinessBranding(user, isDemoMode);
       const response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -53,6 +57,7 @@ const AdsManager: React.FC = () => {
           language,
           platform: 'Facebook/TikTok Ads',
           mode: 'scaling-advice',
+          businessContext,
           message: `Based on this ad strategy, give practical scaling guidance for a small business owner managing their own ad account.
 
 Product/category:
@@ -202,6 +207,7 @@ Keep it concise and practical.`,
     setStrategy(null);
     setScalingAdvice(null);
     try {
+      const businessContext = await getLatestBusinessBranding(user, isDemoMode);
       // Khmer-detection-in-query and the Khmer-output decision now live
       // server-side (api/ai.js's adsStrategy handler) so they actually run --
       // this used to build an equivalent prompt with the same instructions but
@@ -209,7 +215,7 @@ Keep it concise and practical.`,
       const response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'adsStrategy', query: targetQuery, language }),
+        body: JSON.stringify({ action: 'adsStrategy', query: targetQuery, language, businessContext }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to generate strategy.');
@@ -230,6 +236,7 @@ Keep it concise and practical.`,
     if (!strategy) return;
     setIsCreatingAd(true);
     try {
+      const businessContext = await getLatestBusinessBranding(user, isDemoMode);
       const response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -238,6 +245,7 @@ Keep it concise and practical.`,
           language,
           platform: 'Facebook/TikTok Ads',
           mode: 'create-ad',
+          businessContext,
           message: `Create a ready-to-launch paid social ad from this strategy.
 
 Product/category:

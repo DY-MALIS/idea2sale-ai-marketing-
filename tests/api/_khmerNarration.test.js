@@ -25,6 +25,15 @@ describe('Khmer narration', () => {
     mocks.text.mockResolvedValue('Hello');
     await expect(createKhmerNarration('product')).rejects.toThrow('Khmer narration');
   });
+  it('requests a fuller 8-second narration instead of a short hook', async () => {
+    mocks.text.mockResolvedValue('\u1780');
+    await createKhmerNarration('competitor research', 8, 'DGACADEMY');
+    expect(mocks.text).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: expect.stringContaining('aiming for 64-84 total characters'),
+    }));
+    expect(mocks.text.mock.calls[0][0].prompt).toContain('two connected short clauses');
+    expect(mocks.text.mock.calls[0][0].prompt).toContain('DGACADEMY');
+  });
   it('removes native speech before adding the uploaded Khmer track', () => {
     expect(replaceCloudinaryAudio('https://res.cloudinary.com/demo/video/upload/v1/test.mp4', 'telegram-media/voice'))
       .toBe('https://res.cloudinary.com/demo/video/upload/ac_none/l_audio:telegram-media:voice/fl_layer_apply/v1/test.mp4');
