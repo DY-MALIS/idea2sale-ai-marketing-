@@ -6,6 +6,7 @@
 // Graph API call with an app access token.
 const AD_LIBRARY_ENDPOINT = 'https://graph.facebook.com/v21.0/ads_archive';
 const AD_LIBRARY_FIELDS = [
+  'page_id',
   'page_name',
   'ad_creative_bodies',
   'ad_creative_link_titles',
@@ -41,7 +42,9 @@ export async function searchCompetitorAds({ searchTerms, countries }) {
   }
 
   return (Array.isArray(data?.data) ? data.data : []).map((ad) => ({
+    pageId: ad.page_id ? String(ad.page_id) : null,
     pageName: ad.page_name || 'Unknown Page',
+    pageUrl: ad.page_id ? `https://www.facebook.com/${encodeURIComponent(String(ad.page_id))}` : null,
     bodies: Array.isArray(ad.ad_creative_bodies) ? ad.ad_creative_bodies : [],
     linkTitles: Array.isArray(ad.ad_creative_link_titles) ? ad.ad_creative_link_titles : [],
     linkCaptions: Array.isArray(ad.ad_creative_link_captions) ? ad.ad_creative_link_captions : [],

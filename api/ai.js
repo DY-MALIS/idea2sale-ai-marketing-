@@ -877,7 +877,7 @@ Return ONLY a valid JSON array of these objects, no markdown, no commentary.`,
       const adsSummary = rawAds.length
         ? rawAds.slice(0, 12).map((ad, idx) => {
             const text = ad.bodies[0] || ad.linkTitles[0] || ad.linkCaptions[0] || '';
-            return `[Ad ${idx + 1}] Page: ${ad.pageName} | Platforms: ${ad.platforms.join(', ')} | Text: ${text.slice(0, 300)}`;
+            return `[Ad ${idx + 1}] Page: ${ad.pageName} | Facebook Page URL: ${ad.pageUrl || 'not available'} | Public ad evidence: ${ad.snapshotUrl || 'not available'} | Platforms: ${ad.platforms.join(', ')} | Text: ${text.slice(0, 300)}`;
           }).join('\n')
         : 'Meta Ad Library API not connected or returned 0 ads. Use realistic market data and established consumer behaviors for Cambodian & Southeast Asian Facebook social commerce.';
 
@@ -910,7 +910,15 @@ Deeply scan and analyze Facebook customer behavior, pain points, competitor stra
    - Their current main angles, promotion hooks, and pricing tactics.
    - Competitor gaps/weaknesses (e.g. slow response, poor video quality, hidden fees, lack of clear tutorials) and how our business can outmaneuver them.
 
-3. VIDEO PRODUCTION CALENDAR (កាលវិភាគសម្រាប់ការធ្វើ Plan បង្កើតវីដេអូ):
+3. POTENTIAL CLIENT LEADS (អាជីវកម្មដែលអាចត្រូវការសេវាផលិត Content/Video):
+   - Use ONLY real Page names explicitly present in the Live Meta Ad Library context above. Never invent a business, Page, URL, phone number, email address, or contact identity.
+   - If the Meta context says it is not connected or contains no real ads, return an empty "potentialLeads" array.
+   - For each real Page, infer its business type and identify concrete creative/marketing signals visible in its public ad copy that suggest it may benefit from professional content or video production.
+   - Rate leadLevel as "Hot" only for strong active-spend plus clear creative-need signals, "Warm" for moderate signals, or "Cold" for weak signals.
+   - Recommend the most relevant service and write one concise, polite, personalized Khmer Inbox message. Do not claim we inspected private data.
+   - Copy facebookUrl and evidenceSourceUrl EXACTLY from the live context. Set publicContact to an empty string unless an actual public contact value is explicitly present in the context.
+
+4. VIDEO PRODUCTION CALENDAR (កាលវិភាគសម្រាប់ការធ្វើ Plan បង្កើតវីដេអូ):
    - Create exactly ${requestedDays} daily video items (one per day starting from ${todayStr}, format: YYYY-MM-DD).
    - Each video item is formatted for AI video generation (Veo / Seedance) with high-converting short-form hooks (8 seconds).
    - For EACH video item include:
@@ -926,7 +934,7 @@ Deeply scan and analyze Facebook customer behavior, pain points, competitor stra
      * "suggestedPostTime": Best posting hour for Cambodian Facebook users (e.g. "11:30 AM" or "19:45 PM").
      * "cta": Call to action in ${outputLanguage} (e.g. "ឆាតចូលផេកដើម្បីទទួលការប្រឹក្សាឥតគិតថ្លៃ").
 
-4. SUMMARY REPORT (របាយការណ៍សង្ខេប):
+5. SUMMARY REPORT (របាយការណ៍សង្ខេប):
    - A comprehensive Markdown report in ${outputLanguage} using clean headings, emojis, bullet points, and practical strategic takeaways.
 
 Return ONLY a single valid JSON object with this exact structure:
@@ -946,6 +954,20 @@ Return ONLY a single valid JSON object with this exact structure:
       "offerStrategy": "...",
       "weakness": "...",
       "counterStrategy": "..."
+    }
+  ],
+  "potentialLeads": [
+    {
+      "businessName": "exact real business/Page name from live context",
+      "pageName": "exact real Facebook Page name from live context",
+      "businessType": "...",
+      "needSignals": ["signal grounded in public ad 1", "signal 2"],
+      "facebookUrl": "exact URL from live context",
+      "publicContact": "",
+      "leadLevel": "Hot",
+      "recommendedService": "...",
+      "inboxMessage": "personalized Khmer outreach message",
+      "evidenceSourceUrl": "exact public ad evidence URL from live context"
     }
   ],
   "videoPlan": [
@@ -996,6 +1018,41 @@ Return ONLY a single valid JSON object with this exact structure:
         };
       });
 
+      // Only return leads whose Page name exactly matches a real advertiser
+      // returned by Meta. Source URLs always come from Meta, never model text.
+      const adsByPageName = new Map();
+      rawAds.forEach((ad) => {
+        const key = String(ad.pageName || '').trim().toLocaleLowerCase();
+        if (key && !adsByPageName.has(key)) adsByPageName.set(key, ad);
+      });
+      const seenLeadPages = new Set();
+      const potentialLeads = (Array.isArray(parsed?.potentialLeads) ? parsed.potentialLeads : [])
+        .map((lead) => {
+          const requestedPageName = String(lead?.pageName || lead?.businessName || '').trim();
+          const key = requestedPageName.toLocaleLowerCase();
+          const sourceAd = adsByPageName.get(key);
+          if (!sourceAd || seenLeadPages.has(key)) return null;
+          seenLeadPages.add(key);
+          return {
+            businessName: sourceAd.pageName,
+            pageName: sourceAd.pageName,
+            businessType: String(lead?.businessType || 'Business').slice(0, 120),
+            needSignals: (Array.isArray(lead?.needSignals) ? lead.needSignals : [])
+              .map((signal) => String(signal).slice(0, 300))
+              .filter(Boolean)
+              .slice(0, 5),
+            facebookUrl: sourceAd.pageUrl || '',
+            // Ad Library does not expose phone/email; never let AI invent it.
+            publicContact: '',
+            leadLevel: ['Hot', 'Warm', 'Cold'].includes(lead?.leadLevel) ? lead.leadLevel : 'Warm',
+            recommendedService: String(lead?.recommendedService || '').slice(0, 300),
+            inboxMessage: String(lead?.inboxMessage || '').slice(0, 1200),
+            evidenceSourceUrl: sourceAd.snapshotUrl || '',
+          };
+        })
+        .filter(Boolean)
+        .slice(0, 10);
+
       return res.status(200).json({
         success: true,
         query,
@@ -1008,6 +1065,7 @@ Return ONLY a single valid JSON object with this exact structure:
           targetPersonas: Array.isArray(parsed?.customerInsights?.targetPersonas) ? parsed.customerInsights.targetPersonas : [],
         },
         competitors: Array.isArray(parsed?.competitors) ? parsed.competitors : [],
+        potentialLeads,
         videoPlan: normalizedPlan,
         summaryReport: String(parsed?.summaryReport || ''),
       });

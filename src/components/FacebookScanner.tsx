@@ -3,13 +3,16 @@ import Markdown from 'react-markdown';
 import {
   AlertCircle,
   BarChart3,
+  BriefcaseBusiness,
   CalendarDays,
   Check,
   Clock3,
   Copy,
+  ExternalLink,
   Facebook,
   Heart,
   Loader2,
+  MessageCircle,
   Radar,
   Search,
   ShieldCheck,
@@ -44,6 +47,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
   const [error, setError] = useState('');
   const [result, setResult] = useState<FacebookScanResult | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copiedLead, setCopiedLead] = useState<number | null>(null);
 
   const text = isKm ? {
     eyebrow: 'Facebook Audience Intelligence',
@@ -63,6 +67,15 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     content: 'Content ដែលពួកគេចង់មើល',
     personas: 'ក្រុមអតិថិជនគោលដៅ',
     competitors: 'ការវិភាគគូប្រជែង',
+    leads: 'អាជីវកម្មដែលអាចក្លាយជាអតិថិជន',
+    leadSource: 'រកឃើញពីការផ្សាយពាណិជ្ជកម្មសាធារណៈរបស់ Facebook',
+    noVerifiedLeads: 'មិនទាន់មាន Lead ដែលបានផ្ទៀងផ្ទាត់ទេ។ ត្រូវភ្ជាប់ Meta Ad Library token ហើយស្គេនម្តងទៀត ដើម្បីទទួលបានឈ្មោះ Page ពិត។',
+    needSignals: 'សញ្ញាថាត្រូវការ Content/Video',
+    recommendedService: 'សេវាកម្មដែលគួរផ្តល់ជូន',
+    publicContact: 'ព័ត៌មានទំនាក់ទំនងសាធារណៈ',
+    viewPage: 'បើក Facebook Page',
+    viewEvidence: 'មើលប្រភពផ្សាយពាណិជ្ជកម្ម',
+    copyInbox: 'ចម្លងសារ Inbox',
     angle: 'ទិសដៅសំខាន់',
     offer: 'យុទ្ធសាស្ត្រផ្តល់ជូន',
     weakness: 'ចំណុចខ្សោយ',
@@ -93,6 +106,15 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     content: 'Content they want to see',
     personas: 'Target customer groups',
     competitors: 'Competitor intelligence',
+    leads: 'Potential content-production clients',
+    leadSource: 'Discovered from public Facebook advertising signals',
+    noVerifiedLeads: 'No verified leads yet. Connect a Meta Ad Library token and scan again to receive real Page names.',
+    needSignals: 'Signals they may need content/video',
+    recommendedService: 'Recommended service',
+    publicContact: 'Public contact',
+    viewPage: 'Open Facebook Page',
+    viewEvidence: 'View public ad evidence',
+    copyInbox: 'Copy Inbox message',
     angle: 'Leading angle',
     offer: 'Offer strategy',
     weakness: 'Weakness',
@@ -153,6 +175,18 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1800);
   };
+
+  const copyInboxMessage = async (message: string, index: number) => {
+    await navigator.clipboard.writeText(message);
+    setCopiedLead(index);
+    window.setTimeout(() => setCopiedLead(null), 1800);
+  };
+
+  const leadBadgeClass = (level: 'Hot' | 'Warm' | 'Cold') => level === 'Hot'
+    ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300'
+    : level === 'Warm'
+      ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300'
+      : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300';
 
   const insightCards = result ? [
     { title: text.bought, icon: ShoppingBag, items: result.customerInsights.whatTheyBought, iconClass: 'bg-amber-100 text-amber-600 dark:bg-amber-950/50 dark:text-amber-300' },
@@ -276,6 +310,54 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
               </div>
             </section>
           )}
+
+          <section>
+            <div className="mb-4">
+              <h3 className="flex items-center gap-2 text-xl font-black text-slate-800 dark:text-white"><BriefcaseBusiness className="text-emerald-500" />{text.leads}</h3>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{text.leadSource}</p>
+            </div>
+            {result.potentialLeads?.length ? (
+              <div className="grid gap-5 xl:grid-cols-2">
+                {result.potentialLeads.map((lead, index) => (
+                  <article key={`${lead.pageName}-${index}`} className="glass rounded-3xl p-6">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h4 className="text-lg font-black text-slate-800 dark:text-white">{lead.businessName}</h4>
+                        <p className="mt-1 text-sm font-bold text-brand-500">{lead.businessType}</p>
+                      </div>
+                      <span className={`rounded-full px-3 py-1.5 text-xs font-black uppercase tracking-wider ${leadBadgeClass(lead.leadLevel)}`}>{lead.leadLevel}</span>
+                    </div>
+
+                    <div className="mt-5">
+                      <p className="text-xs font-black uppercase tracking-wider text-slate-400">{text.needSignals}</p>
+                      <ul className="mt-2 space-y-2">
+                        {lead.needSignals.map((signal, signalIndex) => <li key={signalIndex} className="flex gap-2 text-sm leading-6 text-slate-600 dark:text-slate-300"><Check className="mt-1 shrink-0 text-emerald-500" size={15} />{signal}</li>)}
+                      </ul>
+                    </div>
+
+                    <div className="mt-4 rounded-2xl bg-emerald-50 p-4 dark:bg-emerald-950/30">
+                      <p className="text-xs font-black uppercase tracking-wider text-emerald-700 dark:text-emerald-300">{text.recommendedService}</p>
+                      <p className="mt-1 text-sm leading-6 text-emerald-900 dark:text-emerald-100">{lead.recommendedService}</p>
+                    </div>
+
+                    <div className="mt-4 rounded-2xl border border-brand-100 bg-white/70 p-4 dark:border-slate-700 dark:bg-slate-900/60">
+                      <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-brand-500"><MessageCircle size={15} />Inbox</div>
+                      <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">{lead.inboxMessage}</p>
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {lead.facebookUrl && <a href={lead.facebookUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white"><ExternalLink size={14} />{text.viewPage}</a>}
+                      {lead.evidenceSourceUrl && <a href={lead.evidenceSourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-brand-200 bg-white/70 px-3 py-2 text-xs font-bold text-brand-700 dark:bg-slate-900 dark:text-brand-300"><ExternalLink size={14} />{text.viewEvidence}</a>}
+                      <button onClick={() => void copyInboxMessage(lead.inboxMessage, index)} className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">{copiedLead === index ? <Check size={14} /> : <Copy size={14} />}{copiedLead === index ? text.copied : text.copyInbox}</button>
+                    </div>
+                    <p className="mt-3 text-xs text-slate-400">{text.publicContact}: {lead.publicContact || (isKm ? 'មើលនៅលើ Page សាធារណៈ' : 'See the public Page')}</p>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-3xl border border-dashed border-amber-300 bg-amber-50/70 p-6 text-sm leading-6 text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">{text.noVerifiedLeads}</div>
+            )}
+          </section>
 
           {!!result.videoPlan.length && (
             <section>

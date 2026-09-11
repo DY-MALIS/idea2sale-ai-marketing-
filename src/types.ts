@@ -53,6 +53,19 @@ export interface FacebookCompetitorInsight {
   counterStrategy: string;
 }
 
+export interface FacebookPotentialLead {
+  businessName: string;
+  pageName: string;
+  businessType: string;
+  needSignals: string[];
+  facebookUrl: string;
+  publicContact: string;
+  leadLevel: 'Hot' | 'Warm' | 'Cold';
+  recommendedService: string;
+  inboxMessage: string;
+  evidenceSourceUrl?: string;
+}
+
 export interface FacebookVideoPlanItem {
   date: string;
   day: string;
@@ -76,6 +89,7 @@ export interface FacebookScanResult {
   metaApiAvailable?: boolean;
   customerInsights: FacebookCustomerInsights;
   competitors: FacebookCompetitorInsight[];
+  potentialLeads: FacebookPotentialLead[];
   videoPlan: FacebookVideoPlanItem[];
   summaryReport: string;
 }
