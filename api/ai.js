@@ -40,12 +40,14 @@ const CLIENT_ERROR_RATE_LIMIT_PER_HOUR = Number(process.env.CLIENT_ERROR_RATE_LI
 const EMAIL_RATE_LIMIT_PER_HOUR = Number(process.env.EMAIL_RATE_LIMIT_PER_HOUR) || 20;
 
 // Vercel's default serverless function timeout (10s on Hobby) is too short for
-// transcribing a long voice recording (the AI Agent's voice input now allows up to
-// 10 minutes of audio) — the request to the transcription provider is a single call
-// that blocks until the whole clip is processed. 60 is the maximum allowed on Hobby
-// and comfortably within Pro's default, so it's safe regardless of plan.
+// several calls this file makes synchronously: transcribing a long voice
+// recording (up to 10 minutes of audio), the Facebook Scanner's research +
+// generation pipeline, and videoStatus downloading/base64-encoding a
+// completed video in one response. Kept in sync with vercel.json's
+// functions["api/ai.js"].maxDuration -- this in-file config is what actually
+// takes effect; vercel.json's copy exists for visibility/documentation.
 export const config = {
-  maxDuration: 60,
+  maxDuration: 300,
 };
 
 // Gemini's TTS voice names are unrelated to gpt-audio-mini's OpenAI-style voice

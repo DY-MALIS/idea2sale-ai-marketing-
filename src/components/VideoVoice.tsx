@@ -29,16 +29,21 @@ type VoiceGender = 'Female' | 'Male';
 type VoicePersona = 'sreymom' | 'piseth';
 
 // None of the five /api/ai calls in this file had a timeout of their own --
-// api/ai.js's own 60s Vercel maxDuration only helps if the server cleanly
-// returns an error/504; if the connection itself stalls, the fetch just hangs
-// forever with no error and no result, leaving the UI stuck on its loading
-// state indefinitely. 70s gives the server's own timeout a chance to surface
-// its real error first in the common case. Matches the same pattern already
-// used in src/lib/geminiService.ts.
+// if the connection itself stalls, the fetch just hangs forever with no
+// error and no result, leaving the UI stuck on its loading state
+// indefinitely. 70s covers ordinary calls, matching the pattern already used
+// in src/lib/geminiService.ts.
 const AI_FETCH_TIMEOUT_MS = 70000;
-const fetchAiWithTimeout = (body: unknown) => {
+// videoStatus is the exception: once OpenRouter reports a clip "completed",
+// api/ai.js's poll downloads the full video and base64-encodes it into the
+// same response (see pollOpenRouterVideo in api/_openrouter.js) -- a multi-MB
+// transfer, not a quick status check. The generic 70s timeout was aborting
+// that specific request (surfacing as "Video generation took too long") even
+// though the server (given up to 300s via vercel.json) was still working.
+const VIDEO_STATUS_FETCH_TIMEOUT_MS = 240000;
+const fetchAiWithTimeout = (body: unknown, timeoutMs: number = AI_FETCH_TIMEOUT_MS) => {
   const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), AI_FETCH_TIMEOUT_MS);
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
   return fetch('/api/ai', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -327,7 +332,7 @@ const attemptGenerateVideoClip = async (
   const jobId = data.jobId;
   for (let attempt = 0; attempt < 48 && jobId; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 5000));
-    const statusResponse = await fetchAiWithTimeout({ action: 'videoStatus', jobId });
+    const statusResponse = await fetchAiWithTimeout({ action: 'videoStatus', jobId }, VIDEO_STATUS_FETCH_TIMEOUT_MS);
     const statusData = await statusResponse.json();
     if (!statusResponse.ok) throw new Error(statusData.error || 'Video generation failed.');
     if (statusData.videoUrl) {
