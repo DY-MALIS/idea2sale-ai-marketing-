@@ -157,6 +157,11 @@ export interface BusinessProfileData {
   // instead of the app's shared default one (TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID).
   telegramBotToken?: string;
   telegramChatId?: string;
+  // Set server-side by activateOwnBot (api/telegram/webhook.js) via Telegram's
+  // getMe -- lets the client build a t.me/<username>?start=<id> deep link
+  // without ever needing the bot token itself.
+  telegramBotUsername?: string;
+  telegramBotActive?: boolean;
 }
 
 export interface AudienceActivity {

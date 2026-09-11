@@ -186,7 +186,7 @@ A request such as "I want you to create attractive content" is interested, not g
   }
 };
 
-const upsertTelegramLead = async (db, message, text, forcedTag, ownerId) => {
+const upsertTelegramLead = async (db, message, text, forcedTag, ownerId, extraFields = {}) => {
   const context = messageLeadContext(message, ownerId);
   const leadRef = db.collection('telegram_leads').doc(context.conversationId);
 
@@ -211,6 +211,7 @@ const upsertTelegramLead = async (db, message, text, forcedTag, ownerId) => {
         lastMessage: text.slice(0, 500),
         lastMessageAt: FieldValue.serverTimestamp(),
         createdAt: FieldValue.serverTimestamp(),
+        ...extraFields,
       });
     } else {
       const currentTag = existingSnap.data()?.tag;
@@ -739,14 +740,28 @@ const activateOwnBot = async (req, res) => {
       return res.status(502).json({ ok: false, error: data?.description || 'Telegram setWebhook failed.' });
     }
 
+    // The bot's @username is never entered by the user (only the token is) --
+    // fetching it here, once, at activation time is what lets the frontend
+    // build a t.me/<username>?start=<id> deep link later without ever
+    // touching the token itself.
+    let botUsername = '';
+    if (!deactivate) {
+      const meData = await fetch(`https://api.telegram.org/bot${ownToken}/getMe`).then((result) => result.json()).catch(() => ({}));
+      botUsername = meData?.result?.username || '';
+    }
+
     // Business Profile's own doc, not a separate collection, so the UI can
     // reflect activation state with the same onSnapshot listener it already
     // uses to load the saved bot token/chat ID.
-    await db.collection('business_profiles').doc(decoded.uid).set({ telegramBotActive: !deactivate }, { merge: true });
+    await db.collection('business_profiles').doc(decoded.uid).set({
+      telegramBotActive: !deactivate,
+      ...(botUsername ? { telegramBotUsername: botUsername } : {}),
+    }, { merge: true });
     await logAudit(db, { action: deactivate ? 'telegram_own_bot_deactivated' : 'telegram_own_bot_activated', actorUid: decoded.uid });
     return res.status(200).json({
       ok: true,
       active: !deactivate,
+      botUsername,
       message: deactivate
         ? 'Your bot has been disconnected.'
         : 'Your bot is now active. Send /start to it on Telegram to test it.',
@@ -854,8 +869,32 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true });
   }
 
+  // A t.me/<bot>?start=<id> link (built by FacebookScanner.tsx from a scanned
+  // lead) arrives here as "/start <id>" -- Telegram bots can't cold-message an
+  // arbitrary user, so this is the only way a scanned lead's own click can
+  // kick off contact; the owner shares the link, the lead clicks it.
+  const startPayloadMatch = text.match(/^\/start\s+(\S+)/i);
+  let scanLead = null;
+  let scanLeadId = null;
+  if (startPayloadMatch && db) {
+    scanLeadId = startPayloadMatch[1].slice(0, 128);
+    try {
+      const scanLeadSnap = await db.collection('facebook_scan_leads').doc(scanLeadId).get();
+      // Ownership check: a lead id is only honored for the same owner it was
+      // created for, so one business's scan results can't be replayed against
+      // a different business's bot.
+      if (scanLeadSnap.exists && scanLeadSnap.data()?.ownerId === ownerId) scanLead = scanLeadSnap.data();
+    } catch (error) {
+      console.error('Facebook-scan lead lookup failed:', error?.message || error);
+    }
+  }
+
   const leadContext = db
-    ? await upsertTelegramLead(db, message, text, undefined, ownerId)
+    ? await upsertTelegramLead(db, message, text, scanLead ? 'interested' : undefined, ownerId, scanLead ? {
+        origin: 'facebook_scanner',
+        scanLeadId,
+        scanBusinessName: scanLead.businessName || null,
+      } : {})
     : messageLeadContext(message, ownerId);
   if (db && ['group', 'supergroup'].includes(message?.chat?.type)) {
     await recordChannelComment(db, message, text).catch((error) => {
@@ -866,6 +905,22 @@ export default async function handler(req, res) {
 
   const businessName = db ? await getBusinessName(db, ownerId) : null;
   const isKhmer = containsKhmer(text);
+
+  if (scanLead) {
+    const greeting = await generateOpenRouterText({
+      system: `You are a friendly outreach assistant for ${businessName || 'a Cambodian marketing agency'}, writing the OPENING message of a Telegram chat with a business owner who was identified as a potential client. Write ONE short, warm, natural message (2-4 sentences) in ${isKhmer ? 'Khmer' : 'English'} that introduces who you are, shows you know something specific about their business, and sparks curiosity about how ${businessName || 'we'} could help with content/video marketing -- without sounding pushy, salesy, or like a form letter. End with a soft, easy-to-answer question.`,
+      prompt: `Business name: ${scanLead.businessName}\nBusiness type: ${scanLead.businessType}\nWhy they might need our help: ${(scanLead.needSignals || []).join('; ')}\nRecommended service: ${scanLead.recommendedService}\nReference outreach idea (do not copy verbatim, use only for context): ${scanLead.inboxMessage}`,
+      model: process.env.OPEN_ROUTER_MODEL,
+    }).catch((error) => {
+      console.error('Facebook-scan lead greeting generation failed:', error?.message || error);
+      return '';
+    });
+    const openingMessage = (greeting || '').trim() || scanLead.inboxMessage || welcomeMessage(isKhmer, businessName);
+    await sendTelegramHtmlMessage(token, chatId, openingMessage, { disableWebPagePreview: true, replyToMessageId: leadContext.replyToMessageId });
+    if (db) await logMessage(db, leadContext.conversationId, 'out', openingMessage, 'ai', ownerId);
+    return res.status(200).json({ ok: true });
+  }
+
   if (/^\/(start|help)\b/i.test(text)) {
     const welcome = welcomeMessage(isKhmer, businessName);
     await sendTelegramHtmlMessage(token, chatId, welcome, { disableWebPagePreview: true, replyToMessageId: leadContext.replyToMessageId });

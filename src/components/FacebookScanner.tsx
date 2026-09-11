@@ -12,6 +12,7 @@ import {
   Copy,
   ExternalLink,
   Facebook,
+  FileSpreadsheet,
   Heart,
   Loader2,
   MessageCircle,
@@ -26,9 +27,12 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useLanguage } from '../contexts/LanguageContext';
-import { CreativeAutomationRequest, FacebookScanResult, FacebookVideoPlanItem } from '../types';
+import { CreativeAutomationRequest, FacebookPotentialLead, FacebookScanResult, FacebookVideoPlanItem } from '../types';
 import { deleteGenerationHistory, GenerationHistoryEntry, saveGenerationHistory, useGenerationHistory } from '../lib/generationHistory';
 import HistoryPanel from './HistoryPanel';
+import { downloadCsv } from '../lib/csvExport';
+import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 
 interface FacebookScannerProps {
   onCreativeAutomation: (request: CreativeAutomationRequest) => void;
@@ -54,11 +58,79 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
   const [copied, setCopied] = useState(false);
   const [copiedLead, setCopiedLead] = useState<number | null>(null);
   const [businessName, setBusinessName] = useState('');
+  const [deselectedLeads, setDeselectedLeads] = useState<Set<number>>(new Set());
+
+  const toggleLeadSelection = (index: number) => {
+    setDeselectedLeads((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index); else next.add(index);
+      return next;
+    });
+  };
+
+  const exportLeadsToExcel = () => {
+    const leads = result?.potentialLeads || [];
+    const selected = leads.filter((_, index) => !deselectedLeads.has(index));
+    if (!selected.length) return;
+    const headers = isKm
+      ? ['ឈ្មោះក្រុមហ៊ុន', 'ប្រភេទអាជីវកម្ម', 'អាសយដ្ឋាន', 'ទូរស័ព្ទ', 'អ៊ីមែល', 'Telegram', 'គេហទំព័រ', 'Facebook Page', 'កម្រិត Lead', 'សេវាកម្មដែលណែនាំ', 'សារ Inbox', 'ប្រភព']
+      : ['Business Name', 'Business Type', 'Address', 'Phone', 'Email', 'Telegram', 'Website', 'Facebook Page', 'Lead Level', 'Recommended Service', 'Inbox Message', 'Source URL'];
+    const rows = selected.map((lead) => [
+      lead.businessName,
+      lead.businessType,
+      lead.address || '',
+      lead.phone || '',
+      lead.email || '',
+      lead.telegram || '',
+      lead.website || '',
+      lead.facebookUrl || lead.facebookPageName || '',
+      lead.leadLevel,
+      lead.recommendedService,
+      ensureBusinessInInboxMessage(lead.inboxMessage, businessName),
+      lead.evidenceSourceUrl || '',
+    ]);
+    const safeQuery = query.trim().slice(0, 40).replace(/[^\p{L}\p{N}]+/gu, '-') || 'leads';
+    downloadCsv(`${safeQuery}-${new Date().toISOString().slice(0, 10)}.csv`, [headers, ...rows]);
+  };
+
+  // Telegram bots can't message an arbitrary user first -- only the lead
+  // clicking their own "Start" button can open the conversation. So this
+  // stores the pitch context under a short id and copies a t.me deep link
+  // for the owner to send the lead (email, Facebook DM, etc.); once clicked,
+  // api/telegram/webhook.js reads this doc back and sends an AI-generated
+  // opening message instead of the generic /start welcome.
+  const startBotChat = async (lead: FacebookPotentialLead, index: number) => {
+    if (!user || isDemoMode || !telegramBotActive || !telegramBotUsername) return;
+    try {
+      const leadDoc = await addDoc(collection(db, 'facebook_scan_leads'), {
+        ownerId: user.uid,
+        businessName: lead.businessName.slice(0, 200),
+        businessType: lead.businessType.slice(0, 120),
+        recommendedService: (lead.recommendedService || '').slice(0, 500),
+        inboxMessage: ensureBusinessInInboxMessage(lead.inboxMessage, businessName).slice(0, 1500),
+        needSignals: (lead.needSignals || []).slice(0, 5),
+        createdAt: serverTimestamp(),
+      });
+      const link = `https://t.me/${telegramBotUsername}?start=${leadDoc.id}`;
+      await navigator.clipboard.writeText(link);
+      setChattingLeadIndex(index);
+      window.setTimeout(() => setChattingLeadIndex((current) => (current === index ? null : current)), 2500);
+    } catch (error) {
+      console.error('Failed to create bot chat link:', error);
+    }
+  };
+
+  const [telegramBotUsername, setTelegramBotUsername] = useState('');
+  const [telegramBotActive, setTelegramBotActive] = useState(false);
+  const [chattingLeadIndex, setChattingLeadIndex] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     void getLatestBusinessBranding(user, isDemoMode).then((branding) => {
-      if (!cancelled) setBusinessName(branding.businessName);
+      if (cancelled) return;
+      setBusinessName(branding.businessName);
+      setTelegramBotUsername(branding.telegramBotUsername);
+      setTelegramBotActive(branding.telegramBotActive);
     });
     return () => { cancelled = true; };
   }, [user, isDemoMode]);
@@ -83,6 +155,8 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     competitors: 'ការវិភាគគូប្រជែង',
     leads: 'អាជីវកម្មដែលអាចក្លាយជាអតិថិជន',
     leadSource: 'រកឃើញតាមរយៈការស្វែងរកលើវេប (OpenRouter)',
+    exportContacts: 'នាំចេញជា Excel',
+    chatViaBot: 'ជជែកតាម Bot',
     noVerifiedLeads: 'មិនទាន់មាន Lead ដែលបានផ្ទៀងផ្ទាត់ទេ។ សូមសាកល្បងស្គេនម្តងទៀត ដើម្បីទទួលបានឈ្មោះអាជីវកម្មពិត។',
     needSignals: 'សញ្ញាថាត្រូវការ Content/Video',
     recommendedService: 'សេវាកម្មដែលគួរផ្តល់ជូន',
@@ -140,6 +214,8 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     competitors: 'Competitor intelligence',
     leads: 'Potential content-production clients',
     leadSource: 'Discovered via web search (OpenRouter)',
+    exportContacts: 'Export to Excel',
+    chatViaBot: 'Chat via Bot',
     noVerifiedLeads: 'No verified leads yet. Try scanning again to receive real business names.',
     needSignals: 'Signals they may need content/video',
     recommendedService: 'Recommended service',
@@ -204,6 +280,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data?.error || 'Facebook research could not be completed.');
       setResult(data as FacebookScanResult);
+      setDeselectedLeads(new Set());
       const leadCount = Array.isArray(data.potentialLeads) ? data.potentialLeads.length : 0;
       void saveGenerationHistory({
         user, isDemoMode, type: 'facebook_scan',
@@ -225,6 +302,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     if (typeof payload.country === 'string') setCountry(payload.country);
     if (typeof payload.days === 'number') setDays(payload.days);
     if (payload.result) setResult(payload.result as FacebookScanResult);
+    setDeselectedLeads(new Set());
   };
   const deleteScanHistory = (id: string) => { void deleteGenerationHistory({ user, isDemoMode, type: 'facebook_scan', id }); };
 
@@ -399,19 +477,45 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
           )}
 
           <section>
-            <div className="mb-4">
-              <h3 className="flex items-center gap-2 text-xl font-black text-slate-800 dark:text-white"><BriefcaseBusiness className="text-emerald-500" />{text.leads}</h3>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{text.leadSource}</p>
+            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="flex items-center gap-2 text-xl font-black text-slate-800 dark:text-white"><BriefcaseBusiness className="text-emerald-500" />{text.leads}</h3>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{text.leadSource}</p>
+                {!isDemoMode && !!user && !telegramBotActive && (
+                  <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                    {isKm ? 'ភ្ជាប់ Telegram Bot ក្នុង Business Profile ដើម្បីជជែកជាមួយ Lead ដោយផ្ទាល់' : 'Connect your Telegram bot in Business Profile to chat with leads directly'}
+                  </p>
+                )}
+              </div>
+              {!!result.potentialLeads?.length && (
+                <button
+                  type="button"
+                  onClick={exportLeadsToExcel}
+                  disabled={deselectedLeads.size === result.potentialLeads.length}
+                  className="flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white shadow-lg shadow-emerald-500/20 transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <FileSpreadsheet size={16} />
+                  {text.exportContacts}
+                </button>
+              )}
             </div>
             {result.potentialLeads?.length ? (
               <div className="grid gap-5 xl:grid-cols-2">
                 {result.potentialLeads.map((lead, index) => (
                   <article key={`${lead.pageName}-${index}`} className="glass rounded-3xl p-6">
                     <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <h4 className="text-lg font-black text-slate-800 dark:text-white">{lead.businessName}</h4>
-                        <p className="mt-1 text-sm font-bold text-brand-500">{lead.businessType}</p>
-                      </div>
+                      <label className="flex items-start gap-3">
+                        <input
+                          type="checkbox"
+                          checked={!deselectedLeads.has(index)}
+                          onChange={() => toggleLeadSelection(index)}
+                          className="mt-1.5 h-4 w-4 shrink-0 rounded border-brand-300 text-brand-600 focus:ring-brand-500"
+                        />
+                        <div>
+                          <h4 className="text-lg font-black text-slate-800 dark:text-white">{lead.businessName}</h4>
+                          <p className="mt-1 text-sm font-bold text-brand-500">{lead.businessType}</p>
+                        </div>
+                      </label>
                       <span className={`rounded-full px-3 py-1.5 text-xs font-black uppercase tracking-wider ${leadBadgeClass(lead.leadLevel)}`}>{lead.leadLevel}</span>
                     </div>
 
@@ -451,6 +555,9 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                       {lead.mapsUrl && <a href={lead.mapsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white"><ExternalLink size={14} />{text.viewMap}</a>}
                       {lead.website && <a href={lead.website} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-brand-200 bg-white/70 px-3 py-2 text-xs font-bold text-brand-700 dark:bg-slate-900 dark:text-brand-300"><ExternalLink size={14} />{text.visitWebsite}</a>}
                       <button onClick={() => void copyInboxMessage(ensureBusinessInInboxMessage(lead.inboxMessage, businessName), index)} className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">{copiedLead === index ? <Check size={14} /> : <Copy size={14} />}{copiedLead === index ? text.copied : text.copyInbox}</button>
+                      {!isDemoMode && !!user && telegramBotActive && telegramBotUsername && (
+                        <button onClick={() => void startBotChat(lead, index)} title={isKm ? 'ចម្លងតំណ Telegram Bot ដើម្បីផ្ញើទៅអតិថិជន' : 'Copies a Telegram bot link to send this lead'} className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-3 py-2 text-xs font-bold text-white hover:bg-sky-700">{chattingLeadIndex === index ? <Check size={14} /> : <MessageCircle size={14} />}{chattingLeadIndex === index ? text.copied : text.chatViaBot}</button>
+                      )}
                     </div>
                   </article>
                 ))}

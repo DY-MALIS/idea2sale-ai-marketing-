@@ -7,9 +7,11 @@ export interface BusinessBranding {
   businessName: string;
   logoDataUrl: string;
   directory: BusinessDirectoryEntry[];
+  telegramBotUsername: string;
+  telegramBotActive: boolean;
 }
 
-const emptyBranding = (): BusinessBranding => ({ businessName: '', logoDataUrl: '', directory: [] });
+const emptyBranding = (): BusinessBranding => ({ businessName: '', logoDataUrl: '', directory: [], telegramBotUsername: '', telegramBotActive: false });
 
 // Read at the moment an asset/script is generated. The main tabs stay mounted
 // while Business Profile is edited, so mount-time state otherwise becomes stale.
@@ -26,6 +28,8 @@ export async function getLatestBusinessBranding(user: User | null, isDemoMode: b
       businessName: String(profile?.businessName || '').trim(),
       logoDataUrl: String(profile?.logoDataUrl || ''),
       directory: Array.isArray(profile?.directory) ? profile.directory : [],
+      telegramBotUsername: String(profile?.telegramBotUsername || ''),
+      telegramBotActive: Boolean(profile?.telegramBotActive),
     };
   } catch (error) {
     console.error('Failed to load the latest business branding:', error);

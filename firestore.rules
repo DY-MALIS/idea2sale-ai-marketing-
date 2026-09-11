@@ -148,6 +148,31 @@ service cloud.firestore {
       allow update: if false;
     }
 
+    match /facebook_scan_leads/{leadId} {
+      // A scanned lead's pitch context, keyed by a short id used as a
+      // Telegram /start deep-link payload (t.me/<bot>?start=<leadId>) --
+      // the payload itself can't hold a full lead record, so the client
+      // writes it here first and the bot's own webhook (Admin SDK, bypasses
+      // these rules) reads it back when that link is opened.
+      allow read: if isAdmin() || (isSignedIn() && resource.data.ownerId == request.auth.uid);
+      allow list: if isAdmin() || (isSignedIn() && resource.data.ownerId == request.auth.uid);
+
+      allow create: if isSignedIn()
+        && isValidId(leadId)
+        && incoming().ownerId == request.auth.uid
+        && incoming().businessName is string
+        && incoming().businessName.size() <= 200
+        && incoming().businessType is string
+        && incoming().businessType.size() <= 120
+        && incoming().recommendedService is string
+        && incoming().recommendedService.size() <= 500
+        && incoming().inboxMessage is string
+        && incoming().inboxMessage.size() <= 1500;
+
+      allow delete: if isAdmin() || (isSignedIn() && existing().ownerId == request.auth.uid);
+      allow update: if false;
+    }
+
     match /audience_activity/{activityId} {
       allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
       allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
