@@ -7,7 +7,7 @@ import Scheduler from './Scheduler';
 import ActivityPulse from './ActivityPulse';
 import { db, storage } from '../lib/firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+import { getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
 import { useLanguage } from '../contexts/LanguageContext';
 import { saveLocalMedia } from '../lib/localMediaStore';
 
@@ -48,6 +48,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   const [activityVersion, setActivityVersion] = useState(0);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const handledHandoffRef = React.useRef<string | null>(null);
 
@@ -204,6 +205,42 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     }
   };
 
+  // uploadBytes (a single-shot XHR) previously gave a large TikTok video no
+  // progress feedback and only a fixed 180s wall-clock timeout -- a real
+  // upload that's still actively transferring bytes on a slow connection got
+  // killed at the same 180s mark as one that's genuinely stalled at 0%, with
+  // nothing telling the user which case they were in. uploadBytesResumable
+  // reports progress, so this only times out after real inactivity (no byte
+  // progress for 60s), not merely because the file is large.
+  const UPLOAD_INACTIVITY_TIMEOUT_MS = 60000;
+  const uploadVideoWithProgress = (storageRef: ReturnType<typeof ref>, file: File, onProgress: (pct: number) => void) =>
+    new Promise<void>((resolve, reject) => {
+      const uploadTask = uploadBytesResumable(storageRef, file, { contentType: file.type });
+      let lastProgressAt = Date.now();
+      const stallCheck = window.setInterval(() => {
+        if (Date.now() - lastProgressAt > UPLOAD_INACTIVITY_TIMEOUT_MS) {
+          window.clearInterval(stallCheck);
+          uploadTask.cancel();
+          reject(new Error('Upload stalled with no progress for over a minute. Please check your internet connection or use a smaller video.'));
+        }
+      }, 5000);
+      uploadTask.on(
+        'state_changed',
+        (snapshot) => {
+          lastProgressAt = Date.now();
+          onProgress(snapshot.totalBytes ? Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100) : 0);
+        },
+        (error) => {
+          window.clearInterval(stallCheck);
+          reject(error);
+        },
+        () => {
+          window.clearInterval(stallCheck);
+          resolve();
+        },
+      );
+    });
+
   const resetFormAfterSchedule = () => {
     setIsModalOpen(false);
     setContent('');
@@ -336,7 +373,12 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
       if (platform === 'TIKTOK' && videoFile) {
         const safeName = videoFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
         const storageRef = ref(storage, `scheduled-videos/${userToUse.uid}/${Date.now()}-${safeName}`);
-        await withUploadTimeout(uploadBytes(storageRef, videoFile, { contentType: videoFile.type }));
+        setUploadProgress(0);
+        try {
+          await uploadVideoWithProgress(storageRef, videoFile, setUploadProgress);
+        } finally {
+          setUploadProgress(null);
+        }
         videoUrl = await getDownloadURL(storageRef);
       }
       await addDoc(collection(db, 'scheduled_posts'), {
@@ -385,6 +427,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     // stale request eventually does resolve after this, its own finally block
     // harmlessly resets isSubmitting again on an already-closed modal.
     setIsSubmitting(false);
+    setUploadProgress(null);
   };
 
   return (
@@ -587,7 +630,12 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                     disabled={isSubmitting || isAttachingHandoffMedia}
                     className="flex-1 py-4 bg-brand-700 hover:bg-brand-800 text-white font-bold rounded-2xl transition-all flex items-center justify-center gap-2 shadow-xl shadow-brand-700/20 disabled:opacity-60"
                   >
-                    {isSubmitting || isAttachingHandoffMedia ? <Loader2 className="animate-spin" size={18} /> : (
+                    {isSubmitting || isAttachingHandoffMedia ? (
+                      <>
+                        <Loader2 className="animate-spin" size={18} />
+                        {uploadProgress !== null && <span>{uploadProgress}%</span>}
+                      </>
+                    ) : (
                       <>
                         <Clock size={18} />
                         {t('scheduleBtn')}
