@@ -80,8 +80,8 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     personas: 'ក្រុមអតិថិជនគោលដៅ',
     competitors: 'ការវិភាគគូប្រជែង',
     leads: 'អាជីវកម្មដែលអាចក្លាយជាអតិថិជន',
-    leadSource: 'រកឃើញពី Google Places (អាជីវកម្មពិត) និងការផ្សាយពាណិជ្ជកម្មសាធារណៈរបស់ Facebook',
-    noVerifiedLeads: 'មិនទាន់មាន Lead ដែលបានផ្ទៀងផ្ទាត់ទេ។ ត្រូវភ្ជាប់ Google Places API key (ឬ Meta Ad Library token) ហើយស្គេនម្តងទៀត ដើម្បីទទួលបានឈ្មោះអាជីវកម្មពិត។',
+    leadSource: 'រកឃើញតាមរយៈការស្វែងរកលើវេប (OpenRouter)',
+    noVerifiedLeads: 'មិនទាន់មាន Lead ដែលបានផ្ទៀងផ្ទាត់ទេ។ សូមសាកល្បងស្គេនម្តងទៀត ដើម្បីទទួលបានឈ្មោះអាជីវកម្មពិត។',
     needSignals: 'សញ្ញាថាត្រូវការ Content/Video',
     recommendedService: 'សេវាកម្មដែលគួរផ្តល់ជូន',
     publicContact: 'ព័ត៌មានទំនាក់ទំនងសាធារណៈ',
@@ -97,10 +97,8 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     report: 'របាយការណ៍យុទ្ធសាស្ត្រ',
     copy: 'ចម្លងរបាយការណ៍',
     copied: 'បានចម្លង',
-    live: 'Meta Ad Library បានភ្ជាប់',
+    live: 'ការស្វែងរកលើវេបបានភ្ជាប់',
     estimated: 'AI market estimate',
-    ads: 'ផ្សាយពាណិជ្ជកម្មសាធារណៈត្រូវបានរកឃើញ',
-    places: 'អាជីវកម្មពិតត្រូវបានរកឃើញ (Google Places)',
     webBusinesses: 'អាជីវកម្មពិតត្រូវបានរកឃើញ (ស្វែងរកលើវេប)',
     viewMap: 'មើលលើ Google Maps',
     call: 'ទូរស័ព្ទ',
@@ -139,8 +137,8 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     personas: 'Target customer groups',
     competitors: 'Competitor intelligence',
     leads: 'Potential content-production clients',
-    leadSource: 'Discovered from Google Places (real businesses) and public Facebook advertising signals',
-    noVerifiedLeads: 'No verified leads yet. Connect a Google Places API key (or Meta Ad Library token) and scan again to receive real business names.',
+    leadSource: 'Discovered via web search (OpenRouter)',
+    noVerifiedLeads: 'No verified leads yet. Try scanning again to receive real business names.',
     needSignals: 'Signals they may need content/video',
     recommendedService: 'Recommended service',
     publicContact: 'Public contact',
@@ -156,10 +154,8 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     report: 'Strategy report',
     copy: 'Copy report',
     copied: 'Copied',
-    live: 'Meta Ad Library connected',
+    live: 'Web search connected',
     estimated: 'AI market estimate',
-    ads: 'public ads found',
-    places: 'real businesses found (Google Places)',
     webBusinesses: 'real businesses found (web search)',
     viewMap: 'View on Google Maps',
     call: 'Call',
@@ -326,12 +322,10 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
       {result && (
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="space-y-8">
           <div className="flex flex-wrap items-center gap-3">
-            <span className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-bold ${(result.metaApiAvailable || result.placesApiAvailable || result.webSearchAvailable) ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300'}`}>
-              {(result.metaApiAvailable || result.placesApiAvailable || result.webSearchAvailable) ? <Check size={15} /> : <Sparkles size={15} />}
-              {(result.metaApiAvailable || result.placesApiAvailable || result.webSearchAvailable) ? text.live : text.estimated}
+            <span className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-bold ${result.webSearchAvailable ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300'}`}>
+              {result.webSearchAvailable ? <Check size={15} /> : <Sparkles size={15} />}
+              {result.webSearchAvailable ? text.live : text.estimated}
             </span>
-            {!!result.metaApiAvailable && <span className="rounded-full bg-blue-50 px-4 py-2 text-xs font-bold text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">{result.adsFound || 0} {text.ads}</span>}
-            {!!result.placesApiAvailable && <span className="rounded-full bg-blue-50 px-4 py-2 text-xs font-bold text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">{result.placesFound || 0} {text.places}</span>}
             {!!result.webSearchAvailable && <span className="rounded-full bg-blue-50 px-4 py-2 text-xs font-bold text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">{result.webBusinessesFound || 0} {text.webBusinesses}</span>}
           </div>
 
@@ -437,7 +431,6 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                       {lead.website && <a href={lead.website} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-brand-200 bg-white/70 px-3 py-2 text-xs font-bold text-brand-700 dark:bg-slate-900 dark:text-brand-300"><ExternalLink size={14} />{text.visitWebsite}</a>}
                       <button onClick={() => void copyInboxMessage(ensureBusinessInInboxMessage(lead.inboxMessage, businessName), index)} className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">{copiedLead === index ? <Check size={14} /> : <Copy size={14} />}{copiedLead === index ? text.copied : text.copyInbox}</button>
                     </div>
-                    {lead.source === 'facebook_ads' && <p className="mt-3 text-xs text-slate-400">{text.publicContact}: {lead.publicContact || (isKm ? 'មើលនៅលើ Page សាធារណៈ' : 'See the public Page')}</p>}
                   </article>
                 ))}
               </div>

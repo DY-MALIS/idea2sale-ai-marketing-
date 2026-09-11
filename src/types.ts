@@ -54,7 +54,7 @@ export interface FacebookCompetitorInsight {
 }
 
 export interface FacebookPotentialLead {
-  source?: 'facebook_ads' | 'google_places' | 'web_search';
+  source?: 'web_search';
   businessName: string;
   pageName: string;
   businessType: string;
@@ -93,10 +93,6 @@ export interface FacebookVideoPlanItem {
 export interface FacebookScanResult {
   success: boolean;
   query: string;
-  adsFound?: number;
-  metaApiAvailable?: boolean;
-  placesFound?: number;
-  placesApiAvailable?: boolean;
   webBusinessesFound?: number;
   webSearchAvailable?: boolean;
   customerInsights: FacebookCustomerInsights;
