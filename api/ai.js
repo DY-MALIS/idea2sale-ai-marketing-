@@ -904,29 +904,46 @@ Return ONLY a valid JSON array of these objects, no markdown, no commentary.`,
         .slice(0, 5);
       if (!countries.length) countries.push('KH');
 
+      // Meta Ads, Google Places and X/social context are all independent of
+      // each other, so they run concurrently instead of one-after-another --
+      // sequential awaits here were pushing the whole scan (which still has a
+      // full LLM generation call after this) past Vercel's maxDuration.
+      const [metaAdsSettled, placesSettled, xContextSettled] = await Promise.allSettled([
+        process.env.FACEBOOK_ACCESS_TOKEN ? searchCompetitorAds({ searchTerms: query, countries }) : Promise.resolve([]),
+        // Meta's Ad Library API only covers political/social-issue ads worldwide
+        // or any ads in the UK/EU -- it cannot search ordinary Cambodian business
+        // ads. Google Places gives real, publicly listed local businesses instead.
+        process.env.GOOGLE_PLACES_API_KEY ? searchLocalBusinesses({ searchTerms: query, region: (countries[0] || 'KH').toLowerCase() }) : Promise.resolve([]),
+        fetchXContextForEntity(query),
+      ]);
+
       let rawAds = [];
       let metaApiAvailable = false;
       if (process.env.FACEBOOK_ACCESS_TOKEN) {
-        try {
-          rawAds = await searchCompetitorAds({ searchTerms: query, countries });
+        if (metaAdsSettled.status === 'fulfilled') {
+          rawAds = metaAdsSettled.value;
           metaApiAvailable = true;
-        } catch (error) {
-          console.warn('Meta Ad Library lookup failed or skipped:', error?.message);
+        } else {
+          console.warn('Meta Ad Library lookup failed or skipped:', metaAdsSettled.reason?.message);
         }
       }
 
-      // Meta's Ad Library API only covers political/social-issue ads worldwide
-      // or any ads in the UK/EU -- it cannot search ordinary Cambodian business
-      // ads. Google Places gives real, publicly listed local businesses instead.
       let rawPlaces = [];
       let placesApiAvailable = false;
       if (process.env.GOOGLE_PLACES_API_KEY) {
-        try {
-          rawPlaces = await searchLocalBusinesses({ searchTerms: query, region: (countries[0] || 'KH').toLowerCase() });
+        if (placesSettled.status === 'fulfilled') {
+          rawPlaces = placesSettled.value;
           placesApiAvailable = true;
-        } catch (error) {
-          console.warn('Google Places lookup failed or skipped:', error?.message);
+        } else {
+          console.warn('Google Places lookup failed or skipped:', placesSettled.reason?.message);
         }
+      }
+
+      let xContext = '';
+      if (xContextSettled.status === 'fulfilled') {
+        xContext = xContextSettled.value;
+      } else {
+        console.warn('Social context lookup skipped:', xContextSettled.reason?.message);
       }
 
       // Web search is both a fallback and a contact-enrichment pass. Google
@@ -994,13 +1011,6 @@ Return ONLY a valid JSON array of these objects, no markdown, no commentary.`,
         // Keep only additional businesses that were not already represented by
         // a Google Places card, preventing duplicate leads in the result.
         rawWebBusinesses = rawWebBusinesses.filter((business) => !matchedWebNames.has(normalizeBusinessName(business.businessName)));
-      }
-
-      let xContext = '';
-      try {
-        xContext = await fetchXContextForEntity(query);
-      } catch (err) {
-        console.warn('Social context lookup skipped:', err?.message);
       }
 
       const adsSummary = rawAds.length
