@@ -267,12 +267,25 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
       console.error('Failed to save image history:', historyError);
     }
   };
+  // Merges in only the string fields an older/incomplete saved entry actually
+  // has, keeping the current defaults for anything missing -- an entry saved
+  // by an earlier version of this schema shouldn't be able to leave e.g.
+  // posterDetails.headline undefined, which would throw on the next generate
+  // (posterDetails.headline.trim()) and silently break restoring that entry.
   const restoreImageHistory = (entry: GenerationHistoryEntry) => {
     const payload = (entry.payload || {}) as Record<string, unknown>;
     if (payload.tool === 'poster') {
       setActiveTool('poster');
       if (typeof payload.posterPrompt === 'string') setPosterPrompt(payload.posterPrompt);
-      if (payload.posterDetails && typeof payload.posterDetails === 'object') setPosterDetails(payload.posterDetails as typeof posterDetails);
+      const details = (payload.posterDetails && typeof payload.posterDetails === 'object')
+        ? payload.posterDetails as Record<string, unknown>
+        : {};
+      setPosterDetails((prev) => ({
+        brand: typeof details.brand === 'string' ? details.brand : prev.brand,
+        headline: typeof details.headline === 'string' ? details.headline : prev.headline,
+        cta: typeof details.cta === 'string' ? details.cta : prev.cta,
+        style: typeof details.style === 'string' ? details.style : prev.style,
+      }));
     } else {
       setActiveTool('visual');
       if (typeof payload.visualPrompt === 'string') setVisualPrompt(payload.visualPrompt);

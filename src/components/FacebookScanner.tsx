@@ -341,13 +341,43 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
   };
 
   const scanHistory = useGenerationHistory(user, isDemoMode, 'facebook_scan');
+  // Normalizes every field defensively instead of trusting the saved shape
+  // as-is: an entry saved by an earlier version of this schema (before a field
+  // like targetPersonas existed, for example) would otherwise pass `undefined`
+  // into `result`, and the render below calls `.length`/`.map` on these arrays
+  // unconditionally -- that throws and the restore silently does nothing
+  // visible instead of showing the entry.
   const restoreScanHistory = (entry: GenerationHistoryEntry) => {
-    const payload = (entry.payload || {}) as Record<string, unknown>;
-    if (typeof payload.query === 'string') setQuery(payload.query);
-    if (typeof payload.country === 'string') setCountry(payload.country);
-    if (typeof payload.days === 'number') setDays(payload.days);
-    if (payload.result) setResult(payload.result as FacebookScanResult);
-    setDeselectedLeads(new Set());
+    try {
+      const payload = (entry.payload || {}) as Record<string, unknown>;
+      if (typeof payload.query === 'string') setQuery(payload.query);
+      if (typeof payload.country === 'string') setCountry(payload.country);
+      if (typeof payload.days === 'number') setDays(payload.days);
+      const raw = payload.result as Partial<FacebookScanResult> | undefined;
+      if (raw && typeof raw === 'object') {
+        const insights = raw.customerInsights || ({} as Partial<FacebookScanResult['customerInsights']>);
+        setResult({
+          success: true,
+          query: typeof raw.query === 'string' ? raw.query : '',
+          customerInsights: {
+            whatTheyBought: Array.isArray(insights.whatTheyBought) ? insights.whatTheyBought : [],
+            whatTheyLike: Array.isArray(insights.whatTheyLike) ? insights.whatTheyLike : [],
+            contentDesires: Array.isArray(insights.contentDesires) ? insights.contentDesires : [],
+            targetPersonas: Array.isArray(insights.targetPersonas) ? insights.targetPersonas : [],
+          },
+          competitors: Array.isArray(raw.competitors) ? raw.competitors : [],
+          potentialLeads: Array.isArray(raw.potentialLeads) ? raw.potentialLeads : [],
+          videoPlan: Array.isArray(raw.videoPlan) ? raw.videoPlan : [],
+          summaryReport: typeof raw.summaryReport === 'string' ? raw.summaryReport : '',
+        });
+      }
+      setDeselectedLeads(new Set());
+    } catch (err) {
+      console.error('Failed to restore scan history entry:', err);
+      setError(isKm
+        ? 'មិនអាចមើលប្រវត្តិនេះឡើងវិញបានទេ។ ទិន្នន័យអាចមិនត្រឹមត្រូវ។'
+        : 'Could not restore this history entry -- its saved data may be incomplete.');
+    }
   };
   const deleteScanHistory = (id: string) => { void deleteGenerationHistory({ user, isDemoMode, type: 'facebook_scan', id }); };
 
