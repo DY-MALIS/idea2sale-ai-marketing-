@@ -14,6 +14,7 @@ import {
   MessagesSquare,
   Send,
   ScanSearch,
+  Bookmark,
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { TabType } from '../types';
@@ -53,6 +54,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onLogout, on
         { id: 'ads-manager', label: t('adsManagerLabel'), icon: TrendingUp },
         { id: 'tiktok', label: t('tiktokLabel'), icon: BarChart3 },
         { id: 'crm', label: t('crmLabel'), icon: Users },
+        { id: 'saved-leads', label: t('savedLeadsLabel'), icon: Bookmark },
         { id: 'automation', label: t('automationLabel'), icon: MessagesSquare },
       ]
     },

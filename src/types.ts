@@ -28,6 +28,7 @@ export type TabType =
   | 'scheduler'
   | 'ai-agent'
   | 'crm'
+  | 'saved-leads'
   | 'automation'
   | 'security-center'
   | 'facebook-scanner';

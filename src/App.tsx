@@ -12,6 +12,7 @@ import AdsManager from './components/AdsManager';
 import SchedulerHub from './components/SchedulerHub';
 import AIAgent from './components/AIAgent';
 import CRM from './components/CRM';
+import SavedLeads from './components/SavedLeads';
 import Automation from './components/Automation';
 import Auth from './components/Auth';
 import LegalPage from './components/LegalPage';
@@ -100,6 +101,7 @@ export default function App() {
       );
       case 'ai-agent': return <AIAgent onCreativeAutomation={handleCreativeAutomation} />;
       case 'crm': return <CRM />;
+      case 'saved-leads': return <SavedLeads />;
       case 'automation': return <Automation />;
       case 'security-center': return <SecurityCenter />;
       case 'facebook-scanner': return <FacebookScanner onCreativeAutomation={handleCreativeAutomation} />;

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Users, MessageCircle, Send, Loader2, Search, Tag, ShieldAlert, Heart, Bookmark, Trash2, Mail, Phone, Globe, ExternalLink } from 'lucide-react';
+import { Users, MessageCircle, Send, Loader2, Search, Tag, ShieldAlert, Heart } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { collection, doc, deleteDoc, query, where, orderBy, limit, startAfter, getDocs, onSnapshot, QueryDocumentSnapshot, DocumentData } from 'firebase/firestore';
+import { collection, doc, query, where, orderBy, limit, startAfter, getDocs, onSnapshot, QueryDocumentSnapshot, DocumentData } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { cn } from '../lib/utils';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -21,24 +21,6 @@ interface TelegramLead {
   kind?: 'engagement-summary' | 'comment-summary';
   totalCount?: number;
   source?: 'user' | 'channel-comment';
-}
-
-interface SavedLead {
-  id: string;
-  businessName: string;
-  businessType: string;
-  address?: string;
-  phone?: string;
-  email?: string;
-  telegram?: string;
-  website?: string;
-  facebookPageName?: string;
-  facebookPageUrl?: string;
-  leadLevel?: string;
-  recommendedService?: string;
-  inboxMessage?: string;
-  evidenceSourceUrl?: string;
-  createdAt?: { toDate: () => Date };
 }
 
 const TAG_STYLES: Record<string, string> = {
@@ -70,38 +52,6 @@ const CRM: React.FC = () => {
     return () => unsubscribe();
   }, [user, isDemoMode]);
   const canView = isAdmin || hasOwnBot;
-
-  // Saved leads (from Facebook Scanner's "Save to CRM") are independent of the
-  // Telegram bot -- any signed-in user can save/view their own, unlike the
-  // Telegram inbox above which requires an active bot or admin access.
-  const [mainView, setMainView] = useState<'telegram' | 'saved'>('telegram');
-  const [savedLeads, setSavedLeads] = useState<SavedLead[]>([]);
-  const [savedLeadsLoading, setSavedLeadsLoading] = useState(true);
-  useEffect(() => {
-    if (isDemoMode || !user) {
-      setSavedLeadsLoading(false);
-      return;
-    }
-    const q = query(collection(db, 'saved_leads'), where('ownerId', '==', user.uid), limit(200));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const rows = snapshot.docs
-        .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as SavedLead))
-        .sort((a, b) => (b.createdAt?.toDate?.().getTime() || 0) - (a.createdAt?.toDate?.().getTime() || 0));
-      setSavedLeads(rows);
-      setSavedLeadsLoading(false);
-    }, (error) => {
-      console.error('Saved leads listener error:', error);
-      setSavedLeadsLoading(false);
-    });
-    return () => unsubscribe();
-  }, [user, isDemoMode]);
-  const deleteSavedLead = async (id: string) => {
-    try {
-      await deleteDoc(doc(db, 'saved_leads', id));
-    } catch (error) {
-      console.error('Failed to delete saved lead:', error);
-    }
-  };
   // Split into the realtime-tracked first page and manually-paginated pages
   // beyond it: the onSnapshot listener below used to overwrite one combined
   // `leads` array outright, so any live update to the top page (e.g. a new
@@ -260,102 +210,6 @@ const CRM: React.FC = () => {
         <p className="text-slate-500 dark:text-slate-400 mt-1 text-lg">{t('crmSubtitle')}</p>
       </header>
 
-      {!isDemoMode && !!user && (
-        <div className="grid grid-cols-2 gap-3 rounded-2xl border border-brand-100 dark:border-slate-700 bg-white/70 dark:bg-slate-900/60 p-3">
-          <button
-            onClick={() => setMainView('telegram')}
-            className={cn(
-              'flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold border transition-all',
-              mainView === 'telegram'
-                ? 'bg-brand-700 text-white border-brand-700 shadow-sm'
-                : 'bg-white dark:bg-slate-800 text-brand-600 dark:text-brand-300 border-brand-100 dark:border-slate-600'
-            )}
-          >
-            <Send size={14} />{t('crmLabel')}
-          </button>
-          <button
-            onClick={() => setMainView('saved')}
-            className={cn(
-              'flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold border transition-all',
-              mainView === 'saved'
-                ? 'bg-brand-700 text-white border-brand-700 shadow-sm'
-                : 'bg-white dark:bg-slate-800 text-brand-600 dark:text-brand-300 border-brand-100 dark:border-slate-600'
-            )}
-          >
-            <Bookmark size={14} />{t('savedLeadsTab')} ({savedLeads.length})
-          </button>
-        </div>
-      )}
-
-      {mainView === 'saved' ? (
-        <div className="glass rounded-[2rem] overflow-hidden">
-          {savedLeadsLoading ? (
-            <div className="flex justify-center p-16">
-              <Loader2 className="animate-spin text-brand-400" size={28} />
-            </div>
-          ) : savedLeads.length === 0 ? (
-            <div className="text-center py-20 px-10">
-              <div className="w-16 h-16 bg-brand-50 dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4 border border-brand-100 dark:border-slate-700">
-                <Bookmark size={24} className="text-brand-300" />
-              </div>
-              <h3 className="text-brand-700 dark:text-brand-400 font-bold mb-1">{t('noSavedLeadsYet')}</h3>
-              <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm mx-auto">{t('noSavedLeadsYetDesc')}</p>
-            </div>
-          ) : (
-            <div className="divide-y divide-brand-100">
-              <AnimatePresence mode="popLayout">
-                {savedLeads.map((lead) => (
-                  <motion.div
-                    key={lead.id}
-                    layout
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="flex items-start gap-4 p-6 hover:bg-brand-50 dark:hover:bg-slate-800/60 transition-colors"
-                  >
-                    <div className="w-12 h-12 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-300 rounded-xl flex items-center justify-center border border-emerald-100 dark:border-emerald-800/60 shrink-0">
-                      <Bookmark size={20} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <span className="font-bold text-brand-700 dark:text-brand-400">{lead.businessName}</span>
-                        {lead.businessType && <span className="text-xs text-slate-400 dark:text-slate-400">{lead.businessType}</span>}
-                        {lead.leadLevel && (
-                          <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider border', TAG_STYLES[lead.leadLevel === 'Hot' ? 'interested' : lead.leadLevel === 'Warm' ? 'price-question' : 'general'])}>
-                            {lead.leadLevel}
-                          </span>
-                        )}
-                      </div>
-                      {lead.recommendedService && <p className="text-sm text-slate-600 dark:text-slate-300 line-clamp-2">{lead.recommendedService}</p>}
-                      <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500 dark:text-slate-400">
-                        {lead.phone && <span className="flex items-center gap-1"><Phone size={12} />{lead.phone}</span>}
-                        {lead.email && <span className="flex items-center gap-1"><Mail size={12} />{lead.email}</span>}
-                        {lead.website && <span className="flex items-center gap-1"><Globe size={12} />{lead.website}</span>}
-                      </div>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {lead.facebookPageUrl && (
-                          <a href={lead.facebookPageUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:underline"><ExternalLink size={12} />Facebook</a>
-                        )}
-                        {lead.evidenceSourceUrl && (
-                          <a href={lead.evidenceSourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-bold text-brand-600 hover:underline"><ExternalLink size={12} />{t('viewLeadSource')}</a>
-                        )}
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => void deleteSavedLead(lead.id)}
-                      title={t('deleteSavedLead')}
-                      className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-lg transition-colors shrink-0"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </motion.div>
-                ))}
-              </AnimatePresence>
-            </div>
-          )}
-        </div>
-      ) : (
-        <>
       <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-7 gap-4">
         <button
           onClick={() => {
@@ -529,8 +383,6 @@ const CRM: React.FC = () => {
           </div>
         )}
       </div>
-        </>
-      )}
     </div>
   );
 };
