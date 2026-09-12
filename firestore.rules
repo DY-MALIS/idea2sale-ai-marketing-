@@ -173,6 +173,29 @@ service cloud.firestore {
       allow update: if false;
     }
 
+    match /saved_leads/{leadId} {
+      // A Facebook Scanner lead the owner chose to keep past that one scan
+      // session (see "Save to CRM" in FacebookScanner.tsx / the "Saved Leads"
+      // tab in CRM.tsx). Same owner-scoped shape as facebook_scan_leads above.
+      allow read: if isAdmin() || (isSignedIn() && resource.data.ownerId == request.auth.uid);
+      allow list: if isAdmin() || (isSignedIn() && resource.data.ownerId == request.auth.uid);
+
+      allow create: if isSignedIn()
+        && isValidId(leadId)
+        && incoming().ownerId == request.auth.uid
+        && incoming().businessName is string
+        && incoming().businessName.size() <= 200
+        && incoming().businessType is string
+        && incoming().businessType.size() <= 120
+        && incoming().recommendedService is string
+        && incoming().recommendedService.size() <= 500
+        && incoming().inboxMessage is string
+        && incoming().inboxMessage.size() <= 1500;
+
+      allow delete: if isAdmin() || (isSignedIn() && existing().ownerId == request.auth.uid);
+      allow update: if false;
+    }
+
     match /audience_activity/{activityId} {
       allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
       allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);

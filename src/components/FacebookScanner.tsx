@@ -159,6 +159,45 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     }
   };
 
+  const [savingLeadIndex, setSavingLeadIndex] = useState<number | null>(null);
+  const [savedLeadIndex, setSavedLeadIndex] = useState<number | null>(null);
+  const [saveLeadError, setSaveLeadError] = useState<{ index: number; message: string } | null>(null);
+
+  // Facebook Scanner leads are AI-researched prospects, not yet real contacts --
+  // this is the bridge into CRM & Leads' separate "Saved Leads" tab so a lead
+  // worth following up on survives past this one scan session instead of only
+  // existing in an ephemeral result the user has to re-scan to see again.
+  const saveLeadToCrm = async (lead: FacebookPotentialLead, index: number) => {
+    if (!user || isDemoMode) return;
+    setSavingLeadIndex(index);
+    setSaveLeadError(null);
+    try {
+      await addDoc(collection(db, 'saved_leads'), {
+        ownerId: user.uid,
+        businessName: lead.businessName || '',
+        businessType: lead.businessType || '',
+        address: lead.address || '',
+        phone: lead.phone || '',
+        email: lead.email || '',
+        telegram: lead.telegram || '',
+        website: lead.website || '',
+        facebookPageName: lead.facebookPageName || '',
+        facebookPageUrl: lead.facebookUrl || '',
+        leadLevel: lead.leadLevel || '',
+        recommendedService: lead.recommendedService || '',
+        inboxMessage: ensureBusinessInInboxMessage(lead.inboxMessage, businessName).slice(0, 1500),
+        evidenceSourceUrl: lead.evidenceSourceUrl || '',
+        createdAt: serverTimestamp(),
+      });
+      setSavedLeadIndex(index);
+      window.setTimeout(() => setSavedLeadIndex((current) => (current === index ? null : current)), 2500);
+    } catch (err: any) {
+      setSaveLeadError({ index, message: err?.message || (isKm ? 'មិនអាចរក្សាទុកបានទេ។' : 'Could not save this lead.') });
+    } finally {
+      setSavingLeadIndex(null);
+    }
+  };
+
   const [telegramBotUsername, setTelegramBotUsername] = useState('');
   const [telegramBotActive, setTelegramBotActive] = useState(false);
   const [chattingLeadIndex, setChattingLeadIndex] = useState<number | null>(null);
@@ -198,6 +237,8 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     chatViaBot: 'ជជែកតាម Bot',
     sendEmail: 'ផ្ញើអ៊ីមែល',
     emailSent: 'បានផ្ញើ!',
+    saveToCrm: 'រក្សាទុកទៅ CRM',
+    savedToCrm: 'បានរក្សាទុក!',
     noVerifiedLeads: 'មិនទាន់មាន Lead ដែលបានផ្ទៀងផ្ទាត់ទេ។ សូមសាកល្បងស្គេនម្តងទៀត ដើម្បីទទួលបានឈ្មោះអាជីវកម្មពិត។',
     noVerifiedCompetitors: 'ការស្វែងរកលើវេបផ្ទាល់មិនរកឃើញឈ្មោះគូប្រកួតប្រជែងពិតដែលអាចផ្ទៀងផ្ទាត់បានទេ។ ប្រព័ន្ធនឹងមិនស្មានឈ្មោះឡើយ។',
     needSignals: 'សញ្ញាថាត្រូវការ Content/Video',
@@ -260,6 +301,8 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     chatViaBot: 'Chat via Bot',
     sendEmail: 'Send Email',
     emailSent: 'Sent!',
+    saveToCrm: 'Save to CRM',
+    savedToCrm: 'Saved!',
     noVerifiedLeads: 'No verified leads yet. Try scanning again to receive real business names.',
     noVerifiedCompetitors: 'Live web search found no real, verifiable competitor names. The system will not guess any.',
     needSignals: 'Signals they may need content/video',
@@ -641,10 +684,21 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                           {emailSentIndex === index ? text.emailSent : text.sendEmail}
                         </button>
                       )}
+                      {!isDemoMode && !!user && (
+                        <button onClick={() => void saveLeadToCrm(lead, index)} disabled={savingLeadIndex === index} className="inline-flex items-center gap-2 rounded-xl border border-brand-200 bg-white/70 px-3 py-2 text-xs font-bold text-brand-700 hover:bg-brand-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-brand-300 dark:hover:bg-slate-800">
+                          {savingLeadIndex === index ? <Loader2 size={14} className="animate-spin" /> : savedLeadIndex === index ? <Check size={14} /> : <Users size={14} />}
+                          {savedLeadIndex === index ? text.savedToCrm : text.saveToCrm}
+                        </button>
+                      )}
                     </div>
                     {emailError?.index === index && (
                       <div className="mt-2 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
                         <AlertCircle className="mt-0.5 shrink-0" size={14} />{emailError.message}
+                      </div>
+                    )}
+                    {saveLeadError?.index === index && (
+                      <div className="mt-2 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
+                        <AlertCircle className="mt-0.5 shrink-0" size={14} />{saveLeadError.message}
                       </div>
                     )}
                   </article>
