@@ -175,8 +175,9 @@ service cloud.firestore {
 
     match /saved_leads/{leadId} {
       // A Facebook Scanner lead the owner chose to keep past that one scan
-      // session (see "Save to CRM" in FacebookScanner.tsx / the "Saved Leads"
-      // tab in CRM.tsx). Same owner-scoped shape as facebook_scan_leads above.
+      // session (see "Save to CRM" in FacebookScanner.tsx / the standalone
+      // "Saved Leads" page in SavedLeads.tsx). Same owner-scoped shape as
+      // facebook_scan_leads above.
       allow read: if isAdmin() || (isSignedIn() && resource.data.ownerId == request.auth.uid);
       allow list: if isAdmin() || (isSignedIn() && resource.data.ownerId == request.auth.uid);
 
@@ -192,8 +193,16 @@ service cloud.firestore {
         && incoming().inboxMessage is string
         && incoming().inboxMessage.size() <= 1500;
 
+      // Only the "contacted" outreach-status flag can be toggled after
+      // creation -- every other field is set once at save time and never
+      // edited, so this stays narrow rather than opening up a general update.
+      allow update: if isSignedIn()
+        && existing().ownerId == request.auth.uid
+        && incoming().ownerId == request.auth.uid
+        && incoming().diff(existing()).affectedKeys().hasOnly(['contacted', 'contactedAt'])
+        && incoming().contacted is bool;
+
       allow delete: if isAdmin() || (isSignedIn() && existing().ownerId == request.auth.uid);
-      allow update: if false;
     }
 
     match /audience_activity/{activityId} {

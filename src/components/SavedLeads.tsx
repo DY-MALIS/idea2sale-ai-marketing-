@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Bookmark, Trash2, Mail, Phone, Globe, ExternalLink } from 'lucide-react';
+import { Bookmark, Trash2, Mail, Phone, Globe, ExternalLink, CheckCircle2, Circle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { collection, doc, deleteDoc, query, where, limit, onSnapshot } from 'firebase/firestore';
+import { collection, doc, deleteDoc, updateDoc, serverTimestamp, query, where, limit, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { cn } from '../lib/utils';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -22,6 +22,7 @@ interface SavedLead {
   recommendedService?: string;
   inboxMessage?: string;
   evidenceSourceUrl?: string;
+  contacted?: boolean;
   createdAt?: { toDate: () => Date };
 }
 
@@ -68,6 +69,17 @@ const SavedLeads: React.FC = () => {
     }
   };
 
+  const toggleContacted = async (id: string, current: boolean) => {
+    try {
+      await updateDoc(doc(db, 'saved_leads', id), {
+        contacted: !current,
+        contactedAt: !current ? serverTimestamp() : null,
+      });
+    } catch (error) {
+      console.error('Failed to update contacted status:', error);
+    }
+  };
+
   return (
     <div className="max-w-6xl mx-auto space-y-8 pb-20">
       <header>
@@ -103,7 +115,12 @@ const SavedLeads: React.FC = () => {
                   exit={{ opacity: 0 }}
                   className="flex items-start gap-4 p-6 hover:bg-brand-50 dark:hover:bg-slate-800/60 transition-colors"
                 >
-                  <div className="w-12 h-12 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-300 rounded-xl flex items-center justify-center border border-emerald-100 dark:border-emerald-800/60 shrink-0">
+                  <div className={cn(
+                    'w-12 h-12 rounded-xl flex items-center justify-center border shrink-0',
+                    lead.contacted
+                      ? 'bg-slate-100 text-slate-400 border-slate-200 dark:bg-slate-800 dark:text-slate-500 dark:border-slate-700'
+                      : 'bg-emerald-50 text-emerald-600 border-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800/60'
+                  )}>
                     <Bookmark size={20} />
                   </div>
                   <div className="flex-1 min-w-0">
@@ -131,13 +148,28 @@ const SavedLeads: React.FC = () => {
                       )}
                     </div>
                   </div>
-                  <button
-                    onClick={() => void deleteSavedLead(lead.id)}
-                    title={t('deleteSavedLead')}
-                    className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-lg transition-colors shrink-0"
-                  >
-                    <Trash2 size={16} />
-                  </button>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button
+                      onClick={() => void toggleContacted(lead.id, Boolean(lead.contacted))}
+                      title={lead.contacted ? t('markNotContacted') : t('markContacted')}
+                      className={cn(
+                        'flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-bold transition-colors',
+                        lead.contacted
+                          ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300'
+                          : 'bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700'
+                      )}
+                    >
+                      {lead.contacted ? <CheckCircle2 size={14} /> : <Circle size={14} />}
+                      {lead.contacted ? t('contactedStatus') : t('notContactedStatus')}
+                    </button>
+                    <button
+                      onClick={() => void deleteSavedLead(lead.id)}
+                      title={t('deleteSavedLead')}
+                      className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-lg transition-colors"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
                 </motion.div>
               ))}
             </AnimatePresence>
