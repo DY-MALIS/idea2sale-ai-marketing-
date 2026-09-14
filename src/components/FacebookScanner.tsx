@@ -333,6 +333,10 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     notFoundPublic: 'រកមិនឃើញជាសាធារណៈ',
     tryAsking: 'ឬសាកល្បងសួរ៖',
     scanType: 'ជ្រើសគោលដៅស្គេន',
+    customerCategory: 'ស្វែងរកអតិថិជន',
+    customerCategoryDesc: 'ស្វែងរកក្រុមហ៊ុនដែលអាចប្រើសេវាកម្មរបស់អ្នក',
+    competitorCategory: 'វិភាគដៃគូប្រកួតប្រជែង',
+    competitorCategoryDesc: 'តាមដានសកម្មភាព និងអតិថិជនរបស់គូប្រជែង',
     score: 'ពិន្ទុសក្តានុពល',
     interestSignals: 'សញ្ញាចាប់អារម្មណ៍ AI/សេវាកម្ម',
     spendingSignals: 'សញ្ញាសមត្ថភាពចំណាយ (ការប៉ាន់ស្មាន)',
@@ -417,6 +421,10 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     notFoundPublic: 'Not found publicly',
     tryAsking: 'Or try asking:',
     scanType: 'Choose a scan target',
+    customerCategory: 'Find customers',
+    customerCategoryDesc: 'Discover companies that may need your services',
+    competitorCategory: 'Research competitors',
+    competitorCategoryDesc: 'Track competitor activity and customer segments',
     score: 'Opportunity score',
     interestSignals: 'AI/service interest signals',
     spendingSignals: 'Estimated spending-potential signals',
@@ -450,6 +458,17 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     suggestions: string[];
   }>;
   const activeScanMode = scanModes.find((mode) => mode.id === scanMode) || scanModes[0];
+  const competitorModeIds: ScanMode[] = ['competitor_activity', 'competitor_customers'];
+  const scanCategory = competitorModeIds.includes(scanMode) ? 'competitor' : 'customer';
+  const visibleScanModes = scanModes.filter((mode) => (
+    scanCategory === 'competitor' ? competitorModeIds.includes(mode.id) : !competitorModeIds.includes(mode.id)
+  ));
+
+  const selectScanCategory = (category: 'customer' | 'competitor') => {
+    setScanMode(category === 'competitor' ? 'competitor_activity' : 'customer');
+    setResult(null);
+    setError('');
+  };
 
   const scan = async () => {
     const cleanQuery = query.trim();
@@ -605,8 +624,30 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
             <h3 className="text-sm font-black uppercase tracking-wider text-brand-700 dark:text-brand-300">{text.scanType}</h3>
             <span className="max-w-2xl text-xs leading-5 text-slate-500 dark:text-slate-400">{text.privacyScope}</span>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {scanModes.map((mode) => (
+          <div className="mb-4 grid gap-3 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => selectScanCategory('customer')}
+              className={`flex items-center gap-4 rounded-2xl border p-4 text-left transition ${scanCategory === 'customer'
+                ? 'border-emerald-500 bg-emerald-50 ring-2 ring-emerald-500/20 dark:bg-emerald-950/40'
+                : 'border-brand-100 bg-white/60 hover:border-emerald-300 dark:border-slate-700 dark:bg-slate-900/50'}`}
+            >
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300"><Users size={22} /></span>
+              <span><span className="block font-black text-slate-800 dark:text-white">{text.customerCategory}</span><span className="mt-1 block text-xs leading-5 text-slate-500 dark:text-slate-400">{text.customerCategoryDesc}</span></span>
+            </button>
+            <button
+              type="button"
+              onClick={() => selectScanCategory('competitor')}
+              className={`flex items-center gap-4 rounded-2xl border p-4 text-left transition ${scanCategory === 'competitor'
+                ? 'border-indigo-500 bg-indigo-50 ring-2 ring-indigo-500/20 dark:bg-indigo-950/40'
+                : 'border-brand-100 bg-white/60 hover:border-indigo-300 dark:border-slate-700 dark:bg-slate-900/50'}`}
+            >
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300"><Building2 size={22} /></span>
+              <span><span className="block font-black text-slate-800 dark:text-white">{text.competitorCategory}</span><span className="mt-1 block text-xs leading-5 text-slate-500 dark:text-slate-400">{text.competitorCategoryDesc}</span></span>
+            </button>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {visibleScanModes.map((mode) => (
               <button
                 key={mode.id}
                 type="button"
