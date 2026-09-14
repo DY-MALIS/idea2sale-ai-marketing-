@@ -471,9 +471,6 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     lead.opportunityType || result?.scanMode || scanMode,
   );
   const scanCategory = competitorModeIds.includes(scanMode) ? 'competitor' : 'customer';
-  const visibleScanModes = scanModes.filter((mode) => (
-    scanCategory === 'competitor' ? competitorModeIds.includes(mode.id) : !competitorModeIds.includes(mode.id)
-  ));
 
   const selectScanCategory = (category: 'customer' | 'competitor') => {
     setScanMode(category === 'competitor' ? 'competitor_activity' : 'customer');
@@ -656,25 +653,6 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
               <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300"><Building2 size={22} /></span>
               <span><span className="block font-black text-slate-800 dark:text-white">{text.competitorCategory}</span><span className="mt-1 block text-xs leading-5 text-slate-500 dark:text-slate-400">{text.competitorCategoryDesc}</span></span>
             </button>
-          </div>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {visibleScanModes.map((mode) => (
-              <button
-                key={mode.id}
-                type="button"
-                onClick={() => {
-                  setScanMode(mode.id);
-                  setResult(null);
-                  setError('');
-                }}
-                className={`rounded-2xl border p-4 text-left transition ${scanMode === mode.id
-                  ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-500/20 dark:bg-blue-950/40'
-                  : 'border-brand-100 bg-white/60 hover:border-blue-300 dark:border-slate-700 dark:bg-slate-900/50'}`}
-              >
-                <p className="font-black text-slate-800 dark:text-white">{mode.label}</p>
-                <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">{mode.description}</p>
-              </button>
-            ))}
           </div>
         </div>
         <div className="grid gap-5 lg:grid-cols-[1fr_190px_150px]">
