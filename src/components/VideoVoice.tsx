@@ -668,13 +668,15 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
           try {
             await verifyClipSpeech(clip, spokenSegments[i]);
           } catch (error) {
+            console.warn('Automatic speech verification needs manual review:', error);
             setGeneratedVideo(clip);
             setRetainedClips([...clipUrls, clip]);
             setVideoNeedsReview(true);
+            setSegmentProgress(null);
             setVideoVoiceQualityNotice(language === 'km'
               ? 'មិនអាចផ្ទៀងផ្ទាត់សំឡេងបាន។ ឈុតដែលបានបង្កើតរក្សាទុកនៅខាងក្រោមសម្រាប់មើល ស្តាប់ និងទាញយក។ ការផ្សព្វផ្សាយត្រូវបានបិទ។ ការបង្កើតម្ដងទៀតអាចចំណាយបន្ថែម។'
               : 'Speech could not be verified. Generated clips are retained below for review and download. Publishing is disabled. Generating again may incur additional charges.');
-            throw error;
+            return;
           }
         }
         clipUrls.push(clip);
