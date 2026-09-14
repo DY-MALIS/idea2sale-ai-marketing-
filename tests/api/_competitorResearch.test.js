@@ -30,7 +30,7 @@ it('returns only competitors whose source URL is real and reachable', async () =
   expect(result.isSpecificEntity).toBe(true);
   expect(result.entitySummary).toContain('DGACADEMY');
   expect(result.competitors).toEqual([
-    { name: 'Real School A', positioning: 'Premium pricing', linkedinUrl: 'https://www.linkedin.com/school/real-school-a/', sourceUrl: 'https://real-school-a.example.com' },
+    { name: 'Real School A', matchReason: '', positioning: 'Premium pricing', linkedinUrl: 'https://www.linkedin.com/school/real-school-a/', sourceUrl: 'https://real-school-a.example.com' },
   ]);
 });
 
@@ -50,6 +50,26 @@ it('rejects personal LinkedIn profiles while keeping verified competitors', asyn
   const result = await researchCompetitors({ query: 'Competitor A' });
 
   expect(result.competitors[0].linkedinUrl).toBe('');
+});
+
+it('searches complementary source groups and merges duplicate competitors', async () => {
+  mocks.webSearch
+    .mockResolvedValueOnce({ content: JSON.stringify({ competitors: [{ name: 'Academy A', matchReason: 'Same courses and city', positioning: '', sourceUrl: 'https://academy-a.example.com' }] }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({ competitors: [{ name: 'Academy A', positioning: 'Professional training', linkedinUrl: 'https://www.linkedin.com/company/academy-a/', sourceUrl: 'https://directory.example.com/academy-a' }] }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({ competitors: [{ name: 'Academy B', matchReason: 'Same audience and training category', positioning: '', sourceUrl: 'https://academy-b.example.com' }] }) });
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+
+  const result = await researchCompetitors({ query: 'business training' });
+
+  expect(mocks.webSearch).toHaveBeenCalledTimes(3);
+  expect(result.competitors).toHaveLength(2);
+  expect(result.competitors[0]).toMatchObject({
+    name: 'Academy A',
+    matchReason: 'Same courses and city',
+    positioning: 'Professional training',
+    linkedinUrl: 'https://www.linkedin.com/company/academy-a/',
+  });
+  expect(result.competitors[1].name).toBe('Academy B');
 });
 
 it('never fabricates a competitor -- returns an empty list when the model finds none', async () => {

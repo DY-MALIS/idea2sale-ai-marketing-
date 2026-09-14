@@ -25,6 +25,7 @@ interface SavedLead {
   recommendedService?: string;
   inboxMessage?: string;
   evidenceSourceUrl?: string;
+  matchReason?: string;
   topAngle?: string;
   offerStrategy?: string;
   weakness?: string;
@@ -49,7 +50,7 @@ const isCompetitorRecord = (lead: SavedLead) => lead.recordType === 'competitor'
 // session (see "Save to CRM" in FacebookScanner.tsx), a different kind of
 // record entirely (no chat/message history, just researched contact info).
 const SavedLeads: React.FC = () => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const { user, isDemoMode } = useAuth();
   const [savedLeads, setSavedLeads] = useState<SavedLead[]>([]);
   const [loading, setLoading] = useState(true);
@@ -196,6 +197,7 @@ const SavedLeads: React.FC = () => {
                     </div>
                     {isCompetitorRecord(lead) ? (
                       <div className="grid gap-2 text-sm text-slate-600 dark:text-slate-300 sm:grid-cols-2">
+                        {lead.matchReason && <p className="sm:col-span-2"><span className="font-bold text-indigo-500">{language === 'km' ? 'ហេតុអ្វីជាគូប្រកួត:' : 'Why this is a competitor:'}</span> {lead.matchReason}</p>}
                         {lead.topAngle && <p><span className="font-bold text-slate-400">Angle:</span> {lead.topAngle}</p>}
                         {lead.offerStrategy && <p><span className="font-bold text-slate-400">Offer:</span> {lead.offerStrategy}</p>}
                         {lead.weakness && <p><span className="font-bold text-rose-500">Weakness:</span> {lead.weakness}</p>}

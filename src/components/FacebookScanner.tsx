@@ -242,6 +242,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
         facebookPageName: competitor.pageName || '',
         facebookPageUrl: '',
         leadLevel: '',
+        matchReason: competitor.matchReason || '',
         topAngle: competitor.topAngle || '',
         offerStrategy: competitor.offerStrategy || '',
         weakness: competitor.weakness || '',
@@ -754,6 +755,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                   <article key={`${competitor.pageName}-${index}`} className="glass rounded-3xl p-6">
                     <div className="mb-4 flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 font-black text-white">{index + 1}</span><h4 className="text-lg font-black text-slate-800 dark:text-white">{competitor.pageName}</h4></div>
                     <dl className="grid gap-3 text-sm">
+                      {competitor.matchReason && <div><dt className="font-bold text-indigo-500">{isKm ? 'ហេតុអ្វីជាគូប្រកួត' : 'Why this is a competitor'}</dt><dd className="mt-1 text-slate-700 dark:text-slate-200">{competitor.matchReason}</dd></div>}
                       <div><dt className="font-bold text-slate-400">{text.angle}</dt><dd className="mt-1 text-slate-700 dark:text-slate-200">{competitor.topAngle}</dd></div>
                       <div><dt className="font-bold text-slate-400">{text.offer}</dt><dd className="mt-1 text-slate-700 dark:text-slate-200">{competitor.offerStrategy}</dd></div>
                       <div><dt className="font-bold text-rose-500">{text.weakness}</dt><dd className="mt-1 text-slate-700 dark:text-slate-200">{competitor.weakness}</dd></div>

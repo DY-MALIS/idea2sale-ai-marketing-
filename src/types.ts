@@ -54,6 +54,7 @@ export interface FacebookRecentActivity {
 
 export interface FacebookCompetitorInsight {
   pageName: string;
+  matchReason?: string;
   topAngle: string;
   offerStrategy: string;
   weakness: string;

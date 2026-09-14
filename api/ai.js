@@ -1054,7 +1054,7 @@ Return ONLY a valid JSON array of these objects, no markdown, no commentary.`,
 
       const competitorResearchSummary = verifiedCompetitors.length
         ? verifiedCompetitors.map((c, idx) => (
-            `[Verified Competitor ${idx + 1}] Name: ${c.name}${c.positioning ? ` | Positioning: ${c.positioning}` : ''}${c.linkedinUrl ? ` | LinkedIn: ${c.linkedinUrl}` : ''} | Verified activity ${activityWindow.startDate} through ${activityWindow.endDate}: ${(c.recentActivities || []).map((activity) => `${activity.date}: ${activity.activity} (${activity.sourceUrl})`).join(' ; ') || 'none found'} | Source: ${c.sourceUrl}`
+            `[Verified Competitor ${idx + 1}] Name: ${c.name}${c.matchReason ? ` | Why it competes: ${c.matchReason}` : ''}${c.positioning ? ` | Positioning: ${c.positioning}` : ''}${c.linkedinUrl ? ` | LinkedIn: ${c.linkedinUrl}` : ''} | Verified activity ${activityWindow.startDate} through ${activityWindow.endDate}: ${(c.recentActivities || []).map((activity) => `${activity.date}: ${activity.activity} (${activity.sourceUrl})`).join(' ; ') || 'none found'} | Source: ${c.sourceUrl}`
           )).join('\n')
         : 'Live competitor search found 0 verified real competitors for this target.';
 
@@ -1144,6 +1144,7 @@ Return ONLY a single valid JSON object with this exact structure:
   "competitors": [
     {
       "pageName": "...",
+      "matchReason": "why this business is a direct competitor",
       "topAngle": "...",
       "offerStrategy": "...",
       "weakness": "...",
@@ -1308,6 +1309,7 @@ Return ONLY a single valid JSON object with this exact structure:
           .slice(0, 5);
         return {
           pageName: verified.name,
+          matchReason: verified.matchReason || '',
           topAngle: String(match.topAngle || verified.positioning || '').slice(0, 400),
           offerStrategy: String(match.offerStrategy || '').slice(0, 400),
           weakness: String(match.weakness || '').slice(0, 400),
