@@ -17,6 +17,7 @@ export interface GenerationHistoryEntry {
 }
 
 const HISTORY_LIMIT = 20;
+const HISTORY_UPDATED_EVENT = 'aime:generation-history-updated';
 const demoStorageKey = (type: GenerationHistoryType) => `demo_generation_history_${type}`;
 
 const readDemoEntries = (type: GenerationHistoryType): GenerationHistoryEntry[] => {
@@ -30,6 +31,7 @@ const readDemoEntries = (type: GenerationHistoryType): GenerationHistoryEntry[] 
 
 const writeDemoEntries = (type: GenerationHistoryType, entries: GenerationHistoryEntry[]) => {
   localStorage.setItem(demoStorageKey(type), JSON.stringify(entries.slice(0, HISTORY_LIMIT)));
+  window.dispatchEvent(new CustomEvent(HISTORY_UPDATED_EVENT, { detail: { type } }));
 };
 
 interface SaveHistoryArgs {
@@ -89,8 +91,17 @@ export const useGenerationHistory = (user: User | null, isDemoMode: boolean, typ
 
   useEffect(() => {
     if (isDemoMode || !user) {
-      setEntries(readDemoEntries(type));
-      return;
+      const refreshEntries = (event?: Event) => {
+        if (event instanceof CustomEvent && event.detail?.type !== type) return;
+        setEntries(readDemoEntries(type));
+      };
+      refreshEntries();
+      window.addEventListener(HISTORY_UPDATED_EVENT, refreshEntries);
+      window.addEventListener('storage', refreshEntries);
+      return () => {
+        window.removeEventListener(HISTORY_UPDATED_EVENT, refreshEntries);
+        window.removeEventListener('storage', refreshEntries);
+      };
     }
     const q = query(collection(db, 'generation_history'), where('userId', '==', user.uid));
     const unsubscribe = onSnapshot(q, (snapshot) => {

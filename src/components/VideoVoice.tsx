@@ -1098,6 +1098,10 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         </div>
       </header>
 
+      {activeTool === 'video' && (
+        <HistoryPanel entries={videoHistory} onRestore={restoreVideoHistory} onDelete={deleteVideoHistory} />
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
         <div className="lg:col-span-5 space-y-8">
           <div className="glass p-8 rounded-[2.5rem] space-y-6 relative overflow-hidden">
@@ -1571,9 +1575,6 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         </div>
       </div>
 
-      {activeTool === 'video' && (
-        <HistoryPanel entries={videoHistory} onRestore={restoreVideoHistory} onDelete={deleteVideoHistory} />
-      )}
     </div>
   );
 };

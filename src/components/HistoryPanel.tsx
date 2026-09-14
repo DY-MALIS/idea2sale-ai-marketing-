@@ -24,16 +24,16 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ entries, onRestore, onDelet
   const isKm = language === 'km';
   const [open, setOpen] = useState(false);
 
-  if (!entries.length) return null;
-
   const text = isKm ? {
     title: 'ប្រវត្តិ',
     count: (n: number) => `${n} ការបង្កើតពីមុន`,
+    empty: 'មិនទាន់មានប្រវត្តិទេ។ វីដេអូដែលបានបង្កើតនឹងបង្ហាញនៅទីនេះ។',
     restore: 'មើលឡើងវិញ',
     delete: 'លុប',
   } : {
     title: 'History',
     count: (n: number) => `${n} past generation${n === 1 ? '' : 's'}`,
+    empty: 'No history yet. Generated videos and images will appear here.',
     restore: 'View',
     delete: 'Delete',
   };
@@ -53,7 +53,7 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ entries, onRestore, onDelet
         <ChevronDown size={18} className={`shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
-      {open && (
+      {open && entries.length > 0 && (
         <div className="mt-4 space-y-2">
           {entries.map((entry) => (
             <div key={entry.id} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white/60 p-3 dark:border-slate-700 dark:bg-slate-900/40">
@@ -86,6 +86,11 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ entries, onRestore, onDelet
             </div>
           ))}
         </div>
+      )}
+      {open && entries.length === 0 && (
+        <p className="mt-4 rounded-xl border border-dashed border-brand-200 bg-white/50 px-4 py-5 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900/30 dark:text-slate-400">
+          {text.empty}
+        </p>
       )}
     </div>
   );
