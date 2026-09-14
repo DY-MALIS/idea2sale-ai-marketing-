@@ -21,6 +21,11 @@ export default async function reviewVideoHandler(req, res) {
       const item = snap.data();
       if (!item || item.userId !== user.uid) throw new Error('Video not found.');
       if (action === 'retry') {
+        // A double click or a delayed Firestore snapshot can submit the retry
+        // after the first request already moved the item forward. Treat those
+        // current/finished states as an idempotent success instead of alarming
+        // the user with a conflict toast.
+        if (['PENDING', 'PROCESSING', 'DONE'].includes(item.status)) return;
         if (!['FAILED', 'REVIEW'].includes(item.status)) throw new Error('This item cannot be retried.');
         transaction.update(ref, { status: 'PENDING', errorMessage: null, resultMediaUrl: null, speechVerification: null, narrationAudio: null, videoJobId: null });
         return;

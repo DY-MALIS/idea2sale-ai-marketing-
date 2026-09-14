@@ -45,3 +45,10 @@ it('retries only an owned failed/review item and clears stale generation data', 
   expect(res.statusCode).toBe(200); expect(tx.set).not.toHaveBeenCalled();
   expect(tx.update).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ status: 'PENDING', videoJobId: null, narrationAudio: null }));
 });
+it.each(['PENDING', 'PROCESSING', 'DONE'])('treats a stale retry for %s as an idempotent success', async status => {
+  const tx = setup({ userId: 'owner', status });
+  const res = response(); await handler(request({ action: 'retry' }), res);
+  expect(res.statusCode).toBe(200);
+  expect(tx.set).not.toHaveBeenCalled();
+  expect(tx.update).not.toHaveBeenCalled();
+});
