@@ -56,12 +56,14 @@ it('searches complementary source groups and merges duplicate competitors', asyn
   mocks.webSearch
     .mockResolvedValueOnce({ content: JSON.stringify({ competitors: [{ name: 'Academy A', matchReason: 'Same courses and city', positioning: '', sourceUrl: 'https://academy-a.example.com' }] }) })
     .mockResolvedValueOnce({ content: JSON.stringify({ competitors: [{ name: 'Academy A', positioning: 'Professional training', linkedinUrl: 'https://www.linkedin.com/company/academy-a/', sourceUrl: 'https://directory.example.com/academy-a' }] }) })
-    .mockResolvedValueOnce({ content: JSON.stringify({ competitors: [{ name: 'Academy B', matchReason: 'Same audience and training category', positioning: '', sourceUrl: 'https://academy-b.example.com' }] }) });
+    .mockResolvedValueOnce({ content: JSON.stringify({ competitors: [{ name: 'Academy B', matchReason: 'Same audience and training category', positioning: '', sourceUrl: 'https://academy-b.example.com' }] }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({ competitors: [] }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({ competitors: [] }) });
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
 
   const result = await researchCompetitors({ query: 'business training' });
 
-  expect(mocks.webSearch).toHaveBeenCalledTimes(3);
+  expect(mocks.webSearch).toHaveBeenCalledTimes(5);
   expect(result.competitors).toHaveLength(2);
   expect(result.competitors[0]).toMatchObject({
     name: 'Academy A',
@@ -70,6 +72,21 @@ it('searches complementary source groups and merges duplicate competitors', asyn
     linkedinUrl: 'https://www.linkedin.com/company/academy-a/',
   });
   expect(result.competitors[1].name).toBe('Academy B');
+});
+
+it('keeps more than twelve verified competitors when broad discovery finds them', async () => {
+  const competitors = Array.from({ length: 18 }, (_, index) => ({
+    name: `Verified Competitor ${index + 1}`,
+    matchReason: 'Same category, customers, and market',
+    positioning: '',
+    sourceUrl: `https://competitor-${index + 1}.example.com`,
+  }));
+  mocks.webSearch.mockResolvedValue({ content: JSON.stringify({ competitors }) });
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+
+  const result = await researchCompetitors({ query: 'broad local category' });
+
+  expect(result.competitors).toHaveLength(18);
 });
 
 it('never fabricates a competitor -- returns an empty list when the model finds none', async () => {

@@ -1004,7 +1004,7 @@ Return ONLY a valid JSON array of these objects, no markdown, no commentary.`,
           activityStartDate: isCompetitorScan ? activityWindow.startDate : '',
           activityEndDate: isCompetitorScan ? activityWindow.endDate : '',
         }),
-        userBusinessName ? researchCompetitors({ query: userBusinessName, country: searchCountry }) : Promise.resolve(null),
+        userBusinessName ? researchCompetitors({ query: userBusinessName, country: searchCountry, exhaustive: false }) : Promise.resolve(null),
       ]);
 
       let rawWebBusinesses = [];
