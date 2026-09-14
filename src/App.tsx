@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Info, ExternalLink, Copy, Settings, Globe, Languages, Check, Sun, Moon } from 'lucide-react';
+import { Info, ExternalLink, Copy, Settings, Globe, Languages, Check, Sun, Moon, Menu } from 'lucide-react';
 import { cn } from './lib/utils';
 import Sidebar from './components/Sidebar';
 const Copywriter = lazy(() => import('./components/Copywriter'));
@@ -39,6 +39,7 @@ export default function App() {
   const { user, isDemoMode, loading: authLoading, setDemoMode, logout } = useAuth();
   const [configInfo, setConfigInfo] = useState<any>(null);
   const [showLanguageMenu, setShowLanguageMenu] = useState(false);
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [showBusinessProfile, setShowBusinessProfile] = useState(false);
   const [creativeAutomation, setCreativeAutomation] = useState<CreativeAutomationRequest | null>(null);
   const [scheduleHandoff, setScheduleHandoff] = useState<ScheduleHandoffRequest | null>(null);
@@ -71,6 +72,22 @@ export default function App() {
       document.removeEventListener('contextmenu', handleContextmenu);
     };
   }, []);
+
+  useEffect(() => {
+    if (!isMobileNavOpen) return;
+
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsMobileNavOpen(false);
+    };
+
+    document.body.style.overflow = 'hidden';
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isMobileNavOpen]);
 
   const effectivelyAuthenticated = !!user || isDemoMode;
   
@@ -146,7 +163,24 @@ export default function App() {
   return (
     <div className="flex flex-col min-h-screen font-sans bg-mesh overflow-x-hidden">
       {/* Top Header with Language Switcher - Always Visible */}
-      <div className="fixed top-4 right-4 z-[100] flex items-center gap-2">
+      {effectivelyAuthenticated && (
+        <motion.button
+          whileTap={{ scale: 0.95 }}
+          type="button"
+          onClick={() => {
+            setShowLanguageMenu(false);
+            setIsMobileNavOpen(true);
+          }}
+          aria-label="Open navigation"
+          aria-controls="app-navigation"
+          aria-expanded={isMobileNavOpen}
+          className="fixed left-3 top-[max(0.75rem,env(safe-area-inset-top))] z-[100] grid h-11 w-11 place-items-center rounded-full border border-white/50 bg-white/90 text-brand-700 shadow-lg backdrop-blur-md dark:border-white/10 dark:bg-slate-800/90 dark:text-brand-400 lg:hidden"
+        >
+          <Menu size={22} aria-hidden="true" />
+        </motion.button>
+      )}
+
+      <div className="fixed right-3 top-[max(0.75rem,env(safe-area-inset-top))] z-[100] flex items-center gap-1.5 sm:right-4 sm:gap-2 lg:top-4">
         <motion.button
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
@@ -162,7 +196,9 @@ export default function App() {
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => setShowLanguageMenu(!showLanguageMenu)}
-            className="flex items-center gap-2 px-4 py-2 bg-white/80 backdrop-blur-md border border-white/50 rounded-full shadow-lg hover:shadow-xl transition-all text-slate-700 font-medium text-sm dark:bg-slate-800/80 dark:border-white/10 dark:text-slate-200"
+            aria-haspopup="menu"
+            aria-expanded={showLanguageMenu}
+            className="flex h-10 items-center gap-1.5 rounded-full border border-white/50 bg-white/90 px-3 text-sm font-medium text-slate-700 shadow-lg backdrop-blur-md transition-all hover:shadow-xl dark:border-white/10 dark:bg-slate-800/90 dark:text-slate-200 sm:gap-2 sm:px-4"
           >
             <Languages size={16} className="text-brand-600 dark:text-brand-400" />
             <span>{language === 'km' ? 'ភាសាខ្មែរ' : 'English'}</span>
@@ -174,7 +210,8 @@ export default function App() {
                 initial={{ opacity: 0, y: 10, scale: 0.95 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                className="absolute top-full mt-2 right-0 w-40 bg-white border border-slate-100 rounded-2xl shadow-2xl overflow-hidden py-1 dark:bg-slate-800 dark:border-slate-700"
+                role="menu"
+                className="absolute top-full mt-2 right-0 w-40 max-w-[calc(100vw-1.5rem)] bg-white border border-slate-100 rounded-2xl shadow-2xl overflow-hidden py-1 dark:bg-slate-800 dark:border-slate-700"
               >
                 <button
                   onClick={() => {
@@ -229,14 +266,29 @@ export default function App() {
         <Auth onDemoMode={handleDemoMode} />
       ) : (
         <div className="flex flex-1 relative">
+          <AnimatePresence>
+            {isMobileNavOpen && (
+              <motion.button
+                type="button"
+                aria-label="Close navigation"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setIsMobileNavOpen(false)}
+                className="fixed inset-0 z-[110] bg-slate-950/55 backdrop-blur-[2px] lg:hidden"
+              />
+            )}
+          </AnimatePresence>
           <Sidebar
             activeTab={activeTab}
             setActiveTab={setActiveTab}
             onLogout={logout}
             onOpenBusinessProfile={() => setShowBusinessProfile(true)}
+            isOpen={isMobileNavOpen}
+            onClose={() => setIsMobileNavOpen(false)}
           />
           
-          <main className="flex-1 ml-72 p-6 lg:p-8">
+          <main className="min-w-0 flex-1 px-4 pb-6 pt-20 sm:px-6 lg:ml-72 lg:p-8">
             <div className="max-w-7xl mx-auto">
               <Suspense fallback={<div className="min-h-64 animate-pulse rounded-xl bg-white/60 dark:bg-slate-800/60" aria-label="Loading section" />}>
               <AnimatePresence mode="wait">
