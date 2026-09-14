@@ -46,6 +46,12 @@ export interface FacebookCustomerInsights {
   targetPersonas: TargetPersona[];
 }
 
+export interface FacebookRecentActivity {
+  date: string;
+  activity: string;
+  sourceUrl: string;
+}
+
 export interface FacebookCompetitorInsight {
   pageName: string;
   topAngle: string;
@@ -54,6 +60,7 @@ export interface FacebookCompetitorInsight {
   counterStrategy: string;
   sourceUrl?: string;
   publicActivitySignals?: string[];
+  recentActivities?: FacebookRecentActivity[];
   customerSegments?: string[];
 }
 
@@ -82,6 +89,7 @@ export interface FacebookPotentialLead {
   spendingSignals?: string[];
   hiringSignals?: string[];
   competitorSignals?: string[];
+  recentActivities?: FacebookRecentActivity[];
 }
 
 export interface FacebookVideoPlanItem {
@@ -106,6 +114,7 @@ export interface FacebookScanResult {
   webBusinessesFound?: number;
   webSearchAvailable?: boolean;
   scanMode?: FacebookPotentialLead['opportunityType'];
+  activityWindow?: { startDate: string; endDate: string };
   customerInsights: FacebookCustomerInsights;
   competitors: FacebookCompetitorInsight[];
   potentialLeads: FacebookPotentialLead[];

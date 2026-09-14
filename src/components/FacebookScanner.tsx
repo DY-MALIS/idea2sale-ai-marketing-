@@ -180,7 +180,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
   // recordType deciding which list they appear in on the organizer page.
   const saveScannedBusiness = async (lead: FacebookPotentialLead, index: number) => {
     if (!user || isDemoMode) return;
-    const opportunityType = lead.opportunityType || scanMode;
+    const opportunityType = lead.opportunityType || result?.scanMode || scanMode;
     const recordType = ['competitor_activity', 'competitor_customers'].includes(opportunityType)
       ? 'competitor'
       : 'customer';
@@ -206,8 +206,9 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
         spendingSignals: lead.spendingSignals || [],
         hiringSignals: lead.hiringSignals || [],
         competitorSignals: lead.competitorSignals || [],
+        recentActivities: lead.recentActivities || [],
         recommendedService: lead.recommendedService || '',
-        inboxMessage: ensureBusinessInInboxMessage(lead.inboxMessage, businessName).slice(0, 1500),
+        inboxMessage: recordType === 'competitor' ? '' : ensureBusinessInInboxMessage(lead.inboxMessage, businessName).slice(0, 1500),
         evidenceSourceUrl: lead.evidenceSourceUrl || '',
         createdAt: serverTimestamp(),
       });
@@ -243,6 +244,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
         weakness: competitor.weakness || '',
         counterStrategy: competitor.counterStrategy || '',
         publicActivitySignals: competitor.publicActivitySignals || [],
+        recentActivities: competitor.recentActivities || [],
         customerSegments: competitor.customerSegments || [],
         recommendedService: competitor.counterStrategy || '',
         inboxMessage: '',
@@ -274,6 +276,9 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
   }, [user, isDemoMode]);
 
   const text = isKm ? {
+    recentActivityTitle: 'សកម្មភាពក្នុង ៧ ថ្ងៃចុងក្រោយ',
+    recentActivityThroughToday: 'រហូតដល់ថ្ងៃនេះ',
+    noRecentActivity: 'មិនមានសកម្មភាពសាធារណៈដែលបានផ្ទៀងផ្ទាត់ក្នុងរយៈពេល ៧ ថ្ងៃនេះទេ។',
     eyebrow: 'Facebook Audience Intelligence',
     title: 'ស្គេនអតិថិជន និងគូប្រជែង',
     subtitle: 'វិភាគតម្រូវការ ចំណង់ចំណូលចិត្ត គូប្រជែង និងបង្កើតកាលវិភាគវីដេអូដោយ AI។',
@@ -362,6 +367,9 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
       'អចលនទ្រព្យ ភ្នំពេញ',
     ],
   } : {
+    recentActivityTitle: 'Activity in the last 7 days',
+    recentActivityThroughToday: 'through today',
+    noRecentActivity: 'No verified public activity was found in this 7-day period.',
     eyebrow: 'Facebook Audience Intelligence',
     title: 'Customer & competitor scanner',
     subtitle: 'Understand demand, preferences and competitors, then turn the findings into an AI video calendar.',
@@ -459,6 +467,9 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
   }>;
   const activeScanMode = scanModes.find((mode) => mode.id === scanMode) || scanModes[0];
   const competitorModeIds: ScanMode[] = ['competitor_activity', 'competitor_customers'];
+  const isCompetitorLead = (lead: FacebookPotentialLead) => competitorModeIds.includes(
+    lead.opportunityType || result?.scanMode || scanMode,
+  );
   const scanCategory = competitorModeIds.includes(scanMode) ? 'competitor' : 'customer';
   const visibleScanModes = scanModes.filter((mode) => (
     scanCategory === 'competitor' ? competitorModeIds.includes(mode.id) : !competitorModeIds.includes(mode.id)
@@ -845,32 +856,60 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                       { label: text.spendingSignals, items: lead.spendingSignals, tone: 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200' },
                       { label: text.hiringSignals, items: lead.hiringSignals, tone: 'border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200' },
                       { label: text.competitorSignals, items: lead.competitorSignals, tone: 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200' },
-                    ].filter((group) => group.items?.length).map((group) => (
+                    ].filter((group) => !isCompetitorLead(lead) && group.items?.length).map((group) => (
                       <div key={group.label} className={`mt-4 rounded-2xl border p-3 text-sm ${group.tone}`}>
                         <p className="text-xs font-black uppercase tracking-wider">{group.label}</p>
                         <p className="mt-1 leading-6">{group.items?.join(' • ')}</p>
                       </div>
                     ))}
 
-                    <div className="mt-5">
+                    {!isCompetitorLead(lead) && <div className="mt-5">
                       <p className="text-xs font-black uppercase tracking-wider text-slate-400">{text.needSignals}</p>
                       <ul className="mt-2 space-y-2">
                         {lead.needSignals.map((signal, signalIndex) => <li key={signalIndex} className="flex gap-2 text-sm leading-6 text-slate-600 dark:text-slate-300"><Check className="mt-1 shrink-0 text-emerald-500" size={15} />{signal}</li>)}
                       </ul>
-                    </div>
+                    </div>}
 
-                    <div className="mt-4 rounded-2xl bg-emerald-50 p-4 dark:bg-emerald-950/30">
+                    {!isCompetitorLead(lead) && <div className="mt-4 rounded-2xl bg-emerald-50 p-4 dark:bg-emerald-950/30">
                       <p className="text-xs font-black uppercase tracking-wider text-emerald-700 dark:text-emerald-300">{text.recommendedService}</p>
                       <p className="mt-1 text-sm leading-6 text-emerald-900 dark:text-emerald-100">{lead.recommendedService}</p>
-                    </div>
+                    </div>}
 
-                    <div className="mt-4 rounded-2xl border border-brand-100 bg-white/70 p-4 dark:border-slate-700 dark:bg-slate-900/60">
-                      <div className="flex flex-wrap items-center gap-2 text-xs font-black uppercase tracking-wider text-brand-500">
-                        <MessageCircle size={15} />Inbox
-                        {businessName && <span className="rounded-full bg-brand-50 px-2 py-1 normal-case tracking-normal text-brand-700 dark:bg-slate-800 dark:text-brand-300">{isKm ? 'ផ្ញើពី' : 'From'} {businessName}</span>}
+                    {isCompetitorLead(lead) ? (
+                      <div className="mt-4 rounded-2xl border border-indigo-200 bg-indigo-50/80 p-4 dark:border-indigo-900 dark:bg-indigo-950/30">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-300">
+                            <CalendarDays size={15} />{text.recentActivityTitle}
+                          </p>
+                          <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                            {result?.activityWindow?.startDate || ''}{result?.activityWindow ? ' – ' : ''}{result?.activityWindow?.endDate || text.recentActivityThroughToday}
+                          </span>
+                        </div>
+                        {lead.recentActivities?.length ? (
+                          <ul className="mt-3 space-y-3">
+                            {lead.recentActivities.map((activity, activityIndex) => (
+                              <li key={`${activity.date}-${activityIndex}`} className="text-sm leading-6 text-slate-700 dark:text-slate-200">
+                                <span className="mr-2 rounded-md bg-indigo-100 px-2 py-1 text-xs font-bold text-indigo-700 dark:bg-indigo-900 dark:text-indigo-200">{activity.date}</span>
+                                {activity.activity}
+                                <a href={activity.sourceUrl} target="_blank" rel="noopener noreferrer" className="ml-2 inline-flex items-center gap-1 font-bold text-blue-600 hover:underline">
+                                  <ExternalLink size={12} />{text.viewEvidence}
+                                </a>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">{text.noRecentActivity}</p>
+                        )}
                       </div>
-                      <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">{ensureBusinessInInboxMessage(lead.inboxMessage, businessName)}</p>
-                    </div>
+                    ) : (
+                      <div className="mt-4 rounded-2xl border border-brand-100 bg-white/70 p-4 dark:border-slate-700 dark:bg-slate-900/60">
+                        <div className="flex flex-wrap items-center gap-2 text-xs font-black uppercase tracking-wider text-brand-500">
+                          <MessageCircle size={15} />Inbox
+                          {businessName && <span className="rounded-full bg-brand-50 px-2 py-1 normal-case tracking-normal text-brand-700 dark:bg-slate-800 dark:text-brand-300">{isKm ? 'ផ្ញើពី' : 'From'} {businessName}</span>}
+                        </div>
+                        <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">{ensureBusinessInInboxMessage(lead.inboxMessage, businessName)}</p>
+                      </div>
+                    )}
 
                     <div className="mt-4 space-y-1 rounded-2xl border border-brand-100 bg-white/70 p-4 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300">
                         <p className="mb-2 text-xs font-black uppercase tracking-wider text-slate-400">{text.publicContacts}</p>
@@ -887,11 +926,11 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                       {lead.evidenceSourceUrl && <a href={lead.evidenceSourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-brand-200 bg-white/70 px-3 py-2 text-xs font-bold text-brand-700 dark:bg-slate-900 dark:text-brand-300"><ExternalLink size={14} />{text.viewEvidence}</a>}
                       {lead.mapsUrl && <a href={lead.mapsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white"><ExternalLink size={14} />{text.viewMap}</a>}
                       {lead.website && <a href={lead.website} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-brand-200 bg-white/70 px-3 py-2 text-xs font-bold text-brand-700 dark:bg-slate-900 dark:text-brand-300"><ExternalLink size={14} />{text.visitWebsite}</a>}
-                      <button onClick={() => void copyInboxMessage(ensureBusinessInInboxMessage(lead.inboxMessage, businessName), index)} className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">{copiedLead === index ? <Check size={14} /> : <Copy size={14} />}{copiedLead === index ? text.copied : text.copyInbox}</button>
-                      {!isDemoMode && !!user && telegramBotActive && telegramBotUsername && (
+                      {!isCompetitorLead(lead) && <button onClick={() => void copyInboxMessage(ensureBusinessInInboxMessage(lead.inboxMessage, businessName), index)} className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">{copiedLead === index ? <Check size={14} /> : <Copy size={14} />}{copiedLead === index ? text.copied : text.copyInbox}</button>}
+                      {!isCompetitorLead(lead) && !isDemoMode && !!user && telegramBotActive && telegramBotUsername && (
                         <button onClick={() => void startBotChat(lead, index)} title={isKm ? 'ចម្លងតំណ Telegram Bot ដើម្បីផ្ញើទៅអតិថិជន' : 'Copies a Telegram bot link to send this lead'} className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-3 py-2 text-xs font-bold text-white hover:bg-sky-700">{chattingLeadIndex === index ? <Check size={14} /> : <MessageCircle size={14} />}{chattingLeadIndex === index ? text.copied : text.chatViaBot}</button>
                       )}
-                      {!isDemoMode && !!user && lead.email && (
+                      {!isCompetitorLead(lead) && !isDemoMode && !!user && lead.email && (
                         <button onClick={() => void sendLeadEmail(lead, index)} disabled={emailSendingIndex === index} className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-3 py-2 text-xs font-bold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50">
                           {emailSendingIndex === index ? <Loader2 size={14} className="animate-spin" /> : emailSentIndex === index ? <Check size={14} /> : <Mail size={14} />}
                           {emailSentIndex === index ? text.emailSent : text.sendEmail}
@@ -902,7 +941,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                           {savingLeadIndex === index ? <Loader2 size={14} className="animate-spin" /> : savedLeadIndex === index ? <Check size={14} /> : <Users size={14} />}
                           {savedLeadIndex === index
                             ? text.savedToCrm
-                            : ['competitor_activity', 'competitor_customers'].includes(lead.opportunityType || scanMode)
+                            : isCompetitorLead(lead)
                               ? text.saveCompetitor
                               : text.saveToCrm}
                         </button>

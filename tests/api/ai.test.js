@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ensureBusinessInInboxMessage,
   FACEBOOK_SCAN_MODES,
+  getFacebookCompetitorActivityWindow,
   googleSheetsUrlToCsvExportUrl,
   resolveFacebookScanMode,
 } from '../../api/ai.js';
@@ -16,6 +17,15 @@ describe('resolveFacebookScanMode', () => {
   it('falls back safely when a client submits an unknown mode', () => {
     expect(resolveFacebookScanMode('private_profiles')).toBe('customer');
     expect(resolveFacebookScanMode(undefined)).toBe('customer');
+  });
+});
+
+describe('getFacebookCompetitorActivityWindow', () => {
+  it('returns exactly 7 calendar days ending on today in Cambodia time', () => {
+    expect(getFacebookCompetitorActivityWindow(new Date('2026-09-13T18:30:00.000Z'))).toEqual({
+      startDate: '2026-09-08',
+      endDate: '2026-09-14',
+    });
   });
 });
 

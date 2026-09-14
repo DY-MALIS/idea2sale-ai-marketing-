@@ -17,8 +17,13 @@ const jsonFromText = (text) => {
   }
 };
 
-export async function researchCompetitors({ query, country = 'Cambodia' }) {
+export async function researchCompetitors({ query, country = 'Cambodia', activityStartDate = '', activityEndDate = '' }) {
+  const activityWindow = /^\d{4}-\d{2}-\d{2}$/.test(activityStartDate)
+    && /^\d{4}-\d{2}-\d{2}$/.test(activityEndDate)
+    ? `\nAlso search for each competitor's public activity published from ${activityStartDate} through ${activityEndDate}, inclusive. Only include a specific post, ad, offer, event, or campaign when the public source explicitly supports both the activity and its publication date. Never turn undated content, general positioning, or inference into recent activity.`
+    : '';
   const prompt = `Search the live web about "${query}" in ${country}.
+${activityWindow}
 
 Step 1 -- Identify the target: determine whether "${query}" is the name of one specific real business/brand/organization, or a general product niche/category (e.g. "skincare", "women's fashion shop"). Base this only on what real search results show -- never guess.
 
@@ -36,7 +41,14 @@ Return ONLY a single valid JSON object, no markdown:
   "isSpecificEntity": true or false,
   "entitySummary": "one factual sentence on what the target actually is/does, based only on search results, or an empty string if not found",
   "competitors": [
-    { "name": "exact real name", "positioning": "only if directly supported by the source, else empty string", "sourceUrl": "the exact URL this came from" }
+    {
+      "name": "exact real name",
+      "positioning": "only if directly supported by the source, else empty string",
+      "recentActivities": [
+        { "date": "YYYY-MM-DD", "activity": "specific public post, ad, offer, event, or campaign", "sourceUrl": "direct public URL proving this activity and date" }
+      ],
+      "sourceUrl": "the exact URL this came from"
+    }
   ]
 }
 If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary": "", "competitors": []}.`;
@@ -49,15 +61,33 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
       name: String(item?.name || '').trim().slice(0, 200),
       positioning: String(item?.positioning || '').trim().slice(0, 300),
       sourceUrl: String(item?.sourceUrl || '').trim().slice(0, 300),
+      ...(activityWindow ? { recentActivities: (Array.isArray(item?.recentActivities) ? item.recentActivities : [])
+        .map((activity) => ({
+          date: String(activity?.date || '').trim(),
+          activity: String(activity?.activity || '').trim().slice(0, 400),
+          sourceUrl: String(activity?.sourceUrl || '').trim().slice(0, 300),
+        }))
+        .filter((activity) => (
+          /^\d{4}-\d{2}-\d{2}$/.test(activity.date)
+          && activity.date >= activityStartDate
+          && activity.date <= activityEndDate
+          && activity.activity
+          && /^https?:\/\//i.test(activity.sourceUrl)
+        ))
+        .slice(0, 5) } : {}),
     }))
     .filter((item) => item.name && /^https?:\/\//i.test(item.sourceUrl))
     .slice(0, 6);
 
   // Same real-HTTP-check pattern as _webBusinessSearch.js: a fabricated or
   // dead source URL is the actual failure mode worth guarding against here.
-  const verified = (await Promise.all(candidates.map(async (item) => (
-    (await urlIsReachable(item.sourceUrl)) ? item : null
-  )))).filter(Boolean);
+  const verified = (await Promise.all(candidates.map(async (item) => {
+    if (!(await urlIsReachable(item.sourceUrl))) return null;
+    const activityChecks = await Promise.all((item.recentActivities || []).map(async (activity) => (
+      (await urlIsReachable(activity.sourceUrl)) ? activity : null
+    )));
+    return activityWindow ? { ...item, recentActivities: activityChecks.filter(Boolean) } : item;
+  }))).filter(Boolean);
 
   return {
     isSpecificEntity: !!parsed?.isSpecificEntity,

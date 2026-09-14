@@ -62,3 +62,37 @@ it('drops a competitor entry missing a source URL instead of keeping it unverifi
   expect(result.competitors).toEqual([]);
   expect(fetch).not.toHaveBeenCalled();
 });
+
+it('keeps only reachable, explicitly dated activity inside the requested 7-day window', async () => {
+  mocks.webSearch.mockResolvedValue({
+    content: JSON.stringify({
+      isSpecificEntity: true,
+      entitySummary: '',
+      competitors: [{
+        name: 'Competitor A',
+        positioning: '',
+        sourceUrl: 'https://competitor.example.com',
+        recentActivities: [
+          { date: '2026-09-14', activity: 'Published a new course offer', sourceUrl: 'https://competitor.example.com/current' },
+          { date: '2026-09-07', activity: 'Published an old offer', sourceUrl: 'https://competitor.example.com/old' },
+          { date: '2026-09-13', activity: 'Claim with a dead source', sourceUrl: 'https://dead.example.com/post' },
+          { date: '', activity: 'Undated claim', sourceUrl: 'https://competitor.example.com/undated' },
+        ],
+      }],
+    }),
+  });
+  vi.stubGlobal('fetch', vi.fn(async (url) => ({
+    ok: !String(url).includes('dead.example.com'),
+    status: String(url).includes('dead.example.com') ? 404 : 200,
+  })));
+
+  const result = await researchCompetitors({
+    query: 'Competitor A',
+    activityStartDate: '2026-09-08',
+    activityEndDate: '2026-09-14',
+  });
+
+  expect(result.competitors[0].recentActivities).toEqual([
+    { date: '2026-09-14', activity: 'Published a new course offer', sourceUrl: 'https://competitor.example.com/current' },
+  ]);
+});

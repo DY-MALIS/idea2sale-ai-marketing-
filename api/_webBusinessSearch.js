@@ -45,8 +45,13 @@ export async function urlIsReachable(url, timeoutMs = 6000) {
   }
 }
 
-export async function searchBusinessesOnWeb({ searchTerms, country = 'Cambodia' }) {
+export async function searchBusinessesOnWeb({ searchTerms, country = 'Cambodia', activityStartDate = '', activityEndDate = '' }) {
+  const activityWindow = /^\d{4}-\d{2}-\d{2}$/.test(activityStartDate)
+    && /^\d{4}-\d{2}-\d{2}$/.test(activityEndDate)
+    ? `\nFor each business, also search for public activity published from ${activityStartDate} through ${activityEndDate}, inclusive. An activity must have an explicit publication date and a direct public source URL. Do not treat undated content, a homepage, general positioning, or an inference as activity in this date window. If none is found, return an empty recentActivities array.`
+    : '';
   const prompt = `Search the live web for REAL small and mid-sized independent businesses in ${country} matching: "${searchTerms}".
+${activityWindow}
 
 Prioritize small, independent, locally-owned businesses (a single shop, cafe, clinic, or small chain) over large corporations, franchises of international brands, or big real estate/cosmetics conglomerates -- small businesses are far more likely to actually need affordable content/video production help. Prefer sources that list a phone number and address (local business directories, Google/Facebook Maps listings, the business's own contact page) over general news articles, so each result includes real contact details whenever possible.
 
@@ -69,6 +74,9 @@ Return ONLY a single valid JSON object, no markdown, in this exact shape:
       "website": "website URL if found, else empty string",
       "facebookPageName": "exact Facebook Page/channel name if found, else empty string",
       "facebookPageUrl": "Facebook Page URL if found, else empty string",
+      "recentActivities": [
+        { "date": "YYYY-MM-DD", "activity": "specific public post, ad, offer, event, or campaign", "sourceUrl": "direct public URL proving this activity and date" }
+      ],
       "sourceUrl": "the exact URL of the search result this business came from"
     }
   ]
@@ -92,6 +100,20 @@ If you find no real businesses, return {"businesses": []}.`;
         && !/^https?:\/\//i.test(telegram)
         && !/[\u0000-\u001F\u007F<>]/u.test(telegram);
       const facebookPageUrl = String(item?.facebookPageUrl || '').trim().slice(0, 300);
+      const recentActivities = (Array.isArray(item?.recentActivities) ? item.recentActivities : [])
+        .map((activity) => ({
+          date: String(activity?.date || '').trim(),
+          activity: String(activity?.activity || '').trim().slice(0, 400),
+          sourceUrl: String(activity?.sourceUrl || '').trim().slice(0, 300),
+        }))
+        .filter((activity) => (
+          /^\d{4}-\d{2}-\d{2}$/.test(activity.date)
+          && activity.date >= activityStartDate
+          && activity.date <= activityEndDate
+          && activity.activity
+          && /^https?:\/\//i.test(activity.sourceUrl)
+        ))
+        .slice(0, 5);
       return {
         businessName: String(item?.name || '').trim().slice(0, 200),
         businessType: String(item?.businessType || 'Business').trim().slice(0, 120),
@@ -102,6 +124,7 @@ If you find no real businesses, return {"businesses": []}.`;
         website: String(item?.website || '').trim().slice(0, 300),
         facebookPageName: String(item?.facebookPageName || '').trim().slice(0, 200),
         facebookPageUrl: /^https:\/\/(?:(?:www|m)\.)?(?:facebook\.com|fb\.com)\//i.test(facebookPageUrl) ? facebookPageUrl : '',
+        ...(activityWindow ? { recentActivities } : {}),
         sourceUrl: String(item?.sourceUrl || '').trim().slice(0, 300),
       };
     })
@@ -111,7 +134,11 @@ If you find no real businesses, return {"businesses": []}.`;
   const verified = await Promise.all(candidates.map(async (item) => {
     const checkUrl = item.sourceUrl || item.website;
     const reachable = checkUrl ? await urlIsReachable(checkUrl) : false;
-    return reachable ? item : null;
+    if (!reachable) return null;
+    const activityChecks = await Promise.all((item.recentActivities || []).map(async (activity) => (
+      (await urlIsReachable(activity.sourceUrl)) ? activity : null
+    )));
+    return activityWindow ? { ...item, recentActivities: activityChecks.filter(Boolean) } : item;
   }));
 
   return verified.filter(Boolean);

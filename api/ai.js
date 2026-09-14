@@ -55,6 +55,17 @@ export const resolveFacebookScanMode = (value) => {
   return FACEBOOK_SCAN_MODES.includes(requested) ? requested : 'customer';
 };
 
+export const getFacebookCompetitorActivityWindow = (now = new Date()) => {
+  // Cambodia/Thailand use UTC+7 year-round. Convert before slicing so scans
+  // run shortly after local midnight still end on the user's actual today.
+  const end = new Date(new Date(now).getTime() + (7 * 60 * 60 * 1000));
+  const start = new Date(end.getTime() - (6 * 86400000));
+  return {
+    startDate: start.toISOString().slice(0, 10),
+    endDate: end.toISOString().slice(0, 10),
+  };
+};
+
 // Vercel's default serverless function timeout (10s on Hobby) is too short for
 // several calls this file makes synchronously: transcribing a long voice
 // recording (up to 10 minutes of audio), the Facebook Scanner's research +
@@ -960,7 +971,11 @@ Return ONLY a valid JSON array of these objects, no markdown, no commentary.`,
       };
       const scanMode = resolveFacebookScanMode(req.body?.scanMode);
       const scanModeConfig = scanModeConfigs[scanMode];
-      const searchTerms = `${query} ${scanModeConfig.searchHint}`.slice(0, 400);
+      const isCompetitorScan = ['competitor_activity', 'competitor_customers'].includes(scanMode);
+      const today = new Date();
+      const todayStr = today.toISOString().slice(0, 10);
+      const activityWindow = getFacebookCompetitorActivityWindow(today);
+      const searchTerms = `${query} ${scanModeConfig.searchHint}${isCompetitorScan ? ` ${activityWindow.startDate} to ${activityWindow.endDate}` : ''}`.slice(0, 400);
       const countryNames = { KH: 'Cambodia', TH: 'Thailand', VN: 'Vietnam', US: 'United States' };
       const searchCountry = countries.map((code) => countryNames[code] || code).join(', ');
 
@@ -976,9 +991,19 @@ Return ONLY a valid JSON array of these objects, no markdown, no commentary.`,
       // competitor research is, from a live, citation-backed web search on the
       // business's own name.
       const [webSearchSettled, xContextSettled, competitorResearchSettled, ownBusinessResearchSettled] = await Promise.allSettled([
-        searchBusinessesOnWeb({ searchTerms, country: searchCountry }),
+        searchBusinessesOnWeb({
+          searchTerms,
+          country: searchCountry,
+          activityStartDate: isCompetitorScan ? activityWindow.startDate : '',
+          activityEndDate: isCompetitorScan ? activityWindow.endDate : '',
+        }),
         fetchXContextForEntity(query),
-        researchCompetitors({ query, country: searchCountry }),
+        researchCompetitors({
+          query,
+          country: searchCountry,
+          activityStartDate: isCompetitorScan ? activityWindow.startDate : '',
+          activityEndDate: isCompetitorScan ? activityWindow.endDate : '',
+        }),
         userBusinessName ? researchCompetitors({ query: userBusinessName, country: searchCountry }) : Promise.resolve(null),
       ]);
 
@@ -1022,18 +1047,16 @@ Return ONLY a valid JSON array of these objects, no markdown, no commentary.`,
 
       const webBusinessSummary = rawWebBusinesses.length
         ? rawWebBusinesses.slice(0, 12).map((biz, idx) => {
-            return `[Web Business ${idx + 1}] Name: ${biz.businessName} | Type: ${biz.businessType} | Address: ${biz.address || 'not available'} | Phone: ${biz.phone || 'not available'} | Email: ${biz.email || 'not available'} | Telegram: ${biz.telegram || 'not available'} | Website: ${biz.website || 'not available'} | Facebook Page: ${biz.facebookPageName || 'not available'} | Facebook Page URL: ${biz.facebookPageUrl || 'not available'} | Source URL: ${biz.sourceUrl}`;
+            const activitySummary = (biz.recentActivities || []).map((activity) => `${activity.date}: ${activity.activity} (${activity.sourceUrl})`).join(' ; ') || 'none verified in the 7-day window';
+            return `[Web Business ${idx + 1}] Name: ${biz.businessName} | Type: ${biz.businessType} | Address: ${biz.address || 'not available'} | Phone: ${biz.phone || 'not available'} | Email: ${biz.email || 'not available'} | Telegram: ${biz.telegram || 'not available'} | Website: ${biz.website || 'not available'} | Facebook Page: ${biz.facebookPageName || 'not available'} | Facebook Page URL: ${biz.facebookPageUrl || 'not available'} | Verified 7-day activity: ${activitySummary} | Source URL: ${biz.sourceUrl}`;
           }).join('\n')
         : 'Live web business search not connected or returned 0 verified businesses.';
 
       const competitorResearchSummary = verifiedCompetitors.length
         ? verifiedCompetitors.map((c, idx) => (
-            `[Verified Competitor ${idx + 1}] Name: ${c.name}${c.positioning ? ` | Positioning: ${c.positioning}` : ''} | Source: ${c.sourceUrl}`
+            `[Verified Competitor ${idx + 1}] Name: ${c.name}${c.positioning ? ` | Positioning: ${c.positioning}` : ''} | Verified activity ${activityWindow.startDate} through ${activityWindow.endDate}: ${(c.recentActivities || []).map((activity) => `${activity.date}: ${activity.activity} (${activity.sourceUrl})`).join(' ; ') || 'none found'} | Source: ${c.sourceUrl}`
           )).join('\n')
         : 'Live competitor search found 0 verified real competitors for this target.';
-
-      const today = new Date();
-      const todayStr = today.toISOString().slice(0, 10);
 
       const prompt = `You are an elite Facebook social-commerce market researcher, consumer psychologist, and AI video creative director specialized in the Cambodian and Southeast Asian market.
 
@@ -1042,6 +1065,7 @@ Selected Scan Mode: "${scanMode}"
 Mode-specific objective: ${scanModeConfig.instruction}
 Target Market: ${countries.join(', ')}
 Video Schedule Length: ${requestedDays} days starting ${todayStr}
+Competitor Activity Window: ${activityWindow.startDate} through ${activityWindow.endDate}, inclusive (exactly 7 calendar days ending today)
 ${userBusinessName ? `Our Business Name (the business this content is FOR, not a competitor): "${userBusinessName}"` : ''}
 ${userBusinessName ? `What our own business actually is, per live web search (empty if not found -- never assume from the name alone): ${ownBusinessSummary || '(not found in live search -- proceed using only the target/niche context below)'}` : ''}
 
@@ -1070,7 +1094,7 @@ Deeply scan and analyze Facebook customer behavior, pain points, competitor stra
    - Competitor gaps/weaknesses (e.g. slow response, poor video quality, hidden fees, lack of clear tutorials) and how our business can outmaneuver them -- same rule: reasoned analysis, not fabricated specifics.
    - "counterStrategy" MUST pick the lever(s) that most directly attack THIS competitor's specific weakness, not a generic pep talk. Choose from concrete Cambodian social-commerce differentiation levers: (1) Trust & proof -- visible reviews, live-selling showing the real product/seller, a clear return/exchange policy where the competitor is opaque; (2) Speed -- faster delivery or faster message response where the competitor is slow; (3) Content quality -- more authentic, higher-production video/photo (Before/After, honest demos) where the competitor's content is weak or generic; (4) Price/value clarity -- transparent all-in pricing or clearer bundles where the competitor hides fees or is confusing; (5) Service depth -- tutorials, after-sale support, or personalization where the competitor offers none. Name the specific lever(s) used, not just "be better."
    - Ground "counterStrategy" in what our own business actually is, per the "What our own business actually is" line above, when it was found -- do not propose a counter-strategy that only makes sense for a generic/different kind of business than ours. If it was not found, keep the counter-strategy general enough to fit any business in this niche rather than inventing specifics about ours.
-   - "publicActivitySignals" must contain only public or carefully qualified inferred activity signals. "customerSegments" must describe aggregate audience groups, never named individuals or private followers.
+   - For a competitor scan, "publicActivitySignals" must contain ONLY the explicitly dated, source-linked activities supplied above within ${activityWindow.startDate} through ${activityWindow.endDate}. Never present positioning, old/undated content, or inference as activity in this 7-day window. Use an empty array when none was verified. "customerSegments" must describe aggregate audience groups, never named individuals or private followers.
 
 3. POTENTIAL CLIENT LEADS (អាជីវកម្មដែលអាចត្រូវការសេវាផលិត Content/Video):
    - Use ONLY real businesses explicitly present in the Live Web Search Business Context above. Never invent a business, Page, URL, phone number, email address, or contact identity.
@@ -1082,6 +1106,7 @@ Deeply scan and analyze Facebook customer behavior, pain points, competitor stra
    - Fill "interestSignals", "spendingSignals", "hiringSignals", and "competitorSignals" with short evidence-aware observations relevant to this lead. Use an empty array when the supplied public context does not support a category. Spending signals are estimates of commercial fit, never claims about wealth or budget. Hiring signals must never assert an active vacancy without public source support.
    - "recommendedService" MUST name a CONCRETE content format/deliverable fitted to that specific business type, not a generic "digital marketing"/"technology" pitch that could apply to any business. Ground it in what that kind of business actually sells and how customers decide to buy from it -- e.g. a restaurant/cafe: real food/ambiance video tours or menu-highlight reels; a clinic/spa: before/after or real-client testimonial videos; a training/consulting academy: authority-building talking-head or course-preview videos; a fashion/retail shop: lookbook or try-on/product-demo reels; a real estate agency: property walkthrough videos. Vary the wording across leads in the same list even when their business type repeats -- never let every entry converge on the same generic "digital marketing"/"technology" phrase.
    - Write one concise, polite, personalized Khmer Inbox message. Do not claim we inspected private data.${userBusinessName ? ` EVERY Inbox message MUST explicitly introduce the sender using the exact sentence "ខ្ញុំមកពី ${userBusinessName}។" Never write an anonymous outreach message.` : ''}
+   - ${isCompetitorScan ? 'This is competitor research, not customer outreach. Set "inboxMessage" to an empty string and do not write an Inbox or sales message.' : 'This is a customer scan, so follow the Inbox-message requirement above.'}
    - Set "source" to "web_search" for every lead.
    - Copy businessName/address/phone/email/telegram/website/facebookPageName/facebookPageUrl/evidenceSourceUrl (use the Source URL) EXACTLY from the Web Search context. Never fabricate any field left blank in the source context.
 
@@ -1243,9 +1268,12 @@ Return ONLY a single valid JSON object with this exact structure:
             interestSignals: (Array.isArray(lead?.interestSignals) ? lead.interestSignals : []).map((value) => String(value).slice(0, 240)).filter(Boolean).slice(0, 4),
             spendingSignals: (Array.isArray(lead?.spendingSignals) ? lead.spendingSignals : []).map((value) => String(value).slice(0, 240)).filter(Boolean).slice(0, 4),
             hiringSignals: (Array.isArray(lead?.hiringSignals) ? lead.hiringSignals : []).map((value) => String(value).slice(0, 240)).filter(Boolean).slice(0, 4),
-            competitorSignals: (Array.isArray(lead?.competitorSignals) ? lead.competitorSignals : []).map((value) => String(value).slice(0, 240)).filter(Boolean).slice(0, 4),
+            competitorSignals: isCompetitorScan
+              ? (sourceWebBiz.recentActivities || []).map((activity) => `${activity.date}: ${activity.activity}`)
+              : (Array.isArray(lead?.competitorSignals) ? lead.competitorSignals : []).map((value) => String(value).slice(0, 240)).filter(Boolean).slice(0, 4),
+            recentActivities: isCompetitorScan ? (sourceWebBiz.recentActivities || []) : [],
             recommendedService: String(lead?.recommendedService || '').slice(0, 300),
-            inboxMessage: ensureBusinessInInboxMessage(lead?.inboxMessage, userBusinessName).slice(0, 1200),
+            inboxMessage: isCompetitorScan ? '' : ensureBusinessInInboxMessage(lead?.inboxMessage, userBusinessName).slice(0, 1200),
             source: 'web_search',
             businessName: sourceWebBiz.businessName,
             pageName: '',
@@ -1281,7 +1309,10 @@ Return ONLY a single valid JSON object with this exact structure:
           offerStrategy: String(match.offerStrategy || '').slice(0, 400),
           weakness: String(match.weakness || '').slice(0, 400),
           counterStrategy: String(match.counterStrategy || '').slice(0, 600),
-          publicActivitySignals: asList(match.publicActivitySignals),
+          publicActivitySignals: isCompetitorScan
+            ? (verified.recentActivities || []).map((activity) => `${activity.date}: ${activity.activity}`)
+            : asList(match.publicActivitySignals),
+          recentActivities: isCompetitorScan ? (verified.recentActivities || []) : [],
           customerSegments: asList(match.customerSegments),
           sourceUrl: verified.sourceUrl,
         };
@@ -1291,6 +1322,7 @@ Return ONLY a single valid JSON object with this exact structure:
         success: true,
         query,
         scanMode,
+        activityWindow: isCompetitorScan ? activityWindow : undefined,
         webBusinessesFound: rawWebBusinesses.length,
         webSearchAvailable,
         customerInsights: {
