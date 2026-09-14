@@ -1054,7 +1054,7 @@ Return ONLY a valid JSON array of these objects, no markdown, no commentary.`,
 
       const competitorResearchSummary = verifiedCompetitors.length
         ? verifiedCompetitors.map((c, idx) => (
-            `[Verified Competitor ${idx + 1}] Name: ${c.name}${c.positioning ? ` | Positioning: ${c.positioning}` : ''} | Verified activity ${activityWindow.startDate} through ${activityWindow.endDate}: ${(c.recentActivities || []).map((activity) => `${activity.date}: ${activity.activity} (${activity.sourceUrl})`).join(' ; ') || 'none found'} | Source: ${c.sourceUrl}`
+            `[Verified Competitor ${idx + 1}] Name: ${c.name}${c.positioning ? ` | Positioning: ${c.positioning}` : ''}${c.linkedinUrl ? ` | LinkedIn: ${c.linkedinUrl}` : ''} | Verified activity ${activityWindow.startDate} through ${activityWindow.endDate}: ${(c.recentActivities || []).map((activity) => `${activity.date}: ${activity.activity} (${activity.sourceUrl})`).join(' ; ') || 'none found'} | Source: ${c.sourceUrl}`
           )).join('\n')
         : 'Live competitor search found 0 verified real competitors for this target.';
 
@@ -1150,6 +1150,7 @@ Return ONLY a single valid JSON object with this exact structure:
       "counterStrategy": "...",
       "publicActivitySignals": ["public or qualified signal"],
       "customerSegments": ["aggregate segment"],
+      "linkedinUrl": "exact official LinkedIn organization URL from live context, else empty string",
       "sourceUrl": "exact verified competitor source URL"
     }
   ],
@@ -1161,6 +1162,7 @@ Return ONLY a single valid JSON object with this exact structure:
       "businessType": "...",
       "needSignals": ["signal grounded in listing 1", "signal 2"],
       "facebookUrl": "exact Facebook Page URL from live context, else empty string",
+      "linkedinUrl": "exact official LinkedIn organization URL from live context, else empty string",
       "address": "exact address from live context, else empty string",
       "phone": "exact phone from live context, else empty string",
       "email": "exact email from live context, else empty string",
@@ -1278,6 +1280,7 @@ Return ONLY a single valid JSON object with this exact structure:
             businessName: sourceWebBiz.businessName,
             pageName: '',
             facebookUrl: sourceWebBiz.facebookPageUrl || '',
+            linkedinUrl: sourceWebBiz.linkedinUrl || '',
             facebookPageName: sourceWebBiz.facebookPageName || '',
             email: sourceWebBiz.email || '',
             telegram: sourceWebBiz.telegram || '',
@@ -1314,6 +1317,7 @@ Return ONLY a single valid JSON object with this exact structure:
             : asList(match.publicActivitySignals),
           recentActivities: isCompetitorScan ? (verified.recentActivities || []) : [],
           customerSegments: asList(match.customerSegments),
+          linkedinUrl: verified.linkedinUrl || '',
           sourceUrl: verified.sourceUrl,
         };
       });

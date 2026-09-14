@@ -78,8 +78,8 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     const selected = leads.filter((_, index) => !deselectedLeads.has(index));
     if (!selected.length) return;
     const headers = isKm
-      ? ['ឈ្មោះក្រុមហ៊ុន', 'ប្រភេទអាជីវកម្ម', 'អាសយដ្ឋាន', 'ទូរស័ព្ទ', 'អ៊ីមែល', 'Telegram', 'គេហទំព័រ', 'Facebook Page', 'ប្រភេទឱកាស', 'ពិន្ទុសក្តានុពល', 'កម្រិត Lead', 'សញ្ញាចាប់អារម្មណ៍', 'សញ្ញាចំណាយ', 'សញ្ញាជ្រើសបុគ្គលិក', 'សញ្ញាគូប្រកួត', 'សេវាកម្មដែលណែនាំ', 'សារ Inbox', 'ប្រភព']
-      : ['Business Name', 'Business Type', 'Address', 'Phone', 'Email', 'Telegram', 'Website', 'Facebook Page', 'Opportunity Type', 'Fit Score', 'Lead Level', 'Interest Signals', 'Spending Signals', 'Hiring Signals', 'Competitor Signals', 'Recommended Service', 'Inbox Message', 'Source URL'];
+      ? ['ឈ្មោះក្រុមហ៊ុន', 'ប្រភេទអាជីវកម្ម', 'អាសយដ្ឋាន', 'ទូរស័ព្ទ', 'អ៊ីមែល', 'Telegram', 'គេហទំព័រ', 'Facebook Page', 'LinkedIn', 'ប្រភេទឱកាស', 'ពិន្ទុសក្តានុពល', 'កម្រិត Lead', 'សញ្ញាចាប់អារម្មណ៍', 'សញ្ញាចំណាយ', 'សញ្ញាជ្រើសបុគ្គលិក', 'សញ្ញាគូប្រកួត', 'សេវាកម្មដែលណែនាំ', 'សារ Inbox', 'ប្រភព']
+      : ['Business Name', 'Business Type', 'Address', 'Phone', 'Email', 'Telegram', 'Website', 'Facebook Page', 'LinkedIn', 'Opportunity Type', 'Fit Score', 'Lead Level', 'Interest Signals', 'Spending Signals', 'Hiring Signals', 'Competitor Signals', 'Recommended Service', 'Inbox Message', 'Source URL'];
     const rows = selected.map((lead) => [
       lead.businessName,
       lead.businessType,
@@ -89,6 +89,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
       lead.telegram || '',
       lead.website || '',
       lead.facebookUrl || lead.facebookPageName || '',
+      lead.linkedinUrl || '',
       lead.opportunityType || '',
       lead.fitScore ?? '',
       lead.leadLevel,
@@ -199,6 +200,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
         website: lead.website || '',
         facebookPageName: lead.facebookPageName || '',
         facebookPageUrl: lead.facebookUrl || '',
+        linkedinUrl: lead.linkedinUrl || '',
         leadLevel: lead.leadLevel || '',
         opportunityType,
         fitScore: lead.fitScore || 0,
@@ -236,6 +238,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
         email: '',
         telegram: '',
         website: '',
+        linkedinUrl: competitor.linkedinUrl || '',
         facebookPageName: competitor.pageName || '',
         facebookPageUrl: '',
         leadLevel: '',
@@ -757,7 +760,10 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                       <div className="rounded-2xl bg-emerald-50 p-3 dark:bg-emerald-950/30"><dt className="font-bold text-emerald-700 dark:text-emerald-300">{text.counter}</dt><dd className="mt-1 text-emerald-800 dark:text-emerald-100">{competitor.counterStrategy}</dd></div>
                       {!!competitor.publicActivitySignals?.length && <div><dt className="font-bold text-slate-400">{text.publicActivity}</dt><dd className="mt-1 text-slate-700 dark:text-slate-200">{competitor.publicActivitySignals.join(' • ')}</dd></div>}
                       {!!competitor.customerSegments?.length && <div><dt className="font-bold text-slate-400">{text.customerSegments}</dt><dd className="mt-1 text-slate-700 dark:text-slate-200">{competitor.customerSegments.join(' • ')}</dd></div>}
-                      {competitor.sourceUrl && <a href={competitor.sourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 font-bold text-blue-600 hover:underline"><ExternalLink size={14} />{text.viewEvidence}</a>}
+                      <div className="flex flex-wrap gap-3">
+                        {competitor.linkedinUrl && <a href={competitor.linkedinUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 font-bold text-sky-700 hover:underline dark:text-sky-300"><ExternalLink size={14} />LinkedIn</a>}
+                        {competitor.sourceUrl && <a href={competitor.sourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 font-bold text-blue-600 hover:underline"><ExternalLink size={14} />{text.viewEvidence}</a>}
+                      </div>
                     </dl>
                     {!isDemoMode && !!user && (
                       <button
@@ -897,10 +903,12 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                         <p><span className="font-bold text-slate-400">{text.email}: </span>{lead.email ? <a className="font-semibold text-blue-600 hover:underline" href={`mailto:${lead.email}`}>{lead.email}</a> : <span className="text-slate-400">{text.notFoundPublic}</span>}</p>
                         <p><span className="font-bold text-slate-400">{text.telegram}: </span>{lead.telegram ? (/^(?:https?:\/\/|@)/i.test(lead.telegram) ? <a className="font-semibold text-sky-600 hover:underline" href={lead.telegram.startsWith('@') ? `https://t.me/${lead.telegram.slice(1)}` : lead.telegram} target="_blank" rel="noopener noreferrer">{lead.telegram}</a> : lead.telegram) : <span className="text-slate-400">{text.notFoundPublic}</span>}</p>
                         <p><span className="font-bold text-slate-400">{text.facebookPage}: </span>{lead.facebookUrl ? <a className="font-semibold text-blue-600 hover:underline" href={lead.facebookUrl} target="_blank" rel="noopener noreferrer">{lead.facebookPageName || lead.businessName}</a> : (lead.facebookPageName || <span className="text-slate-400">{text.notFoundPublic}</span>)}</p>
+                        <p><span className="font-bold text-slate-400">LinkedIn: </span>{lead.linkedinUrl ? <a className="font-semibold text-sky-700 hover:underline dark:text-sky-300" href={lead.linkedinUrl} target="_blank" rel="noopener noreferrer">{lead.businessName}</a> : <span className="text-slate-400">{text.notFoundPublic}</span>}</p>
                     </div>
 
                     <div className="mt-4 flex flex-wrap gap-2">
                       {lead.facebookUrl && <a href={lead.facebookUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white"><ExternalLink size={14} />{text.viewPage}</a>}
+                      {lead.linkedinUrl && <a href={lead.linkedinUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-sky-700 px-3 py-2 text-xs font-bold text-white"><ExternalLink size={14} />LinkedIn</a>}
                       {lead.evidenceSourceUrl && <a href={lead.evidenceSourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-brand-200 bg-white/70 px-3 py-2 text-xs font-bold text-brand-700 dark:bg-slate-900 dark:text-brand-300"><ExternalLink size={14} />{text.viewEvidence}</a>}
                       {lead.mapsUrl && <a href={lead.mapsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white"><ExternalLink size={14} />{text.viewMap}</a>}
                       {lead.website && <a href={lead.website} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-brand-200 bg-white/70 px-3 py-2 text-xs font-bold text-brand-700 dark:bg-slate-900 dark:text-brand-300"><ExternalLink size={14} />{text.visitWebsite}</a>}

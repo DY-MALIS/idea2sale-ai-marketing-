@@ -16,7 +16,7 @@ it('returns only competitors whose source URL is real and reachable', async () =
       isSpecificEntity: true,
       entitySummary: 'DGACADEMY is an English-language school in Phnom Penh.',
       competitors: [
-        { name: 'Real School A', positioning: 'Premium pricing', sourceUrl: 'https://real-school-a.example.com' },
+        { name: 'Real School A', positioning: 'Premium pricing', linkedinUrl: 'https://www.linkedin.com/school/real-school-a/', sourceUrl: 'https://real-school-a.example.com' },
         { name: 'Fake School B', positioning: 'Made up', sourceUrl: 'https://dead-domain.example.com' },
       ],
     }),
@@ -30,8 +30,26 @@ it('returns only competitors whose source URL is real and reachable', async () =
   expect(result.isSpecificEntity).toBe(true);
   expect(result.entitySummary).toContain('DGACADEMY');
   expect(result.competitors).toEqual([
-    { name: 'Real School A', positioning: 'Premium pricing', sourceUrl: 'https://real-school-a.example.com' },
+    { name: 'Real School A', positioning: 'Premium pricing', linkedinUrl: 'https://www.linkedin.com/school/real-school-a/', sourceUrl: 'https://real-school-a.example.com' },
   ]);
+});
+
+it('rejects personal LinkedIn profiles while keeping verified competitors', async () => {
+  mocks.webSearch.mockResolvedValue({
+    content: JSON.stringify({
+      competitors: [{
+        name: 'Competitor A',
+        positioning: '',
+        linkedinUrl: 'https://www.linkedin.com/in/a-person/',
+        sourceUrl: 'https://competitor.example.com',
+      }],
+    }),
+  });
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+
+  const result = await researchCompetitors({ query: 'Competitor A' });
+
+  expect(result.competitors[0].linkedinUrl).toBe('');
 });
 
 it('never fabricates a competitor -- returns an empty list when the model finds none', async () => {

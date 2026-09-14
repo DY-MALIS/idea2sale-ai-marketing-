@@ -59,6 +59,7 @@ export interface FacebookCompetitorInsight {
   weakness: string;
   counterStrategy: string;
   sourceUrl?: string;
+  linkedinUrl?: string;
   publicActivitySignals?: string[];
   recentActivities?: FacebookRecentActivity[];
   customerSegments?: string[];
@@ -71,6 +72,7 @@ export interface FacebookPotentialLead {
   businessType: string;
   needSignals: string[];
   facebookUrl: string;
+  linkedinUrl?: string;
   facebookPageName?: string;
   address?: string;
   phone?: string;

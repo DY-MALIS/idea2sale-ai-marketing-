@@ -19,6 +19,7 @@ interface SavedLead {
   website?: string;
   facebookPageName?: string;
   facebookPageUrl?: string;
+  linkedinUrl?: string;
   leadLevel?: string;
   opportunityType?: 'customer' | 'ai_interest' | 'high_value' | 'construction' | 'competitor_activity' | 'competitor_customers' | 'hiring';
   recommendedService?: string;
@@ -209,6 +210,9 @@ const SavedLeads: React.FC = () => {
                     <div className="mt-2 flex flex-wrap gap-2">
                       {lead.facebookPageUrl && (
                         <a href={lead.facebookPageUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:underline"><ExternalLink size={12} />Facebook</a>
+                      )}
+                      {lead.linkedinUrl && (
+                        <a href={lead.linkedinUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-bold text-sky-700 hover:underline dark:text-sky-300"><ExternalLink size={12} />LinkedIn</a>
                       )}
                       {lead.evidenceSourceUrl && (
                         <a href={lead.evidenceSourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-bold text-brand-600 hover:underline"><ExternalLink size={12} />{t('viewLeadSource')}</a>
