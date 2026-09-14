@@ -1469,10 +1469,22 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                       </a>
                     </div>
                   )) : <video src={generatedVideo} controls className="w-full rounded-3xl shadow-2xl" />}
-                  {performanceNeedsReview && !videoNeedsReview && (
-                    <label className="flex items-start gap-3 text-sm">
-                      <input type="checkbox" checked={false} onChange={() => setPerformanceNeedsReview(false)} />
-                      {language === 'km' ? 'ខ្ញុំបានមើល និងស្តាប់៖ ពាក្យច្បាស់ ល្បឿនធម្មតា ចលនាមាត់ និងកាយវិការត្រឹមត្រូវ។' : 'I watched and listened: pronunciation, pace, lip sync and gestures are acceptable.'}
+                  {(videoNeedsReview || performanceNeedsReview) && (
+                    <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
+                      <input
+                        type="checkbox"
+                        checked={false}
+                        className="mt-0.5 h-5 w-5 shrink-0 accent-amber-600"
+                        onChange={() => {
+                          setVideoNeedsReview(false);
+                          setPerformanceNeedsReview(false);
+                        }}
+                      />
+                      <span>
+                        {language === 'km'
+                          ? 'ខ្ញុំបានមើល និងស្តាប់វីដេអូរួចហើយ។ ខ្ញុំយល់ព្រមថា សំឡេង ពាក្យ ចលនាមាត់ និងរូបភាពអាចផុសបាន។'
+                          : 'I watched and listened to the video and confirm that its speech, lip sync and visuals are ready to publish.'}
+                      </span>
                     </label>
                   )}
                   <div className="flex gap-4">
