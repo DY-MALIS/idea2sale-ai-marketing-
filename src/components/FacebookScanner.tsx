@@ -6,6 +6,7 @@ import {
   AlertCircle,
   BarChart3,
   BriefcaseBusiness,
+  Building2,
   CalendarDays,
   Check,
   Clock3,
@@ -28,7 +29,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useLanguage } from '../contexts/LanguageContext';
-import { CreativeAutomationRequest, FacebookPotentialLead, FacebookScanResult, FacebookVideoPlanItem } from '../types';
+import { CreativeAutomationRequest, FacebookCompetitorInsight, FacebookPotentialLead, FacebookScanResult, FacebookVideoPlanItem } from '../types';
 import { deleteGenerationHistory, GenerationHistoryEntry, saveGenerationHistory, useGenerationHistory } from '../lib/generationHistory';
 import HistoryPanel from './HistoryPanel';
 import { downloadCsv } from '../lib/csvExport';
@@ -171,18 +172,20 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
   const [savingLeadIndex, setSavingLeadIndex] = useState<number | null>(null);
   const [savedLeadIndex, setSavedLeadIndex] = useState<number | null>(null);
   const [saveLeadError, setSaveLeadError] = useState<{ index: number; message: string } | null>(null);
+  const [savingCompetitorIndex, setSavingCompetitorIndex] = useState<number | null>(null);
+  const [savedCompetitorIndex, setSavedCompetitorIndex] = useState<number | null>(null);
+  const [saveCompetitorError, setSaveCompetitorError] = useState<{ index: number; message: string } | null>(null);
 
-  // Facebook Scanner leads are AI-researched prospects, not yet real contacts --
-  // this is the bridge into CRM & Leads' separate "Saved Leads" tab so a lead
-  // worth following up on survives past this one scan session instead of only
-  // existing in an ephemeral result the user has to re-scan to see again.
-  const saveLeadToCrm = async (lead: FacebookPotentialLead, index: number) => {
+  // Customer prospects and competitors share one owner-scoped collection, with
+  // recordType deciding which list they appear in on the organizer page.
+  const saveCustomer = async (lead: FacebookPotentialLead, index: number) => {
     if (!user || isDemoMode) return;
     setSavingLeadIndex(index);
     setSaveLeadError(null);
     try {
       await addDoc(collection(db, 'saved_leads'), {
         ownerId: user.uid,
+        recordType: 'customer',
         businessName: lead.businessName || '',
         businessType: lead.businessType || '',
         address: lead.address || '',
@@ -210,6 +213,44 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
       setSaveLeadError({ index, message: err?.message || (isKm ? 'មិនអាចរក្សាទុកបានទេ។' : 'Could not save this lead.') });
     } finally {
       setSavingLeadIndex(null);
+    }
+  };
+
+  const saveCompetitor = async (competitor: FacebookCompetitorInsight, index: number) => {
+    if (!user || isDemoMode) return;
+    setSavingCompetitorIndex(index);
+    setSaveCompetitorError(null);
+    try {
+      await addDoc(collection(db, 'saved_leads'), {
+        ownerId: user.uid,
+        recordType: 'competitor',
+        businessName: competitor.pageName || '',
+        businessType: 'Competitor',
+        address: '',
+        phone: '',
+        email: '',
+        telegram: '',
+        website: '',
+        facebookPageName: competitor.pageName || '',
+        facebookPageUrl: '',
+        leadLevel: '',
+        topAngle: competitor.topAngle || '',
+        offerStrategy: competitor.offerStrategy || '',
+        weakness: competitor.weakness || '',
+        counterStrategy: competitor.counterStrategy || '',
+        publicActivitySignals: competitor.publicActivitySignals || [],
+        customerSegments: competitor.customerSegments || [],
+        recommendedService: competitor.counterStrategy || '',
+        inboxMessage: '',
+        evidenceSourceUrl: competitor.sourceUrl || '',
+        createdAt: serverTimestamp(),
+      });
+      setSavedCompetitorIndex(index);
+      window.setTimeout(() => setSavedCompetitorIndex((current) => (current === index ? null : current)), 2500);
+    } catch (err: any) {
+      setSaveCompetitorError({ index, message: err?.message || (isKm ? 'មិនអាចរក្សាទុកដៃគូប្រកួតប្រជែងបានទេ។' : 'Could not save this competitor.') });
+    } finally {
+      setSavingCompetitorIndex(null);
     }
   };
 
@@ -252,8 +293,10 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     chatViaBot: 'ជជែកតាម Bot',
     sendEmail: 'ផ្ញើអ៊ីមែល',
     emailSent: 'បានផ្ញើ!',
-    saveToCrm: 'រក្សាទុកទៅ CRM',
+    saveToCrm: 'រក្សាទុកជាអតិថិជន',
     savedToCrm: 'បានរក្សាទុក!',
+    saveCompetitor: 'រក្សាទុកជាដៃគូប្រកួតប្រជែង',
+    savedCompetitor: 'បានរក្សាទុក!',
     noVerifiedLeads: 'មិនទាន់មាន Lead ដែលបានផ្ទៀងផ្ទាត់ទេ។ សូមសាកល្បងស្គេនម្តងទៀត ដើម្បីទទួលបានឈ្មោះអាជីវកម្មពិត។',
     noVerifiedCompetitors: 'ការស្វែងរកលើវេបផ្ទាល់មិនរកឃើញឈ្មោះគូប្រកួតប្រជែងពិតដែលអាចផ្ទៀងផ្ទាត់បានទេ។ ប្រព័ន្ធនឹងមិនស្មានឈ្មោះឡើយ។',
     needSignals: 'សញ្ញាថាត្រូវការ Content/Video',
@@ -334,8 +377,10 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     chatViaBot: 'Chat via Bot',
     sendEmail: 'Send Email',
     emailSent: 'Sent!',
-    saveToCrm: 'Save to CRM',
+    saveToCrm: 'Save as customer',
     savedToCrm: 'Saved!',
+    saveCompetitor: 'Save as competitor',
+    savedCompetitor: 'Saved!',
     noVerifiedLeads: 'No verified leads yet. Try scanning again to receive real business names.',
     noVerifiedCompetitors: 'Live web search found no real, verifiable competitor names. The system will not guess any.',
     needSignals: 'Signals they may need content/video',
@@ -680,6 +725,22 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                       {!!competitor.customerSegments?.length && <div><dt className="font-bold text-slate-400">{text.customerSegments}</dt><dd className="mt-1 text-slate-700 dark:text-slate-200">{competitor.customerSegments.join(' • ')}</dd></div>}
                       {competitor.sourceUrl && <a href={competitor.sourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 font-bold text-blue-600 hover:underline"><ExternalLink size={14} />{text.viewEvidence}</a>}
                     </dl>
+                    {!isDemoMode && !!user && (
+                      <button
+                        type="button"
+                        onClick={() => void saveCompetitor(competitor, index)}
+                        disabled={savingCompetitorIndex === index}
+                        className="mt-4 inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-bold text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-300"
+                      >
+                        {savingCompetitorIndex === index ? <Loader2 size={14} className="animate-spin" /> : savedCompetitorIndex === index ? <Check size={14} /> : <Building2 size={14} />}
+                        {savedCompetitorIndex === index ? text.savedCompetitor : text.saveCompetitor}
+                      </button>
+                    )}
+                    {saveCompetitorError?.index === index && (
+                      <div className="mt-2 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
+                        <AlertCircle className="mt-0.5 shrink-0" size={14} />{saveCompetitorError.message}
+                      </div>
+                    )}
                   </article>
                 ))}
               </div>
@@ -792,7 +853,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                         </button>
                       )}
                       {!isDemoMode && !!user && (
-                        <button onClick={() => void saveLeadToCrm(lead, index)} disabled={savingLeadIndex === index} className="inline-flex items-center gap-2 rounded-xl border border-brand-200 bg-white/70 px-3 py-2 text-xs font-bold text-brand-700 hover:bg-brand-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-brand-300 dark:hover:bg-slate-800">
+                        <button onClick={() => void saveCustomer(lead, index)} disabled={savingLeadIndex === index} className="inline-flex items-center gap-2 rounded-xl border border-brand-200 bg-white/70 px-3 py-2 text-xs font-bold text-brand-700 hover:bg-brand-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-brand-300 dark:hover:bg-slate-800">
                           {savingLeadIndex === index ? <Loader2 size={14} className="animate-spin" /> : savedLeadIndex === index ? <Check size={14} /> : <Users size={14} />}
                           {savedLeadIndex === index ? text.savedToCrm : text.saveToCrm}
                         </button>
