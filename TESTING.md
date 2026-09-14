@@ -17,10 +17,12 @@ see [README.md](README.md) and the in-app Security Overview page for what "share
 
 - User A cannot read or write User B's `scheduled_posts`, `campaigns`, `reply_rules`, `audience_activity`, or
   `business_profiles` (each is gated by `userId == request.auth.uid`).
-- Any signed-in user CAN read `telegram_leads` and `telegram_messages` — confirm this is the intended behavior
-  (single shared CRM/inbox) before adding a second unrelated business to this deployment.
-- `tiktok_posts` is publicly readable by design (analytics widget) — confirm no sensitive data is ever written
-  into that collection.
+- `telegram_leads` and `telegram_messages` are readable by administrators, or by a signed-in user whose uid matches
+  the document's `ownerId` (per-user bot leads/messages — the shared bot's leads have no `ownerId` and stay
+  admin-only); client writes are always denied because the Telegram webhook uses the Admin SDK. Confirm a standard
+  signed-in account is denied for documents it doesn't own, and can read its own (`ownerId`-matching) documents.
+- `tiktok_posts` is private: administrators can read every record, while standard users can read only records whose
+  `userId` matches their Firebase uid. Confirm anonymous and cross-account reads are denied.
 - Deleting a `tiktok_posts` document requires an `admins/{uid}` document to exist for the caller.
 
 ## TikTok Publishing

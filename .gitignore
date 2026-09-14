@@ -11,3 +11,9 @@ coverage/
 
 .vercel
 .env*
+
+# Local editor settings and generated investigation artifacts
+.vscode/
+scratchpad/
+scratch_test_*.mjs
+tests/api/telegram/image.png

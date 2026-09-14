@@ -24,6 +24,14 @@ describe('OpenRouter Gemini TTS adapter (mocked network)', () => {
     expect(wav.length).toBe(48044);
     expect(result).toMatchObject({duration:1,provider:'gemini',gateway:'openrouter',generationId:'test-generation'});
   });
+  it('maps the app Male/Female selections to matching Gemini voices', async () => {
+    let fetch = stub();
+    await generateGeminiSpeech({input:'សួស្តី',voice:'Male'});
+    expect(JSON.parse(fetch.mock.calls[0][1].body).voice).toBe('Charon');
+    fetch = stub();
+    await generateGeminiSpeech({input:'សួស្តី',voice:'Female'});
+    expect(JSON.parse(fetch.mock.calls[0][1].body).voice).toBe('Kore');
+  });
   it('fails before a request when the dedicated server key is missing', async () => {
     const fetch=stub();vi.stubEnv('OPEN_ROUTER_API_KEY','');vi.stubEnv('OPENROUTER_API_KEY','');
     await expect(generateGeminiSpeech({input:'សួស្តី'})).rejects.toThrow('OPEN_ROUTER_API_KEY');

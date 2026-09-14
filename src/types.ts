@@ -52,6 +52,9 @@ export interface FacebookCompetitorInsight {
   offerStrategy: string;
   weakness: string;
   counterStrategy: string;
+  sourceUrl?: string;
+  publicActivitySignals?: string[];
+  customerSegments?: string[];
 }
 
 export interface FacebookPotentialLead {
@@ -73,6 +76,12 @@ export interface FacebookPotentialLead {
   recommendedService: string;
   inboxMessage: string;
   evidenceSourceUrl?: string;
+  opportunityType?: 'customer' | 'ai_interest' | 'high_value' | 'construction' | 'competitor_activity' | 'competitor_customers' | 'hiring';
+  fitScore?: number;
+  interestSignals?: string[];
+  spendingSignals?: string[];
+  hiringSignals?: string[];
+  competitorSignals?: string[];
 }
 
 export interface FacebookVideoPlanItem {
@@ -96,6 +105,7 @@ export interface FacebookScanResult {
   query: string;
   webBusinessesFound?: number;
   webSearchAvailable?: boolean;
+  scanMode?: FacebookPotentialLead['opportunityType'];
   customerInsights: FacebookCustomerInsights;
   competitors: FacebookCompetitorInsight[];
   potentialLeads: FacebookPotentialLead[];
@@ -127,7 +137,7 @@ export interface SchedulePost {
   content: string;
   platform: 'TIKTOK' | 'INSTAGRAM' | 'TWITTER' | 'TELEGRAM';
   scheduledTime: string;
-  status: 'PENDING' | 'PUBLISHED' | 'FAILED';
+  status: 'PENDING' | 'PROCESSING' | 'PUBLISHED' | 'FAILED';
   userId: string;
   aiSuggested: boolean;
   publishMode?: string;

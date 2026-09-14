@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import { auth, authPersistenceReady } from '../lib/firebase';
 import { signInWithCustomToken, User } from 'firebase/auth';
 import { getGuestInstallationId, isStableGuestUid } from '../lib/guestIdentity';
+import { markDemoModeSession } from '../lib/scheduledPosts';
 
 interface AuthContextType {
   user: User | null;
@@ -109,8 +110,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsDemoMode(false);
   };
 
+  const setDemoMode = (val: boolean) => {
+    if (val) markDemoModeSession();
+    setIsDemoMode(val);
+  };
+
   return (
-    <AuthContext.Provider value={{ user, isDemoMode, loading, setDemoMode: setIsDemoMode, logout }}>
+    <AuthContext.Provider value={{ user, isDemoMode, loading, setDemoMode, logout }}>
       {children}
     </AuthContext.Provider>
   );

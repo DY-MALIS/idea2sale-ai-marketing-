@@ -3,11 +3,12 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "packageManager": "npm@11.16.0",
   "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build",
     "preview": "vite preview",
-    "clean": "rm -rf dist",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "lint": "tsc --noEmit",
     "test": "vitest run",
     "grant-admin": "node scripts/grant-admin.js",
@@ -28,7 +29,7 @@
     "dotenv": "^17.4.1",
     "express": "^4.22.1",
     "firebase": "^12.12.1",
-    "firebase-admin": "^13.8.0",
+    "firebase-admin": "^14.4.0",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
     "node-edge-tts": "^1.2.10",
@@ -46,9 +47,13 @@
     "@types/node": "^22.14.0",
     "autoprefixer": "^10.4.21",
     "tailwindcss": "^4.1.14",
-    "tsx": "^4.21.0",
+    "tsx": "^4.23.13",
     "typescript": "~5.8.2",
     "vite": "^6.2.0",
     "vitest": "^4.1.10"
+  },
+  "overrides": {
+    "qs": "^6.16.0",
+    "uuid": "^11.1.1"
   }
 }

@@ -7,7 +7,12 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, { dur
   }
   const image = images.length ? { imageUrl: `data:${images[0].mimeType};base64,${images[0].base64}` } : await generateOpenRouterImage({ prompt: speech.avatarPrompt, aspectRatio: '16:9' });
   const avatarImage = await uploadMediaDataUrl({ mediaDataUrl: image.imageUrl, mediaType: 'photo' });
-  const audio = await generateKhmerSpeech({ input: speech.script, voice: item.voiceGender || 'Female' });
+  const audio = await generateKhmerSpeech({
+    input: speech.script,
+    voice: item.voiceGender || 'Female',
+    performanceStyle: speech.performanceStyle || item.performanceStyle || '',
+    context: item.prompt || speech.prompt || '',
+  });
   const narrationAudio = await uploadMediaDataUrl({ mediaDataUrl: audio.audioUrl, mediaType: 'audio' });
   if (!(narrationAudio.duration > 0 && narrationAudio.duration <= duration)) throw new Error('Khmer narration must fit within the clip. Shorten the script.');
   const job = await startOpenRouterVideo({
@@ -19,6 +24,14 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, { dur
     referenceUrls: [avatarImage.mediaUrl],
     audioReferenceUrls: [narrationAudio.mediaUrl],
   });
-  return { job, avatarImage, narrationAudio };
+  return {
+    job,
+    avatarImage,
+    narrationAudio: {
+      ...narrationAudio,
+      provider: audio.provider || audio.model || 'unknown',
+      fallbackReason: audio.fallbackReason || '',
+    },
+  };
 };
 

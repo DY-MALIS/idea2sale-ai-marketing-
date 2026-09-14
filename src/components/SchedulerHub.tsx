@@ -10,17 +10,17 @@ import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
 import { useLanguage } from '../contexts/LanguageContext';
 import { saveLocalMedia } from '../lib/localMediaStore';
+import { withUploadTimeout } from '../lib/withUploadTimeout';
 
 import { useAuth } from '../contexts/AuthContext';
 import { ScheduleHandoffRequest } from '../types';
 import { recordAuditEvent } from '../lib/auditClient';
 
 const MB = 1024 * 1024;
-const TELEGRAM_SERVER_MEDIA_LIMIT_MB = 48;
 const TELEGRAM_MEDIA_LIMIT_MB = 48;
 const DEMO_INLINE_MEDIA_LIMIT_MB = 3;
-const UPLOAD_TIMEOUT_MS = 180000;
 const LOCAL_POSTS_KEY = 'demo_scheduled_posts';
+const UPLOAD_TIMEOUT_MESSAGE = 'Upload is taking too long. Please check your internet connection or use a smaller video.';
 
 const getCompactLocalPosts = () => {
   try {
@@ -83,6 +83,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   React.useEffect(() => {
     if (!handoffRequest || handledHandoffRef.current === handoffRequest.id) return;
     handledHandoffRef.current = handoffRequest.id;
+    const requestId = handoffRequest.id;
 
     setIsAttachingHandoffMedia(true);
     (async () => {
@@ -91,11 +92,15 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
         const blob = await response.blob();
         const mimeType = handoffRequest.kind === 'video' ? 'video/mp4' : 'image/png';
         const file = new File([blob], handoffRequest.mediaName, { type: blob.type || mimeType });
+        // A newer handoff may have arrived and started its own fetch while this one
+        // was in flight -- handledHandoffRef.current is always the latest request's
+        // id, so if it's moved on, this (now-stale) result must not overwrite it.
+        if (handledHandoffRef.current !== requestId) return;
         setTelegramMediaFile(file);
       } catch (error) {
         console.error('Could not attach the generated media to the scheduler:', error);
       } finally {
-        setIsAttachingHandoffMedia(false);
+        if (handledHandoffRef.current === requestId) setIsAttachingHandoffMedia(false);
       }
     })();
 
@@ -119,9 +124,6 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     if (demoMode && file.size > DEMO_INLINE_MEDIA_LIMIT_MB * MB) {
       return `This file is ${formatFileSize(file.size)}. Try Demo Mode supports media under ${DEMO_INLINE_MEDIA_LIMIT_MB} MB. Use Continue as Guest to schedule files up to ${TELEGRAM_MEDIA_LIMIT_MB} MB.`;
     }
-    if (!demoMode && file.size > TELEGRAM_SERVER_MEDIA_LIMIT_MB * MB) {
-      return `This file is ${formatFileSize(file.size)}. Telegram auto-scheduling currently supports files under ${TELEGRAM_SERVER_MEDIA_LIMIT_MB} MB. Please compress it or choose a smaller file.`;
-    }
     return null;
   };
 
@@ -137,7 +139,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
         headers: {
           Authorization: `Bearer ${idToken}`
         }
-      }));
+      }), UPLOAD_TIMEOUT_MESSAGE);
     } catch {
       throw new Error('Could not reach the app server to prepare the upload. Check your internet connection and try again.');
     }
@@ -166,7 +168,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
       return withUploadTimeout(fetch(signatureData.uploadUrl, {
         method: 'POST',
         body: form
-      }));
+      }), UPLOAD_TIMEOUT_MESSAGE);
     };
 
     let uploadResponse: Response;
@@ -176,7 +178,8 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
       if (error instanceof Error && /taking too long/i.test(error.message)) throw error;
       try {
         uploadResponse = await doUpload();
-      } catch {
+      } catch (retryError) {
+        if (retryError instanceof Error && /taking too long/i.test(retryError.message)) throw retryError;
         throw new Error('The media upload was interrupted (network connection dropped). Check your internet connection and try again.');
       }
     }
@@ -189,20 +192,6 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
       mediaUrl: String(uploadData.secure_url),
       mediaType: uploadData.resource_type === 'video' || file.type.startsWith('video/') ? 'video' : 'photo'
     };
-  };
-
-  const withUploadTimeout = async <T,>(promise: Promise<T>) => {
-    let timeoutId: number | undefined;
-    const timeout = new Promise<never>((_, reject) => {
-      timeoutId = window.setTimeout(() => {
-        reject(new Error('Upload is taking too long. Please check your internet connection or use a smaller video.'));
-      }, UPLOAD_TIMEOUT_MS);
-    });
-    try {
-      return await Promise.race([promise, timeout]);
-    } finally {
-      if (timeoutId) window.clearTimeout(timeoutId);
-    }
   };
 
   // uploadBytes (a single-shot XHR) previously gave a large TikTok video no
@@ -253,12 +242,23 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     setScheduledTime(getLocalISOString(nextHour));
   };
 
-  const saveLocalTelegramSchedule = async (userId: string, scheduledDate: Date) => {
+  const saveLocalSchedule = async (userId: string, scheduledDate: Date) => {
     const postId = Date.now().toString();
-    const mediaDbKey = telegramMediaFile ? `telegram-${postId}-${crypto.randomUUID()}` : null;
-    if (mediaDbKey && telegramMediaFile) {
-      await saveLocalMedia(mediaDbKey, telegramMediaFile);
+    // Only TELEGRAM and TIKTOK collect a media file in this form (see the platform
+    // === 'TIKTOK' / 'TELEGRAM' inputs below) -- pick whichever one actually
+    // applies instead of always reading telegramMediaFile, or a demo TikTok post's
+    // video is silently dropped (mediaDbKey/mediaName end up null) with no error.
+    const mediaFile = platform === 'TELEGRAM' ? telegramMediaFile : platform === 'TIKTOK' ? videoFile : null;
+    const mediaDbKey = mediaFile ? `${platform.toLowerCase()}-${postId}-${crypto.randomUUID()}` : null;
+    if (mediaDbKey && mediaFile) {
+      await saveLocalMedia(mediaDbKey, mediaFile);
     }
+
+    const publishMode = platform === 'TELEGRAM'
+      ? 'TELEGRAM_AUTO_POST_LOCAL'
+      : platform === 'TIKTOK'
+      ? 'TIKTOK_DIRECT_POST_LOCAL'
+      : 'PLANNED_ONLY';
 
     const post = {
       id: postId,
@@ -270,9 +270,9 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
       aiSuggested: false,
       videoName: videoFile?.name || null,
       mediaDbKey,
-      mediaName: telegramMediaFile?.name || null,
-      mediaType: telegramMediaFile?.type.startsWith('video/') ? 'video' : telegramMediaFile ? 'photo' : null,
-      publishMode: 'TELEGRAM_AUTO_POST_LOCAL',
+      mediaName: mediaFile?.name || null,
+      mediaType: mediaFile ? (mediaFile.type.startsWith('video/') ? 'video' : 'photo') : null,
+      publishMode,
       localOnly: true,
       createdAt: new Date().toISOString()
     };
@@ -316,7 +316,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
 
     if (isDemoMode) {
       try {
-        await saveLocalTelegramSchedule('demo-user', scheduledDate);
+        await saveLocalSchedule('demo-user', scheduledDate);
         resetFormAfterSchedule();
       } catch (err) {
         console.error('Error preparing demo media:', err);
@@ -353,7 +353,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
               mediaName: telegramMediaFile?.name || null,
               mediaType: uploadedMedia?.mediaType || null
             })
-          }));
+          }), UPLOAD_TIMEOUT_MESSAGE);
         } catch {
           throw new Error('The media uploaded, but saving the post to the schedule failed (network error). Please try again.');
         }

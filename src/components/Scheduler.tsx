@@ -9,11 +9,11 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useIsAdmin } from '../hooks/useIsAdmin';
 import { deleteLocalMedia, getLocalMediaBlob, getLocalMediaDataUrl } from '../lib/localMediaStore';
-import { getStoredScheduledPosts, mergeStoredScheduleHistory } from '../lib/scheduledPosts';
+import { getStoredScheduledPosts, mergeStoredScheduleHistory, wasDemoModeThisSession } from '../lib/scheduledPosts';
 import { recordAuditEvent } from '../lib/auditClient';
+import { withUploadTimeout } from '../lib/withUploadTimeout';
 
 const DEMO_DEFAULT_POST_IDS = ['1', '2'];
-const TELEGRAM_UPLOAD_TIMEOUT_MS = 180000;
 
 const getLocalScheduledPosts = (): SchedulePost[] => {
   return getStoredScheduledPosts();
@@ -42,22 +42,6 @@ const normalizeScheduledTime = (value: unknown): string => {
   if (typeof value === 'string') return value;
   const asDate = value && typeof (value as any).toDate === 'function' ? (value as any).toDate() : new Date(value as any);
   return Number.isNaN(asDate.getTime()) ? new Date().toISOString() : asDate.toISOString();
-};
-
-const withUploadTimeout = async <T,>(promise: Promise<T>) => {
-  let timeoutId: number | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timeoutId = window.setTimeout(
-      () => reject(new Error('Upload is taking too long. Please check your internet connection and try again.')),
-      TELEGRAM_UPLOAD_TIMEOUT_MS
-    );
-  });
-
-  try {
-    return await Promise.race([promise, timeout]);
-  } finally {
-    if (timeoutId) window.clearTimeout(timeoutId);
-  }
 };
 
 const Scheduler: React.FC = () => {
@@ -162,10 +146,11 @@ const Scheduler: React.FC = () => {
   useEffect(() => {
     if (!user || isDemoMode) return;
 
+    const demoCarryOverAllowed = wasDemoModeThisSession();
     const savedPosts = getLocalScheduledPosts();
     let changed = false;
     const claimedPosts = savedPosts.map((post) => {
-      if (post.localOnly && (!post.userId || post.userId === 'demo-user')) {
+      if (post.localOnly && (!post.userId || (post.userId === 'demo-user' && demoCarryOverAllowed))) {
         changed = true;
         return { ...post, userId: user.uid };
       }
@@ -313,14 +298,30 @@ const Scheduler: React.FC = () => {
     }
   };
 
+  // localStorage is shared synchronously across every tab of this browser on this
+  // origin -- a local-only post is just as visible to a second tab as a Firestore
+  // doc is, so it needs the same PENDING -> PROCESSING claim. There's no
+  // transaction primitive for localStorage, but reading, checking, and writing
+  // back with no `await` in between keeps the race window effectively as small as
+  // a single synchronous tab turn.
+  const claimLocalPendingPost = (postId: string) => {
+    const stored = getLocalScheduledPosts();
+    const index = stored.findIndex((p) => p.id === postId);
+    if (index === -1 || stored[index].status !== 'PENDING') return false;
+    const claimed = stored.map((p, i) => (i === index ? { ...p, status: 'PROCESSING' as const } : p));
+    saveLocalScheduledPosts(claimed);
+    setPosts((prev) => prev.map((p) => (p.id === postId ? { ...p, status: 'PROCESSING' } : p)));
+    return true;
+  };
+
   const sendTelegramPost = async (post: SchedulePost) => {
     if (processingTelegram.current.has(post.id)) return;
     processingTelegram.current.add(post.id);
 
     try {
-      // Demo/local-only posts live only in this browser's localStorage, not in a
-      // shared Firestore doc, so there's no cross-tab/device race to guard against.
-      if (!isDemoMode && !post.localOnly) {
+      if (isDemoMode || post.localOnly) {
+        if (!claimLocalPendingPost(post.id)) return;
+      } else {
         const claimed = await claimPendingTelegramPost(post.id);
         if (!claimed) return;
 

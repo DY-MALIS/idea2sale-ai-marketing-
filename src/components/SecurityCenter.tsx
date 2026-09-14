@@ -169,7 +169,8 @@ const SecurityCenter: React.FC = () => {
           <h3 className="text-lg font-bold text-slate-950 dark:text-slate-100">Worth Monitoring</h3>
         </div>
         <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-          None of these are wired to alerts yet — check them manually (Vercel logs, Firebase console) until real monitoring is added.
+          Scheduled publishing and AI delivery failures send best-effort Telegram admin alerts when
+          TELEGRAM_ADMIN_CHAT_ID is configured. Firebase rule denials and unusual sign-ins still need monitoring in the Firebase console.
         </p>
         <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {monitoring.map((item) => (

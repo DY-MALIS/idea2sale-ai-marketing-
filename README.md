@@ -90,8 +90,10 @@ npm run dev
 1. Create a bot via [@BotFather](https://t.me/BotFather) and set `TELEGRAM_BOT_TOKEN`.
 2. Set `TELEGRAM_CHAT_ID` to the chat/channel the scheduler should post to — scheduled broadcast posts fail
    silently (status `FAILED`) without it.
-3. Register the webhook (`api/telegram/webhook.js`) with Telegram and set `TELEGRAM_WEBHOOK_SECRET`.
-4. Scheduled posts are delivered two ways: Upstash QStash for precise-time delivery, and a fallback poller
+3. Set `TELEGRAM_ADMIN_CHAT_ID` to a private administrator chat/group to receive best-effort publishing and AI
+   delivery failure alerts. Do not reuse the public `TELEGRAM_CHAT_ID` for internal alerts.
+4. Register the webhook (`api/telegram/webhook.js`) with Telegram and set `TELEGRAM_WEBHOOK_SECRET`.
+5. Scheduled posts are delivered two ways: Upstash QStash for precise-time delivery, and a fallback poller
    (`.github/workflows/telegram-scheduler.yml`, every 10 minutes) that calls `/api/telegram/run-scheduled`. Confirm
    the GitHub Action is enabled on the repo — Vercel's own cron entry for the same endpoint only runs once a day
    and is not sufficient on its own.
@@ -107,6 +109,10 @@ npm run dev
    optional). Also add the same value as a `CRON_SECRET` secret on the GitHub repo (Settings → Secrets → Actions),
    since `.github/workflows/telegram-scheduler.yml` sends it as a bearer token. Vercel Cron sends it automatically
    once the env var is set; the GitHub Action needs the repo secret to match.
+6. In Firebase Console, enable Firestore point-in-time recovery or scheduled backups, then perform a restore test
+   into a separate scratch project. The application-level JSON backup does not replace managed disaster recovery.
+7. Enable Firebase alerts for unusual Authentication activity and monitor Firestore rule denials; these events are
+   not visible to the application when Firebase rejects them before request handling.
 
 ## Known Gaps
 

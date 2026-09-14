@@ -1,5 +1,6 @@
 import { generateOpenRouterText } from './_openrouter.js';
 import { synthesizeKhmerSpeechViaEdge } from './_edgeSpeech.js';
+import { generateGeminiSpeech } from './_geminiSpeech.js';
 
 const edgeKhmerVoice = (voice) => {
   const selected = String(voice || '').toLowerCase();
@@ -8,9 +9,30 @@ const edgeKhmerVoice = (voice) => {
     : 'km-KH-SreymomNeural';
 };
 
-export async function generateKhmerSpeech({ input, voice = 'Female' }) {
+export async function generateKhmerSpeech({ input, voice = 'Female', performanceStyle = '', context = '' }) {
   if (!/[\u1780-\u17ff]/.test(input)) throw new Error('Khmer narration text is required.');
-  return synthesizeKhmerSpeechViaEdge({ input, voice: edgeKhmerVoice(voice), rate: '+20%' });
+  const useEdgeOnly = String(process.env.KHMER_TTS_PROVIDER || '').trim().toLowerCase() === 'edge';
+  if (!useEdgeOnly) {
+    try {
+      return await generateGeminiSpeech({ input, voice, performanceStyle, context });
+    } catch (error) {
+      console.error('Natural Khmer Gemini speech failed; using Edge Khmer neural fallback:', error?.message || error);
+    }
+  }
+
+  const fallback = await synthesizeKhmerSpeechViaEdge({
+    input,
+    voice: edgeKhmerVoice(voice),
+    // +8% keeps an everyday pace while retaining enough speed for short video
+    // scripts. The previous +20% setting often sounded rushed and synthetic.
+    rate: '+8%',
+  });
+  return {
+    ...fallback,
+    fallbackReason: useEdgeOnly
+      ? 'Edge Khmer voice was explicitly selected.'
+      : 'Expressive Khmer voice was unavailable; standard Khmer neural voice was used.',
+  };
 }
 
 export async function createKhmerNarration(prompt, duration = 8, businessName = '') {

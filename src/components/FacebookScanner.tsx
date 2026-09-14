@@ -39,6 +39,8 @@ interface FacebookScannerProps {
   onCreativeAutomation: (request: CreativeAutomationRequest) => void;
 }
 
+type ScanMode = NonNullable<FacebookPotentialLead['opportunityType']>;
+
 const countryOptions = [
   { code: 'KH', label: 'Cambodia' },
   { code: 'TH', label: 'Thailand' },
@@ -53,6 +55,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
   const [query, setQuery] = useState('');
   const [country, setCountry] = useState('KH');
   const [days, setDays] = useState(7);
+  const [scanMode, setScanMode] = useState<ScanMode>('customer');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<FacebookScanResult | null>(null);
@@ -74,8 +77,8 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     const selected = leads.filter((_, index) => !deselectedLeads.has(index));
     if (!selected.length) return;
     const headers = isKm
-      ? ['ឈ្មោះក្រុមហ៊ុន', 'ប្រភេទអាជីវកម្ម', 'អាសយដ្ឋាន', 'ទូរស័ព្ទ', 'អ៊ីមែល', 'Telegram', 'គេហទំព័រ', 'Facebook Page', 'កម្រិត Lead', 'សេវាកម្មដែលណែនាំ', 'សារ Inbox', 'ប្រភព']
-      : ['Business Name', 'Business Type', 'Address', 'Phone', 'Email', 'Telegram', 'Website', 'Facebook Page', 'Lead Level', 'Recommended Service', 'Inbox Message', 'Source URL'];
+      ? ['ឈ្មោះក្រុមហ៊ុន', 'ប្រភេទអាជីវកម្ម', 'អាសយដ្ឋាន', 'ទូរស័ព្ទ', 'អ៊ីមែល', 'Telegram', 'គេហទំព័រ', 'Facebook Page', 'ប្រភេទឱកាស', 'ពិន្ទុសក្តានុពល', 'កម្រិត Lead', 'សញ្ញាចាប់អារម្មណ៍', 'សញ្ញាចំណាយ', 'សញ្ញាជ្រើសបុគ្គលិក', 'សញ្ញាគូប្រកួត', 'សេវាកម្មដែលណែនាំ', 'សារ Inbox', 'ប្រភព']
+      : ['Business Name', 'Business Type', 'Address', 'Phone', 'Email', 'Telegram', 'Website', 'Facebook Page', 'Opportunity Type', 'Fit Score', 'Lead Level', 'Interest Signals', 'Spending Signals', 'Hiring Signals', 'Competitor Signals', 'Recommended Service', 'Inbox Message', 'Source URL'];
     const rows = selected.map((lead) => [
       lead.businessName,
       lead.businessType,
@@ -85,7 +88,13 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
       lead.telegram || '',
       lead.website || '',
       lead.facebookUrl || lead.facebookPageName || '',
+      lead.opportunityType || '',
+      lead.fitScore ?? '',
       lead.leadLevel,
+      (lead.interestSignals || []).join(' | '),
+      (lead.spendingSignals || []).join(' | '),
+      (lead.hiringSignals || []).join(' | '),
+      (lead.competitorSignals || []).join(' | '),
       lead.recommendedService,
       ensureBusinessInInboxMessage(lead.inboxMessage, businessName),
       lead.evidenceSourceUrl || '',
@@ -184,6 +193,12 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
         facebookPageName: lead.facebookPageName || '',
         facebookPageUrl: lead.facebookUrl || '',
         leadLevel: lead.leadLevel || '',
+        opportunityType: lead.opportunityType || scanMode,
+        fitScore: lead.fitScore || 0,
+        interestSignals: lead.interestSignals || [],
+        spendingSignals: lead.spendingSignals || [],
+        hiringSignals: lead.hiringSignals || [],
+        competitorSignals: lead.competitorSignals || [],
         recommendedService: lead.recommendedService || '',
         inboxMessage: ensureBusinessInInboxMessage(lead.inboxMessage, businessName).slice(0, 1500),
         evidenceSourceUrl: lead.evidenceSourceUrl || '',
@@ -270,6 +285,24 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     publicContacts: 'ព័ត៌មានទំនាក់ទំនងសាធារណៈ',
     notFoundPublic: 'រកមិនឃើញជាសាធារណៈ',
     tryAsking: 'ឬសាកល្បងសួរ៖',
+    scanType: 'ជ្រើសគោលដៅស្គេន',
+    score: 'ពិន្ទុសក្តានុពល',
+    interestSignals: 'សញ្ញាចាប់អារម្មណ៍ AI/សេវាកម្ម',
+    spendingSignals: 'សញ្ញាសមត្ថភាពចំណាយ (ការប៉ាន់ស្មាន)',
+    hiringSignals: 'សញ្ញាជ្រើសរើសបុគ្គលិក',
+    competitorSignals: 'សកម្មភាពគូប្រកួត',
+    customerSegments: 'ក្រុមអតិថិជនរបស់គូប្រកួត',
+    publicActivity: 'សកម្មភាពសាធារណៈដែលរកឃើញ',
+    privacyScope: 'ស្គេនតែអាជីវកម្ម Page ផ្សាយពាណិជ្ជកម្ម និងសញ្ញាសាធារណៈ។ មិនចូលមើល profile ឯកជន សារ ឬទិន្នន័យហិរញ្ញវត្ថុផ្ទាល់ខ្លួនទេ។',
+    modeOptions: [
+      { id: 'customer', label: 'ស្វែងរកអតិថិជន', description: 'រកអាជីវកម្មដែលអាចទិញសេវាកម្មរបស់អ្នក', suggestions: ['អាជីវកម្មត្រូវការ Content', 'ហាងអនឡាញកម្ពុជា', 'SME ភ្នំពេញ'] },
+      { id: 'ai_interest', label: 'អ្នកចាប់អារម្មណ៍ AI', description: 'រកអាជីវកម្មដែលមានភាពសមស្របនឹង AI និង automation', suggestions: ['អាជីវកម្មចាប់អារម្មណ៍ AI', 'ក្រុមហ៊ុន digital transformation', 'សាលាបណ្តុះបណ្តាល AI'] },
+      { id: 'high_value', label: 'អ្នកមានសក្តានុពលចំណាយ', description: 'វាយតម្លៃពី premium positioning និងសកម្មភាពផ្សាយពាណិជ្ជកម្មសាធារណៈ', suggestions: ['អចលនទ្រព្យ premium', 'គ្លីនិកសម្ផស្ស', 'សណ្ឋាគារ និង resort'] },
+      { id: 'construction', label: 'ម៉ៅការសំណង់', description: 'រកម៉ៅការ developer និងអ្នកផ្គត់ផ្គង់សំណង់', suggestions: ['ម៉ៅការសំណង់កម្ពុជា', 'Property developer Phnom Penh', 'អ្នកផ្គត់ផ្គង់សម្ភារៈសំណង់'] },
+      { id: 'competitor_activity', label: 'សកម្មភាពគូប្រកួត', description: 'វិភាគ content offer ad និងចំណុចខ្សោយសាធារណៈ', suggestions: ['ឈ្មោះ Page គូប្រកួត', 'គូប្រកួត skincare Cambodia', 'គូប្រកួតអចលនទ្រព្យ'] },
+      { id: 'competitor_customers', label: 'អតិថិជនគូប្រកួត', description: 'រក customer segments និង buying triggers តាមសញ្ញាសាធារណៈ', suggestions: ['អតិថិជនរបស់ Page គូប្រកួត', 'customer reviews competitor', 'audience របស់គូប្រកួត'] },
+      { id: 'hiring', label: 'រើសបុគ្គលិកលក់/ទីផ្សារ', description: 'រកអាជីវកម្ម និងការងារសាធារណៈផ្នែក Sales/Marketing', suggestions: ['ក្រុមហ៊ុនរើស Sales', 'ការងារ Digital Marketing Cambodia', 'ក្រុមហ៊ុនរើស Marketing Manager'] },
+    ],
     suggestions: [
       'ហាងសម្លៀកបំពាក់នារី',
       'Skincare Cambodia',
@@ -334,6 +367,24 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     publicContacts: 'Public contact details',
     notFoundPublic: 'Not found publicly',
     tryAsking: 'Or try asking:',
+    scanType: 'Choose a scan target',
+    score: 'Opportunity score',
+    interestSignals: 'AI/service interest signals',
+    spendingSignals: 'Estimated spending-potential signals',
+    hiringSignals: 'Public hiring signals',
+    competitorSignals: 'Competitor activity signals',
+    customerSegments: 'Competitor customer segments',
+    publicActivity: 'Verified public activity',
+    privacyScope: 'Scans only public businesses, Pages, ads and public signals. It never reads private profiles, messages or personal financial data.',
+    modeOptions: [
+      { id: 'customer', label: 'Find customers', description: 'Find businesses likely to buy your service', suggestions: ['businesses needing content', 'Cambodia online shops', 'Phnom Penh SMEs'] },
+      { id: 'ai_interest', label: 'AI-interested prospects', description: 'Find businesses that fit AI and automation services', suggestions: ['businesses interested in AI', 'digital transformation companies', 'AI training businesses'] },
+      { id: 'high_value', label: 'High-value prospects', description: 'Estimate potential from premium positioning and public ad activity', suggestions: ['premium real estate', 'aesthetic clinics', 'hotels and resorts'] },
+      { id: 'construction', label: 'Construction contractors', description: 'Find contractors, developers and construction suppliers', suggestions: ['Cambodia construction contractors', 'Phnom Penh property developers', 'construction material suppliers'] },
+      { id: 'competitor_activity', label: 'Competitor activity', description: 'Analyze public content, offers, ads and weaknesses', suggestions: ['competitor Page name', 'skincare competitors Cambodia', 'real estate competitors'] },
+      { id: 'competitor_customers', label: 'Competitor customers', description: 'Infer customer segments and buying triggers from public signals', suggestions: ['competitor Page customers', 'competitor customer reviews', 'competitor audience segments'] },
+      { id: 'hiring', label: 'Sales/marketing hiring', description: 'Find businesses and public Sales/Marketing opportunities', suggestions: ['companies hiring sales Cambodia', 'digital marketing jobs Cambodia', 'hiring marketing manager'] },
+    ],
     suggestions: [
       "Women's fashion shop",
       'Skincare Cambodia',
@@ -342,6 +393,14 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
       'Real estate Phnom Penh',
     ],
   };
+
+  const scanModes = text.modeOptions as Array<{
+    id: ScanMode;
+    label: string;
+    description: string;
+    suggestions: string[];
+  }>;
+  const activeScanMode = scanModes.find((mode) => mode.id === scanMode) || scanModes[0];
 
   const scan = async () => {
     const cleanQuery = query.trim();
@@ -358,6 +417,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
         body: JSON.stringify({
           action: 'facebookIntelligenceScan',
           query: cleanQuery,
+          scanMode,
           countries: [country],
           days,
           language,
@@ -374,7 +434,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
         user, isDemoMode, type: 'facebook_scan',
         title: cleanQuery,
         summary: isKm ? `Lead ចំនួន ${leadCount}` : `${leadCount} lead${leadCount === 1 ? '' : 's'} found`,
-        payload: { query: cleanQuery, country, days, result: data },
+        payload: { query: cleanQuery, country, days, scanMode, result: data },
       }).catch((historyError) => console.error('Failed to save scan history:', historyError));
     } catch (scanError: any) {
       setError(scanError?.message || (isKm ? 'មិនអាចវិភាគបានទេ។ សូមព្យាយាមម្តងទៀត។' : 'The scan failed. Please try again.'));
@@ -396,12 +456,16 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
       if (typeof payload.query === 'string') setQuery(payload.query);
       if (typeof payload.country === 'string') setCountry(payload.country);
       if (typeof payload.days === 'number') setDays(payload.days);
+      if (typeof payload.scanMode === 'string' && text.modeOptions.some((option) => option.id === payload.scanMode)) {
+        setScanMode(payload.scanMode as ScanMode);
+      }
       const raw = payload.result as Partial<FacebookScanResult> | undefined;
       if (raw && typeof raw === 'object') {
         const insights = raw.customerInsights || ({} as Partial<FacebookScanResult['customerInsights']>);
         setResult({
           success: true,
           query: typeof raw.query === 'string' ? raw.query : '',
+          scanMode: raw.scanMode,
           customerInsights: {
             whatTheyBought: Array.isArray(insights.whatTheyBought) ? insights.whatTheyBought : [],
             whatTheyLike: Array.isArray(insights.whatTheyLike) ? insights.whatTheyLike : [],
@@ -487,6 +551,31 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
       </section>
 
       <section className="glass rounded-[2rem] p-6 md:p-8">
+        <div className="mb-6">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-black uppercase tracking-wider text-brand-700 dark:text-brand-300">{text.scanType}</h3>
+            <span className="max-w-2xl text-xs leading-5 text-slate-500 dark:text-slate-400">{text.privacyScope}</span>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {scanModes.map((mode) => (
+              <button
+                key={mode.id}
+                type="button"
+                onClick={() => {
+                  setScanMode(mode.id);
+                  setResult(null);
+                  setError('');
+                }}
+                className={`rounded-2xl border p-4 text-left transition ${scanMode === mode.id
+                  ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-500/20 dark:bg-blue-950/40'
+                  : 'border-brand-100 bg-white/60 hover:border-blue-300 dark:border-slate-700 dark:bg-slate-900/50'}`}
+              >
+                <p className="font-black text-slate-800 dark:text-white">{mode.label}</p>
+                <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">{mode.description}</p>
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="grid gap-5 lg:grid-cols-[1fr_190px_150px]">
           <label className="space-y-2">
             <span className="text-xs font-black uppercase tracking-wider text-brand-700 dark:text-brand-300">{text.query}</span>
@@ -502,7 +591,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
             </div>
             <div className="flex flex-wrap items-center gap-2 pt-1">
               <span className="text-xs font-medium text-slate-400">{text.tryAsking}</span>
-              {text.suggestions.map((suggestion) => (
+              {activeScanMode.suggestions.map((suggestion) => (
                 <button
                   key={suggestion}
                   type="button"
@@ -587,6 +676,9 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                       <div><dt className="font-bold text-slate-400">{text.offer}</dt><dd className="mt-1 text-slate-700 dark:text-slate-200">{competitor.offerStrategy}</dd></div>
                       <div><dt className="font-bold text-rose-500">{text.weakness}</dt><dd className="mt-1 text-slate-700 dark:text-slate-200">{competitor.weakness}</dd></div>
                       <div className="rounded-2xl bg-emerald-50 p-3 dark:bg-emerald-950/30"><dt className="font-bold text-emerald-700 dark:text-emerald-300">{text.counter}</dt><dd className="mt-1 text-emerald-800 dark:text-emerald-100">{competitor.counterStrategy}</dd></div>
+                      {!!competitor.publicActivitySignals?.length && <div><dt className="font-bold text-slate-400">{text.publicActivity}</dt><dd className="mt-1 text-slate-700 dark:text-slate-200">{competitor.publicActivitySignals.join(' • ')}</dd></div>}
+                      {!!competitor.customerSegments?.length && <div><dt className="font-bold text-slate-400">{text.customerSegments}</dt><dd className="mt-1 text-slate-700 dark:text-slate-200">{competitor.customerSegments.join(' • ')}</dd></div>}
+                      {competitor.sourceUrl && <a href={competitor.sourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 font-bold text-blue-600 hover:underline"><ExternalLink size={14} />{text.viewEvidence}</a>}
                     </dl>
                   </article>
                 ))}
@@ -636,8 +728,23 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                           <p className="mt-1 text-sm font-bold text-brand-500">{lead.businessType}</p>
                         </div>
                       </label>
-                      <span className={`rounded-full px-3 py-1.5 text-xs font-black uppercase tracking-wider ${leadBadgeClass(lead.leadLevel)}`}>{lead.leadLevel}</span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {typeof lead.fitScore === 'number' && <span className="rounded-full bg-blue-100 px-3 py-1.5 text-xs font-black text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">{text.score}: {lead.fitScore}/100</span>}
+                        <span className={`rounded-full px-3 py-1.5 text-xs font-black uppercase tracking-wider ${leadBadgeClass(lead.leadLevel)}`}>{lead.leadLevel}</span>
+                      </div>
                     </div>
+
+                    {[
+                      { label: text.interestSignals, items: lead.interestSignals, tone: 'border-violet-200 bg-violet-50 text-violet-800 dark:border-violet-900 dark:bg-violet-950/30 dark:text-violet-200' },
+                      { label: text.spendingSignals, items: lead.spendingSignals, tone: 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200' },
+                      { label: text.hiringSignals, items: lead.hiringSignals, tone: 'border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200' },
+                      { label: text.competitorSignals, items: lead.competitorSignals, tone: 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200' },
+                    ].filter((group) => group.items?.length).map((group) => (
+                      <div key={group.label} className={`mt-4 rounded-2xl border p-3 text-sm ${group.tone}`}>
+                        <p className="text-xs font-black uppercase tracking-wider">{group.label}</p>
+                        <p className="mt-1 leading-6">{group.items?.join(' • ')}</p>
+                      </div>
+                    ))}
 
                     <div className="mt-5">
                       <p className="text-xs font-black uppercase tracking-wider text-slate-400">{text.needSignals}</p>

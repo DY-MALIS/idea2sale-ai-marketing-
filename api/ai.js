@@ -40,6 +40,21 @@ const CLIENT_ERROR_RATE_LIMIT_PER_HOUR = Number(process.env.CLIENT_ERROR_RATE_LI
 // per-IP budget than the general AI quota above.
 const EMAIL_RATE_LIMIT_PER_HOUR = Number(process.env.EMAIL_RATE_LIMIT_PER_HOUR) || 20;
 
+export const FACEBOOK_SCAN_MODES = Object.freeze([
+  'customer',
+  'ai_interest',
+  'high_value',
+  'construction',
+  'competitor_activity',
+  'competitor_customers',
+  'hiring',
+]);
+
+export const resolveFacebookScanMode = (value) => {
+  const requested = String(value || 'customer');
+  return FACEBOOK_SCAN_MODES.includes(requested) ? requested : 'customer';
+};
+
 // Vercel's default serverless function timeout (10s on Hobby) is too short for
 // several calls this file makes synchronously: transcribing a long voice
 // recording (up to 10 minutes of audio), the Facebook Scanner's research +
@@ -913,6 +928,42 @@ Return ONLY a valid JSON array of these objects, no markdown, no commentary.`,
         .slice(0, 5);
       if (!countries.length) countries.push('KH');
 
+      const scanModeConfigs = {
+        customer: {
+          searchHint: 'businesses likely to need marketing content or sales support',
+          instruction: 'Prioritize realistic prospective business customers and the concrete service they are most likely to need.',
+        },
+        ai_interest: {
+          searchHint: 'businesses AI automation digital transformation',
+          instruction: 'Prioritize public signals of AI, automation, digital transformation, data, software, or content-technology interest. Never claim a private preference.',
+        },
+        high_value: {
+          searchHint: 'premium high value businesses active advertising',
+          instruction: 'Estimate commercial fit only from public premium positioning, visible advertising, multiple locations, high-ticket offerings, or professional web presence. Never claim to know revenue, wealth, budget, or private financial data.',
+        },
+        construction: {
+          searchHint: 'construction contractors property developers building suppliers',
+          instruction: 'Prioritize construction contractors, property developers, architects, engineering firms, and building-material suppliers that can be verified publicly.',
+        },
+        competitor_activity: {
+          searchHint: 'competitors advertisements offers campaigns content',
+          instruction: 'Prioritize verified competitor activity: public ads, content angles, offers, positioning, and actionable gaps. Clearly separate observed public evidence from inference.',
+        },
+        competitor_customers: {
+          searchHint: 'competitor customer segments reviews audience needs',
+          instruction: 'Describe aggregate customer segments, needs, and buying triggers supported by public business positioning, ads, or reviews. Never identify private individuals or claim access to private followers, messages, or customer lists.',
+        },
+        hiring: {
+          searchHint: 'hiring sales marketing jobs recruitment',
+          instruction: 'Prioritize businesses and public opportunities related to recruiting sales and marketing staff. Report a hiring signal only when the supplied public source URL context supports it; otherwise label it as a role-fit opportunity, not an active vacancy.',
+        },
+      };
+      const scanMode = resolveFacebookScanMode(req.body?.scanMode);
+      const scanModeConfig = scanModeConfigs[scanMode];
+      const searchTerms = `${query} ${scanModeConfig.searchHint}`.slice(0, 400);
+      const countryNames = { KH: 'Cambodia', TH: 'Thailand', VN: 'Vietnam', US: 'United States' };
+      const searchCountry = countries.map((code) => countryNames[code] || code).join(', ');
+
       // Web search, X/social context, and competitor research are independent,
       // so they run concurrently rather than one-after-another -- this scan
       // still has a full LLM generation call after these, and sequential
@@ -925,10 +976,10 @@ Return ONLY a valid JSON array of these objects, no markdown, no commentary.`,
       // competitor research is, from a live, citation-backed web search on the
       // business's own name.
       const [webSearchSettled, xContextSettled, competitorResearchSettled, ownBusinessResearchSettled] = await Promise.allSettled([
-        searchBusinessesOnWeb({ searchTerms: query, country: 'Cambodia' }),
+        searchBusinessesOnWeb({ searchTerms, country: searchCountry }),
         fetchXContextForEntity(query),
-        researchCompetitors({ query, country: 'Cambodia' }),
-        userBusinessName ? researchCompetitors({ query: userBusinessName, country: 'Cambodia' }) : Promise.resolve(null),
+        researchCompetitors({ query, country: searchCountry }),
+        userBusinessName ? researchCompetitors({ query: userBusinessName, country: searchCountry }) : Promise.resolve(null),
       ]);
 
       let rawWebBusinesses = [];
@@ -987,6 +1038,8 @@ Return ONLY a valid JSON array of these objects, no markdown, no commentary.`,
       const prompt = `You are an elite Facebook social-commerce market researcher, consumer psychologist, and AI video creative director specialized in the Cambodian and Southeast Asian market.
 
 Target Niche / Product / Competitor: "${query}"
+Selected Scan Mode: "${scanMode}"
+Mode-specific objective: ${scanModeConfig.instruction}
 Target Market: ${countries.join(', ')}
 Video Schedule Length: ${requestedDays} days starting ${todayStr}
 ${userBusinessName ? `Our Business Name (the business this content is FOR, not a competitor): "${userBusinessName}"` : ''}
@@ -1017,6 +1070,7 @@ Deeply scan and analyze Facebook customer behavior, pain points, competitor stra
    - Competitor gaps/weaknesses (e.g. slow response, poor video quality, hidden fees, lack of clear tutorials) and how our business can outmaneuver them -- same rule: reasoned analysis, not fabricated specifics.
    - "counterStrategy" MUST pick the lever(s) that most directly attack THIS competitor's specific weakness, not a generic pep talk. Choose from concrete Cambodian social-commerce differentiation levers: (1) Trust & proof -- visible reviews, live-selling showing the real product/seller, a clear return/exchange policy where the competitor is opaque; (2) Speed -- faster delivery or faster message response where the competitor is slow; (3) Content quality -- more authentic, higher-production video/photo (Before/After, honest demos) where the competitor's content is weak or generic; (4) Price/value clarity -- transparent all-in pricing or clearer bundles where the competitor hides fees or is confusing; (5) Service depth -- tutorials, after-sale support, or personalization where the competitor offers none. Name the specific lever(s) used, not just "be better."
    - Ground "counterStrategy" in what our own business actually is, per the "What our own business actually is" line above, when it was found -- do not propose a counter-strategy that only makes sense for a generic/different kind of business than ours. If it was not found, keep the counter-strategy general enough to fit any business in this niche rather than inventing specifics about ours.
+   - "publicActivitySignals" must contain only public or carefully qualified inferred activity signals. "customerSegments" must describe aggregate audience groups, never named individuals or private followers.
 
 3. POTENTIAL CLIENT LEADS (អាជីវកម្មដែលអាចត្រូវការសេវាផលិត Content/Video):
    - Use ONLY real businesses explicitly present in the Live Web Search Business Context above. Never invent a business, Page, URL, phone number, email address, or contact identity.
@@ -1024,6 +1078,8 @@ Deeply scan and analyze Facebook customer behavior, pain points, competitor stra
    - For each real business, infer its business type and identify concrete signals suggesting it may benefit from professional content, video production, or digital marketing. Only cite a signal you can actually support from the given context (the fact that this business type in Cambodia typically relies on visual content to sell, or that a small independent business rarely has in-house video production). NEVER claim specific unverifiable facts about the business itself that are not present in its context entry, such as "currently hiring for a marketing role," "actively expanding its team," or anything about its finances, staff, or internal plans -- the web search context only ever gives a name, category, address, phone, email, Telegram, website, and Facebook Page -- nothing about hiring or internal operations.
    - Prefer small and mid-sized independent businesses (a single shop, cafe, clinic, small chain) over large corporations or franchises when both are present in the context -- they are the most realistic clients for affordable content/video services.
    - Rate leadLevel as "Hot" only for strong active-spend or strong demand signals plus clear creative-need signals, "Warm" for moderate signals, or "Cold" for weak signals.
+   - Set "opportunityType" to exactly "${scanMode}" and score "fitScore" from 0-100 for fit with the selected scan objective.
+   - Fill "interestSignals", "spendingSignals", "hiringSignals", and "competitorSignals" with short evidence-aware observations relevant to this lead. Use an empty array when the supplied public context does not support a category. Spending signals are estimates of commercial fit, never claims about wealth or budget. Hiring signals must never assert an active vacancy without public source support.
    - "recommendedService" MUST name a CONCRETE content format/deliverable fitted to that specific business type, not a generic "digital marketing"/"technology" pitch that could apply to any business. Ground it in what that kind of business actually sells and how customers decide to buy from it -- e.g. a restaurant/cafe: real food/ambiance video tours or menu-highlight reels; a clinic/spa: before/after or real-client testimonial videos; a training/consulting academy: authority-building talking-head or course-preview videos; a fashion/retail shop: lookbook or try-on/product-demo reels; a real estate agency: property walkthrough videos. Vary the wording across leads in the same list even when their business type repeats -- never let every entry converge on the same generic "digital marketing"/"technology" phrase.
    - Write one concise, polite, personalized Khmer Inbox message. Do not claim we inspected private data.${userBusinessName ? ` EVERY Inbox message MUST explicitly introduce the sender using the exact sentence "ខ្ញុំមកពី ${userBusinessName}។" Never write an anonymous outreach message.` : ''}
    - Set "source" to "web_search" for every lead.
@@ -1066,7 +1122,10 @@ Return ONLY a single valid JSON object with this exact structure:
       "topAngle": "...",
       "offerStrategy": "...",
       "weakness": "...",
-      "counterStrategy": "..."
+      "counterStrategy": "...",
+      "publicActivitySignals": ["public or qualified signal"],
+      "customerSegments": ["aggregate segment"],
+      "sourceUrl": "exact verified competitor source URL"
     }
   ],
   "potentialLeads": [
@@ -1087,6 +1146,12 @@ Return ONLY a single valid JSON object with this exact structure:
       "mapsUrl": "",
       "publicContact": "",
       "leadLevel": "Hot",
+      "opportunityType": "${scanMode}",
+      "fitScore": 85,
+      "interestSignals": ["public or category-fit signal"],
+      "spendingSignals": ["qualified commercial-fit estimate"],
+      "hiringSignals": [],
+      "competitorSignals": [],
       "recommendedService": "...",
       "inboxMessage": "personalized Khmer outreach message",
       "evidenceSourceUrl": "exact Source URL from live context, else empty string"
@@ -1173,6 +1238,12 @@ Return ONLY a single valid JSON object with this exact structure:
             // results; never let the strategy model invent them.
             publicContact: '',
             leadLevel: ['Hot', 'Warm', 'Cold'].includes(lead?.leadLevel) ? lead.leadLevel : 'Warm',
+            opportunityType: scanMode,
+            fitScore: Math.min(100, Math.max(0, Math.round(Number(lead?.fitScore) || 0))),
+            interestSignals: (Array.isArray(lead?.interestSignals) ? lead.interestSignals : []).map((value) => String(value).slice(0, 240)).filter(Boolean).slice(0, 4),
+            spendingSignals: (Array.isArray(lead?.spendingSignals) ? lead.spendingSignals : []).map((value) => String(value).slice(0, 240)).filter(Boolean).slice(0, 4),
+            hiringSignals: (Array.isArray(lead?.hiringSignals) ? lead.hiringSignals : []).map((value) => String(value).slice(0, 240)).filter(Boolean).slice(0, 4),
+            competitorSignals: (Array.isArray(lead?.competitorSignals) ? lead.competitorSignals : []).map((value) => String(value).slice(0, 240)).filter(Boolean).slice(0, 4),
             recommendedService: String(lead?.recommendedService || '').slice(0, 300),
             inboxMessage: ensureBusinessInInboxMessage(lead?.inboxMessage, userBusinessName).slice(0, 1200),
             source: 'web_search',
@@ -1192,9 +1263,34 @@ Return ONLY a single valid JSON object with this exact structure:
         .filter(Boolean)
         .slice(0, 12);
 
+      // Competitor names and URLs are anchored to the independently verified
+      // research list. The strategy model may enrich those entries, but it
+      // cannot introduce a new company or source URL.
+      const parsedCompetitors = Array.isArray(parsed?.competitors) ? parsed.competitors : [];
+      const competitors = verifiedCompetitors.map((verified) => {
+        const match = parsedCompetitors.find((candidate) => (
+          String(candidate?.pageName || '').trim().toLocaleLowerCase() === String(verified.name || '').trim().toLocaleLowerCase()
+        )) || {};
+        const asList = (value) => (Array.isArray(value) ? value : [])
+          .map((item) => String(item).slice(0, 260))
+          .filter(Boolean)
+          .slice(0, 5);
+        return {
+          pageName: verified.name,
+          topAngle: String(match.topAngle || verified.positioning || '').slice(0, 400),
+          offerStrategy: String(match.offerStrategy || '').slice(0, 400),
+          weakness: String(match.weakness || '').slice(0, 400),
+          counterStrategy: String(match.counterStrategy || '').slice(0, 600),
+          publicActivitySignals: asList(match.publicActivitySignals),
+          customerSegments: asList(match.customerSegments),
+          sourceUrl: verified.sourceUrl,
+        };
+      });
+
       return res.status(200).json({
         success: true,
         query,
+        scanMode,
         webBusinessesFound: rawWebBusinesses.length,
         webSearchAvailable,
         customerInsights: {
@@ -1203,7 +1299,7 @@ Return ONLY a single valid JSON object with this exact structure:
           contentDesires: Array.isArray(parsed?.customerInsights?.contentDesires) ? parsed.customerInsights.contentDesires : [],
           targetPersonas: Array.isArray(parsed?.customerInsights?.targetPersonas) ? parsed.customerInsights.targetPersonas : [],
         },
-        competitors: Array.isArray(parsed?.competitors) ? parsed.competitors : [],
+        competitors,
         potentialLeads,
         videoPlan: normalizedPlan,
         summaryReport: String(parsed?.summaryReport || ''),
@@ -1420,11 +1516,22 @@ Return ONLY a single valid JSON object with this exact structure:
           ), 8);
       if (req.body?.khmerSpeech?.script) {
         const script = String(req.body.khmerSpeech.script).trim();
-        const item = { prompt: normalizedPrompt, voiceOverText: script, voiceGender: req.body.khmerSpeech.voiceGender === 'Male' ? 'Male' : 'Female', businessName: String(req.body.khmerSpeech.businessName || '').trim().slice(0, 120) };
+        const item = {
+          prompt: normalizedPrompt,
+          voiceOverText: script,
+          voiceGender: req.body.khmerSpeech.voiceGender === 'Male' ? 'Male' : 'Female',
+          businessName: String(req.body.khmerSpeech.businessName || '').trim().slice(0, 120),
+          performanceStyle: String(req.body.khmerSpeech.performanceStyle || '').trim().slice(0, 1000),
+        };
         const speech = await preparePlanVideoSpeech(item);
         const { uploadMediaDataUrl } = await import('./telegram/run-scheduled.js');
         const { job, narrationAudio } = await startKhmerVideoJob(item, speech, uploadMediaDataUrl, { duration, images });
-        return res.status(200).json({ ...job, narrationAudioUrl: narrationAudio.mediaUrl });
+        return res.status(200).json({
+          ...job,
+          narrationAudioUrl: narrationAudio.mediaUrl,
+          narrationProvider: narrationAudio.provider,
+          narrationFallbackReason: narrationAudio.fallbackReason,
+        });
       }
       const video = await startOpenRouterVideo({
         prompt: photorealVideoPrompt(normalizedPrompt, images.length > 0),

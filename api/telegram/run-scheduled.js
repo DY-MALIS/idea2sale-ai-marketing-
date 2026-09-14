@@ -77,7 +77,28 @@ export const formatTelegramHtml = (value = '') => escapeTelegramHtml(value)
   // Telegram has no <ul>/<li> -- the closest visual equivalent is a plain bullet.
   .replace(/^\s*[-*]\s+/gm, '• ');
 
-const telegramTextFor = (text, limit) => formatTelegramHtml(truncateForTelegram(text, limit));
+// formatTelegramHtml can *expand* text (e.g. a markdown link's `[label](url)`
+// becomes the longer `<a href="url">label</a>`), so truncating the raw markdown
+// to `limit` first doesn't guarantee the formatted HTML sent to Telegram still
+// fits under it. Binary-search the raw cutoff instead so the formatted result
+// does. This stays well-formed because formatTelegramHtml only ever emits a tag
+// for a *fully matched* markdown construct -- slicing raw text never leaves a
+// half-open tag, it just leaves the trailing partial construct unmatched (and
+// thus untouched, escaped plain text).
+const telegramTextFor = (text, limit) => {
+  const raw = String(text || '');
+  const full = formatTelegramHtml(raw);
+  if (full.length <= limit) return full;
+
+  let lo = 0;
+  let hi = raw.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (formatTelegramHtml(raw.slice(0, mid)).length <= limit - 1) lo = mid;
+    else hi = mid - 1;
+  }
+  return `${formatTelegramHtml(raw.slice(0, lo))}…`;
+};
 
 export const initFirebaseAdmin = () => {
   const projectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID;

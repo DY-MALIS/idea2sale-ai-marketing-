@@ -7,7 +7,11 @@ export async function generateGeminiSpeech({ input, voice = 'alloy', performance
   if (!text || text.length > 5000) throw new Error('Speech text must contain 1–5000 characters.');
   const model = process.env.OPEN_ROUTER_TTS_GEMINI_MODEL || 'google/gemini-3.1-flash-tts-preview';
   if (!/^google\/gemini-[\w.-]+-tts(?:-preview)?$/.test(model)) throw new Error('Invalid OpenRouter Gemini TTS model configuration.');
-  const voiceName = ['onyx', 'echo', 'ash', 'ballad', 'Charon'].includes(voice) ? 'Charon' : 'Kore';
+  const requestedVoice = String(voice || '').trim().toLowerCase();
+  const voiceName = ['male', 'onyx', 'echo', 'ash', 'ballad', 'charon'].includes(requestedVoice)
+    || requestedVoice.includes('piseth')
+    ? 'Charon'
+    : 'Kore';
   const style = String(performanceStyle).trim()
     || 'Warm, clear conversational delivery at a normal, brisk everyday speaking speed -- like talking to a friend, not reciting slowly or dragging out words -- with crisp, distinct enunciation of every Khmer syllable so each word is still easy to make out.';
   const prompt = `Read only the SCRIPT verbatim, in its original language. If Khmer, speak Cambodian Khmer; do not translate or transliterate the text. Do not read the directions or context aloud. Use a warm human conversational delivery, varied intonation, gentle emphasis on meaningful words, and a clear settled ending. Speak at a normal, natural everyday pace -- do not slow down, drag out words, or add long pauses, but also do not rush or garble words. Follow the meaning of the script rather than exaggerating every phrase.\nDelivery direction: ${style.slice(0, 1500)}\nPlan context (context only, never spoken): ${JSON.stringify(String(context).slice(0, 3000))}\nSCRIPT:\n${text}`;

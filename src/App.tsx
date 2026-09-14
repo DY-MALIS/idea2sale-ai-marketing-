@@ -1,24 +1,24 @@
-import { useState, useEffect } from 'react';
+import { lazy, Suspense, useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Info, ExternalLink, Copy, Settings, Globe, Languages, Check, Sun, Moon } from 'lucide-react';
 import { cn } from './lib/utils';
 import Sidebar from './components/Sidebar';
-import Copywriter from './components/Copywriter';
-import PosterGen from './components/PosterGen';
-import VideoVoice from './components/VideoVoice';
-import TikTokAnalytics from './components/TikTokAnalytics';
-import ProductResearch from './components/ProductResearch';
-import AdsManager from './components/AdsManager';
-import SchedulerHub from './components/SchedulerHub';
-import AIAgent from './components/AIAgent';
-import CRM from './components/CRM';
-import SavedLeads from './components/SavedLeads';
-import Automation from './components/Automation';
+const Copywriter = lazy(() => import('./components/Copywriter'));
+const PosterGen = lazy(() => import('./components/PosterGen'));
+const VideoVoice = lazy(() => import('./components/VideoVoice'));
+const TikTokAnalytics = lazy(() => import('./components/TikTokAnalytics'));
+const ProductResearch = lazy(() => import('./components/ProductResearch'));
+const AdsManager = lazy(() => import('./components/AdsManager'));
+const SchedulerHub = lazy(() => import('./components/SchedulerHub'));
+const AIAgent = lazy(() => import('./components/AIAgent'));
+const CRM = lazy(() => import('./components/CRM'));
+const SavedLeads = lazy(() => import('./components/SavedLeads'));
+const Automation = lazy(() => import('./components/Automation'));
 import Auth from './components/Auth';
 import LegalPage from './components/LegalPage';
 import PublicWebsite from './components/PublicWebsite';
-import SecurityCenter from './components/SecurityCenter';
-import FacebookScanner from './components/FacebookScanner';
+const SecurityCenter = lazy(() => import('./components/SecurityCenter'));
+const FacebookScanner = lazy(() => import('./components/FacebookScanner'));
 import BusinessProfile from './components/BusinessProfile';
 import ErrorBoundary from './components/ErrorBoundary';
 import { CreativeAutomationRequest, ScheduleHandoffRequest, TabType } from './types';
@@ -33,6 +33,9 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<TabType>(
     isTikTokReviewMode ? 'video-voice' : 'ai-agent'
   );
+  const [openedCreativeTabs, setOpenedCreativeTabs] = useState(() => new Set<TabType>(
+    isTikTokReviewMode ? ['video-voice'] : []
+  ));
   const { user, isDemoMode, loading: authLoading, setDemoMode, logout } = useAuth();
   const [configInfo, setConfigInfo] = useState<any>(null);
   const [showLanguageMenu, setShowLanguageMenu] = useState(false);
@@ -42,6 +45,16 @@ export default function App() {
 
   const { language, setLanguage, t } = useLanguage();
   const { theme, toggleTheme } = useTheme();
+
+  useEffect(() => {
+    if (activeTab !== 'poster-gen' && activeTab !== 'video-voice') return;
+    setOpenedCreativeTabs((current) => {
+      if (current.has(activeTab)) return current;
+      const next = new Set(current);
+      next.add(activeTab);
+      return next;
+    });
+  }, [activeTab]);
 
   useEffect(() => {
     if (isTikTokReviewMode && !user && !isDemoMode) {
@@ -225,6 +238,7 @@ export default function App() {
           
           <main className="flex-1 ml-72 p-6 lg:p-8">
             <div className="max-w-7xl mx-auto">
+              <Suspense fallback={<div className="min-h-64 animate-pulse rounded-xl bg-white/60 dark:bg-slate-800/60" aria-label="Loading section" />}>
               <AnimatePresence mode="wait">
                 <motion.div
                   key={activeTab}
@@ -240,6 +254,7 @@ export default function App() {
                   </ErrorBoundary>
                 </motion.div>
               </AnimatePresence>
+              </Suspense>
 
               {/* PosterGen and VideoVoice stay mounted permanently instead of going through
                   the animated/keyed switch above (which unmounts + remounts on every tab
@@ -248,21 +263,27 @@ export default function App() {
                   (e.g. the user checks another tab while it's still running) silently loses
                   the result forever with no error, since it finishes inside an already-dead
                   component instance. CSS visibility keeps their state alive across tab
-                  switches instead. */}
-              <div className={activeTab === 'poster-gen' ? '' : 'hidden'}>
-                <PosterGen
-                  automationRequest={creativeAutomation?.kind === 'image' ? creativeAutomation : null}
-                  onAutomationConsumed={consumeCreativeAutomation}
-                  onScheduleHandoff={handleScheduleHandoff}
-                />
-              </div>
-              <div className={activeTab === 'video-voice' ? '' : 'hidden'}>
-                <VideoVoice
-                  automationRequest={creativeAutomation?.kind === 'video' ? creativeAutomation : null}
-                  onAutomationConsumed={consumeCreativeAutomation}
-                  onScheduleHandoff={handleScheduleHandoff}
-                />
-              </div>
+                  switches instead. Each gets its own Suspense boundary (rather than sharing
+                  the one above) so one of them suspending on its lazy-load chunk can't hide
+                  the other's already-mounted, possibly still-generating instance. */}
+              {openedCreativeTabs.has('poster-gen') && <div className={activeTab === 'poster-gen' ? '' : 'hidden'}>
+                <Suspense fallback={<div className="min-h-64 animate-pulse rounded-xl bg-white/60 dark:bg-slate-800/60" aria-label="Loading section" />}>
+                  <PosterGen
+                    automationRequest={creativeAutomation?.kind === 'image' ? creativeAutomation : null}
+                    onAutomationConsumed={consumeCreativeAutomation}
+                    onScheduleHandoff={handleScheduleHandoff}
+                  />
+                </Suspense>
+              </div>}
+              {openedCreativeTabs.has('video-voice') && <div className={activeTab === 'video-voice' ? '' : 'hidden'}>
+                <Suspense fallback={<div className="min-h-64 animate-pulse rounded-xl bg-white/60 dark:bg-slate-800/60" aria-label="Loading section" />}>
+                  <VideoVoice
+                    automationRequest={creativeAutomation?.kind === 'video' ? creativeAutomation : null}
+                    onAutomationConsumed={consumeCreativeAutomation}
+                    onScheduleHandoff={handleScheduleHandoff}
+                  />
+                </Suspense>
+              </div>}
             </div>
           </main>
         </div>

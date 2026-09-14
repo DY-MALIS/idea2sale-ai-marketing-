@@ -330,8 +330,8 @@ const attemptGenerateVideoClip = async (
   prompt: string,
   images: { base64: string; mimeType: string }[],
   duration: number,
-  khmerSpeech?: { script: string; voiceGender: string; businessName?: string },
-): Promise<string> => {
+  khmerSpeech?: { script: string; voiceGender: string; businessName?: string; performanceStyle?: string },
+): Promise<{ videoUrl: string; narrationFallbackReason?: string }> => {
   const response = await fetchAiWithTimeout({ action: 'videoGenerate', prompt, images, duration, khmerSpeech }, VIDEO_STATUS_FETCH_TIMEOUT_MS);
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || 'Video generation failed.');
@@ -343,7 +343,10 @@ const attemptGenerateVideoClip = async (
     if (!statusResponse.ok) throw new Error(statusData.error || 'Video generation failed.');
     if (statusData.videoUrl) {
       if (khmerSpeech && !data.narrationAudioUrl) throw new Error('Missing original Khmer reference audio.');
-      return khmerSpeech ? await applyVoiceOver(statusData.videoUrl, data.narrationAudioUrl, 1) : statusData.videoUrl;
+      return {
+        videoUrl: khmerSpeech ? await applyVoiceOver(statusData.videoUrl, data.narrationAudioUrl, 1) : statusData.videoUrl,
+        narrationFallbackReason: data.narrationFallbackReason || undefined,
+      };
     }
   }
   throw new Error('Video is still processing. Please try again shortly.');
@@ -610,6 +613,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     setVideoVoiceQualityNotice(null);
     setSegmentProgress(null);
     setMergingSegments(false);
+    let usedKhmerVoiceFallback = false;
     try {
       const businessContext = await getLatestBusinessBranding(user, isDemoMode);
       if (!voiceOverContent && generationLanguage === 'Khmer' && voiceOverEnabled && voiceOverTextOverride === undefined) {
@@ -650,8 +654,15 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         if (silentRequested || (spokenSegments && !spokenSegments[i])) {
           segmentPrompt = nativeSpeechPrompt(segmentPrompt, '');
         }
-        let clip = await generateVideoClip(segmentPrompt, referenceImages, segments[i],
-          spokenSegments?.[i] ? { script: spokenSegments[i], voiceGender, businessName: businessContext.businessName } : undefined);
+        const generatedClip = await generateVideoClip(segmentPrompt, referenceImages, segments[i],
+          spokenSegments?.[i] ? {
+            script: spokenSegments[i],
+            voiceGender,
+            businessName: businessContext.businessName,
+            performanceStyle: voicePersonas[voicePersona].style,
+          } : undefined);
+        let clip = generatedClip.videoUrl;
+        if (generatedClip.narrationFallbackReason) usedKhmerVoiceFallback = true;
         if (silentRequested || (spokenSegments && !spokenSegments[i])) clip = await removeVideoAudio(clip);
         if (spokenSegments?.[i]) {
           try {
@@ -762,9 +773,13 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         }
       })();
       if (spokenSegments) setPerformanceNeedsReview(true);
-      if (spokenSegments) setVideoVoiceQualityNotice(language === 'km'
-        ? 'បានផ្ទៀងផ្ទាត់ពាក្យខ្មែរដោយស្វ័យប្រវត្តិ។ សូមមើល និងស្តាប់ ដើម្បីបញ្ជាក់ភាពច្បាស់ ល្បឿននិយាយ ចលនាមាត់ និងកាយវិការមុនផ្សព្វផ្សាយ។'
-        : 'Khmer reference audio is attached to the presenter video. Words are checked automatically; review pronunciation, pace, lip sync and gestures before publishing.');
+      if (spokenSegments) setVideoVoiceQualityNotice(usedKhmerVoiceFallback
+        ? (language === 'km'
+          ? 'សំឡេងធម្មជាតិកម្រិតខ្ពស់មិនអាចប្រើបាន ដូច្នេះវីដេអូនេះប្រើសំឡេងខ្មែរ Neural បម្រុង។ ពាក្យត្រូវបានផ្ទៀងផ្ទាត់ ប៉ុន្តែសូមស្តាប់ និងពិនិត្យចលនាមាត់មុនផ្សព្វផ្សាយ។'
+          : 'The high-naturalness Khmer voice was unavailable, so this video uses the Khmer neural fallback. Words were verified; review the voice and lip sync before publishing.')
+        : (language === 'km'
+          ? 'បានប្រើសំឡេងខ្មែរបែបធម្មជាតិ និងផ្ទៀងផ្ទាត់ពាក្យដោយស្វ័យប្រវត្តិ។ សូមមើល និងស្តាប់ ដើម្បីបញ្ជាក់អារម្មណ៍ ល្បឿន ចលនាមាត់ និងកាយវិការមុនផ្សព្វផ្សាយ។'
+          : 'Expressive Khmer reference audio is attached and the words were checked automatically. Review emotion, pace, lip sync and gestures before publishing.'));
       return;
     } catch (error: any) {
       console.error(error);

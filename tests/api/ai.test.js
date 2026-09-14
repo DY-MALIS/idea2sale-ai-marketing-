@@ -1,5 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { ensureBusinessInInboxMessage, googleSheetsUrlToCsvExportUrl } from '../../api/ai.js';
+import {
+  ensureBusinessInInboxMessage,
+  FACEBOOK_SCAN_MODES,
+  googleSheetsUrlToCsvExportUrl,
+  resolveFacebookScanMode,
+} from '../../api/ai.js';
+
+describe('resolveFacebookScanMode', () => {
+  it('accepts every supported scanner target', () => {
+    for (const mode of FACEBOOK_SCAN_MODES) {
+      expect(resolveFacebookScanMode(mode)).toBe(mode);
+    }
+  });
+
+  it('falls back safely when a client submits an unknown mode', () => {
+    expect(resolveFacebookScanMode('private_profiles')).toBe('customer');
+    expect(resolveFacebookScanMode(undefined)).toBe('customer');
+  });
+});
 
 // Regression coverage for the Content Plan feature (AIAgent.tsx's plan-upload
 // UI + extractContentPlan action): a user pastes a Google Sheets link, and

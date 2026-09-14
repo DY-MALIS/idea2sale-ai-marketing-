@@ -5,7 +5,9 @@ import axios from "axios";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import dotenv from "dotenv";
-import admin from "firebase-admin";
+import { getApps, initializeApp } from "firebase-admin/app";
+import { getAuth } from "firebase-admin/auth";
+import { FieldValue, getFirestore, type Firestore } from "firebase-admin/firestore";
 import { GoogleGenAI } from "@google/genai";
 import runScheduledHandler from "./api/telegram/run-scheduled.js";
 import aiHandler from "./api/ai.js";
@@ -13,7 +15,7 @@ import publishPhotoHandler from "./api/tiktok/publish-photo.js";
 
 dotenv.config();
 
-let firestoreDb: admin.firestore.Firestore | null = null;
+let firestoreDb: Firestore | null = null;
 const apiRateLimitStore = new Map<string, { count: number; resetAt: number }>();
 
 const safeError = (res: express.Response, status: number, message: string) => {
@@ -29,8 +31,8 @@ const requireFirebaseSession = async (req: express.Request, res: express.Respons
   }
 
   try {
-    const decoded = await admin.auth().verifyIdToken(token, true);
-    const disabledUser = await admin.auth().getUser(decoded.uid);
+    const decoded = await getAuth().verifyIdToken(token, true);
+    const disabledUser = await getAuth().getUser(decoded.uid);
     if (disabledUser.disabled) {
       return safeError(res, 403, "Account is deactivated");
     }
@@ -74,12 +76,12 @@ async function startServer() {
     const firebaseProjectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID;
     const firestoreDatabaseId = process.env.FIREBASE_FIRESTORE_DATABASE_ID || process.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID;
     if (firebaseProjectId) {
-      if (!admin.apps || admin.apps.length === 0) {
-        admin.initializeApp({
+      if (getApps().length === 0) {
+        initializeApp({
           projectId: firebaseProjectId,
         });
       }
-      firestoreDb = admin.firestore();
+      firestoreDb = getFirestore();
       if (firestoreDatabaseId) {
         firestoreDb.settings({ databaseId: firestoreDatabaseId });
       }
@@ -296,7 +298,7 @@ Use clear headings and practical bullet points.`;
           open_id,
           expires_at: Date.now() + (expires_in * 1000),
           refresh_expires_at: Date.now() + (refresh_expires_in * 1000),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+          updatedAt: FieldValue.serverTimestamp()
         });
       }
 
@@ -604,7 +606,7 @@ Use clear headings and practical bullet points.`;
         refresh_token,
         expires_at: Date.now() + (expires_in * 1000),
         refresh_expires_at: Date.now() + (refresh_expires_in * 1000),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        updatedAt: FieldValue.serverTimestamp()
       });
 
       return access_token;
@@ -657,7 +659,7 @@ Use clear headings and practical bullet points.`;
           title: title,
           videoUrl: videoUrl,
           openId: openId || "manual_post",
-          createdAt: admin.firestore.FieldValue.serverTimestamp()
+          createdAt: FieldValue.serverTimestamp()
         });
       }
       res.json({ success: true, publishId });
