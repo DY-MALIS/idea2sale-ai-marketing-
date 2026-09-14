@@ -18,7 +18,7 @@ vi.mock('firebase-admin/firestore', async (importOriginal) => ({
   getFirestore: mockGetFirestore,
 }));
 
-const { GENERATED_VIDEO_STATUSES, applyCloudinaryDeliveryTransform, applyCloudinaryLogoOverlay, escapeTelegramHtml, formatTelegramHtml, postTelegramMessage, sendTelegram, truncateForTelegram } =
+const { GENERATED_VIDEO_STATUSES, applyCloudinaryDeliveryTransform, applyCloudinaryLogoOverlay, escapeTelegramHtml, formatTelegramHtml, postTelegramMessage, sendTelegram, telegramTextFor, truncateForTelegram } =
   await import('../../../api/telegram/run-scheduled.js');
 
 const originalEnv = { ...process.env };
@@ -74,6 +74,26 @@ describe('truncateForTelegram', () => {
   it('treats non-string/nullish input as empty', () => {
     expect(truncateForTelegram(undefined, 10)).toBe('');
     expect(truncateForTelegram(null, 10)).toBe('');
+  });
+});
+
+describe('telegramTextFor', () => {
+  it('keeps formatted link-heavy text within Telegram\'s final HTML limit', () => {
+    const text = `Check this out: ${'[Shop now](https://example.com/very/long/product/path?ref=campaign-xyz-123456789) '.repeat(20)}`;
+    const result = telegramTextFor(text, 200);
+
+    expect(result.length).toBeLessThanOrEqual(200);
+    expect(result.endsWith('…')).toBe(true);
+  });
+
+  it('returns the complete formatted HTML when it already fits', () => {
+    expect(telegramTextFor('See [our site](https://example.com)', 200))
+      .toBe('See <a href="https://example.com">our site</a>');
+  });
+
+  it('handles nullish input without emitting an ellipsis', () => {
+    expect(telegramTextFor(undefined, 10)).toBe('');
+    expect(telegramTextFor(null, 10)).toBe('');
   });
 });
 

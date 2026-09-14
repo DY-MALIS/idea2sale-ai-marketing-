@@ -85,7 +85,7 @@ export const formatTelegramHtml = (value = '') => escapeTelegramHtml(value)
 // for a *fully matched* markdown construct -- slicing raw text never leaves a
 // half-open tag, it just leaves the trailing partial construct unmatched (and
 // thus untouched, escaped plain text).
-const telegramTextFor = (text, limit) => {
+export const telegramTextFor = (text, limit) => {
   const raw = String(text || '');
   const full = formatTelegramHtml(raw);
   if (full.length <= limit) return full;
