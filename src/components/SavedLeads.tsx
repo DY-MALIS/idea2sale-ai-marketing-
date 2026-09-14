@@ -20,6 +20,7 @@ interface SavedLead {
   facebookPageName?: string;
   facebookPageUrl?: string;
   leadLevel?: string;
+  opportunityType?: 'customer' | 'ai_interest' | 'high_value' | 'construction' | 'competitor_activity' | 'competitor_customers' | 'hiring';
   recommendedService?: string;
   inboxMessage?: string;
   evidenceSourceUrl?: string;
@@ -38,6 +39,9 @@ const LEVEL_STYLES: Record<string, string> = {
   Warm: 'bg-amber-50 text-amber-600 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800/60',
   Cold: 'bg-brand-50 text-brand-600 border-brand-200 dark:bg-slate-800 dark:text-brand-400 dark:border-slate-700',
 };
+
+const isCompetitorRecord = (lead: SavedLead) => lead.recordType === 'competitor'
+  || ['competitor_activity', 'competitor_customers'].includes(lead.opportunityType || '');
 
 // Standalone from CRM & Leads (which is Telegram-conversation-based) --
 // this is a business the owner chose to keep past one Facebook Scanner
@@ -88,10 +92,11 @@ const SavedLeads: React.FC = () => {
     }
   };
 
-  // Records saved before categories existed are customer leads, preserving the
-  // behavior and visibility users already had before this split was introduced.
-  const customers = savedLeads.filter((lead) => lead.recordType !== 'competitor');
-  const competitors = savedLeads.filter((lead) => lead.recordType === 'competitor');
+  // Scanner mode is authoritative for records created by the briefly deployed
+  // version that incorrectly stamped every potential lead as `customer`, as well
+  // as for older records with no recordType at all.
+  const customers = savedLeads.filter((lead) => !isCompetitorRecord(lead));
+  const competitors = savedLeads.filter(isCompetitorRecord);
   const visibleRecords = activeCategory === 'customer' ? customers : competitors;
 
   return (
@@ -170,13 +175,13 @@ const SavedLeads: React.FC = () => {
                 >
                   <div className={cn(
                     'w-12 h-12 rounded-xl flex items-center justify-center border shrink-0',
-                    lead.recordType === 'competitor'
+                    isCompetitorRecord(lead)
                       ? 'bg-indigo-50 text-indigo-600 border-indigo-100 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-900'
                       : lead.contacted
                         ? 'bg-slate-100 text-slate-400 border-slate-200 dark:bg-slate-800 dark:text-slate-500 dark:border-slate-700'
                         : 'bg-emerald-50 text-emerald-600 border-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800/60'
                   )}>
-                    {lead.recordType === 'competitor' ? <Building2 size={20} /> : <Bookmark size={20} />}
+                    {isCompetitorRecord(lead) ? <Building2 size={20} /> : <Bookmark size={20} />}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
@@ -188,12 +193,12 @@ const SavedLeads: React.FC = () => {
                         </span>
                       )}
                     </div>
-                    {lead.recordType === 'competitor' ? (
+                    {isCompetitorRecord(lead) ? (
                       <div className="grid gap-2 text-sm text-slate-600 dark:text-slate-300 sm:grid-cols-2">
                         {lead.topAngle && <p><span className="font-bold text-slate-400">Angle:</span> {lead.topAngle}</p>}
                         {lead.offerStrategy && <p><span className="font-bold text-slate-400">Offer:</span> {lead.offerStrategy}</p>}
                         {lead.weakness && <p><span className="font-bold text-rose-500">Weakness:</span> {lead.weakness}</p>}
-                        {lead.counterStrategy && <p><span className="font-bold text-emerald-600">Opportunity:</span> {lead.counterStrategy}</p>}
+                        {(lead.counterStrategy || lead.recommendedService) && <p><span className="font-bold text-emerald-600">Opportunity:</span> {lead.counterStrategy || lead.recommendedService}</p>}
                       </div>
                     ) : lead.recommendedService && <p className="text-sm text-slate-600 dark:text-slate-300 line-clamp-2">{lead.recommendedService}</p>}
                     <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500 dark:text-slate-400">
@@ -211,7 +216,7 @@ const SavedLeads: React.FC = () => {
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
-                    {lead.recordType !== 'competitor' && (
+                    {!isCompetitorRecord(lead) && (
                       <button
                         onClick={() => void toggleContacted(lead.id, Boolean(lead.contacted))}
                         title={lead.contacted ? t('markNotContacted') : t('markContacted')}

@@ -178,14 +178,18 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
 
   // Customer prospects and competitors share one owner-scoped collection, with
   // recordType deciding which list they appear in on the organizer page.
-  const saveCustomer = async (lead: FacebookPotentialLead, index: number) => {
+  const saveScannedBusiness = async (lead: FacebookPotentialLead, index: number) => {
     if (!user || isDemoMode) return;
+    const opportunityType = lead.opportunityType || scanMode;
+    const recordType = ['competitor_activity', 'competitor_customers'].includes(opportunityType)
+      ? 'competitor'
+      : 'customer';
     setSavingLeadIndex(index);
     setSaveLeadError(null);
     try {
       await addDoc(collection(db, 'saved_leads'), {
         ownerId: user.uid,
-        recordType: 'customer',
+        recordType,
         businessName: lead.businessName || '',
         businessType: lead.businessType || '',
         address: lead.address || '',
@@ -196,7 +200,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
         facebookPageName: lead.facebookPageName || '',
         facebookPageUrl: lead.facebookUrl || '',
         leadLevel: lead.leadLevel || '',
-        opportunityType: lead.opportunityType || scanMode,
+        opportunityType,
         fitScore: lead.fitScore || 0,
         interestSignals: lead.interestSignals || [],
         spendingSignals: lead.spendingSignals || [],
@@ -853,9 +857,13 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                         </button>
                       )}
                       {!isDemoMode && !!user && (
-                        <button onClick={() => void saveCustomer(lead, index)} disabled={savingLeadIndex === index} className="inline-flex items-center gap-2 rounded-xl border border-brand-200 bg-white/70 px-3 py-2 text-xs font-bold text-brand-700 hover:bg-brand-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-brand-300 dark:hover:bg-slate-800">
+                        <button onClick={() => void saveScannedBusiness(lead, index)} disabled={savingLeadIndex === index} className="inline-flex items-center gap-2 rounded-xl border border-brand-200 bg-white/70 px-3 py-2 text-xs font-bold text-brand-700 hover:bg-brand-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-brand-300 dark:hover:bg-slate-800">
                           {savingLeadIndex === index ? <Loader2 size={14} className="animate-spin" /> : savedLeadIndex === index ? <Check size={14} /> : <Users size={14} />}
-                          {savedLeadIndex === index ? text.savedToCrm : text.saveToCrm}
+                          {savedLeadIndex === index
+                            ? text.savedToCrm
+                            : ['competitor_activity', 'competitor_customers'].includes(lead.opportunityType || scanMode)
+                              ? text.saveCompetitor
+                              : text.saveToCrm}
                         </button>
                       )}
                     </div>
