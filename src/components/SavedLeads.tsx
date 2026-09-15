@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Bookmark, Trash2, Mail, Phone, Globe, ExternalLink, CheckCircle2, Circle, Building2, Users } from 'lucide-react';
+import { Bookmark, Trash2, Mail, Phone, Globe, ExternalLink, CheckCircle2, Circle, Building2, Users, ArrowRightLeft, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { collection, doc, deleteDoc, updateDoc, serverTimestamp, query, where, limit, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -55,6 +55,7 @@ const SavedLeads: React.FC = () => {
   const [savedLeads, setSavedLeads] = useState<SavedLead[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeCategory, setActiveCategory] = useState<'customer' | 'competitor'>('customer');
+  const [movingRecordId, setMovingRecordId] = useState<string | null>(null);
 
   useEffect(() => {
     if (isDemoMode || !user) {
@@ -91,6 +92,22 @@ const SavedLeads: React.FC = () => {
       });
     } catch (error) {
       console.error('Failed to update contacted status:', error);
+    }
+  };
+
+  const moveSavedLead = async (lead: SavedLead, target: 'customer' | 'competitor') => {
+    if (movingRecordId) return;
+    setMovingRecordId(lead.id);
+    try {
+      await updateDoc(doc(db, 'saved_leads', lead.id), {
+        recordType: target,
+        opportunityType: target === 'competitor' ? 'competitor_activity' : 'customer',
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      console.error('Failed to move saved lead:', error);
+    } finally {
+      setMovingRecordId(null);
     }
   };
 
@@ -222,6 +239,22 @@ const SavedLeads: React.FC = () => {
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => void moveSavedLead(lead, isCompetitorRecord(lead) ? 'customer' : 'competitor')}
+                      disabled={movingRecordId === lead.id}
+                      title={isCompetitorRecord(lead)
+                        ? (language === 'km' ? 'ផ្លាស់ទៅអតិថិជន' : 'Move to customers')
+                        : (language === 'km' ? 'ផ្លាស់ទៅគូប្រកួត' : 'Move to competitors')}
+                      className="flex items-center gap-1.5 rounded-lg bg-indigo-50 px-2.5 py-2 text-xs font-bold text-indigo-700 transition-colors hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-indigo-950/40 dark:text-indigo-300"
+                    >
+                      {movingRecordId === lead.id ? <Loader2 size={14} className="animate-spin" /> : <ArrowRightLeft size={14} />}
+                      <span className="hidden xl:inline">
+                        {isCompetitorRecord(lead)
+                          ? (language === 'km' ? 'ទៅអតិថិជន' : 'To customers')
+                          : (language === 'km' ? 'ទៅគូប្រកួត' : 'To competitors')}
+                      </span>
+                    </button>
                     {!isCompetitorRecord(lead) && (
                       <button
                         onClick={() => void toggleContacted(lead.id, Boolean(lead.contacted))}
