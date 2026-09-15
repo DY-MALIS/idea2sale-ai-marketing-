@@ -191,6 +191,7 @@ export async function generateOpenRouterText({
   images,
   temperature,
   maxTokens,
+  reasoningEffort = 'high',
 }) {
   const apiKey = getApiKey();
 
@@ -223,7 +224,11 @@ export async function generateOpenRouterText({
         { role: 'user', content: userContent },
       ],
       ...(Number.isFinite(temperature) ? { temperature } : {}),
-      ...(Number.isFinite(maxTokens) ? { max_tokens: maxTokens } : {}),
+      // Always send a bounded token budget. Leaving max_tokens undefined makes
+      // OpenRouter reserve the model's full context allowance (65,536 on some
+      // models), which can reject an otherwise small request when the account
+      // credit cannot cover that theoretical maximum.
+      max_tokens: Number.isFinite(maxTokens) ? maxTokens : 16000,
       ...(responseFormat ? { response_format: responseFormat } : {}),
       // None of this app's text tasks need deep chain-of-thought reasoning, and on
       // reasoning-capable models (e.g. the GPT-5 family) hidden reasoning tokens are
@@ -231,7 +236,7 @@ export async function generateOpenRouterText({
       // a small max_tokens can be entirely consumed by reasoning, leaving an empty
       // or truncated visible response. OpenRouter ignores this for models that don't
       // support it, so it's safe to always send.
-      reasoning: { effort: 'high' },
+      reasoning: { effort: ['low', 'medium', 'high'].includes(reasoningEffort) ? reasoningEffort : 'high' },
     }),
   });
 
@@ -287,7 +292,10 @@ export async function generateOpenRouterWebSearch({ prompt, system = 'You are a 
         { role: 'system', content: system },
         { role: 'user', content: prompt },
       ],
-      reasoning: { effort: 'high' },
+      // Web results are short structured research, so a bounded allowance is
+      // ample and prevents credit checks from pricing the full model maximum.
+      max_tokens: 12000,
+      reasoning: { effort: 'medium' },
     }),
   });
 

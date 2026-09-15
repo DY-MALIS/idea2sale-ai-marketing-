@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { resolveOpenRouterTextModel, resolveOpenRouterImageModel, generateOpenRouterImage, redactSecrets } from '../../api/_openrouter.js';
+import { resolveOpenRouterTextModel, resolveOpenRouterImageModel, generateOpenRouterImage, generateOpenRouterText, generateOpenRouterWebSearch, redactSecrets } from '../../api/_openrouter.js';
 
 const originalEnv = { ...process.env };
 const originalFetch = global.fetch;
@@ -114,6 +114,45 @@ describe('generateOpenRouterImage fallback', () => {
 
     await expect(generateOpenRouterImage({ prompt: 'a fish', model: 'bytedance-seed/seedream-4.5' })).rejects.toThrow('down');
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('OpenRouter text token budgets', () => {
+  const jsonResponse = (body) => ({ ok: true, json: async () => body });
+
+  it('bounds ordinary text requests when the caller omits maxTokens', async () => {
+    process.env.OPEN_ROUTER_API_KEY = 'test-key';
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ choices: [{ message: { content: 'ok' } }] }));
+    global.fetch = fetchMock;
+
+    await generateOpenRouterText({ prompt: 'Make a short plan.' });
+
+    const requestBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(requestBody.max_tokens).toBe(16000);
+  });
+
+  it('uses a bounded budget for web-search requests', async () => {
+    process.env.OPEN_ROUTER_API_KEY = 'test-key';
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ choices: [{ message: { content: '{}' } }] }));
+    global.fetch = fetchMock;
+
+    await generateOpenRouterWebSearch({ prompt: 'Find local businesses.' });
+
+    const requestBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(requestBody.max_tokens).toBe(12000);
+    expect(requestBody.reasoning).toEqual({ effort: 'medium' });
+  });
+
+  it('preserves a smaller explicit caller budget', async () => {
+    process.env.OPEN_ROUTER_API_KEY = 'test-key';
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ choices: [{ message: { content: 'ok' } }] }));
+    global.fetch = fetchMock;
+
+    await generateOpenRouterText({ prompt: 'Return JSON.', maxTokens: 6000, reasoningEffort: 'medium' });
+
+    const requestBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(requestBody.max_tokens).toBe(6000);
+    expect(requestBody.reasoning).toEqual({ effort: 'medium' });
   });
 });
 

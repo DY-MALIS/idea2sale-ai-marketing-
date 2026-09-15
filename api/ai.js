@@ -1240,6 +1240,10 @@ Return ONLY a single valid JSON object with this exact structure:
         model: process.env.OPEN_ROUTER_CONTENT_PLAN_MODEL || 'google/gemini-3.1-pro-preview',
         system: 'You are an elite Facebook social commerce market research and video creative director. Respond with valid JSON only.',
         prompt,
+        // Seven-day scans need substantially less than a model's 65k default;
+        // scale up for 14-day plans while keeping the request affordable.
+        maxTokens: Math.min(22000, 8000 + requestedDays * 1000),
+        reasoningEffort: 'medium',
       });
 
       const parsed = jsonFromText(text, {});
