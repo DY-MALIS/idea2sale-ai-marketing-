@@ -143,7 +143,7 @@ const overlayPosterText = async (baseDataUrl: string, headline: string, cta: str
 
         const margin = Math.round(base.width * TEXT_MARGIN_RATIO);
         const maxTextWidth = base.width - margin * 2;
-        ctx.textAlign = 'center';
+        ctx.textAlign = 'left';
         ctx.textBaseline = 'alphabetic';
 
         const headlineFontSize = Math.round(base.width * HEADLINE_FONT_SIZE_RATIO);
@@ -166,31 +166,41 @@ const overlayPosterText = async (baseDataUrl: string, headline: string, cta: str
         }
 
         const gapBetween = headlineLines.length && ctaText ? Math.round(margin * 0.6) : 0;
-        const blockHeight = headlineLines.length * headlineLineHeight + gapBetween + ctaPillHeight + margin * 1.5;
+        const contentHeight = headlineLines.length * headlineLineHeight + gapBetween + ctaPillHeight;
+        const blockHeight = Math.max(base.height * 0.32, contentHeight + margin * 2.2);
+        const panelTop = base.height - blockHeight;
 
-        // Dark gradient behind the text (not a flat bar) so it reads clearly over
-        // any part of the photo without looking like a pasted-on rectangle.
-        const gradient = ctx.createLinearGradient(0, base.height - blockHeight, 0, base.height);
-        gradient.addColorStop(0, 'rgba(0, 0, 0, 0)');
-        gradient.addColorStop(1, 'rgba(0, 0, 0, 0.72)');
-        ctx.fillStyle = gradient;
-        ctx.fillRect(0, base.height - blockHeight, base.width, blockHeight);
+        // A substantial, slightly angled brand panel makes the output read as a
+        // designed advertising poster—not a normal photo with a caption floating
+        // over its bottom edge. The AI supplies the hero visual; Canvas owns the
+        // crisp, predictable graphic-design layer and all readable text.
+        ctx.fillStyle = 'rgba(10, 24, 43, 0.95)';
+        ctx.beginPath();
+        ctx.moveTo(0, panelTop + margin * 0.55);
+        ctx.lineTo(base.width * 0.34, panelTop);
+        ctx.lineTo(base.width, panelTop + margin * 0.35);
+        ctx.lineTo(base.width, base.height);
+        ctx.lineTo(0, base.height);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = CTA_ACCENT_COLOR;
+        ctx.fillRect(margin, panelTop + margin * 0.72, Math.max(42, base.width * 0.1), Math.max(5, base.width * 0.008));
 
-        let y = base.height - margin - ctaPillHeight - gapBetween - (headlineLines.length - 1) * headlineLineHeight;
+        let y = panelTop + margin * 1.45 + headlineFontSize;
         if (headlineLines.length) {
           ctx.font = `700 ${headlineFontSize}px ${POSTER_TEXT_FONT_FAMILY}`;
           ctx.fillStyle = '#ffffff';
           ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
           ctx.shadowBlur = headlineFontSize * 0.15;
           for (const line of headlineLines) {
-            ctx.fillText(line, base.width / 2, y, maxTextWidth);
+            ctx.fillText(line, margin, y, maxTextWidth);
             y += headlineLineHeight;
           }
           ctx.shadowBlur = 0;
         }
 
         if (ctaText) {
-          const pillX = (base.width - ctaPillWidth) / 2;
+          const pillX = margin;
           const pillY = base.height - margin - ctaPillHeight;
           const radius = ctaPillHeight / 2;
           ctx.fillStyle = CTA_ACCENT_COLOR;
@@ -205,7 +215,8 @@ const overlayPosterText = async (baseDataUrl: string, headline: string, cta: str
 
           ctx.font = `700 ${ctaFontSize}px ${POSTER_TEXT_FONT_FAMILY}`;
           ctx.fillStyle = '#ffffff';
-          ctx.fillText(ctaText, base.width / 2, pillY + ctaPillHeight / 2 + ctaFontSize * 0.35, ctaPillWidth - ctaPaddingX);
+          ctx.textAlign = 'center';
+          ctx.fillText(ctaText, pillX + ctaPillWidth / 2, pillY + ctaPillHeight / 2 + ctaFontSize * 0.35, ctaPillWidth - ctaPaddingX);
         }
 
         resolve(canvas.toDataURL('image/png'));
@@ -220,6 +231,19 @@ const overlayPosterText = async (baseDataUrl: string, headline: string, cta: str
 };
 
 type ToolType = 'poster' | 'visual';
+
+interface PosterDetails {
+  brand: string;
+  headline: string;
+  cta: string;
+  style: string;
+}
+
+interface PosterGenerationOptions {
+  prompt?: string;
+  details?: Partial<PosterDetails>;
+  aspectRatio?: string;
+}
 
 interface PosterGenProps {
   automationRequest?: CreativeAutomationRequest | null;
@@ -405,7 +429,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
     }
   };
 
-  const handleGeneratePoster = async () => {
+  const handleGeneratePoster = async (options: PosterGenerationOptions = {}) => {
     // Without this, a manual click while an automation-triggered generation (or
     // another manual click) is still in flight starts a second concurrent
     // request; whichever resolves last silently wins setGeneratedImage, with no
@@ -415,7 +439,9 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
     setGeneratedImage(null);
     try {
       const businessContext = await getLatestBusinessBranding(user, isDemoMode);
-      const effectiveBrand = businessContext.businessName || posterDetails.brand;
+      const requestedPrompt = options.prompt?.trim() || posterPrompt.trim();
+      const requestedDetails: PosterDetails = { ...posterDetails, ...options.details };
+      const effectiveBrand = businessContext.businessName || requestedDetails.brand;
       // Only mention headline/CTA when actually filled in -- sending literal
       // `The main headline is ""` noise for an empty field confuses the prompt.
       // Framed as "creative concept/mood" rather than literal text to render:
@@ -424,11 +450,11 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
       // server-side (api/ai.js) -- two opposite instructions in the same final
       // prompt, which is a very plausible reason foreign-script text kept leaking
       // through despite that constraint.
-      const headlineNote = posterDetails.headline.trim() ? ` The creative concept/theme is "${posterDetails.headline.trim()}".` : '';
-      const ctaNote = posterDetails.cta.trim() ? ` The call-to-action mood is "${posterDetails.cta.trim()}".` : '';
-      const fullPrompt = `Create a professional marketing poster scene for a brand named "${effectiveBrand}".${headlineNote}${ctaNote} Style: ${posterDetails.style}.
-      Visual description: ${posterPrompt}.
-      Make the scene look like a real commercial photoshoot with a physical product, real environment, real light, realistic surfaces, and premium camera quality.
+      const headlineNote = requestedDetails.headline.trim() ? ` The creative concept/theme is "${requestedDetails.headline.trim()}".` : '';
+      const ctaNote = requestedDetails.cta.trim() ? ` The call-to-action mood is "${requestedDetails.cta.trim()}".` : '';
+      const fullPrompt = `Create the photographic background for a professionally designed marketing poster for a brand named "${effectiveBrand}".${headlineNote}${ctaNote} Style: ${requestedDetails.style}.
+      Visual description: ${requestedPrompt}.
+      Compose a clear advertising layout rather than an ordinary full-frame photo: one dominant focal subject, intentional negative space for a headline, strong visual hierarchy, balanced brand-ready composition, and a clean lower area for a call-to-action. Use a real commercial photoshoot look with a physical subject, real environment, real light, realistic surfaces, and premium camera quality.
 
       CRITICAL INSTRUCTION:
       - The current UI language is: ${language === 'km' ? 'Khmer' : 'English'}.
@@ -436,13 +462,17 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
       - If the brand/headline/visual description is in Khmer, prioritize the Khmer aesthetic.
       - Do NOT render the brand name, headline, or call-to-action as literal on-image text -- treat them only as creative direction for the mood, subject, and styling of the photo.`;
 
-      const response = await fetchImageGenerate({ action: 'imageGenerate', prompt: fullPrompt, aspectRatio: '3:4' });
+      const response = await fetchImageGenerate({ action: 'imageGenerate', prompt: fullPrompt, aspectRatio: options.aspectRatio || '3:4' });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Image generation failed.');
       const withLogo = await applyLogoWatermark(data.imageUrl, businessContext.logoDataUrl);
-      const finalImage = await overlayPosterText(withLogo, posterDetails.headline, posterDetails.cta);
+      const finalImage = await overlayPosterText(withLogo, requestedDetails.headline, requestedDetails.cta);
       setGeneratedImage(finalImage);
-      void persistImageHistory(finalImage, posterDetails.headline || posterPrompt, { tool: 'poster', posterPrompt, posterDetails });
+      void persistImageHistory(finalImage, requestedDetails.headline || requestedPrompt, {
+        tool: 'poster',
+        posterPrompt: requestedPrompt,
+        posterDetails: { ...requestedDetails, brand: effectiveBrand },
+      });
     } catch (error: any) {
       console.error(error);
       if (error?.name === 'AbortError') {
@@ -506,7 +536,30 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
     if (handledAutomationRef.current === automationRequest.id) return;
 
     handledAutomationRef.current = automationRequest.id;
-    setActiveTool('visual');
+    const isPosterRequest = automationRequest.imageMode === 'poster';
+    setActiveTool(isPosterRequest ? 'poster' : 'visual');
+    if (isPosterRequest) {
+      const automatedDetails: Partial<PosterDetails> = {
+        headline: automationRequest.headline?.trim() || (language === 'km' ? 'បង្កើតអនាគតជាមួយគ្នា' : 'Build What Comes Next'),
+        cta: automationRequest.cta?.trim() || (language === 'km' ? 'ស្វែងយល់បន្ថែម' : 'Learn More'),
+        style: automationRequest.posterStyle?.trim() || 'Modern',
+      };
+      setPosterPrompt(automationRequest.prompt);
+      setPosterDetails((current) => ({ ...current, ...automatedDetails }));
+      setAutomationNotice(
+        language === 'km'
+          ? `Agent បានរៀបចំ Poster សម្រាប់ ${automationRequest.platform} ហើយកំពុងបង្កើត headline និង CTA លើផ្ទាំងផ្សព្វផ្សាយ។`
+          : `The agent prepared a ${automationRequest.platform} poster with a headline and CTA.`,
+      );
+      onAutomationConsumed?.(automationRequest.id);
+      void handleGeneratePoster({
+        prompt: automationRequest.prompt,
+        details: automatedDetails,
+        aspectRatio: automationRequest.aspectRatio,
+      });
+      return;
+    }
+
     setVisualPrompt(automationRequest.prompt);
     setAutomationNotice(
       language === 'km'

@@ -471,9 +471,12 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
   }>;
   const activeScanMode = scanModes.find((mode) => mode.id === scanMode) || scanModes[0];
   const competitorModeIds: ScanMode[] = ['competitor_activity', 'competitor_customers'];
-  const isCompetitorLead = (lead: FacebookPotentialLead) => competitorModeIds.includes(
-    lead.opportunityType || result?.scanMode || scanMode,
-  );
+  const resultIsCompetitorScan = competitorModeIds.includes(result?.scanMode || scanMode);
+  // The user's selected scan category is authoritative for the whole result.
+  // An AI-generated per-row opportunityType can occasionally be mislabeled;
+  // using it here hid customer-only actions such as Chat via Bot from a real
+  // customer scan. Competitor scans still hide those actions as requested.
+  const isCompetitorLead = (_lead: FacebookPotentialLead) => resultIsCompetitorScan;
   const scanCategory = competitorModeIds.includes(scanMode) ? 'competitor' : 'customer';
 
   const selectScanCategory = (category: 'customer' | 'competitor') => {
@@ -715,10 +718,10 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
               {result.webSearchAvailable ? <Check size={15} /> : <Sparkles size={15} />}
               {result.webSearchAvailable ? text.live : text.estimated}
             </span>
-            {!!result.webSearchAvailable && <span className="rounded-full bg-blue-50 px-4 py-2 text-xs font-bold text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">{result.potentialLeads?.length || 0} {text.webBusinesses}</span>}
+            {!!result.webSearchAvailable && <span className="rounded-full bg-blue-50 px-4 py-2 text-xs font-bold text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">{resultIsCompetitorScan ? result.competitors.length : (result.potentialLeads?.length || 0)} {resultIsCompetitorScan ? text.competitors : text.webBusinesses}</span>}
           </div>
 
-          <div className="grid gap-5 xl:grid-cols-3">
+          {!resultIsCompetitorScan && <div className="grid gap-5 xl:grid-cols-3">
             {insightCards.map(({ title, icon: Icon, items, iconClass }) => (
               <article key={title} className="glass rounded-[2rem] p-6">
                 <div className="mb-5 flex items-center gap-3">
@@ -730,9 +733,9 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                 </ul>
               </article>
             ))}
-          </div>
+          </div>}
 
-          {!!result.customerInsights.targetPersonas.length && (
+          {!resultIsCompetitorScan && !!result.customerInsights.targetPersonas.length && (
             <section>
               <h3 className="mb-4 flex items-center gap-2 text-xl font-black text-slate-800 dark:text-white"><Users className="text-blue-500" />{text.personas}</h3>
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -747,7 +750,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
             </section>
           )}
 
-          <section>
+          {resultIsCompetitorScan && <section>
             <h3 className="mb-4 flex items-center gap-2 text-xl font-black text-slate-800 dark:text-white"><BarChart3 className="text-indigo-500" />{text.competitors}</h3>
             {result.competitors.length ? (
               <div className="grid gap-4 lg:grid-cols-2">
@@ -789,9 +792,9 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
             ) : (
               <div className="rounded-3xl border border-dashed border-amber-300 bg-amber-50/70 p-6 text-sm leading-6 text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">{text.noVerifiedCompetitors}</div>
             )}
-          </section>
+          </section>}
 
-          <section>
+          {!resultIsCompetitorScan && <section>
             <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h3 className="flex items-center gap-2 text-xl font-black text-slate-800 dark:text-white"><BriefcaseBusiness className="text-emerald-500" />{text.leads}</h3>
@@ -951,7 +954,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
             ) : (
               <div className="rounded-3xl border border-dashed border-amber-300 bg-amber-50/70 p-6 text-sm leading-6 text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">{text.noVerifiedLeads}</div>
             )}
-          </section>
+          </section>}
 
           {!!result.videoPlan.length && (
             <section>

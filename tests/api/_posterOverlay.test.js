@@ -31,7 +31,7 @@ describe('applyPosterTextOverlay', () => {
     const raw = await decode(result);
     expect(raw.info.width).toBe(400);
     expect(raw.info.height).toBe(400);
-    const [r, g, b] = pixelAt(raw, 200, 364);
+    const [r, g, b] = pixelAt(raw, 70, 364);
     // #f97316 accent color -- allow antialiasing/font-render slack.
     expect(r).toBeGreaterThan(200);
     expect(g).toBeGreaterThan(90);
@@ -39,7 +39,7 @@ describe('applyPosterTextOverlay', () => {
     expect(b).toBeLessThan(60);
   });
 
-  it('darkens the bottom of the image with a gradient when a headline is present', async () => {
+  it('adds a substantial dark graphic-design panel when a headline is present', async () => {
     const base = await solidImageDataUrl(400, 400, { r: 200, g: 200, b: 200 });
     const result = await applyPosterTextOverlay(base, 'A short headline about the product', '');
     const raw = await decode(result);
@@ -47,7 +47,7 @@ describe('applyPosterTextOverlay', () => {
     expect(topAlpha).toBe(255);
     const topPixel = pixelAt(raw, 5, 5);
     const bottomPixel = pixelAt(raw, 5, 395);
-    // The bottom strip is faded toward black; the untouched top strip is not.
+    // The bottom poster panel is dark; the hero image above remains untouched.
     expect(bottomPixel[0]).toBeLessThan(topPixel[0]);
   });
 

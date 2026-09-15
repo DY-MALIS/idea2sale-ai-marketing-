@@ -4,8 +4,18 @@ import {
   FACEBOOK_SCAN_MODES,
   getFacebookCompetitorActivityWindow,
   googleSheetsUrlToCsvExportUrl,
+  resolveCreativeImageMode,
   resolveFacebookScanMode,
 } from '../../api/ai.js';
+
+describe('resolveCreativeImageMode', () => {
+  it('preserves explicit poster requests through image automation', () => {
+    expect(resolveCreativeImageMode('image', 'poster', 'create an image')).toBe('poster');
+    expect(resolveCreativeImageMode('image', 'visual', 'ធ្វើជាទម្រង់ poster')).toBe('poster');
+    expect(resolveCreativeImageMode('image', 'visual', 'create a normal product photo')).toBe('visual');
+    expect(resolveCreativeImageMode('video', 'poster', 'poster')).toBe('visual');
+  });
+});
 
 describe('resolveFacebookScanMode', () => {
   it('accepts every supported scanner target', () => {

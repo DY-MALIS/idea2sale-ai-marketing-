@@ -997,6 +997,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         onCreativeAutomation({
           id: `${Date.now()}-${kind}`,
           kind,
+          imageMode: kind === 'image' && data.automation.imageMode === 'poster' ? 'poster' : 'visual',
           prompt: String(data.automation.prompt || '').trim(),
           platform: ['TikTok', 'Facebook', 'X', 'Telegram'].includes(data.automation.platform)
             ? data.automation.platform
@@ -1006,6 +1007,9 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
             : (kind === 'video' ? '9:16' : '1:1'),
           language: message ? detectMessageLanguage(message) : language,
           voiceOverText: kind === 'video' ? String(data.automation.voiceOverText || '').trim() : undefined,
+          headline: kind === 'image' ? String(data.automation.headline || '').trim() : undefined,
+          cta: kind === 'image' ? String(data.automation.cta || '').trim() : undefined,
+          posterStyle: kind === 'image' ? String(data.automation.posterStyle || 'Modern').trim() : undefined,
           duration: kind === 'video' && [4, 6, 8, 16, 24].includes(Number(data.automation.duration))
             ? Number(data.automation.duration)
             : undefined,

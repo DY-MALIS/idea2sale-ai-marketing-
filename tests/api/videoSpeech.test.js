@@ -65,15 +65,18 @@ describe('native Khmer video speech', () => {
     expect(prepared.prompt).toContain('supplied audio');
     expect(prepared.avatarPrompt).toContain('adult Cambodian man');
     expect(prepared.avatarPrompt).toContain('age 18 to 25');
-    expect(prepared.avatarPrompt).toContain('company-office attire');
+    expect(prepared.avatarPrompt).toContain('company-office clothing');
+    expect(prepared.avatarPrompt).toContain('one clearly dominant photorealistic primary');
     expect(prepared.avatarPrompt).toContain('supporting Cambodian coworkers or customers');
+    expect(prepared.avatarPrompt).toContain('face occupies at least one third');
     expect(prepared.avatarPrompt).toContain('mouth gently closed');
-    expect(prepared.motionPrompt).toContain('two small purposeful hand or task gestures');
-    expect(prepared.motionPrompt).toContain('Clear, confident and lively');
-    expect(prepared.motionPrompt).toContain('Only the primary presenter speaks');
-    expect(prepared.motionPrompt).toContain('one continuous action relevant to the topic');
+    expect(prepared.motionPrompt).toContain('LIP-SYNC AND REAL-TIME MOTION HAVE HIGHEST PRIORITY');
+    expect(prepared.motionPrompt).toContain('two crisp, purposeful hand or task gestures');
+    expect(prepared.motionPrompt).toContain('exactly one audible primary speaker');
+    expect(prepared.motionPrompt).toContain('supporting people may perform subtle context-appropriate activity');
+    expect(prepared.motionPrompt).toContain('completes in about half a second');
     expect(prepared.mode).toBe('edge-seedance');
-    expect(prepared.performanceStyle).toContain('varied pitch');
+    expect(prepared.performanceStyle).toContain('steady everyday pace');
     expect(mocks.narration).not.toHaveBeenCalled();
   });
   it('fills legacy plans with missing dialogue but respects silent requests', async () => {

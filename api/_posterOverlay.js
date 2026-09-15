@@ -60,7 +60,7 @@ export async function applyPosterTextOverlay(imageDataUrl, headline = '', cta = 
     const headlineFontSize = Math.round(width * HEADLINE_FONT_SIZE_RATIO);
     const ctaFontSize = Math.round(width * CTA_FONT_SIZE_RATIO);
 
-    const headline_ = headlineText ? await renderText(headlineText, headlineFontSize, { width: maxTextWidth }) : null;
+    const headline_ = headlineText ? await renderText(headlineText, headlineFontSize, { width: maxTextWidth, align: 'left' }) : null;
     const cta_ = ctaText ? await renderText(ctaText, ctaFontSize) : null;
 
     const ctaPaddingX = Math.round(ctaFontSize * 1.1);
@@ -70,30 +70,26 @@ export async function applyPosterTextOverlay(imageDataUrl, headline = '', cta = 
 
     const headlineHeight = headline_ ? headline_.info.height : 0;
     const gapBetween = headline_ && cta_ ? Math.round(margin * 0.6) : 0;
-    const blockHeight = Math.round(headlineHeight + gapBetween + ctaPillHeight + margin * 1.5);
-    const gradientTop = Math.max(0, height - blockHeight);
+    const contentHeight = headlineHeight + gapBetween + ctaPillHeight;
+    const blockHeight = Math.round(Math.max(height * 0.32, contentHeight + margin * 2.2));
+    const panelTop = Math.max(0, height - blockHeight);
 
-    const pillX = Math.round((width - ctaPillWidth) / 2);
+    const pillX = margin;
     const pillY = Math.round(height - margin - ctaPillHeight);
     const radius = ctaPillHeight / 2;
 
     const shapesSvg = `
       <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#000000" stop-opacity="0" />
-            <stop offset="100%" stop-color="#000000" stop-opacity="0.72" />
-          </linearGradient>
-        </defs>
-        <rect x="0" y="${gradientTop}" width="${width}" height="${height - gradientTop}" fill="url(#fade)" />
+        <path d="M 0 ${panelTop + margin * 0.55} L ${width * 0.34} ${panelTop} L ${width} ${panelTop + margin * 0.35} L ${width} ${height} L 0 ${height} Z" fill="#0a182b" fill-opacity="0.95" />
+        <rect x="${margin}" y="${panelTop + margin * 0.72}" width="${Math.max(42, width * 0.1)}" height="${Math.max(5, width * 0.008)}" fill="${CTA_ACCENT_COLOR}" />
         ${cta_ ? `<rect x="${pillX}" y="${pillY}" width="${ctaPillWidth}" height="${ctaPillHeight}" rx="${radius}" fill="${CTA_ACCENT_COLOR}" />` : ''}
       </svg>
     `;
 
     const layers = [{ input: Buffer.from(shapesSvg), top: 0, left: 0 }];
     if (headline_) {
-      const y = Math.round(height - margin - ctaPillHeight - gapBetween - headlineHeight);
-      layers.push({ input: headline_.data, top: y, left: Math.round((width - headline_.info.width) / 2) });
+      const y = Math.round(panelTop + margin * 1.45);
+      layers.push({ input: headline_.data, top: y, left: margin });
     }
     if (cta_) {
       layers.push({

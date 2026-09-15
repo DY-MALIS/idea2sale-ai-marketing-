@@ -47,6 +47,11 @@ const AI_FETCH_TIMEOUT_MS = 70000;
 // client-side (surfacing as "Video generation took too long"/"failed") even
 // though the server (given up to 300s via vercel.json) was still working.
 const VIDEO_STATUS_FETCH_TIMEOUT_MS = 240000;
+// Poll often enough that a completed provider job appears promptly in the UI.
+// Three seconds is still conservative for the provider while avoiding the
+// extra five-second-feeling pause that users saw after generation completed.
+const VIDEO_STATUS_POLL_INTERVAL_MS = 3000;
+const VIDEO_STATUS_MAX_POLLS = 80;
 const fetchAiWithTimeout = (body: unknown, timeoutMs: number = AI_FETCH_TIMEOUT_MS) => {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
@@ -336,8 +341,8 @@ const attemptGenerateVideoClip = async (
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || 'Video generation failed.');
   const jobId = data.jobId;
-  for (let attempt = 0; attempt < 48 && jobId; attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 5000));
+  for (let attempt = 0; attempt < VIDEO_STATUS_MAX_POLLS && jobId; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, VIDEO_STATUS_POLL_INTERVAL_MS));
     const statusResponse = await fetchAiWithTimeout({ action: 'videoStatus', jobId }, VIDEO_STATUS_FETCH_TIMEOUT_MS);
     const statusData = await statusResponse.json();
     if (!statusResponse.ok) throw new Error(statusData.error || 'Video generation failed.');
@@ -432,7 +437,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       openRouterVoice: 'nova',
       browserRate: 1.82,
       browserPitch: 1.08,
-      style: 'Sreymom persona: real Cambodian female creator voice, warm, friendly, confident, expressive, clear Khmer pronunciation, fast natural conversational tempo, short pauses, lively intonation, like a real person talking directly to a customer.',
+      style: 'Sreymom persona: real Cambodian female creator voice, warm, friendly and confident. Use a steady everyday conversational pace, crisp Khmer syllables, one short phrase-boundary pause and lively but controlled intonation. Sound like a real person talking directly to a customer, never rushed, breathy, robotic or like an announcer.',
     },
     piseth: {
       id: 'piseth' as VoicePersona,
@@ -445,7 +450,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       openRouterVoice: 'onyx',
       browserRate: 1.78,
       browserPitch: 0.9,
-      style: 'Piseth persona: real Cambodian male creator voice, confident, calm, clear, emotionally grounded, natural Khmer pronunciation, quick conversational tempo, short pauses, natural emphasis, not announcer style, like a real person presenting useful advice.',
+      style: 'Piseth persona: real Cambodian male creator voice, confident, calm and emotionally grounded. Use a steady everyday conversational pace, crisp Khmer syllables, one short phrase-boundary pause and natural emphasis. Sound like a real person presenting useful advice, never rushed, muffled, robotic or like an announcer.',
     },
   };
 
@@ -615,7 +620,12 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     setMergingSegments(false);
     let usedKhmerVoiceFallback = false;
     try {
-      const businessContext = await getLatestBusinessBranding(user, isDemoMode);
+      // Branding is a remote read while resetFFmpeg only prepares local browser
+      // state, so doing both together shortens startup without changing output.
+      const [businessContext] = await Promise.all([
+        getLatestBusinessBranding(user, isDemoMode),
+        resetFFmpeg(),
+      ]);
       if (!voiceOverContent && generationLanguage === 'Khmer' && voiceOverEnabled && voiceOverTextOverride === undefined) {
         voiceOverContent = extractVideoDialogue(promptText).script;
       }
@@ -626,9 +636,6 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         voiceOverContent = data.text;
         setVoiceOverText(data.text);
       }
-      // Start this generation with a clean ffmpeg.wasm memory slate instead of
-      // whatever accumulated from earlier videos generated in this browser tab.
-      await resetFFmpeg();
       const silentRequested = !voiceOverEnabled || wantsSilentVideo(promptText);
       if (silentRequested) voiceOverContent = '';
       const nativeKhmerSpeech = generationLanguage === 'Khmer' && !silentRequested;

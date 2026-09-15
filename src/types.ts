@@ -128,12 +128,16 @@ export interface FacebookScanResult {
 export interface CreativeAutomationRequest {
   id: string;
   kind: 'image' | 'video';
+  imageMode?: 'poster' | 'visual';
   prompt: string;
   platform: 'TikTok' | 'Facebook' | 'X' | 'Telegram' | 'General';
   aspectRatio: '1:1' | '9:16' | '16:9' | '4:5' | '3:4';
   language: 'km' | 'en';
   voiceOverText?: string;
   duration?: number;
+  headline?: string;
+  cta?: string;
+  posterStyle?: string;
 }
 
 export interface ScheduleHandoffRequest {

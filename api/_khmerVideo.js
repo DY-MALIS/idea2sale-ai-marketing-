@@ -19,7 +19,7 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, { dur
     // Use the full-quality route for the audio-driven presenter. The cheaper
     // Mini route is less consistent on fine mouth articulation.
     model: process.env.OPEN_ROUTER_KHMER_VIDEO_MODEL || 'bytedance/seedance-2.0',
-    prompt: `${speech.prompt}\n${speech.motionPrompt}\nTIMING: The reference audio lasts ${narrationAudio.duration.toFixed(2)} seconds. Start speaking at the beginning and follow its original word timing exactly. Do not stretch the speech or gestures to fill the ${duration}-second clip. Once the audio ends, close the mouth and maintain an attentive natural expression. Real-time motion at normal conversational speed; no slow motion, prolonged hand movements or long pauses.`,
+    prompt: `${speech.prompt}\n${speech.motionPrompt}\nFINAL TIMING OVERRIDE: The reference audio lasts ${narrationAudio.duration.toFixed(2)} seconds and is the master clock. Begin mouth articulation on its first audible phoneme—not before or after—and reproduce its pauses exactly. Keep the jaw, lips and cheeks synchronized frame by frame; never add idle mouth movement. Do not stretch the speech, facial motion or gestures to fill the ${duration}-second clip. At the last audible phoneme, close the mouth naturally and hold an attentive expression. Playback is real-time 1x speed; gestures are brisk and compact, with no slow motion, prolonged movement or dramatic pause.`,
     duration,
     referenceUrls: [avatarImage.mediaUrl],
     audioReferenceUrls: [narrationAudio.mediaUrl],
