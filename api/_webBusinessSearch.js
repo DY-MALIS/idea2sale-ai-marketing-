@@ -50,8 +50,16 @@ export async function searchBusinessesOnWeb({ searchTerms, country = 'Cambodia',
     && /^\d{4}-\d{2}-\d{2}$/.test(activityEndDate)
     ? `\nFor each business, also search for public activity published from ${activityStartDate} through ${activityEndDate}, inclusive. An activity must have an explicit publication date and a direct public source URL. Do not treat undated content, a homepage, general positioning, or an inference as activity in this date window. If none is found, return an empty recentActivities array.`
     : '';
-  const prompt = `Search the live web for REAL small and mid-sized independent businesses in ${country} matching: "${searchTerms}".
+  const searchFocuses = [
+    'Prioritize Google/Apple map listings and local business directories. Search city, district, province, and nearby-area variations.',
+    'Prioritize official websites and contact pages. Search English, Khmer/local-language spellings, abbreviations, and transliterations.',
+    'Prioritize real Facebook business Pages, Instagram business profiles, LinkedIn organization pages, and other public business social profiles. Never use personal profiles.',
+    'Prioritize industry associations, marketplaces, review sites, category lists, event/vendor directories, and credible local news that may reveal businesses missed by map and official-site searches.',
+  ];
+  const buildPrompt = (focus) => `Search the live web for REAL small and mid-sized independent businesses in ${country} matching: "${searchTerms}".
 ${activityWindow}
+
+SEARCH PASS FOCUS: ${focus}
 
 Prioritize small, independent, locally-owned businesses (a single shop, cafe, clinic, or small chain) over large corporations, franchises of international brands, or big real estate/cosmetics conglomerates -- small businesses are far more likely to actually need affordable content/video production help. Prefer sources that list a phone number and address (local business directories, Google/Facebook Maps listings, the business's own contact page) over general news articles, so each result includes real contact details whenever possible.
 
@@ -84,11 +92,23 @@ Return ONLY a single valid JSON object, no markdown, in this exact shape:
 }
 If you find no real businesses, return {"businesses": []}.`;
 
-  const { content } = await generateOpenRouterWebSearch({ prompt, maxResults: 10 });
-  const parsed = jsonFromText(content);
+  // One web-search response tends to surface only the most visible few
+  // businesses. Run complementary passes concurrently, then merge them, so
+  // smaller local businesses and local-language results are not crowded out.
+  const settledSearches = await Promise.allSettled(searchFocuses.map((focus) => (
+    generateOpenRouterWebSearch({ prompt: buildPrompt(focus), maxResults: 20 })
+  )));
+  const parsedResults = settledSearches
+    .filter((result) => result.status === 'fulfilled')
+    .map((result) => jsonFromText(result.value.content));
+  if (!parsedResults.length) {
+    const firstFailure = settledSearches.find((result) => result.status === 'rejected');
+    throw firstFailure?.reason || new Error('Web business search failed.');
+  }
 
   const EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
-  const candidates = (Array.isArray(parsed?.businesses) ? parsed.businesses : [])
+  const candidateMap = new Map();
+  parsedResults.flatMap((parsed) => (Array.isArray(parsed?.businesses) ? parsed.businesses : []))
     .map((item) => {
       const email = String(item?.email || '').replace(/^mailto:/i, '').trim().slice(0, 200);
       const emailMatch = email.match(EMAIL_PATTERN);
@@ -132,7 +152,33 @@ If you find no real businesses, return {"businesses": []}.`;
       };
     })
     .filter((item) => item.businessName)
-    .slice(0, 12);
+    .forEach((item) => {
+      const key = item.businessName.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+      if (!key) return;
+      const existing = candidateMap.get(key);
+      if (!existing) {
+        candidateMap.set(key, item);
+        return;
+      }
+      const recentActivities = [...(existing.recentActivities || []), ...(item.recentActivities || [])]
+        .filter((activity, index, all) => all.findIndex((other) => other.date === activity.date && other.sourceUrl === activity.sourceUrl) === index)
+        .slice(0, 5);
+      candidateMap.set(key, {
+        ...existing,
+        businessType: existing.businessType !== 'Business' ? existing.businessType : item.businessType,
+        address: existing.address || item.address,
+        phone: existing.phone || item.phone,
+        email: existing.email || item.email,
+        telegram: existing.telegram || item.telegram,
+        website: existing.website || item.website,
+        facebookPageName: existing.facebookPageName || item.facebookPageName,
+        facebookPageUrl: existing.facebookPageUrl || item.facebookPageUrl,
+        linkedinUrl: existing.linkedinUrl || item.linkedinUrl,
+        sourceUrl: existing.sourceUrl || item.sourceUrl,
+        ...(activityWindow ? { recentActivities } : {}),
+      });
+    });
+  const candidates = [...candidateMap.values()];
 
   const verified = await Promise.all(candidates.map(async (item) => {
     const checkUrl = item.sourceUrl || item.website;

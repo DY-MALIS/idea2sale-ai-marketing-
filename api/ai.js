@@ -1074,7 +1074,7 @@ Return ONLY a valid JSON array of these objects, no markdown, no commentary.`,
       }
 
       const webBusinessSummary = rawWebBusinesses.length
-        ? rawWebBusinesses.slice(0, 12).map((biz, idx) => {
+        ? rawWebBusinesses.map((biz, idx) => {
             const activitySummary = (biz.recentActivities || []).map((activity) => `${activity.date}: ${activity.activity} (${activity.sourceUrl})`).join(' ; ') || 'none verified in the 7-day window';
             return `[Web Business ${idx + 1}] Name: ${biz.businessName} | Type: ${biz.businessType} | Address: ${biz.address || 'not available'} | Phone: ${biz.phone || 'not available'} | Email: ${biz.email || 'not available'} | Telegram: ${biz.telegram || 'not available'} | Website: ${biz.website || 'not available'} | Facebook Page: ${biz.facebookPageName || 'not available'} | Facebook Page URL: ${biz.facebookPageUrl || 'not available'} | Verified 7-day activity: ${activitySummary} | Source URL: ${biz.sourceUrl}`;
           }).join('\n')
@@ -1131,7 +1131,7 @@ ${isCompetitorScan
 
 3. POTENTIAL CLIENT LEADS (អាជីវកម្មដែលអាចត្រូវការសេវាផលិត Content/Video):
    - Use ONLY real businesses explicitly present in the Live Web Search Business Context above. Never invent a business, Page, URL, phone number, email address, or contact identity.
-   - If that context says it is not connected or contains 0 results, return an empty "potentialLeads" array. Otherwise you MUST include a "potentialLeads" entry for EVERY SINGLE business listed in that context, with no exceptions and none skipped -- it is already a short, real, pre-verified list (never more than 12 entries), so there is no reason to omit any of them even if a business's specific need signal has to stay generic (e.g. "this business type typically relies on photo/video content to attract customers online").
+   - If that context says it is not connected or contains 0 results, return an empty "potentialLeads" array. Otherwise include a "potentialLeads" entry for EVERY SINGLE business listed in that context, with no exceptions and none skipped. The list is real and pre-verified; do not omit a business even if its specific need signal has to stay generic (e.g. "this business type typically relies on photo/video content to attract customers online").
    - For each real business, infer its business type and identify concrete signals suggesting it may benefit from professional content, video production, or digital marketing. Only cite a signal you can actually support from the given context (the fact that this business type in Cambodia typically relies on visual content to sell, or that a small independent business rarely has in-house video production). NEVER claim specific unverifiable facts about the business itself that are not present in its context entry, such as "currently hiring for a marketing role," "actively expanding its team," or anything about its finances, staff, or internal plans -- the web search context only ever gives a name, category, address, phone, email, Telegram, website, and Facebook Page -- nothing about hiring or internal operations.
    - Prefer small and mid-sized independent businesses (a single shop, cafe, clinic, small chain) over large corporations or franchises when both are present in the context -- they are the most realistic clients for affordable content/video services.
    - Rate leadLevel as "Hot" only for strong active-spend or strong demand signals plus clear creative-need signals, "Warm" for moderate signals, or "Cold" for weak signals.
@@ -1277,24 +1277,21 @@ Return ONLY a single valid JSON object with this exact structure:
       // Only return leads whose name exactly matches a real business returned
       // by the web search. Contact fields always come from that API, never
       // from model text.
-      const webBusinessesByName = new Map();
-      rawWebBusinesses.forEach((biz) => {
-        const key = String(biz.businessName || '').trim().toLocaleLowerCase();
-        if (key && !webBusinessesByName.has(key)) webBusinessesByName.set(key, biz);
+      const parsedLeadsByName = new Map();
+      (Array.isArray(parsed?.potentialLeads) ? parsed.potentialLeads : []).forEach((lead) => {
+        const key = String(lead?.businessName || '').trim().toLocaleLowerCase();
+        if (key && !parsedLeadsByName.has(key)) parsedLeadsByName.set(key, lead);
       });
-      const seenLeadKeys = new Set();
-      const potentialLeads = (isCompetitorScan ? [] : (Array.isArray(parsed?.potentialLeads) ? parsed.potentialLeads : []))
-        .map((lead) => {
-          const requestedName = String(lead?.businessName || '').trim();
-          const key = requestedName.toLocaleLowerCase();
-          if (!key || seenLeadKeys.has(key)) return null;
-
-          const sourceWebBiz = webBusinessesByName.get(key);
-          if (!sourceWebBiz) return null;
-          seenLeadKeys.add(key);
+      // Build from the verified web list (not from the model's response) so a
+      // long result set cannot silently lose valid businesses when the model
+      // omits an enrichment object near the end of its output.
+      const potentialLeads = (isCompetitorScan ? [] : rawWebBusinesses)
+        .map((sourceWebBiz) => {
+          const key = String(sourceWebBiz.businessName || '').trim().toLocaleLowerCase();
+          const lead = parsedLeadsByName.get(key) || {};
 
           return {
-            businessType: String(lead?.businessType || 'Business').slice(0, 120),
+            businessType: String(lead?.businessType || sourceWebBiz.businessType || 'Business').slice(0, 120),
             needSignals: (Array.isArray(lead?.needSignals) ? lead.needSignals : [])
               .map((signal) => String(signal).slice(0, 300))
               .filter(Boolean)
@@ -1312,7 +1309,7 @@ Return ONLY a single valid JSON object with this exact structure:
               ? (sourceWebBiz.recentActivities || []).map((activity) => `${activity.date}: ${activity.activity}`)
               : (Array.isArray(lead?.competitorSignals) ? lead.competitorSignals : []).map((value) => String(value).slice(0, 240)).filter(Boolean).slice(0, 4),
             recentActivities: isCompetitorScan ? (sourceWebBiz.recentActivities || []) : [],
-            recommendedService: String(lead?.recommendedService || '').slice(0, 300),
+            recommendedService: String(lead?.recommendedService || `Short-form photo and video content tailored to ${sourceWebBiz.businessType || 'this business'}.`).slice(0, 300),
             inboxMessage: isCompetitorScan ? '' : ensureBusinessInInboxMessage(lead?.inboxMessage, userBusinessName).slice(0, 1200),
             source: 'web_search',
             businessName: sourceWebBiz.businessName,
@@ -1328,9 +1325,7 @@ Return ONLY a single valid JSON object with this exact structure:
             website: sourceWebBiz.website || '',
             mapsUrl: '',
           };
-        })
-        .filter(Boolean)
-        .slice(0, 12);
+        });
 
       // Competitor names and URLs are anchored to the independently verified
       // research list. The strategy model may enrich those entries, but it
