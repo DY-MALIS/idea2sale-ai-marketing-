@@ -45,10 +45,13 @@ export async function urlIsReachable(url, timeoutMs = 6000) {
   }
 }
 
-export async function searchBusinessesOnWeb({ searchTerms, searchObjective = '', country = 'Cambodia', activityStartDate = '', activityEndDate = '' }) {
+export async function searchBusinessesOnWeb({ searchTerms, searchObjective = '', requiredSignal = '', country = 'Cambodia', activityStartDate = '', activityEndDate = '' }) {
   const activityWindow = /^\d{4}-\d{2}-\d{2}$/.test(activityStartDate)
     && /^\d{4}-\d{2}-\d{2}$/.test(activityEndDate)
     ? `\nFor each business, also search for public activity published from ${activityStartDate} through ${activityEndDate}, inclusive. An activity must have an explicit publication date and a direct public source URL. Do not treat undated content, a homepage, general positioning, or an inference as activity in this date window. If none is found, return an empty recentActivities array.`
+    : '';
+  const requiredSignalInstruction = requiredSignal === 'hiring'
+    ? `\nHIRING EVIDENCE IS REQUIRED: Only return a business when a current public job vacancy, recruitment announcement, careers-page opening, or dated hiring post was found from ${activityStartDate} through ${activityEndDate}. Put that hiring evidence in recentActivities with its exact date and direct source URL. Exclude undated, expired, inferred, or generic "this company may hire" claims. The result must identify the employer/company name, not only a job title or recruitment agency.`
     : '';
   const searchFocuses = [
     'Prioritize Google/Apple map listings and local business directories. Search city, district, province, and nearby-area variations.',
@@ -58,6 +61,7 @@ export async function searchBusinessesOnWeb({ searchTerms, searchObjective = '',
   ];
   const buildPrompt = (focus) => `Search the live web for REAL businesses and organizations in ${country} matching the user's exact request: "${searchTerms}".
 ${activityWindow}
+${requiredSignalInstruction}
 
 SEARCH PASS FOCUS: ${focus}
 SCAN OBJECTIVE: ${searchObjective || 'Find real public business prospects that match the request.'}
@@ -199,5 +203,8 @@ If you find no real businesses, return {"businesses": []}.`;
     return activityWindow ? { ...item, recentActivities: activityChecks.filter(Boolean) } : item;
   }));
 
-  return verified.filter(Boolean);
+  const verifiedBusinesses = verified.filter(Boolean);
+  return requiredSignal === 'hiring'
+    ? verifiedBusinesses.filter((business) => (business.recentActivities || []).length > 0)
+    : verifiedBusinesses;
 }

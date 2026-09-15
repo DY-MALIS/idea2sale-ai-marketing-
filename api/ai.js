@@ -990,8 +990,8 @@ Return ONLY a valid JSON array of these objects, no markdown, no commentary.`,
           instruction: 'Describe aggregate customer segments, needs, and buying triggers supported by public business positioning, ads, or reviews. Never identify private individuals or claim access to private followers, messages, or customer lists.',
         },
         hiring: {
-          searchHint: 'hiring sales marketing jobs recruitment',
-          instruction: 'Prioritize businesses and public opportunities related to recruiting sales and marketing staff. Report a hiring signal only when the supplied public source URL context supports it; otherwise label it as a role-fit opportunity, not an active vacancy.',
+          searchHint: 'companies hiring staff job vacancies recruitment careers',
+          instruction: 'Find named businesses with recent public recruitment evidence for any requested staff role. Report only active hiring signals supported by a dated public source URL; never infer that a company is hiring.',
         },
       };
       const scanMode = resolveFacebookScanMode(req.body?.scanMode);
@@ -1000,6 +1000,10 @@ Return ONLY a valid JSON array of these objects, no markdown, no commentary.`,
       const today = new Date();
       const todayStr = today.toISOString().slice(0, 10);
       const activityWindow = getFacebookCompetitorActivityWindow(today);
+      const hiringActivityWindow = {
+        startDate: new Date(today.getTime() - 30 * 86400000).toISOString().slice(0, 10),
+        endDate: todayStr,
+      };
       // Keep the user's exact search intent separate from the mode objective.
       // Appending generic keywords to the query caused exact company/customer-
       // type searches to drift into unrelated "marketing businesses" results.
@@ -1021,10 +1025,11 @@ Return ONLY a valid JSON array of these objects, no markdown, no commentary.`,
       const [webSearchSettled, xContextSettled, competitorResearchSettled, ownBusinessResearchSettled] = await Promise.allSettled([
         !isCompetitorScan ? searchBusinessesOnWeb({
           searchTerms,
-          searchObjective: scanModeConfig.instruction,
+          searchObjective: `${scanModeConfig.searchHint}. ${scanModeConfig.instruction}`,
+          requiredSignal: scanMode === 'hiring' ? 'hiring' : '',
           country: searchCountry,
-          activityStartDate: '',
-          activityEndDate: '',
+          activityStartDate: scanMode === 'hiring' ? hiringActivityWindow.startDate : '',
+          activityEndDate: scanMode === 'hiring' ? hiringActivityWindow.endDate : '',
         }) : Promise.resolve([]),
         fetchXContextForEntity(query),
         isCompetitorScan ? researchCompetitors({
@@ -1041,7 +1046,9 @@ Return ONLY a valid JSON array of these objects, no markdown, no commentary.`,
       let rawWebBusinesses = [];
       let webSearchAvailable = false;
       if (webSearchSettled.status === 'fulfilled') {
-        rawWebBusinesses = webSearchSettled.value;
+        rawWebBusinesses = scanMode === 'hiring'
+          ? webSearchSettled.value.filter((business) => (business.recentActivities || []).length > 0)
+          : webSearchSettled.value;
         webSearchAvailable = !isCompetitorScan;
       } else {
         console.warn('OpenRouter web business search failed or skipped:', webSearchSettled.reason?.message);
@@ -1079,8 +1086,8 @@ Return ONLY a valid JSON array of these objects, no markdown, no commentary.`,
 
       const webBusinessSummary = rawWebBusinesses.length
         ? rawWebBusinesses.map((biz, idx) => {
-            const activitySummary = (biz.recentActivities || []).map((activity) => `${activity.date}: ${activity.activity} (${activity.sourceUrl})`).join(' ; ') || 'none verified in the 7-day window';
-            return `[Web Business ${idx + 1}] Name: ${biz.businessName} | Type: ${biz.businessType} | Address: ${biz.address || 'not available'} | Phone: ${biz.phone || 'not available'} | Email: ${biz.email || 'not available'} | Telegram: ${biz.telegram || 'not available'} | Website: ${biz.website || 'not available'} | Facebook Page: ${biz.facebookPageName || 'not available'} | Facebook Page URL: ${biz.facebookPageUrl || 'not available'} | Verified 7-day activity: ${activitySummary} | Source URL: ${biz.sourceUrl}`;
+            const activitySummary = (biz.recentActivities || []).map((activity) => `${activity.date}: ${activity.activity} (${activity.sourceUrl})`).join(' ; ') || 'none required for this scan mode';
+            return `[Web Business ${idx + 1}] Name: ${biz.businessName} | Type: ${biz.businessType} | Address: ${biz.address || 'not available'} | Phone: ${biz.phone || 'not available'} | Email: ${biz.email || 'not available'} | Telegram: ${biz.telegram || 'not available'} | Website: ${biz.website || 'not available'} | Facebook Page: ${biz.facebookPageName || 'not available'} | Facebook Page URL: ${biz.facebookPageUrl || 'not available'} | Verified public activity/hiring evidence: ${activitySummary} | Source URL: ${biz.sourceUrl}`;
           }).join('\n')
         : 'Live web business search not connected or returned 0 verified businesses.';
 
@@ -1308,7 +1315,9 @@ Return ONLY a single valid JSON object with this exact structure:
             fitScore: Math.min(100, Math.max(0, Math.round(Number(lead?.fitScore) || 0))),
             interestSignals: (Array.isArray(lead?.interestSignals) ? lead.interestSignals : []).map((value) => String(value).slice(0, 240)).filter(Boolean).slice(0, 4),
             spendingSignals: (Array.isArray(lead?.spendingSignals) ? lead.spendingSignals : []).map((value) => String(value).slice(0, 240)).filter(Boolean).slice(0, 4),
-            hiringSignals: (Array.isArray(lead?.hiringSignals) ? lead.hiringSignals : []).map((value) => String(value).slice(0, 240)).filter(Boolean).slice(0, 4),
+            hiringSignals: scanMode === 'hiring'
+              ? (sourceWebBiz.recentActivities || []).map((activity) => `${activity.date}: ${activity.activity}`).slice(0, 4)
+              : (Array.isArray(lead?.hiringSignals) ? lead.hiringSignals : []).map((value) => String(value).slice(0, 240)).filter(Boolean).slice(0, 4),
             competitorSignals: isCompetitorScan
               ? (sourceWebBiz.recentActivities || []).map((activity) => `${activity.date}: ${activity.activity}`)
               : (Array.isArray(lead?.competitorSignals) ? lead.competitorSignals : []).map((value) => String(value).slice(0, 240)).filter(Boolean).slice(0, 4),

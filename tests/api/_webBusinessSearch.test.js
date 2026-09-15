@@ -90,3 +90,30 @@ it('keeps the user query and scan objective separate in every search pass', asyn
     expect(request.prompt).toContain('SCAN OBJECTIVE: Find organizations likely to need video marketing.');
   }
 });
+
+it('returns only employers with verified dated hiring evidence when hiring is required', async () => {
+  mocks.webSearch.mockResolvedValue({
+    content: JSON.stringify({
+      businesses: [
+        {
+          name: 'Hiring Company',
+          sourceUrl: 'https://hiring.example.com',
+          recentActivities: [{ date: '2026-09-10', activity: 'Recruiting sales staff', sourceUrl: 'https://hiring.example.com/jobs/sales' }],
+        },
+        { name: 'No Evidence Company', sourceUrl: 'https://no-evidence.example.com', recentActivities: [] },
+      ],
+    }),
+  });
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+
+  const businesses = await searchBusinessesOnWeb({
+    searchTerms: 'companies hiring staff',
+    requiredSignal: 'hiring',
+    activityStartDate: '2026-08-16',
+    activityEndDate: '2026-09-15',
+  });
+
+  expect(businesses).toHaveLength(1);
+  expect(businesses[0].businessName).toBe('Hiring Company');
+  expect(businesses[0].recentActivities[0].activity).toContain('Recruiting');
+});

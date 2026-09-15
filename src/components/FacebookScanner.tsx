@@ -361,7 +361,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
       { id: 'construction', label: 'ម៉ៅការសំណង់', description: 'រកម៉ៅការ developer និងអ្នកផ្គត់ផ្គង់សំណង់', suggestions: ['ម៉ៅការសំណង់កម្ពុជា', 'Property developer Phnom Penh', 'អ្នកផ្គត់ផ្គង់សម្ភារៈសំណង់'] },
       { id: 'competitor_activity', label: 'សកម្មភាពគូប្រកួត', description: 'វិភាគ content offer ad និងចំណុចខ្សោយសាធារណៈ', suggestions: ['ឈ្មោះ Page គូប្រកួត', 'គូប្រកួត skincare Cambodia', 'គូប្រកួតអចលនទ្រព្យ'] },
       { id: 'competitor_customers', label: 'អតិថិជនគូប្រកួត', description: 'រក customer segments និង buying triggers តាមសញ្ញាសាធារណៈ', suggestions: ['អតិថិជនរបស់ Page គូប្រកួត', 'customer reviews competitor', 'audience របស់គូប្រកួត'] },
-      { id: 'hiring', label: 'រើសបុគ្គលិកលក់/ទីផ្សារ', description: 'រកអាជីវកម្ម និងការងារសាធារណៈផ្នែក Sales/Marketing', suggestions: ['ក្រុមហ៊ុនរើស Sales', 'ការងារ Digital Marketing Cambodia', 'ក្រុមហ៊ុនរើស Marketing Manager'] },
+      { id: 'hiring', label: 'ក្រុមហ៊ុនកំពុងរើសបុគ្គលិក', description: 'រកឈ្មោះក្រុមហ៊ុនដែលមានប្រកាសជ្រើសរើសថ្មីៗ និង link ភស្តុតាង', suggestions: ['ក្រុមហ៊ុនកំពុងរើសបុគ្គលិកកម្ពុជា', 'ក្រុមហ៊ុនរើស Sales', 'គ្លីនិករើសបុគ្គលិក', 'ការងារ Digital Marketing Cambodia', 'ក្រុមហ៊ុនរើស Marketing Manager'] },
     ],
     suggestions: [
       'ហាងសម្លៀកបំពាក់នារី',
@@ -452,7 +452,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
       { id: 'construction', label: 'Construction contractors', description: 'Find contractors, developers and construction suppliers', suggestions: ['Cambodia construction contractors', 'Phnom Penh property developers', 'construction material suppliers'] },
       { id: 'competitor_activity', label: 'Competitor activity', description: 'Analyze public content, offers, ads and weaknesses', suggestions: ['competitor Page name', 'skincare competitors Cambodia', 'real estate competitors'] },
       { id: 'competitor_customers', label: 'Competitor customers', description: 'Infer customer segments and buying triggers from public signals', suggestions: ['competitor Page customers', 'competitor customer reviews', 'competitor audience segments'] },
-      { id: 'hiring', label: 'Sales/marketing hiring', description: 'Find businesses and public Sales/Marketing opportunities', suggestions: ['companies hiring sales Cambodia', 'digital marketing jobs Cambodia', 'hiring marketing manager'] },
+      { id: 'hiring', label: 'Companies hiring staff', description: 'Find named employers with recent public job posts and evidence links', suggestions: ['companies hiring staff Cambodia', 'companies hiring sales Cambodia', 'clinics hiring staff', 'digital marketing jobs Cambodia', 'hiring marketing manager'] },
     ],
     suggestions: [
       "Women's fashion shop",
