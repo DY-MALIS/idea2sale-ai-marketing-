@@ -76,3 +76,17 @@ it('deduplicates a business found by several passes and merges its public contac
   expect(businesses).toHaveLength(1);
   expect(businesses[0]).toMatchObject({ phone: '012 345 678', email: 'hello@same-cafe.example' });
 });
+
+it('keeps the user query and scan objective separate in every search pass', async () => {
+  mocks.webSearch.mockResolvedValue({ content: JSON.stringify({ businesses: [] }) });
+
+  await searchBusinessesOnWeb({
+    searchTerms: 'Phnom Penh dental clinics',
+    searchObjective: 'Find organizations likely to need video marketing.',
+  });
+
+  for (const [request] of mocks.webSearch.mock.calls) {
+    expect(request.prompt).toContain('exact request: "Phnom Penh dental clinics"');
+    expect(request.prompt).toContain('SCAN OBJECTIVE: Find organizations likely to need video marketing.');
+  }
+});

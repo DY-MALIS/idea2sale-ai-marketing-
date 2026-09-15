@@ -45,7 +45,7 @@ export async function urlIsReachable(url, timeoutMs = 6000) {
   }
 }
 
-export async function searchBusinessesOnWeb({ searchTerms, country = 'Cambodia', activityStartDate = '', activityEndDate = '' }) {
+export async function searchBusinessesOnWeb({ searchTerms, searchObjective = '', country = 'Cambodia', activityStartDate = '', activityEndDate = '' }) {
   const activityWindow = /^\d{4}-\d{2}-\d{2}$/.test(activityStartDate)
     && /^\d{4}-\d{2}-\d{2}$/.test(activityEndDate)
     ? `\nFor each business, also search for public activity published from ${activityStartDate} through ${activityEndDate}, inclusive. An activity must have an explicit publication date and a direct public source URL. Do not treat undated content, a homepage, general positioning, or an inference as activity in this date window. If none is found, return an empty recentActivities array.`
@@ -56,12 +56,21 @@ export async function searchBusinessesOnWeb({ searchTerms, country = 'Cambodia',
     'Prioritize real Facebook business Pages, Instagram business profiles, LinkedIn organization pages, and other public business social profiles. Never use personal profiles.',
     'Prioritize industry associations, marketplaces, review sites, category lists, event/vendor directories, and credible local news that may reveal businesses missed by map and official-site searches.',
   ];
-  const buildPrompt = (focus) => `Search the live web for REAL small and mid-sized independent businesses in ${country} matching: "${searchTerms}".
+  const buildPrompt = (focus) => `Search the live web for REAL businesses and organizations in ${country} matching the user's exact request: "${searchTerms}".
 ${activityWindow}
 
 SEARCH PASS FOCUS: ${focus}
+SCAN OBJECTIVE: ${searchObjective || 'Find real public business prospects that match the request.'}
 
-Prioritize small, independent, locally-owned businesses (a single shop, cafe, clinic, or small chain) over large corporations, franchises of international brands, or big real estate/cosmetics conglomerates -- small businesses are far more likely to actually need affordable content/video production help. Prefer sources that list a phone number and address (local business directories, Google/Facebook Maps listings, the business's own contact page) over general news articles, so each result includes real contact details whenever possible.
+Interpret the request flexibly and preserve its intent:
+- A specific company/Page/organization name means find and enrich that exact entity.
+- A customer type or business category (restaurants, clinics, schools, factories, hotels, NGOs, retailers, professionals, etc.) means find real organizations in that category.
+- A product/service or problem (needs video content, wants AI automation, hiring sales staff, opening a new branch, etc.) means find real organizations with public evidence or a strong category fit for that need.
+- A location, size, language, industry, or other qualifier must narrow the results exactly as requested.
+- A broad market request may include companies, shops, institutions, associations, nonprofits, and other legitimate organizations; do not arbitrarily force every request into only shops/cafes/clinics.
+- Never replace the user's requested category with a different category merely because it may be easier to find.
+
+When the request does not specify company size, prioritize small and mid-sized independent organizations because they are more realistic prospects, but still include larger companies when they directly match the requested customer type. Prefer sources that list a phone number and address (local business directories, Google/Facebook Maps listings, the business's own contact page) over general news articles, so each result includes real contact details whenever possible.
 
 When the search request provides a list of exact company, Facebook Page, or LinkedIn organization names, treat this as contact enrichment: search each named business individually, preserve its exact public name, and return only those named businesses (no unrelated suggestions). Check its official website/contact page and public social profiles for the contact fields below.
 

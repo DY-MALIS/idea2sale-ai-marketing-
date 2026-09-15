@@ -1000,7 +1000,10 @@ Return ONLY a valid JSON array of these objects, no markdown, no commentary.`,
       const today = new Date();
       const todayStr = today.toISOString().slice(0, 10);
       const activityWindow = getFacebookCompetitorActivityWindow(today);
-      const searchTerms = `${query} ${scanModeConfig.searchHint}${isCompetitorScan ? ` ${activityWindow.startDate} to ${activityWindow.endDate}` : ''}`.slice(0, 400);
+      // Keep the user's exact search intent separate from the mode objective.
+      // Appending generic keywords to the query caused exact company/customer-
+      // type searches to drift into unrelated "marketing businesses" results.
+      const searchTerms = query.slice(0, 250);
       const countryNames = { KH: 'Cambodia', TH: 'Thailand', VN: 'Vietnam', US: 'United States' };
       const searchCountry = countries.map((code) => countryNames[code] || code).join(', ');
 
@@ -1018,6 +1021,7 @@ Return ONLY a valid JSON array of these objects, no markdown, no commentary.`,
       const [webSearchSettled, xContextSettled, competitorResearchSettled, ownBusinessResearchSettled] = await Promise.allSettled([
         !isCompetitorScan ? searchBusinessesOnWeb({
           searchTerms,
+          searchObjective: scanModeConfig.instruction,
           country: searchCountry,
           activityStartDate: '',
           activityEndDate: '',
