@@ -49,6 +49,7 @@ export interface FacebookCustomerInsights {
 export interface FacebookRecentActivity {
   date: string;
   activity: string;
+  jobTitle?: string;
   sourceUrl: string;
 }
 
@@ -91,6 +92,7 @@ export interface FacebookPotentialLead {
   interestSignals?: string[];
   spendingSignals?: string[];
   hiringSignals?: string[];
+  jobTypes?: string[];
   competitorSignals?: string[];
   recentActivities?: FacebookRecentActivity[];
 }

@@ -78,8 +78,8 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     const selected = leads.filter((_, index) => !deselectedLeads.has(index));
     if (!selected.length) return;
     const headers = isKm
-      ? ['ឈ្មោះក្រុមហ៊ុន', 'ប្រភេទអាជីវកម្ម', 'អាសយដ្ឋាន', 'ទូរស័ព្ទ', 'អ៊ីមែល', 'Telegram', 'គេហទំព័រ', 'Facebook Page', 'LinkedIn', 'ប្រភេទឱកាស', 'ពិន្ទុសក្តានុពល', 'កម្រិត Lead', 'សញ្ញាចាប់អារម្មណ៍', 'សញ្ញាចំណាយ', 'សញ្ញាជ្រើសបុគ្គលិក', 'សញ្ញាគូប្រកួត', 'សេវាកម្មដែលណែនាំ', 'សារ Inbox', 'ប្រភព']
-      : ['Business Name', 'Business Type', 'Address', 'Phone', 'Email', 'Telegram', 'Website', 'Facebook Page', 'LinkedIn', 'Opportunity Type', 'Fit Score', 'Lead Level', 'Interest Signals', 'Spending Signals', 'Hiring Signals', 'Competitor Signals', 'Recommended Service', 'Inbox Message', 'Source URL'];
+      ? ['ឈ្មោះក្រុមហ៊ុន', 'ប្រភេទអាជីវកម្ម', 'អាសយដ្ឋាន', 'ទូរស័ព្ទ', 'អ៊ីមែល', 'Telegram', 'គេហទំព័រ', 'Facebook Page', 'LinkedIn', 'ប្រភេទឱកាស', 'ពិន្ទុសក្តានុពល', 'កម្រិត Lead', 'សញ្ញាចាប់អារម្មណ៍', 'សញ្ញាចំណាយ', 'ប្រភេទការងារ', 'សញ្ញាជ្រើសបុគ្គលិក', 'សញ្ញាគូប្រកួត', 'សេវាកម្មដែលណែនាំ', 'សារ Inbox', 'ប្រភព']
+      : ['Business Name', 'Business Type', 'Address', 'Phone', 'Email', 'Telegram', 'Website', 'Facebook Page', 'LinkedIn', 'Opportunity Type', 'Fit Score', 'Lead Level', 'Interest Signals', 'Spending Signals', 'Job Types', 'Hiring Signals', 'Competitor Signals', 'Recommended Service', 'Inbox Message', 'Source URL'];
     const rows = selected.map((lead) => [
       lead.businessName,
       lead.businessType,
@@ -95,6 +95,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
       lead.leadLevel,
       (lead.interestSignals || []).join(' | '),
       (lead.spendingSignals || []).join(' | '),
+      (lead.jobTypes || []).join(' | '),
       (lead.hiringSignals || []).join(' | '),
       (lead.competitorSignals || []).join(' | '),
       lead.recommendedService,
@@ -206,6 +207,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
         fitScore: lead.fitScore || 0,
         interestSignals: lead.interestSignals || [],
         spendingSignals: lead.spendingSignals || [],
+        jobTypes: lead.jobTypes || [],
         hiringSignals: lead.hiringSignals || [],
         competitorSignals: lead.competitorSignals || [],
         recentActivities: lead.recentActivities || [],
@@ -350,6 +352,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     interestSignals: 'សញ្ញាចាប់អារម្មណ៍ AI/សេវាកម្ម',
     spendingSignals: 'សញ្ញាសមត្ថភាពចំណាយ (ការប៉ាន់ស្មាន)',
     hiringSignals: 'សញ្ញាជ្រើសរើសបុគ្គលិក',
+    jobTypes: 'ប្រភេទការងារ / មុខតំណែង',
     competitorSignals: 'សកម្មភាពគូប្រកួត',
     customerSegments: 'ក្រុមអតិថិជនរបស់គូប្រកួត',
     publicActivity: 'សកម្មភាពសាធារណៈដែលរកឃើញ',
@@ -441,6 +444,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     interestSignals: 'AI/service interest signals',
     spendingSignals: 'Estimated spending-potential signals',
     hiringSignals: 'Public hiring signals',
+    jobTypes: 'Job types / positions',
     competitorSignals: 'Competitor activity signals',
     customerSegments: 'Competitor customer segments',
     publicActivity: 'Verified public activity',
@@ -841,6 +845,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                     </div>
 
                     {[
+                      { label: text.jobTypes, items: lead.jobTypes, tone: 'border-indigo-200 bg-indigo-50 text-indigo-800 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-200' },
                       { label: text.interestSignals, items: lead.interestSignals, tone: 'border-violet-200 bg-violet-50 text-violet-800 dark:border-violet-900 dark:bg-violet-950/30 dark:text-violet-200' },
                       { label: text.spendingSignals, items: lead.spendingSignals, tone: 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200' },
                       { label: text.hiringSignals, items: lead.hiringSignals, tone: 'border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200' },

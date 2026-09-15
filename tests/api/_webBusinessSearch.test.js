@@ -98,7 +98,7 @@ it('returns only employers with verified dated hiring evidence when hiring is re
         {
           name: 'Hiring Company',
           sourceUrl: 'https://hiring.example.com',
-          recentActivities: [{ date: '2026-09-10', activity: 'Recruiting sales staff', sourceUrl: 'https://hiring.example.com/jobs/sales' }],
+          recentActivities: [{ date: '2026-09-10', activity: 'Recruiting sales staff', jobTitle: 'Sales Executive', sourceUrl: 'https://hiring.example.com/jobs/sales' }],
         },
         { name: 'No Evidence Company', sourceUrl: 'https://no-evidence.example.com', recentActivities: [] },
       ],
@@ -116,4 +116,5 @@ it('returns only employers with verified dated hiring evidence when hiring is re
   expect(businesses).toHaveLength(1);
   expect(businesses[0].businessName).toBe('Hiring Company');
   expect(businesses[0].recentActivities[0].activity).toContain('Recruiting');
+  expect(businesses[0].recentActivities[0].jobTitle).toBe('Sales Executive');
 });

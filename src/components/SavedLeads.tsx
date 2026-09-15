@@ -22,6 +22,7 @@ interface SavedLead {
   linkedinUrl?: string;
   leadLevel?: string;
   opportunityType?: 'customer' | 'ai_interest' | 'high_value' | 'construction' | 'competitor_activity' | 'competitor_customers' | 'hiring';
+  jobTypes?: string[];
   recommendedService?: string;
   inboxMessage?: string;
   evidenceSourceUrl?: string;
@@ -220,7 +221,10 @@ const SavedLeads: React.FC = () => {
                         {lead.weakness && <p><span className="font-bold text-rose-500">Weakness:</span> {lead.weakness}</p>}
                         {(lead.counterStrategy || lead.recommendedService) && <p><span className="font-bold text-emerald-600">Opportunity:</span> {lead.counterStrategy || lead.recommendedService}</p>}
                       </div>
-                    ) : lead.recommendedService && <p className="text-sm text-slate-600 dark:text-slate-300 line-clamp-2">{lead.recommendedService}</p>}
+                    ) : <>
+                      {!!lead.jobTypes?.length && <p className="text-sm font-bold text-indigo-700 dark:text-indigo-300">{language === 'km' ? 'ប្រភេទការងារ៖' : 'Job types:'} {lead.jobTypes.join(' • ')}</p>}
+                      {lead.recommendedService && <p className="text-sm text-slate-600 dark:text-slate-300 line-clamp-2">{lead.recommendedService}</p>}
+                    </>}
                     <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500 dark:text-slate-400">
                       {lead.phone && <span className="flex items-center gap-1"><Phone size={12} />{lead.phone}</span>}
                       {lead.email && <span className="flex items-center gap-1"><Mail size={12} />{lead.email}</span>}

@@ -51,7 +51,7 @@ export async function searchBusinessesOnWeb({ searchTerms, searchObjective = '',
     ? `\nFor each business, also search for public activity published from ${activityStartDate} through ${activityEndDate}, inclusive. An activity must have an explicit publication date and a direct public source URL. Do not treat undated content, a homepage, general positioning, or an inference as activity in this date window. If none is found, return an empty recentActivities array.`
     : '';
   const requiredSignalInstruction = requiredSignal === 'hiring'
-    ? `\nHIRING EVIDENCE IS REQUIRED: Only return a business when a current public job vacancy, recruitment announcement, careers-page opening, or dated hiring post was found from ${activityStartDate} through ${activityEndDate}. Put that hiring evidence in recentActivities with its exact date and direct source URL. Exclude undated, expired, inferred, or generic "this company may hire" claims. The result must identify the employer/company name, not only a job title or recruitment agency.`
+    ? `\nHIRING EVIDENCE IS REQUIRED: Only return a business when a current public job vacancy, recruitment announcement, careers-page opening, or dated hiring post was found from ${activityStartDate} through ${activityEndDate}. Put that hiring evidence in recentActivities with its exact job title/type, date, and direct source URL. Exclude undated, expired, inferred, or generic "this company may hire" claims. The result must identify the employer/company name, not only a job title or recruitment agency.`
     : '';
   const searchFocuses = [
     'Prioritize Google/Apple map listings and local business directories. Search city, district, province, and nearby-area variations.',
@@ -97,7 +97,7 @@ Return ONLY a single valid JSON object, no markdown, in this exact shape:
       "facebookPageUrl": "Facebook Page URL if found, else empty string",
       "linkedinUrl": "official LinkedIn company/school page URL if found, else empty string",
       "recentActivities": [
-        { "date": "YYYY-MM-DD", "activity": "specific public post, ad, offer, event, or campaign", "sourceUrl": "direct public URL proving this activity and date" }
+        { "date": "YYYY-MM-DD", "activity": "specific public post, ad, offer, event, campaign, or hiring announcement", "jobTitle": "exact advertised job title when this is a hiring result, else empty string", "sourceUrl": "direct public URL proving this activity and date" }
       ],
       "sourceUrl": "the exact URL of the search result this business came from"
     }
@@ -139,6 +139,7 @@ If you find no real businesses, return {"businesses": []}.`;
         .map((activity) => ({
           date: String(activity?.date || '').trim(),
           activity: String(activity?.activity || '').trim().slice(0, 400),
+          jobTitle: String(activity?.jobTitle || '').trim().slice(0, 160),
           sourceUrl: String(activity?.sourceUrl || '').trim().slice(0, 300),
         }))
         .filter((activity) => (

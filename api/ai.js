@@ -1086,7 +1086,7 @@ Return ONLY a valid JSON array of these objects, no markdown, no commentary.`,
 
       const webBusinessSummary = rawWebBusinesses.length
         ? rawWebBusinesses.map((biz, idx) => {
-            const activitySummary = (biz.recentActivities || []).map((activity) => `${activity.date}: ${activity.activity} (${activity.sourceUrl})`).join(' ; ') || 'none required for this scan mode';
+            const activitySummary = (biz.recentActivities || []).map((activity) => `${activity.date}: ${activity.jobTitle ? `[Job: ${activity.jobTitle}] ` : ''}${activity.activity} (${activity.sourceUrl})`).join(' ; ') || 'none required for this scan mode';
             return `[Web Business ${idx + 1}] Name: ${biz.businessName} | Type: ${biz.businessType} | Address: ${biz.address || 'not available'} | Phone: ${biz.phone || 'not available'} | Email: ${biz.email || 'not available'} | Telegram: ${biz.telegram || 'not available'} | Website: ${biz.website || 'not available'} | Facebook Page: ${biz.facebookPageName || 'not available'} | Facebook Page URL: ${biz.facebookPageUrl || 'not available'} | Verified public activity/hiring evidence: ${activitySummary} | Source URL: ${biz.sourceUrl}`;
           }).join('\n')
         : 'Live web business search not connected or returned 0 verified businesses.';
@@ -1223,6 +1223,7 @@ Return ONLY a single valid JSON object with this exact structure:
       "interestSignals": ["public or category-fit signal"],
       "spendingSignals": ["qualified commercial-fit estimate"],
       "hiringSignals": [],
+      "jobTypes": ["exact advertised job title/type from public hiring evidence"],
       "competitorSignals": [],
       "recommendedService": "...",
       "inboxMessage": "personalized Khmer outreach message",
@@ -1318,10 +1319,13 @@ Return ONLY a single valid JSON object with this exact structure:
             hiringSignals: scanMode === 'hiring'
               ? (sourceWebBiz.recentActivities || []).map((activity) => `${activity.date}: ${activity.activity}`).slice(0, 4)
               : (Array.isArray(lead?.hiringSignals) ? lead.hiringSignals : []).map((value) => String(value).slice(0, 240)).filter(Boolean).slice(0, 4),
+            jobTypes: scanMode === 'hiring'
+              ? [...new Set((sourceWebBiz.recentActivities || []).map((activity) => String(activity.jobTitle || '').trim()).filter(Boolean))].slice(0, 8)
+              : [],
             competitorSignals: isCompetitorScan
               ? (sourceWebBiz.recentActivities || []).map((activity) => `${activity.date}: ${activity.activity}`)
               : (Array.isArray(lead?.competitorSignals) ? lead.competitorSignals : []).map((value) => String(value).slice(0, 240)).filter(Boolean).slice(0, 4),
-            recentActivities: isCompetitorScan ? (sourceWebBiz.recentActivities || []) : [],
+            recentActivities: isCompetitorScan || scanMode === 'hiring' ? (sourceWebBiz.recentActivities || []) : [],
             recommendedService: String(lead?.recommendedService || `Short-form photo and video content tailored to ${sourceWebBiz.businessType || 'this business'}.`).slice(0, 300),
             inboxMessage: isCompetitorScan ? '' : ensureBusinessInInboxMessage(lead?.inboxMessage, userBusinessName).slice(0, 1200),
             source: 'web_search',
