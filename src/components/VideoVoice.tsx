@@ -977,7 +977,12 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   };
 
   const handleScheduleThisVideo = () => {
-    if (videoNeedsReview || performanceNeedsReview) return;
+    if (videoNeedsReview || performanceNeedsReview) {
+      notify(language === 'km'
+        ? 'សូមមើល និងស្តាប់វីដេអូ រួចធីកប្រអប់បញ្ជាក់គុណភាពខាងលើសិន ទើបអាចកំណត់ពេលផុសបាន។'
+        : 'Watch and listen to the video, then check the quality confirmation above before scheduling.', 'error');
+      return;
+    }
     if (!generatedVideo) return;
     // Telegram (and most platforms) reject captions over ~1024 characters, and the raw
     // generation prompt can easily run to several times that — cap the fallback so
@@ -1497,10 +1502,15 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                         {language === 'km'
                           ? 'ខ្ញុំបានមើល និងស្តាប់វីដេអូរួចហើយ។ ខ្ញុំយល់ព្រមថា សំឡេង ពាក្យ ចលនាមាត់ និងរូបភាពអាចផុសបាន។'
                           : 'I watched and listened to the video and confirm that its speech, lip sync and visuals are ready to publish.'}
+                        <span className="mt-1 block text-xs font-bold text-amber-700">
+                          {language === 'km'
+                            ? 'ត្រូវធីកប្រអប់នេះ ដើម្បីបើកការកំណត់ពេលផុស។'
+                            : 'Check this box to enable scheduling and publishing.'}
+                        </span>
                       </span>
                     </label>
                   )}
-                  <div className="flex gap-4">
+                  <div className="flex flex-col gap-4 sm:flex-row">
                     {tiktokUser ? (
                       <button 
                         onClick={() => handlePostToTikTok(generatedVideo!)}
@@ -1530,11 +1540,15 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                     )}
                     <button
                       onClick={handleScheduleThisVideo}
-                      disabled={videoNeedsReview || performanceNeedsReview}
-                      className="p-4 bg-brand-100 text-brand-700 rounded-2xl hover:bg-brand-200 transition-all border border-brand-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-brand-100"
+                      className={`flex items-center justify-center gap-2 rounded-2xl border px-5 py-4 font-bold transition-all ${videoNeedsReview || performanceNeedsReview
+                        ? 'border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100'
+                        : 'border-brand-200 bg-brand-100 text-brand-700 hover:bg-brand-200'}`}
                       title={videoNeedsReview || performanceNeedsReview ? (language === 'km' ? 'សូមធីក Checkbox ពិនិត្យគុណភាពសិន' : 'Confirm the quality review checkbox first') : 'Schedule for later'}
                     >
                       <Calendar size={24} />
+                      <span>{videoNeedsReview || performanceNeedsReview
+                        ? (language === 'km' ? 'បញ្ជាក់គុណភាពសិន' : 'Confirm to schedule')
+                        : t('scheduleBtn')}</span>
                     </button>
                   </div>
                 </div>

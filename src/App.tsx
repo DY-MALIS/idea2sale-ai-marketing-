@@ -36,6 +36,7 @@ export default function App() {
   const [openedCreativeTabs, setOpenedCreativeTabs] = useState(() => new Set<TabType>(
     isTikTokReviewMode ? ['video-voice'] : []
   ));
+  const [hasOpenedScheduler, setHasOpenedScheduler] = useState(false);
   const { user, isDemoMode, loading: authLoading, setDemoMode, logout } = useAuth();
   const [configInfo, setConfigInfo] = useState<any>(null);
   const [showLanguageMenu, setShowLanguageMenu] = useState(false);
@@ -55,6 +56,13 @@ export default function App() {
       next.add(activeTab);
       return next;
     });
+  }, [activeTab]);
+
+  // Keep an unfinished scheduling form (including handed-off generated media)
+  // alive when the user briefly visits another tab. Unmounting SchedulerHub
+  // used to discard the draft as soon as navigation changed.
+  useEffect(() => {
+    if (activeTab === 'scheduler') setHasOpenedScheduler(true);
   }, [activeTab]);
 
   useEffect(() => {
@@ -123,12 +131,9 @@ export default function App() {
       case 'tiktok': return <TikTokAnalytics />;
       case 'product-research': return <ProductResearch />;
       case 'ads-manager': return <AdsManager />;
-      case 'scheduler': return (
-        <SchedulerHub
-          handoffRequest={scheduleHandoff}
-          onHandoffConsumed={consumeScheduleHandoff}
-        />
-      );
+      // SchedulerHub is rendered persistently below so unfinished schedules
+      // survive tab changes, just like generated Poster/Video state.
+      case 'scheduler': return null;
       case 'ai-agent': return <AIAgent onCreativeAutomation={handleCreativeAutomation} />;
       case 'crm': return <CRM />;
       case 'saved-leads': return <SavedLeads />;
@@ -333,6 +338,14 @@ export default function App() {
                     automationRequest={creativeAutomation?.kind === 'video' ? creativeAutomation : null}
                     onAutomationConsumed={consumeCreativeAutomation}
                     onScheduleHandoff={handleScheduleHandoff}
+                  />
+                </Suspense>
+              </div>}
+              {hasOpenedScheduler && <div className={activeTab === 'scheduler' ? '' : 'hidden'}>
+                <Suspense fallback={<div className="min-h-64 animate-pulse rounded-xl bg-white/60 dark:bg-slate-800/60" aria-label="Loading scheduler" />}>
+                  <SchedulerHub
+                    handoffRequest={scheduleHandoff}
+                    onHandoffConsumed={consumeScheduleHandoff}
                   />
                 </Suspense>
               </div>}
