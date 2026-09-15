@@ -45,13 +45,16 @@ export async function urlIsReachable(url, timeoutMs = 6000) {
   }
 }
 
-export async function searchBusinessesOnWeb({ searchTerms, searchObjective = '', requiredSignal = '', country = 'Cambodia', activityStartDate = '', activityEndDate = '' }) {
+export async function searchBusinessesOnWeb({ searchTerms, searchObjective = '', requiredSignal = '', entityScope = 'businesses', country = 'Cambodia', activityStartDate = '', activityEndDate = '' }) {
   const activityWindow = /^\d{4}-\d{2}-\d{2}$/.test(activityStartDate)
     && /^\d{4}-\d{2}-\d{2}$/.test(activityEndDate)
     ? `\nFor each business, also search for public activity published from ${activityStartDate} through ${activityEndDate}, inclusive. An activity must have an explicit publication date and a direct public source URL. Do not treat undated content, a homepage, general positioning, or an inference as activity in this date window. If none is found, return an empty recentActivities array.`
     : '';
   const requiredSignalInstruction = requiredSignal === 'hiring'
     ? `\nHIRING EVIDENCE IS REQUIRED: Only return a business when a current public job vacancy, recruitment announcement, careers-page opening, or dated hiring post was found from ${activityStartDate} through ${activityEndDate}. Put that hiring evidence in recentActivities with its exact job title/type, date, and direct source URL. Exclude undated, expired, inferred, or generic "this company may hire" claims. The result must identify the employer/company name, not only a job title or recruitment agency.`
+    : '';
+  const workerScopeInstruction = entityScope === 'workers'
+    ? `\nWORKER/TRADE SEARCH: Find real publicly listed tradespeople, freelancers, contractor teams, service businesses, and people publicly advertising that they are available for work in the exact requested trade. Examples include construction contractors, house builders, painters, electricians, plumbers, welders, mechanics, cleaners, drivers, and other requested skills. Preserve the exact trade/job category. A personal name is allowed only when it appears in a public professional/service directory, public portfolio, public business Page, or explicit public work-availability post. Never search private profiles, infer that someone needs work, or expose non-public personal data.`
     : '';
   const searchFocuses = [
     'Prioritize Google/Apple map listings and local business directories. Search city, district, province, and nearby-area variations.',
@@ -62,6 +65,7 @@ export async function searchBusinessesOnWeb({ searchTerms, searchObjective = '',
   const buildPrompt = (focus) => `Search the live web for REAL businesses and organizations in ${country} matching the user's exact request: "${searchTerms}".
 ${activityWindow}
 ${requiredSignalInstruction}
+${workerScopeInstruction}
 
 SEARCH PASS FOCUS: ${focus}
 SCAN OBJECTIVE: ${searchObjective || 'Find real public business prospects that match the request.'}
@@ -72,6 +76,7 @@ Interpret the request flexibly and preserve its intent:
 - A product/service or problem (needs video content, wants AI automation, hiring sales staff, opening a new branch, etc.) means find real organizations with public evidence or a strong category fit for that need.
 - A location, size, language, industry, or other qualifier must narrow the results exactly as requested.
 - A broad market request may include companies, shops, institutions, associations, nonprofits, and other legitimate organizations; do not arbitrarily force every request into only shops/cafes/clinics.
+- A trade/worker request may include an individual public service provider, freelancer, contractor team, or job seeker with an explicit public work-availability listing; label which kind it is.
 - Never replace the user's requested category with a different category merely because it may be easier to find.
 
 When the request does not specify company size, prioritize small and mid-sized independent organizations because they are more realistic prospects, but still include larger companies when they directly match the requested customer type. Prefer sources that list a phone number and address (local business directories, Google/Facebook Maps listings, the business's own contact page) over general news articles, so each result includes real contact details whenever possible.
@@ -87,6 +92,8 @@ Return ONLY a single valid JSON object, no markdown, in this exact shape:
   "businesses": [
     {
       "name": "exact business name as found",
+      "entityKind": "company, contractor_team, service_provider, freelancer, or job_seeker",
+      "serviceOrJobType": "exact trade, skill, service, or type of work requested/offered",
       "businessType": "short category",
       "address": "address if found, else empty string",
       "phone": "phone number if found, else empty string",
@@ -152,6 +159,10 @@ If you find no real businesses, return {"businesses": []}.`;
         .slice(0, 5);
       return {
         businessName: String(item?.name || '').trim().slice(0, 200),
+        entityKind: ['company', 'contractor_team', 'service_provider', 'freelancer', 'job_seeker'].includes(String(item?.entityKind || '').trim())
+          ? String(item.entityKind).trim()
+          : 'company',
+        serviceOrJobType: String(item?.serviceOrJobType || item?.businessType || '').trim().slice(0, 160),
         businessType: String(item?.businessType || 'Business').trim().slice(0, 120),
         address: String(item?.address || '').trim().slice(0, 300),
         phone: String(item?.phone || '').trim().slice(0, 60),
@@ -180,6 +191,8 @@ If you find no real businesses, return {"businesses": []}.`;
       candidateMap.set(key, {
         ...existing,
         businessType: existing.businessType !== 'Business' ? existing.businessType : item.businessType,
+        entityKind: existing.entityKind !== 'company' ? existing.entityKind : item.entityKind,
+        serviceOrJobType: existing.serviceOrJobType || item.serviceOrJobType,
         address: existing.address || item.address,
         phone: existing.phone || item.phone,
         email: existing.email || item.email,

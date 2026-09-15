@@ -993,6 +993,10 @@ Return ONLY a valid JSON array of these objects, no markdown, no commentary.`,
           searchHint: 'companies hiring staff job vacancies recruitment careers',
           instruction: 'Find named businesses with recent public recruitment evidence for any requested staff role. Report only active hiring signals supported by a dated public source URL; never infer that a company is hiring.',
         },
+        workers: {
+          searchHint: 'tradespeople freelancers contractors service providers job seekers available for work',
+          instruction: 'Find public service providers, contractor teams, skilled workers, freelancers, and explicit public job-seeking listings matching the exact requested trade. Never use private profiles or infer that a person is seeking work.',
+        },
       };
       const scanMode = resolveFacebookScanMode(req.body?.scanMode);
       const scanModeConfig = scanModeConfigs[scanMode];
@@ -1027,6 +1031,7 @@ Return ONLY a valid JSON array of these objects, no markdown, no commentary.`,
           searchTerms,
           searchObjective: `${scanModeConfig.searchHint}. ${scanModeConfig.instruction}`,
           requiredSignal: scanMode === 'hiring' ? 'hiring' : '',
+          entityScope: scanMode === 'workers' ? 'workers' : 'businesses',
           country: searchCountry,
           activityStartDate: scanMode === 'hiring' ? hiringActivityWindow.startDate : '',
           activityEndDate: scanMode === 'hiring' ? hiringActivityWindow.endDate : '',
@@ -1087,7 +1092,7 @@ Return ONLY a valid JSON array of these objects, no markdown, no commentary.`,
       const webBusinessSummary = rawWebBusinesses.length
         ? rawWebBusinesses.map((biz, idx) => {
             const activitySummary = (biz.recentActivities || []).map((activity) => `${activity.date}: ${activity.jobTitle ? `[Job: ${activity.jobTitle}] ` : ''}${activity.activity} (${activity.sourceUrl})`).join(' ; ') || 'none required for this scan mode';
-            return `[Web Business ${idx + 1}] Name: ${biz.businessName} | Type: ${biz.businessType} | Address: ${biz.address || 'not available'} | Phone: ${biz.phone || 'not available'} | Email: ${biz.email || 'not available'} | Telegram: ${biz.telegram || 'not available'} | Website: ${biz.website || 'not available'} | Facebook Page: ${biz.facebookPageName || 'not available'} | Facebook Page URL: ${biz.facebookPageUrl || 'not available'} | Verified public activity/hiring evidence: ${activitySummary} | Source URL: ${biz.sourceUrl}`;
+            return `[Web Result ${idx + 1}] Name: ${biz.businessName} | Entity kind: ${biz.entityKind || 'company'} | Trade/service/job type: ${biz.serviceOrJobType || biz.businessType} | Type: ${biz.businessType} | Address: ${biz.address || 'not available'} | Phone: ${biz.phone || 'not available'} | Email: ${biz.email || 'not available'} | Telegram: ${biz.telegram || 'not available'} | Website: ${biz.website || 'not available'} | Facebook Page: ${biz.facebookPageName || 'not available'} | Facebook Page URL: ${biz.facebookPageUrl || 'not available'} | Verified public activity/hiring evidence: ${activitySummary} | Source URL: ${biz.sourceUrl}`;
           }).join('\n')
         : 'Live web business search not connected or returned 0 verified businesses.';
 
@@ -1203,6 +1208,8 @@ Return ONLY a single valid JSON object with this exact structure:
     {
       "source": "web_search",
       "businessName": "exact real business/Page name from live context",
+      "entityKind": "company, contractor_team, service_provider, freelancer, or job_seeker",
+      "serviceOrJobType": "exact trade, skill, service, or type of work",
       "pageName": "",
       "businessType": "...",
       "needSignals": ["signal grounded in listing 1", "signal 2"],
@@ -1330,6 +1337,8 @@ Return ONLY a single valid JSON object with this exact structure:
             inboxMessage: isCompetitorScan ? '' : ensureBusinessInInboxMessage(lead?.inboxMessage, userBusinessName).slice(0, 1200),
             source: 'web_search',
             businessName: sourceWebBiz.businessName,
+            entityKind: sourceWebBiz.entityKind || 'company',
+            serviceOrJobType: sourceWebBiz.serviceOrJobType || sourceWebBiz.businessType || '',
             pageName: '',
             facebookUrl: sourceWebBiz.facebookPageUrl || '',
             linkedinUrl: sourceWebBiz.linkedinUrl || '',

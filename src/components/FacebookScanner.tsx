@@ -78,10 +78,12 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     const selected = leads.filter((_, index) => !deselectedLeads.has(index));
     if (!selected.length) return;
     const headers = isKm
-      ? ['ឈ្មោះក្រុមហ៊ុន', 'ប្រភេទអាជីវកម្ម', 'អាសយដ្ឋាន', 'ទូរស័ព្ទ', 'អ៊ីមែល', 'Telegram', 'គេហទំព័រ', 'Facebook Page', 'LinkedIn', 'ប្រភេទឱកាស', 'ពិន្ទុសក្តានុពល', 'កម្រិត Lead', 'សញ្ញាចាប់អារម្មណ៍', 'សញ្ញាចំណាយ', 'ប្រភេទការងារ', 'សញ្ញាជ្រើសបុគ្គលិក', 'សញ្ញាគូប្រកួត', 'សេវាកម្មដែលណែនាំ', 'សារ Inbox', 'ប្រភព']
-      : ['Business Name', 'Business Type', 'Address', 'Phone', 'Email', 'Telegram', 'Website', 'Facebook Page', 'LinkedIn', 'Opportunity Type', 'Fit Score', 'Lead Level', 'Interest Signals', 'Spending Signals', 'Job Types', 'Hiring Signals', 'Competitor Signals', 'Recommended Service', 'Inbox Message', 'Source URL'];
+      ? ['ឈ្មោះ/ក្រុមហ៊ុន', 'ប្រភេទអ្នកផ្តល់សេវា', 'ជំនាញ/មុខរបរ', 'ប្រភេទអាជីវកម្ម', 'អាសយដ្ឋាន', 'ទូរស័ព្ទ', 'អ៊ីមែល', 'Telegram', 'គេហទំព័រ', 'Facebook Page', 'LinkedIn', 'ប្រភេទឱកាស', 'ពិន្ទុសក្តានុពល', 'កម្រិត Lead', 'សញ្ញាចាប់អារម្មណ៍', 'សញ្ញាចំណាយ', 'ប្រភេទការងារ', 'សញ្ញាជ្រើសបុគ្គលិក', 'សញ្ញាគូប្រកួត', 'សេវាកម្មដែលណែនាំ', 'សារ Inbox', 'ប្រភព']
+      : ['Name / Company', 'Entity Kind', 'Trade / Work Type', 'Business Type', 'Address', 'Phone', 'Email', 'Telegram', 'Website', 'Facebook Page', 'LinkedIn', 'Opportunity Type', 'Fit Score', 'Lead Level', 'Interest Signals', 'Spending Signals', 'Job Types', 'Hiring Signals', 'Competitor Signals', 'Recommended Service', 'Inbox Message', 'Source URL'];
     const rows = selected.map((lead) => [
       lead.businessName,
+      lead.entityKind || '',
+      lead.serviceOrJobType || '',
       lead.businessType,
       lead.address || '',
       lead.phone || '',
@@ -193,6 +195,8 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
         ownerId: user.uid,
         recordType,
         businessName: lead.businessName || '',
+        entityKind: lead.entityKind || 'company',
+        serviceOrJobType: lead.serviceOrJobType || '',
         businessType: lead.businessType || '',
         address: lead.address || '',
         phone: lead.phone || '',
@@ -353,6 +357,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     spendingSignals: 'សញ្ញាសមត្ថភាពចំណាយ (ការប៉ាន់ស្មាន)',
     hiringSignals: 'សញ្ញាជ្រើសរើសបុគ្គលិក',
     jobTypes: 'ប្រភេទការងារ / មុខតំណែង',
+    tradeType: 'ជំនាញ / មុខរបរ',
     competitorSignals: 'សកម្មភាពគូប្រកួត',
     customerSegments: 'ក្រុមអតិថិជនរបស់គូប្រកួត',
     publicActivity: 'សកម្មភាពសាធារណៈដែលរកឃើញ',
@@ -362,6 +367,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
       { id: 'ai_interest', label: 'អ្នកចាប់អារម្មណ៍ AI', description: 'រកអាជីវកម្មដែលមានភាពសមស្របនឹង AI និង automation', suggestions: ['អាជីវកម្មចាប់អារម្មណ៍ AI', 'ក្រុមហ៊ុន digital transformation', 'សាលាបណ្តុះបណ្តាល AI'] },
       { id: 'high_value', label: 'អ្នកមានសក្តានុពលចំណាយ', description: 'វាយតម្លៃពី premium positioning និងសកម្មភាពផ្សាយពាណិជ្ជកម្មសាធារណៈ', suggestions: ['អចលនទ្រព្យ premium', 'គ្លីនិកសម្ផស្ស', 'សណ្ឋាគារ និង resort'] },
       { id: 'construction', label: 'ម៉ៅការសំណង់', description: 'រកម៉ៅការ developer និងអ្នកផ្គត់ផ្គង់សំណង់', suggestions: ['ម៉ៅការសំណង់កម្ពុជា', 'Property developer Phnom Penh', 'អ្នកផ្គត់ផ្គង់សម្ភារៈសំណង់'] },
+      { id: 'workers', label: 'ស្វែងរកជាង និងអ្នករកការងារ', description: 'រកអ្នកផ្តល់សេវា ក្រុមជាង freelancer និងអ្នកប្រកាសរកការងារតាមជំនាញ', suggestions: ['ជាងសង់ផ្ទះភ្នំពេញ', 'ជាងលាបថ្នាំកម្ពុជា', 'ជាងភ្លើងកំពុងរកការងារ', 'ជាងទឹកសៀមរាប', 'ក្រុមម៉ៅការសំណង់'] },
       { id: 'competitor_activity', label: 'សកម្មភាពគូប្រកួត', description: 'វិភាគ content offer ad និងចំណុចខ្សោយសាធារណៈ', suggestions: ['ឈ្មោះ Page គូប្រកួត', 'គូប្រកួត skincare Cambodia', 'គូប្រកួតអចលនទ្រព្យ'] },
       { id: 'competitor_customers', label: 'អតិថិជនគូប្រកួត', description: 'រក customer segments និង buying triggers តាមសញ្ញាសាធារណៈ', suggestions: ['អតិថិជនរបស់ Page គូប្រកួត', 'customer reviews competitor', 'audience របស់គូប្រកួត'] },
       { id: 'hiring', label: 'ក្រុមហ៊ុនកំពុងរើសបុគ្គលិក', description: 'រកឈ្មោះក្រុមហ៊ុនដែលមានប្រកាសជ្រើសរើសថ្មីៗ និង link ភស្តុតាង', suggestions: ['ក្រុមហ៊ុនកំពុងរើសបុគ្គលិកកម្ពុជា', 'ក្រុមហ៊ុនរើស Sales', 'គ្លីនិករើសបុគ្គលិក', 'ការងារ Digital Marketing Cambodia', 'ក្រុមហ៊ុនរើស Marketing Manager'] },
@@ -445,6 +451,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     spendingSignals: 'Estimated spending-potential signals',
     hiringSignals: 'Public hiring signals',
     jobTypes: 'Job types / positions',
+    tradeType: 'Trade / work type',
     competitorSignals: 'Competitor activity signals',
     customerSegments: 'Competitor customer segments',
     publicActivity: 'Verified public activity',
@@ -454,6 +461,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
       { id: 'ai_interest', label: 'AI-interested prospects', description: 'Find businesses that fit AI and automation services', suggestions: ['businesses interested in AI', 'digital transformation companies', 'AI training businesses'] },
       { id: 'high_value', label: 'High-value prospects', description: 'Estimate potential from premium positioning and public ad activity', suggestions: ['premium real estate', 'aesthetic clinics', 'hotels and resorts'] },
       { id: 'construction', label: 'Construction contractors', description: 'Find contractors, developers and construction suppliers', suggestions: ['Cambodia construction contractors', 'Phnom Penh property developers', 'construction material suppliers'] },
+      { id: 'workers', label: 'Find workers & job seekers', description: 'Find public service providers, trade teams, freelancers, and people publicly seeking work by skill', suggestions: ['house builders Phnom Penh', 'painters Cambodia', 'electricians seeking work', 'plumbers Siem Reap', 'construction contractor teams'] },
       { id: 'competitor_activity', label: 'Competitor activity', description: 'Analyze public content, offers, ads and weaknesses', suggestions: ['competitor Page name', 'skincare competitors Cambodia', 'real estate competitors'] },
       { id: 'competitor_customers', label: 'Competitor customers', description: 'Infer customer segments and buying triggers from public signals', suggestions: ['competitor Page customers', 'competitor customer reviews', 'competitor audience segments'] },
       { id: 'hiring', label: 'Companies hiring staff', description: 'Find named employers with recent public job posts and evidence links', suggestions: ['companies hiring staff Cambodia', 'companies hiring sales Cambodia', 'clinics hiring staff', 'digital marketing jobs Cambodia', 'hiring marketing manager'] },
@@ -836,6 +844,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                         <div>
                           <h4 className="text-lg font-black text-slate-800 dark:text-white">{lead.businessName}</h4>
                           <p className="mt-1 text-sm font-bold text-brand-500">{lead.businessType}</p>
+                          {lead.serviceOrJobType && <p className="mt-1 text-xs font-bold text-sky-700 dark:text-sky-300">{text.tradeType}: {lead.serviceOrJobType}</p>}
                         </div>
                       </label>
                       <div className="flex flex-wrap items-center gap-2">

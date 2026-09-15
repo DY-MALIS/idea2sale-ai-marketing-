@@ -21,7 +21,9 @@ interface SavedLead {
   facebookPageUrl?: string;
   linkedinUrl?: string;
   leadLevel?: string;
-  opportunityType?: 'customer' | 'ai_interest' | 'high_value' | 'construction' | 'competitor_activity' | 'competitor_customers' | 'hiring';
+  opportunityType?: 'customer' | 'ai_interest' | 'high_value' | 'construction' | 'competitor_activity' | 'competitor_customers' | 'hiring' | 'workers';
+  entityKind?: 'company' | 'contractor_team' | 'service_provider' | 'freelancer' | 'job_seeker';
+  serviceOrJobType?: string;
   jobTypes?: string[];
   recommendedService?: string;
   inboxMessage?: string;
@@ -223,6 +225,7 @@ const SavedLeads: React.FC = () => {
                       </div>
                     ) : <>
                       {!!lead.jobTypes?.length && <p className="text-sm font-bold text-indigo-700 dark:text-indigo-300">{language === 'km' ? 'ប្រភេទការងារ៖' : 'Job types:'} {lead.jobTypes.join(' • ')}</p>}
+                      {lead.serviceOrJobType && <p className="text-sm font-bold text-sky-700 dark:text-sky-300">{language === 'km' ? 'ជំនាញ/មុខរបរ៖' : 'Trade/work type:'} {lead.serviceOrJobType}</p>}
                       {lead.recommendedService && <p className="text-sm text-slate-600 dark:text-slate-300 line-clamp-2">{lead.recommendedService}</p>}
                     </>}
                     <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500 dark:text-slate-400">

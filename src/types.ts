@@ -70,6 +70,8 @@ export interface FacebookCompetitorInsight {
 export interface FacebookPotentialLead {
   source?: 'web_search';
   businessName: string;
+  entityKind?: 'company' | 'contractor_team' | 'service_provider' | 'freelancer' | 'job_seeker';
+  serviceOrJobType?: string;
   pageName: string;
   businessType: string;
   needSignals: string[];
@@ -87,7 +89,7 @@ export interface FacebookPotentialLead {
   recommendedService: string;
   inboxMessage: string;
   evidenceSourceUrl?: string;
-  opportunityType?: 'customer' | 'ai_interest' | 'high_value' | 'construction' | 'competitor_activity' | 'competitor_customers' | 'hiring';
+  opportunityType?: 'customer' | 'ai_interest' | 'high_value' | 'construction' | 'competitor_activity' | 'competitor_customers' | 'hiring' | 'workers';
   fitScore?: number;
   interestSignals?: string[];
   spendingSignals?: string[];

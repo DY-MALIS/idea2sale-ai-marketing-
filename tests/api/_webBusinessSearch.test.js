@@ -118,3 +118,31 @@ it('returns only employers with verified dated hiring evidence when hiring is re
   expect(businesses[0].recentActivities[0].activity).toContain('Recruiting');
   expect(businesses[0].recentActivities[0].jobTitle).toBe('Sales Executive');
 });
+
+it('supports public tradespeople and job seekers grouped by exact work type', async () => {
+  mocks.webSearch.mockResolvedValue({
+    content: JSON.stringify({
+      businesses: [{
+        name: 'Sokha Painting Service',
+        entityKind: 'service_provider',
+        serviceOrJobType: 'House painter',
+        businessType: 'Painting service',
+        phone: '012 345 678',
+        sourceUrl: 'https://services.example.com/sokha-painting',
+      }],
+    }),
+  });
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+
+  const businesses = await searchBusinessesOnWeb({
+    searchTerms: 'house painters Phnom Penh',
+    entityScope: 'workers',
+  });
+
+  expect(mocks.webSearch.mock.calls[0][0].prompt).toContain('WORKER/TRADE SEARCH');
+  expect(businesses[0]).toMatchObject({
+    businessName: 'Sokha Painting Service',
+    entityKind: 'service_provider',
+    serviceOrJobType: 'House painter',
+  });
+});
