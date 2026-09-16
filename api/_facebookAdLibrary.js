@@ -38,7 +38,13 @@ export async function searchCompetitorAds({ searchTerms, countries }) {
   const response = await fetch(`${AD_LIBRARY_ENDPOINT}?${params.toString()}`, { signal: AbortSignal.timeout(30000) });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data?.error?.message || `Meta Ad Library request failed (status ${response.status}).`);
+    const providerMessage = data?.error?.message || `Meta Ad Library request failed (status ${response.status}).`;
+    const permissionDenied = response.status === 403 || /permission|not authorized/i.test(providerMessage);
+    const error = new Error(permissionDenied
+      ? 'Meta has not approved this app for Ad Library API access. Enable the required Ad Library permission in the Meta App Dashboard, then replace FACEBOOK_ACCESS_TOKEN with a token issued after approval.'
+      : providerMessage);
+    error.code = permissionDenied ? 'facebook_permission_denied' : 'facebook_api_error';
+    throw error;
   }
 
   return (Array.isArray(data?.data) ? data.data : []).map((ad) => ({
