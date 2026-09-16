@@ -18,7 +18,6 @@ import { initFirebaseAdmin } from './_firebaseAdmin.js';
 import admin from './_firebaseAdmin.js';
 import { checkRateLimit, getClientIp } from './_rateLimit.js';
 import { notifyAdmins } from './_alert.js';
-import { searchCompetitorAds } from './_facebookAdLibrary.js';
 import { searchBusinessesOnWeb } from './_webBusinessSearch.js';
 import { researchCompetitors } from './_competitorResearch.js';
 import { uploadMediaDataUrl } from './_cloudinaryUpload.js';
@@ -302,7 +301,7 @@ export const googleSheetsUrlToCsvExportUrl = (planUrl) => {
 // ready-to-generate content-plan item -- these constraints (8-second Khmer
 // speech timing, no-on-screen-text, the exact "says in Khmer:" prompt pattern
 // the video model needs to lip-sync correctly) took multiple rounds of live
-// tuning, so extractContentPlan and researchFacebookCompetitors both call this
+// tuning, so extractContentPlan and competitor research both call this
 // instead of keeping their own drifting copies.
 const contentPlanItemFieldRules = (language, dateInstruction) => `- "date": ${dateInstruction}
 - "type": "video" if the item should be a video/reel/clip, otherwise "image"
@@ -315,7 +314,7 @@ const contentPlanItemFieldRules = (language, dateInstruction) => `- "date": ${da
 - "prompt": a complete, vivid, ready-to-use AI image/video generation prompt written entirely in English (photorealistic product/marketing style, specific subject, setting, mood, sharp focus and high production quality). Turn abstract themes into a concrete on-topic real-world activity instead of a static presenter pose: for example doing office work, using a laptop, reviewing a campaign, demonstrating a product, serving a customer or joining a small meeting. Choose one person for a naturally solo activity or multiple people when teamwork/customer interaction is more authentic. All visible people must be Cambodian young adults age 18-25 in clean professional company-appropriate clothing. Designate exactly one primary presenter matching "voiceGender" as the only speaker; supporting people remain silent, secondary and naturally active in the background. Use authentic real-life footage, clear visual focus on the speaker, direct camera engagement and lively but controlled normal-speed movement. Explicitly require NO on-screen text, captions, subtitles, titles or written words. Keep all spoken Khmer out of this visual prompt; put the exact 65-85 character narration only in "voiceOverText" so the separate audio-driven lip-sync pipeline remains authoritative.
 FINAL VIDEO OVERRIDE: Khmer plan videos use a Khmer neural speech track and an audio-driven presenter video. For every video, write a visual-only English "prompt" for one continuous believable real-world activity with either one person or several people, whichever genuinely fits the topic. All visible people are photorealistic Cambodian young adults age 18-25 wearing clean professional company-appropriate clothing. There must be exactly one clearly framed primary presenter whose face and hands remain visible and who is the only person speaking; any supporting people stay silent, visually secondary and perform subtle relevant background actions without visible lip articulation. Put all spoken Khmer only in "voiceOverText" as one natural complete sentence with two connected short clauses, 65-85 total characters and never over 90 characters. The line must use most of the 8-second clip and must not be only a short hook. Set "voiceGender" explicitly to Male or Female so the primary presenter and Khmer neural voice match. Put delivery emotion and emphasis in "performanceStyle". Do not embed dialogue inside the visual prompt. Request lively, confident real-time movement, direct camera engagement, expressive professional facial reactions and two purposeful hand or task actions timed to the spoken clauses; never slow motion, static posing or drawn-out pauses. Forbid text, captions, exaggerated poses, repeated waving, random pointing and chaotic crowd motion. This FINAL VIDEO OVERRIDE supersedes earlier native-video or separate-narration instructions.`;
 
-// Shared by extractContentPlan and researchFacebookCompetitors: turns the raw
+// Shared by extractContentPlan and competitor research: turns the raw
 // AI JSON response into the exact PlanItem shape the frontend's plan-review
 // UI and content_plan_items schema expect, with the same field length caps.
 const parseContentPlanItems = (text, businessName = '') => jsonFromText(text, [])
@@ -953,58 +952,69 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
       return res.status(200).json({ items: parseContentPlanItems(text, businessContext.businessName) });
     }
 
-    // Competitor research from Meta's public Ad Library (real ads currently
-    // running on Facebook for a search term) -- not scraping personal
-    // profiles/posts, only what advertisers already chose to publish
-    // publicly as ads. See api/_facebookAdLibrary.js. Feeds straight into the
-    // same content-plan review UI as extractContentPlan (AIAgent.tsx's plan
-    // items list), so the AI proposes original video/image ideas informed by
-    // what competitors are actively running rather than copying them.
+    // Competitor research from live, publicly reachable web sources. It never
+    // reads private profiles or messages. Source URLs are independently checked by
+    // researchCompetitors before they are used to build the content plan.
     if (action === 'researchFacebookCompetitors') {
       const query = String(req.body?.query || '').trim().slice(0, 200);
-      if (!query) return res.status(400).json({ error: 'Enter a competitor Page name or product keyword to search.' });
-      const countries = (Array.isArray(req.body?.countries) ? req.body.countries : ['US'])
+      if (!query) return res.status(400).json({ error: 'Enter a competitor, business, or product keyword to search.' });
+      const countries = (Array.isArray(req.body?.countries) ? req.body.countries : ['KH'])
         .map((code) => String(code).trim().toUpperCase())
         .filter((code) => /^[A-Z]{2}$/.test(code))
         .slice(0, 5);
 
-      let ads;
+      let research;
       try {
-        ads = await searchCompetitorAds({ searchTerms: query, countries });
+        const country = countries.includes('KH')
+          ? 'Cambodia'
+          : countries.length === 1 && countries[0] === 'US'
+            ? 'United States'
+            : countries.join(', ') || 'Cambodia';
+        const activityWindow = getFacebookCompetitorActivityWindow();
+        research = await researchCompetitors({
+          query,
+          country,
+          activityStartDate: activityWindow.startDate,
+          activityEndDate: activityWindow.endDate,
+          exhaustive: false,
+        });
       } catch (error) {
-        const status = error?.code === 'missing_token' ? 500 : 502;
-        return res.status(status).json({ error: error.message, code: error?.code });
+        return res.status(502).json({ error: error?.message || 'Public competitor research failed.' });
       }
 
-      if (!ads.length) {
+      const competitors = research.competitors.slice(0, 15);
+      if (!competitors.length) {
         return res.status(200).json({
           items: [],
           competitors: [],
-          message: 'No active Facebook ads found for this search. Try a broader keyword, a specific Page name, or a different country.',
+          message: 'No verified public competitors were found. Try a broader keyword, a specific business name, or a different market.',
         });
       }
 
-      const researchSummary = ads.slice(0, 15).map((ad, index) => {
-        const text = ad.bodies[0] || ad.linkTitles[0] || ad.linkCaptions[0] || '(no ad text available)';
-        return `${index + 1}. Page: ${ad.pageName}\nPlatforms: ${ad.platforms.join(', ') || 'unknown'}\nRunning since: ${ad.startDate || 'unknown'}\nAd text: ${text.slice(0, 400)}`;
+      const researchSummary = competitors.map((competitor, index) => {
+        const activities = (competitor.recentActivities || [])
+          .map((activity) => `${activity.date}: ${activity.activity} (${activity.sourceUrl})`)
+          .join('; ');
+        return `${index + 1}. Business: ${competitor.name}\nWhy it competes: ${competitor.matchReason}\nPositioning: ${competitor.positioning || 'not confirmed'}\nPublic activity: ${activities || 'none verified'}\nSource: ${competitor.sourceUrl}`;
       }).join('\n\n');
 
       const text = await generateOpenRouterText({
         model: process.env.OPEN_ROUTER_CONTENT_PLAN_MODEL || 'google/gemini-3.1-pro-preview',
-        system: `You are a social media strategist for a Cambodian business, studying real competitor ads currently active on Facebook to propose a fresh, ORIGINAL content calendar. Never copy or closely imitate a competitor's exact wording, offer, or creative -- only learn from the themes, formats, and angles they are actively investing in, then propose something that differentiates this business instead.\n\n${CAMBODIA_MARKET_CONTEXT}`,
-        prompt: `Here are ${ads.length} real ads currently active on Facebook for the search "${query}":\n\n${researchSummary}\n\nBased on what topics, offers, and formats these competitors are actively running, propose 6 original content calendar items for the next 6 days starting ${new Date().toISOString().slice(0, 10)} (one per day) that differentiate this business rather than copy competitors. For each, produce one JSON object with:
+        system: `You are a social media strategist for a Cambodian business, studying verified public competitor sources to propose a fresh, ORIGINAL content calendar. Never invent facts or copy a competitor's exact wording, offer, or creative. Treat anything not explicitly supported by the supplied sources as inference, then propose content that differentiates this business.\n\n${CAMBODIA_MARKET_CONTEXT}`,
+        prompt: `Here are ${competitors.length} verified public competitors for the search "${query}":\n\n${researchSummary}\n\nBased only on these public sources, propose 6 original content calendar items for the next 6 days starting ${new Date().toISOString().slice(0, 10)} (one per day) that differentiate this business rather than copy competitors. For each, produce one JSON object with:
 ${contentPlanItemFieldRules(language, 'the next available date in YYYY-MM-DD starting today, one per day, in the order you list the items')}
 Return ONLY a valid JSON array of these objects, no markdown, no commentary.`,
       });
 
       return res.status(200).json({
         items: parseContentPlanItems(text),
-        competitors: ads.slice(0, 15).map((ad) => ({
-          pageName: ad.pageName,
-          adText: (ad.bodies[0] || ad.linkTitles[0] || ad.linkCaptions[0] || '').slice(0, 400),
-          startDate: ad.startDate,
-          snapshotUrl: ad.snapshotUrl,
-          platforms: ad.platforms,
+        competitors: competitors.map((competitor) => ({
+          pageName: competitor.name,
+          matchReason: competitor.matchReason,
+          positioning: competitor.positioning,
+          sourceUrl: competitor.sourceUrl,
+          linkedinUrl: competitor.linkedinUrl,
+          recentActivities: competitor.recentActivities || [],
         })),
       });
     }

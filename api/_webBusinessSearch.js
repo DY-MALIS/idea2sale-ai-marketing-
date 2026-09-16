@@ -1,6 +1,5 @@
-// Cambodia-friendly, zero-signup alternative to Meta's Ad Library API (which
-// cannot search ordinary Cambodian business ads) and Google Places (which
-// requires a billing card). Reuses the OpenRouter key this app already has and
+// Cambodia-friendly public-web business discovery that does not require a
+// separate directory or places API account. Reuses the OpenRouter key this app already has and
 // grounds results in live web search instead of asking the model to guess --
 // see generateOpenRouterWebSearch in _openrouter.js.
 //

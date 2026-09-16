@@ -278,8 +278,8 @@ export async function generateOpenRouterText({
 // Grounds a text request in live web search results via OpenRouter's "web" plugin
 // (Exa-powered), instead of the model answering from training-data memory alone.
 // Used where a claim needs to be backed by a real, checkable source URL -- e.g.
-// finding real local businesses in a market Meta's Ad Library API cannot search
-// (ordinary Cambodian ads) and Google Places would require a billing account for.
+// finding real local businesses across public web sources without adding a
+// separate places API that requires its own billing account.
 // Returns both the raw text and any citation URLs OpenRouter attached as
 // annotations. In practice those annotations only attach reliably to a single
 // inline citation in free-flowing prose, not bulk/structured output, so
