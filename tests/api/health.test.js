@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import handler from '../../api/health.js';
+import handler from '../../api/_health.js';
 
 const response = () => ({
   statusCode: 200,

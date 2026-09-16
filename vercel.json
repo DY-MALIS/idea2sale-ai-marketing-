@@ -17,6 +17,10 @@
   ],
   "rewrites": [
     {
+      "source": "/api/health",
+      "destination": "/api/config/check?action=health"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

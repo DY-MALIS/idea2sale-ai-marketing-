@@ -2,6 +2,7 @@ import admin, { initFirebaseAdmin } from '../_firebaseAdmin.js';
 import { Timestamp } from 'firebase-admin/firestore';
 import { logAudit } from '../_audit.js';
 import { notifyAdmins } from '../_alert.js';
+import healthHandler from '../_health.js';
 
 const OWNED_COLLECTIONS = ['scheduled_posts', 'campaigns', 'reply_rules', 'audience_activity', 'tiktok_posts'];
 const BACKUP_COLLECTIONS = [
@@ -181,6 +182,8 @@ const getAdminUsers = async (req, res) => {
 };
 
 export default async function handler(req, res) {
+  if (req.query?.action === 'health') return healthHandler(req, res);
+
   if (req.query?.action === 'admin-backup') {
     if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
     return createAdminBackup(req, res);
