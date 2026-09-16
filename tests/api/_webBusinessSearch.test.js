@@ -1,9 +1,14 @@
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ webSearch: vi.fn() }));
+const mocks = vi.hoisted(() => ({ webSearch: vi.fn(), lookup: vi.fn() }));
 vi.mock('../../api/_openrouter.js', () => ({ generateOpenRouterWebSearch: mocks.webSearch }));
+vi.mock('node:dns/promises', () => ({ lookup: mocks.lookup }));
 
-import { searchBusinessesOnWeb } from '../../api/_webBusinessSearch.js';
+import { searchBusinessesOnWeb, urlIsReachable } from '../../api/_webBusinessSearch.js';
+
+beforeEach(() => {
+  mocks.lookup.mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
+});
 
 afterEach(() => {
   vi.resetAllMocks();
@@ -145,4 +150,57 @@ it('supports public tradespeople and job seekers grouped by exact work type', as
     entityKind: 'service_provider',
     serviceOrJobType: 'House painter',
   });
+});
+
+it('rejects private, local, credentialed, and private-DNS URLs before fetching', async () => {
+  vi.stubGlobal('fetch', vi.fn());
+
+  for (const url of [
+    'http://127.0.0.1/admin',
+    'http://[::ffff:127.0.0.1]/admin',
+    'http://169.254.169.254/latest/meta-data',
+    'http://localhost:3000',
+    'https://user:password@example.com',
+    'https://example.com:8443/private',
+  ]) {
+    expect(await urlIsReachable(url)).toBe(false);
+  }
+
+  mocks.lookup.mockResolvedValueOnce([{ address: '10.0.0.8', family: 4 }]);
+  expect(await urlIsReachable('https://internal.example.com')).toBe(false);
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it('revalidates every redirect and blocks a public URL redirecting to a private host', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => ({
+    ok: false,
+    status: 302,
+    headers: { get: (name) => (name === 'location' ? 'http://127.0.0.1/admin' : null) },
+  })));
+
+  expect(await urlIsReachable('https://public.example.com/start')).toBe(false);
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+it('caps and throttles business URL verification for oversized model responses', async () => {
+  const businesses = Array.from({ length: 90 }, (_, index) => ({
+    name: `Business ${index + 1}`,
+    sourceUrl: `https://business-${index + 1}.example.com`,
+  }));
+  mocks.webSearch.mockResolvedValue({ content: JSON.stringify({ businesses }) });
+  let activeRequests = 0;
+  let peakRequests = 0;
+  vi.stubGlobal('fetch', vi.fn(async () => {
+    activeRequests += 1;
+    peakRequests = Math.max(peakRequests, activeRequests);
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    activeRequests -= 1;
+    return { ok: true, status: 200 };
+  }));
+
+  const result = await searchBusinessesOnWeb({ searchTerms: 'large category' });
+
+  expect(result).toHaveLength(75);
+  expect(fetch).toHaveBeenCalledTimes(75);
+  expect(peakRequests).toBeLessThanOrEqual(8);
 });

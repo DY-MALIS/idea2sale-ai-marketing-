@@ -10,7 +10,6 @@ coverage/
 !.env.example
 
 .vercel
-.env*
 
 # Local editor settings and generated investigation artifacts
 .vscode/

@@ -35,6 +35,7 @@ import HistoryPanel from './HistoryPanel';
 import { downloadCsv } from '../lib/csvExport';
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { normalizeFacebookScanHistoryResult } from '../lib/facebookScanHistory';
 
 interface FacebookScannerProps {
   onCreativeAutomation: (request: CreativeAutomationRequest) => void;
@@ -555,24 +556,8 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
         setScanMode(payload.scanMode as ScanMode);
       }
       const raw = payload.result as Partial<FacebookScanResult> | undefined;
-      if (raw && typeof raw === 'object') {
-        const insights = raw.customerInsights || ({} as Partial<FacebookScanResult['customerInsights']>);
-        setResult({
-          success: true,
-          query: typeof raw.query === 'string' ? raw.query : '',
-          scanMode: raw.scanMode,
-          customerInsights: {
-            whatTheyBought: Array.isArray(insights.whatTheyBought) ? insights.whatTheyBought : [],
-            whatTheyLike: Array.isArray(insights.whatTheyLike) ? insights.whatTheyLike : [],
-            contentDesires: Array.isArray(insights.contentDesires) ? insights.contentDesires : [],
-            targetPersonas: Array.isArray(insights.targetPersonas) ? insights.targetPersonas : [],
-          },
-          competitors: Array.isArray(raw.competitors) ? raw.competitors : [],
-          potentialLeads: Array.isArray(raw.potentialLeads) ? raw.potentialLeads : [],
-          videoPlan: Array.isArray(raw.videoPlan) ? raw.videoPlan : [],
-          summaryReport: typeof raw.summaryReport === 'string' ? raw.summaryReport : '',
-        });
-      }
+      const normalized = normalizeFacebookScanHistoryResult(raw);
+      if (normalized) setResult(normalized);
       setDeselectedLeads(new Set());
     } catch (err) {
       console.error('Failed to restore scan history entry:', err);

@@ -1,9 +1,14 @@
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ webSearch: vi.fn() }));
+const mocks = vi.hoisted(() => ({ webSearch: vi.fn(), lookup: vi.fn() }));
 vi.mock('../../api/_openrouter.js', () => ({ generateOpenRouterWebSearch: mocks.webSearch }));
+vi.mock('node:dns/promises', () => ({ lookup: mocks.lookup }));
 
 import { researchCompetitors } from '../../api/_competitorResearch.js';
+
+beforeEach(() => {
+  mocks.lookup.mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
+});
 
 afterEach(() => {
   vi.resetAllMocks();

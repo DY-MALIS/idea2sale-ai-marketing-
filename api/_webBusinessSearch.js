@@ -14,6 +14,26 @@
 // unreachable domain) without discarding real results over an unrelated
 // annotation-formatting quirk.
 import { generateOpenRouterWebSearch } from './_openrouter.js';
+import { lookup } from 'node:dns/promises';
+import { isIP } from 'node:net';
+
+const MAX_BUSINESS_CANDIDATES = 75;
+const URL_VERIFICATION_CONCURRENCY = 8;
+const MAX_REDIRECTS = 5;
+
+const mapWithConcurrency = async (items, limit, mapper) => {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(items[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+};
 
 const jsonFromText = (text) => {
   const match = String(text || '').match(/\{[\s\S]*\}/);
@@ -24,17 +44,112 @@ const jsonFromText = (text) => {
   }
 };
 
+const isPublicIpAddress = (address) => {
+  const normalized = String(address || '').toLowerCase().replace(/^\[|\]$/g, '').split('%')[0];
+  const version = isIP(normalized);
+  if (version === 4) {
+    const octets = normalized.split('.').map(Number);
+    const [a, b, c] = octets;
+    return !(
+      a === 0
+      || a === 10
+      || a === 127
+      || (a === 100 && b >= 64 && b <= 127)
+      || (a === 169 && b === 254)
+      || (a === 172 && b >= 16 && b <= 31)
+      || (a === 192 && b === 0 && (c === 0 || c === 2))
+      || (a === 192 && b === 168)
+      || (a === 192 && b === 88 && c === 99)
+      || (a === 198 && (b === 18 || b === 19))
+      || (a === 198 && b === 51 && c === 100)
+      || (a === 203 && b === 0 && c === 113)
+      || a >= 224
+    );
+  }
+  if (version === 6) {
+    if (normalized.startsWith('::ffff:')) {
+      const mapped = normalized.slice('::ffff:'.length);
+      if (isIP(mapped) === 4) return isPublicIpAddress(mapped);
+      const words = mapped.split(':');
+      if (words.length === 2 && words.every((word) => /^[0-9a-f]{1,4}$/i.test(word))) {
+        const high = Number.parseInt(words[0], 16);
+        const low = Number.parseInt(words[1], 16);
+        return isPublicIpAddress(`${high >> 8}.${high & 255}.${low >> 8}.${low & 255}`);
+      }
+      return false;
+    }
+    const first = Number.parseInt(normalized.split(':')[0] || '0', 16);
+    return !(
+      normalized === '::'
+      || normalized === '::1'
+      || (first >= 0xfc00 && first <= 0xfdff)
+      || (first >= 0xfe80 && first <= 0xfebf)
+      || first >= 0xff00
+      || normalized.startsWith('2001:db8:')
+    );
+  }
+  return false;
+};
+
+export async function isPublicHttpUrl(value) {
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return false;
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) return false;
+  if ((parsed.protocol === 'http:' && parsed.port && parsed.port !== '80')
+    || (parsed.protocol === 'https:' && parsed.port && parsed.port !== '443')) return false;
+  const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
+  if (!hostname
+    || hostname === 'localhost'
+    || hostname.endsWith('.localhost')
+    || hostname.endsWith('.local')
+    || hostname.endsWith('.internal')
+    || hostname.endsWith('.home.arpa')) return false;
+  if (isIP(hostname)) return isPublicIpAddress(hostname);
+  try {
+    const addresses = await lookup(hostname, { all: true, verbatim: true });
+    return addresses.length > 0 && addresses.every(({ address }) => isPublicIpAddress(address));
+  } catch {
+    return false;
+  }
+}
+
+const fetchValidatedUrl = async (initialUrl, method, signal) => {
+  let currentUrl;
+  try {
+    currentUrl = new URL(initialUrl);
+  } catch {
+    return null;
+  }
+  for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
+    if (!(await isPublicHttpUrl(currentUrl.href))) return null;
+    const response = await fetch(currentUrl, { method, redirect: 'manual', signal });
+    if (response.status < 300 || response.status >= 400) return response;
+    const location = response.headers?.get?.('location');
+    if (!location || redirects === MAX_REDIRECTS) return null;
+    try {
+      currentUrl = new URL(location, currentUrl);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+};
+
 export async function urlIsReachable(url, timeoutMs = 6000) {
-  if (!/^https?:\/\//i.test(url)) return false;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, { method: 'HEAD', redirect: 'follow', signal: controller.signal });
-    if (response.ok || (response.status >= 300 && response.status < 400)) return true;
+    const response = await fetchValidatedUrl(url, 'HEAD', controller.signal);
+    if (!response) return false;
+    if (response.ok) return true;
     // Some servers reject HEAD (405/403) but would serve GET fine.
     if (response.status === 405 || response.status === 403) {
-      const getResponse = await fetch(url, { method: 'GET', redirect: 'follow', signal: controller.signal });
-      return getResponse.ok;
+      const getResponse = await fetchValidatedUrl(url, 'GET', controller.signal);
+      return !!getResponse?.ok;
     }
     return false;
   } catch {
@@ -204,17 +319,21 @@ If you find no real businesses, return {"businesses": []}.`;
         ...(activityWindow ? { recentActivities } : {}),
       });
     });
-  const candidates = [...candidateMap.values()];
+  // Bound and throttle verification so a large/malformed model response cannot
+  // exhaust sockets or the serverless invocation. Activity checks stay inside
+  // the same worker and run sequentially.
+  const candidates = [...candidateMap.values()].slice(0, MAX_BUSINESS_CANDIDATES);
 
-  const verified = await Promise.all(candidates.map(async (item) => {
+  const verified = await mapWithConcurrency(candidates, URL_VERIFICATION_CONCURRENCY, async (item) => {
     const checkUrl = item.sourceUrl || item.website;
     const reachable = checkUrl ? await urlIsReachable(checkUrl) : false;
     if (!reachable) return null;
-    const activityChecks = await Promise.all((item.recentActivities || []).map(async (activity) => (
-      (await urlIsReachable(activity.sourceUrl)) ? activity : null
-    )));
-    return activityWindow ? { ...item, recentActivities: activityChecks.filter(Boolean) } : item;
-  }));
+    const activityChecks = [];
+    for (const activity of item.recentActivities || []) {
+      if (await urlIsReachable(activity.sourceUrl)) activityChecks.push(activity);
+    }
+    return activityWindow ? { ...item, recentActivities: activityChecks } : item;
+  });
 
   const verifiedBusinesses = verified.filter(Boolean);
   return requiredSignal === 'hiring'

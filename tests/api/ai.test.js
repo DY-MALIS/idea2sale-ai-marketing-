@@ -32,8 +32,19 @@ describe('resolveCreativeImageMode', () => {
 });
 
 describe('resolveFacebookScanMode', () => {
-  it('accepts every supported scanner target', () => {
-    for (const mode of FACEBOOK_SCAN_MODES) {
+  it('accepts the complete supported scanner target list', () => {
+    const expectedModes = [
+      'customer',
+      'ai_interest',
+      'high_value',
+      'construction',
+      'workers',
+      'competitor_activity',
+      'competitor_customers',
+      'hiring',
+    ];
+    expect(FACEBOOK_SCAN_MODES).toEqual(expectedModes);
+    for (const mode of expectedModes) {
       expect(resolveFacebookScanMode(mode)).toBe(mode);
     }
   });
@@ -49,6 +60,16 @@ describe('getFacebookCompetitorActivityWindow', () => {
     expect(getFacebookCompetitorActivityWindow(new Date('2026-09-13T18:30:00.000Z'))).toEqual({
       startDate: '2026-09-08',
       endDate: '2026-09-14',
+    });
+  });
+
+  it('uses the selected market timezone instead of always using Cambodia time', () => {
+    expect(getFacebookCompetitorActivityWindow(
+      new Date('2026-09-14T03:30:00.000Z'),
+      'America/New_York',
+    )).toEqual({
+      startDate: '2026-09-07',
+      endDate: '2026-09-13',
     });
   });
 });

@@ -79,6 +79,7 @@ export const FACEBOOK_SCAN_MODES = Object.freeze([
   'ai_interest',
   'high_value',
   'construction',
+  'workers',
   'competitor_activity',
   'competitor_customers',
   'hiring',
@@ -89,14 +90,28 @@ export const resolveFacebookScanMode = (value) => {
   return FACEBOOK_SCAN_MODES.includes(requested) ? requested : 'customer';
 };
 
-export const getFacebookCompetitorActivityWindow = (now = new Date()) => {
-  // Cambodia/Thailand use UTC+7 year-round. Convert before slicing so scans
-  // run shortly after local midnight still end on the user's actual today.
-  const end = new Date(new Date(now).getTime() + (7 * 60 * 60 * 1000));
-  const start = new Date(end.getTime() - (6 * 86400000));
+const calendarDateInTimeZone = (date, timeZone) => {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date(date));
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return `${values.year}-${values.month}-${values.day}`;
+};
+
+const dateDaysBefore = (dateText, days) => {
+  const date = new Date(`${dateText}T12:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() - days);
+  return date.toISOString().slice(0, 10);
+};
+
+export const getFacebookCompetitorActivityWindow = (now = new Date(), timeZone = 'Asia/Phnom_Penh') => {
+  const endDate = calendarDateInTimeZone(now, timeZone);
   return {
-    startDate: start.toISOString().slice(0, 10),
-    endDate: end.toISOString().slice(0, 10),
+    startDate: dateDaysBefore(endDate, 6),
+    endDate,
   };
 };
 
@@ -952,73 +967,6 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
       return res.status(200).json({ items: parseContentPlanItems(text, businessContext.businessName) });
     }
 
-    // Competitor research from live, publicly reachable web sources. It never
-    // reads private profiles or messages. Source URLs are independently checked by
-    // researchCompetitors before they are used to build the content plan.
-    if (action === 'researchFacebookCompetitors') {
-      const query = String(req.body?.query || '').trim().slice(0, 200);
-      if (!query) return res.status(400).json({ error: 'Enter a competitor, business, or product keyword to search.' });
-      const countries = (Array.isArray(req.body?.countries) ? req.body.countries : ['KH'])
-        .map((code) => String(code).trim().toUpperCase())
-        .filter((code) => /^[A-Z]{2}$/.test(code))
-        .slice(0, 5);
-
-      let research;
-      try {
-        const country = countries.includes('KH')
-          ? 'Cambodia'
-          : countries.length === 1 && countries[0] === 'US'
-            ? 'United States'
-            : countries.join(', ') || 'Cambodia';
-        const activityWindow = getFacebookCompetitorActivityWindow();
-        research = await researchCompetitors({
-          query,
-          country,
-          activityStartDate: activityWindow.startDate,
-          activityEndDate: activityWindow.endDate,
-          exhaustive: false,
-        });
-      } catch (error) {
-        return res.status(502).json({ error: error?.message || 'Public competitor research failed.' });
-      }
-
-      const competitors = research.competitors.slice(0, 15);
-      if (!competitors.length) {
-        return res.status(200).json({
-          items: [],
-          competitors: [],
-          message: 'No verified public competitors were found. Try a broader keyword, a specific business name, or a different market.',
-        });
-      }
-
-      const researchSummary = competitors.map((competitor, index) => {
-        const activities = (competitor.recentActivities || [])
-          .map((activity) => `${activity.date}: ${activity.activity} (${activity.sourceUrl})`)
-          .join('; ');
-        return `${index + 1}. Business: ${competitor.name}\nWhy it competes: ${competitor.matchReason}\nPositioning: ${competitor.positioning || 'not confirmed'}\nPublic activity: ${activities || 'none verified'}\nSource: ${competitor.sourceUrl}`;
-      }).join('\n\n');
-
-      const text = await generateOpenRouterText({
-        model: process.env.OPEN_ROUTER_CONTENT_PLAN_MODEL || 'google/gemini-3.1-pro-preview',
-        system: `You are a social media strategist for a Cambodian business, studying verified public competitor sources to propose a fresh, ORIGINAL content calendar. Never invent facts or copy a competitor's exact wording, offer, or creative. Treat anything not explicitly supported by the supplied sources as inference, then propose content that differentiates this business.\n\n${CAMBODIA_MARKET_CONTEXT}`,
-        prompt: `Here are ${competitors.length} verified public competitors for the search "${query}":\n\n${researchSummary}\n\nBased only on these public sources, propose 6 original content calendar items for the next 6 days starting ${new Date().toISOString().slice(0, 10)} (one per day) that differentiate this business rather than copy competitors. For each, produce one JSON object with:
-${contentPlanItemFieldRules(language, 'the next available date in YYYY-MM-DD starting today, one per day, in the order you list the items')}
-Return ONLY a valid JSON array of these objects, no markdown, no commentary.`,
-      });
-
-      return res.status(200).json({
-        items: parseContentPlanItems(text),
-        competitors: competitors.map((competitor) => ({
-          pageName: competitor.name,
-          matchReason: competitor.matchReason,
-          positioning: competitor.positioning,
-          sourceUrl: competitor.sourceUrl,
-          linkedinUrl: competitor.linkedinUrl,
-          recentActivities: competitor.recentActivities || [],
-        })),
-      });
-    }
-
     // Comprehensive Facebook Customer & Competitor Scanner with Video Planning Calendar
     if (action === 'facebookIntelligenceScan') {
       const query = String(req.body?.query || '').trim().slice(0, 250);
@@ -1072,10 +1020,17 @@ Return ONLY a valid JSON array of these objects, no markdown, no commentary.`,
       const scanModeConfig = scanModeConfigs[scanMode];
       const isCompetitorScan = ['competitor_activity', 'competitor_customers'].includes(scanMode);
       const today = new Date();
-      const todayStr = today.toISOString().slice(0, 10);
-      const activityWindow = getFacebookCompetitorActivityWindow(today);
+      const countryTimeZones = {
+        KH: 'Asia/Phnom_Penh',
+        TH: 'Asia/Bangkok',
+        VN: 'Asia/Ho_Chi_Minh',
+        US: 'America/New_York',
+      };
+      const targetTimeZone = countryTimeZones[countries[0]] || 'UTC';
+      const activityWindow = getFacebookCompetitorActivityWindow(today, targetTimeZone);
+      const todayStr = activityWindow.endDate;
       const hiringActivityWindow = {
-        startDate: new Date(today.getTime() - 30 * 86400000).toISOString().slice(0, 10),
+        startDate: dateDaysBefore(todayStr, 30),
         endDate: todayStr,
       };
       // Keep the user's exact search intent separate from the mode objective.
