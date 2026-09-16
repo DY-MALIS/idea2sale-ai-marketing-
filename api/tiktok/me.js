@@ -1,5 +1,5 @@
 import admin, { initFirebaseAdmin } from '../_firebaseAdmin.js';
-import { getCookie } from '../_tiktok.js';
+import { getCookie, sessionCookieAttributes } from '../_tiktok.js';
 
 // Clears the shared TikTok connection so a fresh "Connect TikTok" can pick a
 // different account -- TikTok's own login page otherwise reuses whatever
@@ -22,7 +22,7 @@ async function disconnectTikTok(req, res) {
     return res.status(401).json({ error: 'Sign in again.' });
   }
 
-  const clearCookie = 'tiktok_token=; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=0';
+  const clearCookie = `tiktok_token=; ${sessionCookieAttributes(req)}; Max-Age=0`;
   res.setHeader('Set-Cookie', clearCookie);
 
   try {

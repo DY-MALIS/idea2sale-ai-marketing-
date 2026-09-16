@@ -23,6 +23,7 @@ import { CreativeAutomationRequest, ScheduleHandoffRequest } from '../types';
 import { getLatestBusinessBranding } from '../lib/businessBranding';
 import { deleteGenerationHistory, GenerationHistoryEntry, saveGenerationHistory, useGenerationHistory } from '../lib/generationHistory';
 import HistoryPanel from './HistoryPanel';
+import { estimateVideoGenerationCostUsd, MAX_VIDEO_GENERATION_COST_USD } from '../../shared/videoCost.js';
 
 type ToolType = 'video' | 'voice';
 type VoiceGender = 'Female' | 'Male';
@@ -35,10 +36,9 @@ type VoicePersona = 'sreymom' | 'piseth';
 // in src/lib/geminiService.ts.
 const AI_FETCH_TIMEOUT_MS = 70000;
 // videoStatus and videoGenerate are exceptions to the generic 70s budget:
-// - videoStatus: once OpenRouter reports a clip "completed", api/ai.js's poll
-//   downloads the full video and base64-encodes it into the same response
-//   (see pollOpenRouterVideo in api/_openrouter.js) -- a multi-MB transfer,
-//   not a quick status check.
+// - videoStatus: once OpenRouter reports a clip "completed", api/ai.js uploads
+//   it to Cloudinary before returning a short hosted URL, so that final status
+//   request includes a provider download + media upload and can take longer.
 // - videoGenerate: for a Khmer-speech avatar video, this one request chains
 //   an avatar image generation, a Cloudinary upload, a TTS narration call and
 //   a second Cloudinary upload (see startKhmerVideoJob in api/_khmerVideo.js)
@@ -52,27 +52,116 @@ const VIDEO_STATUS_FETCH_TIMEOUT_MS = 240000;
 // extra five-second-feeling pause that users saw after generation completed.
 const VIDEO_STATUS_POLL_INTERVAL_MS = 3000;
 const VIDEO_STATUS_MAX_POLLS = 80;
-const fetchAiWithTimeout = (body: unknown, timeoutMs: number = AI_FETCH_TIMEOUT_MS) => {
+const PENDING_VIDEO_JOBS_KEY = 'aime_pending_video_jobs_v1';
+const fetchAiWithTimeout = (body: unknown, timeoutMs: number = AI_FETCH_TIMEOUT_MS, idToken?: string) => {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
   return fetch('/api/ai', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+    },
     body: JSON.stringify(body),
     signal: controller.signal,
   }).finally(() => window.clearTimeout(timeoutId));
 };
 
-const MAX_VIDEO_IMAGES = 20;
-// Google Veo 3.1 Fast (the underlying video model) only accepts these exact
-// per-clip durations — anything else risks a rejected or misbehaving
-// generation. Lengths beyond 8s are built by chaining multiple 8s clips
-// together (see getVideoSegments) since the model has no longer single-shot option.
-const VIDEO_LENGTH_OPTIONS = [4, 6, 8, 16, 24] as const;
+interface PendingVideoJob {
+  fingerprint: string;
+  userId: string;
+  jobId: string;
+  narrationAudioUrl?: string;
+  narrationFallbackReason?: string;
+  expectedScript?: string;
+  createdAt: number;
+}
 
-// Splits a requested total video length into individual Veo-generation
-// segments, each capped at 8s (the model's per-clip maximum): 4/6/8 stay a
-// single clip, 16 -> [8, 8], 24 -> [8, 8, 8].
+const videoRequestFingerprint = (prompt: string, images: { base64: string; mimeType: string }[], duration: number, script = '') => {
+  const source = JSON.stringify({
+    prompt, duration, script,
+    images: images.map((image) => ({
+      mimeType: image.mimeType,
+      length: image.base64.length,
+      sample: `${image.base64.slice(0, 48)}${image.base64.slice(-48)}`,
+    })),
+  });
+  let hash = 2166136261;
+  for (let index = 0; index < source.length; index += 1) {
+    hash ^= source.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+};
+
+const readPendingVideoJobs = (): PendingVideoJob[] => {
+  try {
+    const value = JSON.parse(localStorage.getItem(PENDING_VIDEO_JOBS_KEY) || '[]');
+    return Array.isArray(value) ? value.filter((job) => job?.jobId && job?.fingerprint && job?.userId) : [];
+  } catch {
+    return [];
+  }
+};
+
+const savePendingVideoJob = (job: PendingVideoJob) => {
+  try {
+    const recent = readPendingVideoJobs()
+      .filter((item) => !(item.userId === job.userId && item.fingerprint === job.fingerprint))
+      .filter((item) => Date.now() - Number(item.createdAt || 0) < 24 * 60 * 60 * 1000)
+      .slice(-4);
+    localStorage.setItem(PENDING_VIDEO_JOBS_KEY, JSON.stringify([...recent, job]));
+  } catch (error) {
+    // Private browsing/storage denial must not abandon a job that was already paid.
+    console.warn('Could not persist resumable video job state:', error);
+  }
+};
+
+const removePendingVideoJob = (userId: string, fingerprint: string) => {
+  try {
+    localStorage.setItem(PENDING_VIDEO_JOBS_KEY, JSON.stringify(
+      readPendingVideoJobs().filter((item) => !(item.userId === userId && item.fingerprint === fingerprint)),
+    ));
+  } catch {
+    // Best-effort cleanup only.
+  }
+};
+
+const latestPendingVideoJob = (userId: string) => readPendingVideoJobs()
+  .filter((job) => job.userId === userId)
+  .sort((left, right) => right.createdAt - left.createdAt)[0] || null;
+
+const uploadVideoDirectly = async (videoDataUrl: string, idToken: string): Promise<string> => {
+  if (/^https:\/\//i.test(videoDataUrl)) return videoDataUrl;
+  const signatureResponse = await fetch('/api/telegram/run-scheduled?action=sign-upload', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${idToken}` },
+  });
+  const signature = await signatureResponse.json().catch(() => ({}));
+  if (!signatureResponse.ok || !signature.ok) throw new Error(signature.error || 'Could not prepare the final video upload.');
+  const blob = await fetch(videoDataUrl).then((response) => response.blob());
+  if (blob.size > Number(signature.maxBytes || 48 * 1024 * 1024)) throw new Error('The final video is too large to upload.');
+  const form = new FormData();
+  form.set('file', new File([blob], 'generated-video.mp4', { type: blob.type || 'video/mp4' }));
+  form.set('api_key', signature.apiKey);
+  form.set('timestamp', String(signature.timestamp));
+  form.set('signature', signature.signature);
+  form.set('folder', signature.folder);
+  const uploadResponse = await fetch(signature.uploadUrl, { method: 'POST', body: form });
+  const uploaded = await uploadResponse.json().catch(() => ({}));
+  if (!uploadResponse.ok || !uploaded.secure_url) throw new Error(uploaded?.error?.message || 'Could not upload the final video.');
+  return String(uploaded.secure_url);
+};
+
+// Both the budget Veo path and the Khmer presenter path use one opening image.
+// Resize it before JSON/base64 transport so the request stays below Vercel's
+// function payload ceiling even when the source is a modern phone photo.
+const MAX_VIDEO_IMAGES = 1;
+// A single user action is capped at eight seconds so its estimated total
+// OpenRouter spend cannot exceed $0.80.
+const VIDEO_LENGTH_OPTIONS = [4, 6, 8] as const;
+
+// Kept as a helper for the generation pipeline; the $0.80 ceiling currently
+// limits every supported duration to one clip of at most eight seconds.
 const getVideoSegments = (totalSeconds: number): number[] => {
   if (totalSeconds <= 8) return [totalSeconds];
   const segments: number[] = [];
@@ -330,31 +419,65 @@ const verifyClipSpeech = async (video: string, expected: string) => {
   }
 };
 
+const pollPendingVideoJob = async (pending: PendingVideoJob, idToken: string) => {
+  for (let attempt = 0; attempt < VIDEO_STATUS_MAX_POLLS; attempt += 1) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, VIDEO_STATUS_POLL_INTERVAL_MS));
+    const statusResponse = await fetchAiWithTimeout(
+      { action: 'videoStatus', jobId: pending.jobId },
+      VIDEO_STATUS_FETCH_TIMEOUT_MS,
+      idToken,
+    );
+    const statusData = await statusResponse.json();
+    if (!statusResponse.ok) {
+      if (/failed|cancelled|expired|belongs to another/i.test(String(statusData.error || ''))) {
+        removePendingVideoJob(pending.userId, pending.fingerprint);
+      }
+      throw new Error(statusData.error || 'Video generation failed.');
+    }
+    if (statusData.videoUrl) {
+      return pending.narrationAudioUrl
+        ? applyVoiceOver(statusData.videoUrl, pending.narrationAudioUrl, 1)
+        : statusData.videoUrl as string;
+    }
+  }
+  throw new Error('Video is still processing. Resume this same paid job again later; a new job will not be started.');
+};
+
 // Starts one Veo generation and polls until the clip is ready.
 const attemptGenerateVideoClip = async (
   prompt: string,
   images: { base64: string; mimeType: string }[],
   duration: number,
   khmerSpeech?: { script: string; voiceGender: string; businessName?: string; performanceStyle?: string },
-): Promise<{ videoUrl: string; narrationFallbackReason?: string }> => {
-  const response = await fetchAiWithTimeout({ action: 'videoGenerate', prompt, images, duration, khmerSpeech }, VIDEO_STATUS_FETCH_TIMEOUT_MS);
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error || 'Video generation failed.');
-  const jobId = data.jobId;
-  for (let attempt = 0; attempt < VIDEO_STATUS_MAX_POLLS && jobId; attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, VIDEO_STATUS_POLL_INTERVAL_MS));
-    const statusResponse = await fetchAiWithTimeout({ action: 'videoStatus', jobId }, VIDEO_STATUS_FETCH_TIMEOUT_MS);
-    const statusData = await statusResponse.json();
-    if (!statusResponse.ok) throw new Error(statusData.error || 'Video generation failed.');
-    if (statusData.videoUrl) {
-      if (khmerSpeech && !data.narrationAudioUrl) throw new Error('Missing original Khmer reference audio.');
-      return {
-        videoUrl: khmerSpeech ? await applyVoiceOver(statusData.videoUrl, data.narrationAudioUrl, 1) : statusData.videoUrl,
-        narrationFallbackReason: data.narrationFallbackReason || undefined,
-      };
-    }
+  idToken?: string,
+  userId?: string,
+): Promise<{ videoUrl: string; narrationFallbackReason?: string; pendingFingerprint: string; expectedScript?: string }> => {
+  if (!idToken || !userId) throw new Error('Sign in before generating a video.');
+  const fingerprint = videoRequestFingerprint(prompt, images, duration, khmerSpeech?.script || '');
+  let pending = readPendingVideoJobs().find((job) => job.userId === userId && job.fingerprint === fingerprint);
+  if (!pending) {
+    const response = await fetchAiWithTimeout({ action: 'videoGenerate', prompt, images, duration, khmerSpeech }, VIDEO_STATUS_FETCH_TIMEOUT_MS, idToken);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Video generation failed.');
+    if (!data.jobId) throw new Error('Video provider did not return a job id.');
+    pending = {
+      fingerprint,
+      userId,
+      jobId: data.jobId,
+      narrationAudioUrl: data.narrationAudioUrl || undefined,
+      narrationFallbackReason: data.narrationFallbackReason || undefined,
+      expectedScript: data.spokenScript || khmerSpeech?.script || undefined,
+      createdAt: Date.now(),
+    };
+    savePendingVideoJob(pending);
   }
-  throw new Error('Video is still processing. Please try again shortly.');
+  if (khmerSpeech && !pending.narrationAudioUrl) throw new Error('Missing original Khmer reference audio.');
+  return {
+    videoUrl: await pollPendingVideoJob(pending, idToken),
+    narrationFallbackReason: pending.narrationFallbackReason || undefined,
+    pendingFingerprint: fingerprint,
+    expectedScript: pending.expectedScript || undefined,
+  };
 };
 
 // Do not automatically start a second paid job when polling or verification fails.
@@ -399,7 +522,12 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   const [segmentProgress, setSegmentProgress] = useState<{ current: number; total: number } | null>(null);
   const [mergingSegments, setMergingSegments] = useState(false);
   const [automationNotice, setAutomationNotice] = useState<string | null>(null);
+  const [resumableVideoJob, setResumableVideoJob] = useState<PendingVideoJob | null>(null);
   const handledAutomationRef = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    setResumableVideoJob(user ? latestPendingVideoJob(user.uid) : null);
+  }, [user]);
 
   const videoHistory = useGenerationHistory(user, isDemoMode, 'video');
   const restoreVideoHistory = (entry: GenerationHistoryEntry) => {
@@ -476,6 +604,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
 
   React.useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
       if (event.data?.type === 'TIKTOK_AUTH_SUCCESS') {
         setIsAuthenticating(false);
         fetch('/api/tiktok/me')
@@ -594,6 +723,58 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     }
   };
 
+  const handleResumeVideo = async () => {
+    if (!user || !resumableVideoJob || loading || audioLoading) return;
+    setLoading(true);
+    setGeneratedVideo(null);
+    setVideoNeedsReview(false);
+    setVideoVoiceQualityNotice(null);
+    try {
+      const [idToken, businessContext] = await Promise.all([
+        user.getIdToken(),
+        getLatestBusinessBranding(user, isDemoMode),
+        resetFFmpeg(),
+      ]);
+      let video = await pollPendingVideoJob(resumableVideoJob, idToken);
+      let speechNeedsReview = false;
+      if (resumableVideoJob.expectedScript) {
+        try {
+          await verifyClipSpeech(video, resumableVideoJob.expectedScript);
+        } catch (verificationError) {
+          console.warn('Resumed video speech needs manual review:', verificationError);
+          speechNeedsReview = true;
+        }
+      }
+      if (businessContext.logoDataUrl) {
+        setWatermarking(true);
+        try {
+          video = await overlayLogoOnVideo(video, businessContext.logoDataUrl);
+        } catch (watermarkError) {
+          console.error('Logo watermark step failed for resumed video:', watermarkError);
+        } finally {
+          setWatermarking(false);
+        }
+      }
+      video = await uploadVideoDirectly(video, idToken);
+      setGeneratedVideo(video);
+      setVideoNeedsReview(speechNeedsReview);
+      if (speechNeedsReview) {
+        setVideoVoiceQualityNotice(language === 'km'
+          ? 'វីដេអូបានបញ្ចប់ ប៉ុន្តែសំឡេងត្រូវការពិនិត្យដោយដៃមុនផ្សព្វផ្សាយ។'
+          : 'The video completed, but its speech needs manual review before publishing.');
+      }
+      removePendingVideoJob(user.uid, resumableVideoJob.fingerprint);
+      setResumableVideoJob(null);
+      notify(language === 'km' ? 'បានបន្ត និងបញ្ចប់វីដេអូដោយជោគជ័យ។' : 'The existing video job was resumed and completed.', 'success');
+    } catch (error: any) {
+      notify(error?.message || 'Could not resume the video job.', 'error');
+    } finally {
+      setWatermarking(false);
+      setLoading(false);
+      setResumableVideoJob(latestPendingVideoJob(user.uid));
+    }
+  };
+
   const handleGenerateVideo = async (
     promptOverride?: string,
     languageOverride?: 'Khmer' | 'English',
@@ -619,11 +800,14 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     setSegmentProgress(null);
     setMergingSegments(false);
     let usedKhmerVoiceFallback = false;
+    const completedJobFingerprints: string[] = [];
     try {
+      if (!user) throw new Error('Sign in before generating a video.');
       // Branding is a remote read while resetFFmpeg only prepares local browser
       // state, so doing both together shortens startup without changing output.
-      const [businessContext] = await Promise.all([
+      const [businessContext, idToken] = await Promise.all([
         getLatestBusinessBranding(user, isDemoMode),
+        user.getIdToken(),
         resetFFmpeg(),
       ]);
       if (!voiceOverContent && generationLanguage === 'Khmer' && voiceOverEnabled && voiceOverTextOverride === undefined) {
@@ -667,13 +851,15 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
             voiceGender,
             businessName: businessContext.businessName,
             performanceStyle: voicePersonas[voicePersona].style,
-          } : undefined);
+          } : undefined,
+          idToken,
+          user.uid);
         let clip = generatedClip.videoUrl;
         if (generatedClip.narrationFallbackReason) usedKhmerVoiceFallback = true;
         if (silentRequested || (spokenSegments && !spokenSegments[i])) clip = await removeVideoAudio(clip);
         if (spokenSegments?.[i]) {
           try {
-            await verifyClipSpeech(clip, spokenSegments[i]);
+            await verifyClipSpeech(clip, generatedClip.expectedScript || spokenSegments[i]);
           } catch (error) {
             console.warn('Automatic speech verification needs manual review:', error);
             setGeneratedVideo(clip);
@@ -687,6 +873,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
           }
         }
         clipUrls.push(clip);
+        completedJobFingerprints.push(generatedClip.pendingFingerprint);
       }
       setSegmentProgress(null);
 
@@ -752,21 +939,21 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         }
       }
 
+      // Browser-side ffmpeg steps produce a large data URL. Upload it directly
+      // to Cloudinary with a short-lived signed form instead of routing it back
+      // through Vercel's 4.5 MB function request limit.
+      video = await uploadVideoDirectly(video, idToken);
+      completedJobFingerprints.forEach((fingerprint) => removePendingVideoJob(user.uid, fingerprint));
       setGeneratedVideo(video);
-      // Fire-and-forget: uploads the finished video to a small hosted URL (the
-      // raw base64 result is far too large for a Firestore history doc) and
-      // logs it to the history panel. Never blocks or fails the generation
-      // itself -- a history-save hiccup shouldn't cost the user their result.
+      // The final result is already a small hosted URL, so history persistence
+      // never sends the full video through /api/ai again.
       void (async () => {
         try {
-          const uploadResponse = await fetchAiWithTimeout({ action: 'uploadMedia', mediaDataUrl: video, mediaType: 'video' });
-          const uploadData = await uploadResponse.json();
-          if (!uploadResponse.ok || !uploadData.mediaUrl) return;
           await saveGenerationHistory({
             user, isDemoMode, type: 'video',
             title: (promptText || voiceOverContent || 'Video').slice(0, 200),
             summary: voiceOverContent || undefined,
-            mediaUrl: uploadData.mediaUrl,
+            mediaUrl: video,
             mediaType: 'video',
             payload: {
               prompt: promptText,
@@ -807,6 +994,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       notify(errorMessage, 'error');
     } finally {
       setLoading(false);
+      if (user) setResumableVideoJob(latestPendingVideoJob(user.uid));
     }
   };
 
@@ -1064,7 +1252,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         </div>
         <div className="flex flex-col items-end gap-3">
           {needsApiKey && (
-            <button 
+            <button
               onClick={handleOpenKeySelector}
               className="text-xs bg-crab-shell text-white px-6 py-3 rounded-full font-bold hover:bg-crab-shell/90 transition-all flex items-center gap-2 shadow-lg animate-bounce"
             >
@@ -1151,7 +1339,11 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                           onChange={(e) => {
                             const files = Array.from(e.target.files || []);
                             e.target.value = '';
-                            readImagesIntoState(files, MAX_VIDEO_IMAGES, videoImages.length, setVideoImages);
+                            readImagesIntoState(files, MAX_VIDEO_IMAGES, videoImages.length, setVideoImages, {
+                              maxDimension: 1280,
+                              outputType: 'image/webp',
+                              quality: 0.82,
+                            });
                           }}
                         />
                       </label>
@@ -1194,6 +1386,11 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                       </button>
                     ))}
                   </div>
+                  <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+                    {language === 'km'
+                      ? `តម្លៃប៉ាន់ស្មាន៖ $${estimateVideoGenerationCostUsd({ duration: videoDuration, khmerSpeech: videoLanguage === 'Khmer' && voiceOverEnabled }).toFixed(2)} · កំណត់អតិបរមា $${MAX_VIDEO_GENERATION_COST_USD.toFixed(2)}`
+                      : `Estimated cost: $${estimateVideoGenerationCostUsd({ duration: videoDuration, khmerSpeech: videoLanguage === 'Khmer' && voiceOverEnabled }).toFixed(2)} · Maximum $${MAX_VIDEO_GENERATION_COST_USD.toFixed(2)}`}
+                  </p>
                 </div>
 
                 {/* Khmer Voice-over Section */}
@@ -1420,6 +1617,17 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                   </p>
                 )}
               </div>
+            )}
+            {activeTool === 'video' && resumableVideoJob && (
+              <button
+                type="button"
+                onClick={() => void handleResumeVideo()}
+                disabled={loading || audioLoading}
+                className="w-full border-2 border-brand-300 bg-brand-50 text-brand-700 font-bold py-4 rounded-2xl flex items-center justify-center gap-3 disabled:opacity-60 disabled:cursor-not-allowed dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
+              >
+                {loading ? <Loader2 className="animate-spin" /> : <RefreshCw size={20} />}
+                <span>{language === 'km' ? 'បន្តវីដេអូដែលកំពុងដំណើរការ' : 'Resume processing video'}</span>
+              </button>
             )}
             <button
               onClick={() => {

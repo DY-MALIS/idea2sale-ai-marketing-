@@ -1,4 +1,4 @@
-import { generateOpenRouterText } from './_openrouter.js';
+import { generateOpenRouterText, normalizeForKhmerSpeech } from './_openrouter.js';
 import { synthesizeKhmerSpeechViaEdge } from './_edgeSpeech.js';
 import { generateGeminiSpeech } from './_geminiSpeech.js';
 
@@ -11,24 +11,30 @@ const edgeKhmerVoice = (voice) => {
 
 export async function generateKhmerSpeech({ input, voice = 'Female', performanceStyle = '', context = '' }) {
   if (!/[\u1780-\u17ff]/.test(input)) throw new Error('Khmer narration text is required.');
+  const spokenInput = normalizeForKhmerSpeech(input);
+  const clearKhmerStyle = `Native Cambodian Khmer with crisp consonants, complete syllables and clearly separated words. Use one brief pause only at a natural phrase boundary; never rush, mumble, swallow word endings, stretch vowels or use a foreign accent. ${String(performanceStyle || '').trim()}`.trim();
   const useEdgeOnly = String(process.env.KHMER_TTS_PROVIDER || '').trim().toLowerCase() === 'edge';
   if (!useEdgeOnly) {
     try {
-      return await generateGeminiSpeech({ input, voice, performanceStyle, context });
+      return {
+        ...await generateGeminiSpeech({ input: spokenInput, voice, performanceStyle: clearKhmerStyle, context }),
+        spokenText: spokenInput,
+      };
     } catch (error) {
       console.error('Natural Khmer Gemini speech failed; using Edge Khmer neural fallback:', error?.message || error);
     }
   }
 
   const fallback = await synthesizeKhmerSpeechViaEdge({
-    input,
+    input: spokenInput,
     voice: edgeKhmerVoice(voice),
-    // +8% keeps an everyday pace while retaining enough speed for short video
-    // scripts. The previous +20% setting often sounded rushed and synthetic.
-    rate: '+8%',
+    // Natural speed prioritizes complete Khmer syllables over squeezing a script
+    // into the clip; the measured-duration guard below rejects text that is too long.
+    rate: '+0%',
   });
   return {
     ...fallback,
+    spokenText: spokenInput,
     fallbackReason: useEdgeOnly
       ? 'Edge Khmer voice was explicitly selected.'
       : 'Expressive Khmer voice was unavailable; standard Khmer neural voice was used.',

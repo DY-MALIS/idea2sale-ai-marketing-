@@ -405,22 +405,24 @@ export const getBusinessName = async (db, ownerId) => {
 const containsKhmer = (text) => /[\u1780-\u17FF]/.test(text || '');
 
 // Backs the "ACTIVE/PAUSED" toggle in Automation.tsx (settings/automation doc).
-// Defaults to active (true) if the doc is missing or unreadable, so a Firestore
-// hiccup fails open to "keep replying" rather than silently going dark.
+// A missing settings document preserves the historical active default. An
+// infrastructure error fails closed so an outage cannot trigger uncontrolled
+// AI replies or spend while ownership/settings cannot be verified.
 export const getAutomationActive = async (db, ownerId) => {
   try {
     const docId = ownerId ? `automation_${ownerId}` : 'automation';
     const snap = await db.collection('settings').doc(docId).get();
     return snap.exists ? snap.data()?.active !== false : true;
   } catch (error) {
-    console.error('Automation-active lookup failed, defaulting to active:', error?.message || error);
-    return true;
+    console.error('Automation-active lookup failed, pausing replies:', error?.message || error);
+    return false;
   }
 };
 
 const telegramApi = async (token, method, payload) => {
   const response = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
     method: 'POST',
+    signal: AbortSignal.timeout(15000),
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
@@ -602,7 +604,10 @@ const setWebhook = async (req, res) => {
   }
 
   const setupKey = (process.env.TELEGRAM_WEBHOOK_SETUP_KEY || '').trim();
-  if (setupKey && req.query?.key !== setupKey) {
+  if (!setupKey) {
+    return res.status(503).json({ error: 'TELEGRAM_WEBHOOK_SETUP_KEY is not configured.' });
+  }
+  if (req.query?.key !== setupKey) {
     return res.status(401).json({ error: 'Invalid setup key.' });
   }
 
@@ -812,7 +817,10 @@ export default async function handler(req, res) {
   }
 
   const secret = (process.env.TELEGRAM_WEBHOOK_SECRET || '').trim();
-  if (secret && req.headers['x-telegram-bot-api-secret-token'] !== secret) {
+  if (!secret) {
+    return res.status(503).json({ error: 'TELEGRAM_WEBHOOK_SECRET is not configured.' });
+  }
+  if (req.headers['x-telegram-bot-api-secret-token'] !== secret) {
     return res.status(401).json({ error: 'Invalid Telegram webhook secret.' });
   }
 
@@ -931,7 +939,7 @@ export default async function handler(req, res) {
   // Lead capture/logging above always runs (that's CRM data collection, not
   // "automation"); only the rule-matched and AI-generated auto-replies below are
   // gated -- this is what Automation.tsx's ACTIVE/PAUSED toggle actually controls.
-  const automationActive = db ? await getAutomationActive(db, ownerId) : true;
+  const automationActive = db ? await getAutomationActive(db, ownerId) : false;
   if (!automationActive) {
     return res.status(200).json({ ok: true, automationPaused: true });
   }

@@ -1010,7 +1010,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           headline: kind === 'image' ? String(data.automation.headline || '').trim() : undefined,
           cta: kind === 'image' ? String(data.automation.cta || '').trim() : undefined,
           posterStyle: kind === 'image' ? String(data.automation.posterStyle || 'Modern').trim() : undefined,
-          duration: kind === 'video' && [4, 6, 8, 16, 24].includes(Number(data.automation.duration))
+          duration: kind === 'video' && [4, 6, 8].includes(Number(data.automation.duration))
             ? Number(data.automation.duration)
             : undefined,
         });

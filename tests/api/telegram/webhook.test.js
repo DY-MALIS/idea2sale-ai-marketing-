@@ -45,7 +45,7 @@ describe('getAutomationActive', () => {
     expect(await getAutomationActive(db)).toBe(false);
   });
 
-  it('fails open (active) if the lookup throws', async () => {
+  it('fails closed (paused) if the lookup throws', async () => {
     const db = {
       collection: () => ({
         doc: () => ({
@@ -55,7 +55,7 @@ describe('getAutomationActive', () => {
         }),
       }),
     };
-    expect(await getAutomationActive(db)).toBe(true);
+    expect(await getAutomationActive(db)).toBe(false);
   });
 
   it('reads a per-owner doc (automation_{ownerId}) instead of the shared one when an ownerId is passed', async () => {

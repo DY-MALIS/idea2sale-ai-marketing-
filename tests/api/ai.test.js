@@ -3,10 +3,24 @@ import {
   ensureBusinessInInboxMessage,
   FACEBOOK_SCAN_MODES,
   getFacebookCompetitorActivityWindow,
+  getAiRateLimitPolicy,
   googleSheetsUrlToCsvExportUrl,
   resolveCreativeImageMode,
   resolveFacebookScanMode,
 } from '../../api/ai.js';
+
+describe('video rate-limit policy', () => {
+  it('keeps paid generation and polling out of the shared AI quota', () => {
+    expect(getAiRateLimitPolicy('videoGenerate')).toMatchObject({
+      scope: 'video-generate',
+      ipScope: 'video-generate-ip',
+      failClosed: true,
+    });
+    expect(getAiRateLimitPolicy('videoStatus')).toMatchObject({ scope: 'video-status', failClosed: false });
+    expect(getAiRateLimitPolicy('copyGenerate')).toMatchObject({ scope: 'ai' });
+    expect(getAiRateLimitPolicy('videoStatus').limit).toBeGreaterThan(80);
+  });
+});
 
 describe('resolveCreativeImageMode', () => {
   it('preserves explicit poster requests through image automation', () => {

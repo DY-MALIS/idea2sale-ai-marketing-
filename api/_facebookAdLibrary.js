@@ -35,7 +35,7 @@ export async function searchCompetitorAds({ searchTerms, countries }) {
     limit: '25',
   });
 
-  const response = await fetch(`${AD_LIBRARY_ENDPOINT}?${params.toString()}`);
+  const response = await fetch(`${AD_LIBRARY_ENDPOINT}?${params.toString()}`, { signal: AbortSignal.timeout(30000) });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(data?.error?.message || `Meta Ad Library request failed (status ${response.status}).`);

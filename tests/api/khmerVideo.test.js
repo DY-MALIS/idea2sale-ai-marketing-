@@ -16,7 +16,7 @@ it('uses the same measured audio and supplied portrait for manual video lip sync
     performanceStyle: '',
     context: 'Presenter',
   });
-  expect(mocks.video).toHaveBeenCalledWith(expect.objectContaining({ model: 'bytedance/seedance-2.0', duration: 4, referenceUrls: ['https://image'], audioReferenceUrls: ['https://audio'], prompt: expect.stringContaining('3.40 seconds') }));
+  expect(mocks.video).toHaveBeenCalledWith(expect.objectContaining({ model: 'bytedance/seedance-2.0-mini', khmerSpeech: true, duration: 4, referenceUrls: ['https://image'], audioReferenceUrls: ['https://audio'], prompt: expect.stringContaining('3.40 seconds') }));
   expect(mocks.video.mock.calls[0][0].prompt).toContain('master clock');
   expect(mocks.video.mock.calls[0][0].prompt).toContain('real-time 1x speed');
   expect(result.narrationAudio.mediaUrl).toBe('https://audio');
@@ -28,4 +28,13 @@ it('does not start a video when speech would be cut off', async () => {
   const upload = vi.fn().mockResolvedValueOnce({ mediaUrl: 'image' }).mockResolvedValueOnce({ duration: 4.5 });
   await expect(startKhmerVideoJob({}, { script: 'សួស្តី' }, upload, { duration: 4 })).rejects.toThrow('fit within');
   expect(mocks.video).not.toHaveBeenCalled();
+});
+
+it('rejects an over-budget duration before any paid preparation starts', async () => {
+  const upload = vi.fn();
+  await expect(startKhmerVideoJob({}, { script: 'សួស្តី' }, upload, { duration: 16 })).rejects.toThrow('$0.80');
+  expect(mocks.image).not.toHaveBeenCalled();
+  expect(mocks.speech).not.toHaveBeenCalled();
+  expect(mocks.video).not.toHaveBeenCalled();
+  expect(upload).not.toHaveBeenCalled();
 });

@@ -9,7 +9,10 @@ vi.mock('../../../api/_firebaseAdmin.js', () => ({
   default: { auth: () => ({ verifyIdToken: mockVerifyIdToken }) },
   initFirebaseAdmin: mockInitFirebaseAdmin,
 }));
-vi.mock('../../../api/_tiktok.js', () => ({ getCookie: vi.fn() }));
+vi.mock('../../../api/_tiktok.js', () => ({
+  getCookie: vi.fn(),
+  sessionCookieAttributes: vi.fn(() => 'HttpOnly; Secure; SameSite=None; Path=/'),
+}));
 
 const handler = (await import('../../../api/tiktok/me.js')).default;
 

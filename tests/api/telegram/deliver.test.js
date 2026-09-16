@@ -30,7 +30,7 @@ vi.mock('../../../api/telegram/run-scheduled.js', () => ({
 vi.mock('../../../api/_telegramClaim.js', () => ({ claimPendingPost: vi.fn(), findRecentDuplicateTelegramPost: vi.fn() }));
 vi.mock('../../../api/_alert.js', () => ({ notifyAdmins: vi.fn() }));
 
-const { processContentPlanVideo } = await import('../../../api/telegram/deliver.js');
+const { getRawBody, processContentPlanVideo } = await import('../../../api/telegram/deliver.js');
 
 const originalFetch = global.fetch;
 afterEach(() => {
@@ -51,6 +51,18 @@ const fakeDb = (data, updateSpy) => ({
       update: (ref, patch) => { ref.update(patch); },
     });
   },
+});
+
+describe('QStash raw request body', () => {
+  it('uses the exact body captured by Express before JSON parsing', async () => {
+    await expect(getRawBody({ rawBody: '{"postId":"abc"}', body: { postId: 'changed' } }))
+      .resolves.toBe('{"postId":"abc"}');
+  });
+
+  it('does not hang if another middleware already consumed the stream', async () => {
+    await expect(getRawBody({ readableEnded: true, body: { postId: 'abc' } }))
+      .resolves.toBe('{"postId":"abc"}');
+  });
 });
 
 describe('processContentPlanVideo', () => {
@@ -183,8 +195,22 @@ describe('processContentPlanVideo', () => {
     const result = await processContentPlanVideo(db, 'item-1', { headers: { host: 'app.example' } });
 
     expect(result.stillProcessing).toBe(true);
-    expect(updates).toEqual([{ pollAttempts: 4 }]);
+    expect(updates[0]).toEqual({ pollAttempts: 4 });
+    expect(updates[1]).toMatchObject({ pollSchedulingError: null });
     expect(mockScheduleContentPlanPoll).toHaveBeenCalledWith({ headers: { host: 'app.example' } }, 'item-1');
+  });
+
+  it('keeps a paid job PROCESSING when scheduling its next poll fails', async () => {
+    mockPollOpenRouterVideo.mockResolvedValue({ status: 'processing' });
+    mockScheduleContentPlanPoll.mockRejectedValueOnce(new Error('QStash unavailable'));
+    const updates = [];
+    const db = fakeDb({ status: 'PROCESSING', videoJobId: 'job-1', pollAttempts: 2, userId: 'u1' }, (p) => updates.push(p));
+
+    const result = await processContentPlanVideo(db, 'item-1', { headers: { host: 'app.example' } });
+
+    expect(result).toMatchObject({ ok: true, stillProcessing: true, pollingDeferred: true, attempts: 3 });
+    expect(updates).not.toContainEqual(expect.objectContaining({ status: 'FAILED' }));
+    expect(updates.at(-1)).toMatchObject({ pollSchedulingError: 'QStash unavailable' });
   });
 
   it('fails the item once the poll-attempt limit is reached instead of polling forever', async () => {

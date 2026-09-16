@@ -63,8 +63,19 @@ export const processContentPlanVideo = async (db, itemId, req) => {
         throw new Error(`Video generation timed out after ${attempts} status checks.`);
       }
       await ref.update({ pollAttempts: attempts });
-      await scheduleContentPlanPoll(req, itemId);
-      return { ok: true, stillProcessing: true, attempts };
+      try {
+        await scheduleContentPlanPoll(req, itemId);
+        await ref.update({ pollScheduledAt: FieldValue.serverTimestamp(), pollSchedulingError: null });
+        return { ok: true, stillProcessing: true, attempts };
+      } catch (scheduleError) {
+        const message = scheduleError?.message || 'Could not schedule the next video status check.';
+        // The paid provider job is still valid. Keep PROCESSING so the cron
+        // recovery loop can re-arm polling instead of discarding the job and
+        // charging the user again on retry.
+        await ref.update({ pollSchedulingError: message, pollSchedulingFailedAt: FieldValue.serverTimestamp() });
+        await notifyAdmins(`Video job ${item.videoJobId} is still running but its next poll was deferred: ${message}`);
+        return { ok: true, stillProcessing: true, pollingDeferred: true, attempts };
+      }
     }
 
     const uploaded = await uploadMediaDataUrl({ mediaDataUrl: result.videoUrl, mediaType: 'video' });
@@ -74,7 +85,9 @@ export const processContentPlanVideo = async (db, itemId, req) => {
     const wantsNarration = ['edge-seedance', 'gemini', 'separate'].includes(item.voiceOverMode) && item.voiceOverWanted !== false && item.prompt
       && !wantsSilentVideo(item.prompt);
     if (wantsNarration) {
-      const script = item.voiceOverText || await createKhmerNarration(item.prompt, 8);
+      const requestedDuration = Number(item.duration);
+      const duration = [4, 6, 8].includes(requestedDuration) ? requestedDuration : 8;
+      const script = item.voiceOverText || await createKhmerNarration(item.prompt, duration);
       let narration = item.narrationAudio;
       // Lip movement was generated from this exact track. Regenerating it here
       // can change word timing and break synchronization.
@@ -86,7 +99,7 @@ export const processContentPlanVideo = async (db, itemId, req) => {
         narration = await uploadMediaDataUrl({ mediaDataUrl: audio.audioUrl, mediaType: 'audio' });
       }
       if (!Number.isFinite(narration.duration) || narration.duration <= 0) throw new Error('Could not verify Khmer narration duration.');
-      if (narration.duration > 8) throw new Error('Khmer narration exceeds 8 seconds. Shorten the dialogue and retry.');
+      if (narration.duration > duration) throw new Error(`Khmer narration exceeds ${duration} seconds. Shorten the dialogue and retry.`);
       uploaded.mediaUrl = replaceCloudinaryAudio(uploaded.mediaUrl, narration.publicId);
       // Materialize the transformed asset before asking Telegram to download it.
       const rendered = await fetch(uploaded.mediaUrl);
@@ -171,12 +184,20 @@ export const config = {
   api: { bodyParser: false },
 };
 
-const getRawBody = (req) => new Promise((resolve, reject) => {
-  let data = '';
-  req.on('data', (chunk) => { data += chunk; });
-  req.on('end', () => resolve(data));
-  req.on('error', reject);
-});
+export const getRawBody = (req) => {
+  if (typeof req.rawBody === 'string') return Promise.resolve(req.rawBody);
+  if (Buffer.isBuffer(req.rawBody)) return Promise.resolve(req.rawBody.toString('utf8'));
+  if (req.readableEnded || req.complete) {
+    return Promise.resolve(req.body && typeof req.body === 'object' ? JSON.stringify(req.body) : String(req.body || ''));
+  }
+  return new Promise((resolve, reject) => {
+    let data = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk) => { data += chunk; });
+    req.on('end', () => resolve(data));
+    req.on('error', reject);
+  });
+};
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -188,20 +209,22 @@ export default async function handler(req, res) {
 
   const currentSigningKey = process.env.QSTASH_CURRENT_SIGNING_KEY;
   const nextSigningKey = process.env.QSTASH_NEXT_SIGNING_KEY;
-  if (currentSigningKey && nextSigningKey) {
-    const signature = req.headers['upstash-signature'];
-    if (!signature) {
-      return res.status(401).json({ error: 'Missing QStash signature.' });
+  if (!currentSigningKey || !nextSigningKey) {
+    console.error('QStash signing keys are not configured; refusing unsigned delivery work.');
+    return res.status(500).json({ error: 'QStash signing keys are not configured.' });
+  }
+  const signature = req.headers['upstash-signature'];
+  if (!signature) {
+    return res.status(401).json({ error: 'Missing QStash signature.' });
+  }
+  try {
+    const receiver = new Receiver({ currentSigningKey, nextSigningKey });
+    const isValid = await receiver.verify({ signature, body: rawBody });
+    if (!isValid) {
+      return res.status(401).json({ error: 'Invalid QStash signature.' });
     }
-    try {
-      const receiver = new Receiver({ currentSigningKey, nextSigningKey });
-      const isValid = await receiver.verify({ signature, body: rawBody });
-      if (!isValid) {
-        return res.status(401).json({ error: 'Invalid QStash signature.' });
-      }
-    } catch (error) {
-      return res.status(401).json({ error: error?.message || 'QStash signature verification failed.' });
-    }
+  } catch (error) {
+    return res.status(401).json({ error: error?.message || 'QStash signature verification failed.' });
   }
 
   let payload;

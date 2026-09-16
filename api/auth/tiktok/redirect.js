@@ -3,7 +3,7 @@ import { createOAuthState, getTikTokAuthUrl, oauthStateCookieHeader } from '../.
 export default function handler(req, res) {
   try {
     const state = createOAuthState();
-    res.setHeader('Set-Cookie', oauthStateCookieHeader(state));
+    res.setHeader('Set-Cookie', oauthStateCookieHeader(state, req));
     res.redirect(302, getTikTokAuthUrl(req, state));
   } catch (error) {
     res.status(500).send(error.message || 'Failed to start TikTok auth');

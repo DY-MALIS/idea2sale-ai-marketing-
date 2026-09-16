@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { resolveOpenRouterTextModel, resolveOpenRouterImageModel, generateOpenRouterImage, generateOpenRouterText, generateOpenRouterWebSearch, redactSecrets } from '../../api/_openrouter.js';
+import { resolveOpenRouterTextModel, resolveOpenRouterImageModel, generateOpenRouterImage, generateOpenRouterText, generateOpenRouterWebSearch, normalizeForKhmerSpeech, redactSecrets } from '../../api/_openrouter.js';
 
 const originalEnv = { ...process.env };
 const originalFetch = global.fetch;
@@ -45,6 +45,16 @@ describe('resolveOpenRouterImageModel', () => {
 
   it('passes through an explicit model unchanged', () => {
     expect(resolveOpenRouterImageModel('some/other-image-model')).toBe('some/other-image-model');
+  });
+});
+
+describe('normalizeForKhmerSpeech', () => {
+  it('prepares mixed Khmer text, acronyms and numbers for clear native speech', () => {
+    const normalized = normalizeForKhmerSpeech('  សាកល្បង  AI 24 ម៉ោង ។  ');
+    expect(normalized).toMatch(/[\u1780-\u17ff]/u);
+    expect(normalized).not.toMatch(/\bAI\b|\d/u);
+    expect(normalized).not.toContain('  ');
+    expect(normalized).not.toContain(' ។');
   });
 });
 

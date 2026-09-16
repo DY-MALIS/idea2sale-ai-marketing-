@@ -8,6 +8,23 @@
 import { generateOpenRouterWebSearch } from './_openrouter.js';
 import { urlIsReachable } from './_webBusinessSearch.js';
 
+const MAX_COMPETITOR_CANDIDATES = 75;
+const URL_VERIFICATION_CONCURRENCY = 8;
+
+const mapWithConcurrency = async (items, limit, mapper) => {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(items[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+};
+
 const jsonFromText = (text) => {
   const match = String(text || '').match(/\{[\s\S]*\}/);
   try {
@@ -43,7 +60,8 @@ Step 2 -- Find real competitors: search for REAL, named businesses. A business o
   (b) Overlapping customers -- it targets a similar customer segment in the same geographic market (${country}, and the same city/region when the target is a local business).
   (c) Currently active and real -- found via an actual, live search result (its own website, a business directory listing, a comparison article, a news mention, a real Facebook Page, or an official LinkedIn company/school page), not a defunct business or an unrelated mention of the same words.
   (d) Comparable scale -- prefer other small/independent or similarly-sized businesses over an unrelated large multinational conglomerate, unless the target itself is a large/national brand.
-Every competitor you list MUST satisfy all four and come with a real source URL backing it. Rank the most important direct competitors first based on visible public market presence and relevance to the same customers, not on guessed revenue or private data. Return up to 20 strong matches for this search pass. Search alternate spellings and local-language names so legitimate local businesses are not missed. Never invent a competitor name and never list one you cannot support with a real source URL. If you cannot find any real, verifiable competitor meeting this bar, return an empty list -- do not guess or pad it with plausible-sounding names just to fill the list.
+Every competitor you list MUST satisfy all four and come with a real source URL backing it. Explicitly exclude suppliers, distributors that do not sell a substitute, agencies serving the target, partners, customers, parent/sister companies, businesses that merely share a broad industry, and companies outside the real geographic/customer market. Rank the most important direct competitors first based on visible public market presence and relevance to the same customers, not on guessed revenue or private data. Return up to 20 strong matches actually found in this pass; never target a quota and never pad the list. Search alternate spellings and local-language names so legitimate local businesses are not missed. Never invent a competitor name and never list one you cannot support with a real source URL.
+Every entry you return already met all four criteria above, so always set "isDirectCompetitor": true and "matchConfidence": "high" for it -- these are not separate judgment calls. If you are not fully confident a business satisfies all four, omit it entirely rather than listing it with a lower confidence; there is no "medium" or "low" tier, only include or exclude.
 
 For each verified competitor, provide a short factual "matchReason" stating the exact overlapping product/service, customer group, and location supported by the search evidence. Search for its official LinkedIn organization page in addition to Facebook and web sources. Only return a LinkedIn company, school, or showcase URL explicitly found in live results; never return a personal profile and never construct a URL from the company name. Only fill in "positioning" if the source actually supports it; otherwise leave it as an empty string rather than inferring.
 
@@ -54,6 +72,8 @@ Return ONLY a single valid JSON object, no markdown:
   "competitors": [
     {
       "name": "exact real name",
+      "isDirectCompetitor": true,
+      "matchConfidence": "high",
       "matchReason": "factual reason this is a direct competitor, grounded in the source",
       "positioning": "only if directly supported by the source, else empty string",
       "linkedinUrl": "official LinkedIn company/school/showcase page URL if found, else empty string",
@@ -82,6 +102,8 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
   parsedResults.forEach((parsed) => {
     (Array.isArray(parsed?.competitors) ? parsed.competitors : []).forEach((item) => {
       const linkedinUrl = String(item?.linkedinUrl || '').trim().slice(0, 300);
+      const isDirectCompetitor = item?.isDirectCompetitor === true;
+      const matchConfidence = String(item?.matchConfidence || '').trim().toLowerCase();
       const candidate = {
         name: String(item?.name || '').trim().slice(0, 200),
         matchReason: String(item?.matchReason || '').trim().slice(0, 500),
@@ -103,6 +125,7 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
           ))
           .slice(0, 5) } : {}),
       };
+      if (!isDirectCompetitor || matchConfidence !== 'high' || !candidate.matchReason) return;
       if (!candidate.name || !/^https?:\/\//i.test(candidate.sourceUrl)) return;
       const key = candidate.name.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
       if (!key) return;
@@ -123,19 +146,22 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
       });
     });
   });
-  // Verify before applying the display cap. Cutting candidates first allowed a
-  // few dead early results to crowd out real businesses found by later passes.
-  const candidates = [...mergedCandidates.values()].slice(0, 75);
+  // Keep broad discovery useful while bounding outbound requests so a large or
+  // malformed model response cannot exhaust a serverless invocation.
+  const candidates = [...mergedCandidates.values()].slice(0, MAX_COMPETITOR_CANDIDATES);
 
   // Same real-HTTP-check pattern as _webBusinessSearch.js: a fabricated or
   // dead source URL is the actual failure mode worth guarding against here.
-  const verified = (await Promise.all(candidates.map(async (item) => {
+  // Activity URLs are checked sequentially within each worker, keeping total
+  // outbound verification concurrency at the worker limit.
+  const verified = (await mapWithConcurrency(candidates, URL_VERIFICATION_CONCURRENCY, async (item) => {
     if (!(await urlIsReachable(item.sourceUrl))) return null;
-    const activityChecks = await Promise.all((item.recentActivities || []).map(async (activity) => (
-      (await urlIsReachable(activity.sourceUrl)) ? activity : null
-    )));
+    const activityChecks = [];
+    for (const activity of item.recentActivities || []) {
+      if (await urlIsReachable(activity.sourceUrl)) activityChecks.push(activity);
+    }
     return hasActivityWindow ? { ...item, recentActivities: activityChecks.filter(Boolean) } : item;
-  }))).filter(Boolean).slice(0, 30);
+  })).filter(Boolean);
 
   return {
     isSpecificEntity: parsedResults.some((parsed) => !!parsed?.isSpecificEntity),

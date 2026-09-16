@@ -2,7 +2,10 @@ import { describe, expect, it, vi, afterEach } from 'vitest';
 import { preserveKhmerDuringTranslation, splitKhmerScript, nativeSpeechPrompt, compareKhmerTranscript, extractVideoDialogue, visualOnlyVideoPrompt, wantsSilentVideo } from '../../shared/videoSpeech.js';
 const mocks = vi.hoisted(() => ({ narration: vi.fn(), transcribe: vi.fn() }));
 vi.mock('../../api/_khmerNarration.js', () => ({ createKhmerNarration: mocks.narration }));
-vi.mock('../../api/_openrouter.js', () => ({ transcribeAudioWithOpenRouter: mocks.transcribe }));
+vi.mock('../../api/_openrouter.js', () => ({
+  transcribeAudioWithOpenRouter: mocks.transcribe,
+  normalizeForKhmerSpeech: (text) => String(text).normalize('NFC').trim(),
+}));
 import { preparePlanVideoSpeech, verifyUploadedVideoSpeech } from '../../api/_videoSpeech.js';
 afterEach(() => { vi.resetAllMocks(); vi.unstubAllGlobals(); });
 
@@ -81,7 +84,8 @@ describe('native Khmer video speech', () => {
   });
   it('fills legacy plans with missing dialogue but respects silent requests', async () => {
     mocks.narration.mockResolvedValue('សួស្តី');
-    expect((await preparePlanVideoSpeech({prompt:'Office'})).script).toBe('សួស្តី');
+    expect((await preparePlanVideoSpeech({prompt:'Office', duration: 4})).script).toBe('សួស្តី');
+    expect(mocks.narration).toHaveBeenCalledWith('Office', 4, undefined);
     mocks.narration.mockClear();
     expect((await preparePlanVideoSpeech({prompt:'Office',voiceOverWanted:false})).mode).toBe('silent');
     expect(mocks.narration).not.toHaveBeenCalled();

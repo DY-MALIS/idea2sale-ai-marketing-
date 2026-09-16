@@ -3,7 +3,7 @@ import { createOAuthState, getRedirectUri, getTikTokAuthUrl, oauthStateCookieHea
 export default function handler(req, res) {
   try {
     const state = createOAuthState();
-    res.setHeader('Set-Cookie', oauthStateCookieHeader(state));
+    res.setHeader('Set-Cookie', oauthStateCookieHeader(state, req));
     res.status(200).json({
       url: getTikTokAuthUrl(req, state),
       redirectUri: getRedirectUri(req),

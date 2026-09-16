@@ -1,4 +1,13 @@
+import {
+  assertVideoGenerationWithinBudget,
+  isBudgetVideoModel,
+  STANDARD_VIDEO_MODEL,
+  VIDEO_RESOLUTION,
+} from '../shared/videoCost.js';
+
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
+const TEXT_REQUEST_TIMEOUT_MS = 70_000;
+const MEDIA_REQUEST_TIMEOUT_MS = 240_000;
 
 const getApiKey = () => {
   const apiKey = process.env.OPEN_ROUTER_API_KEY || process.env.OPENROUTER_API_KEY;
@@ -42,6 +51,7 @@ const headers = (contentType = 'application/json') => ({
 const openRouterJson = async (path, body) => {
   const response = await fetch(`${OPENROUTER_BASE_URL}${path}`, {
     method: 'POST',
+    signal: AbortSignal.timeout(MEDIA_REQUEST_TIMEOUT_MS),
     headers: headers(),
     body: JSON.stringify(body),
   });
@@ -164,6 +174,7 @@ export async function synthesizeSpeechViaOpenRouter({ input, model, voice, forma
   const speechInput = containsKhmer(input) ? normalizeForKhmerSpeech(input) : input;
   const response = await fetch(`${OPENROUTER_BASE_URL}/audio/speech`, {
     method: 'POST',
+    signal: AbortSignal.timeout(TEXT_REQUEST_TIMEOUT_MS),
     headers: headers(),
     body: JSON.stringify({ model, input: speechInput, voice, response_format: format }),
   });
@@ -211,6 +222,7 @@ export async function generateOpenRouterText({
 
   const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
     method: 'POST',
+    signal: AbortSignal.timeout(TEXT_REQUEST_TIMEOUT_MS),
     headers: {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
@@ -279,6 +291,7 @@ export async function generateOpenRouterWebSearch({ prompt, system = 'You are a 
 
   const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
     method: 'POST',
+    signal: AbortSignal.timeout(90_000),
     headers: {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
@@ -536,7 +549,7 @@ const spellOutNumbers = (text) => String(text || '')
     return Number.isFinite(n) && n <= 9999 ? khmerNumberToWords(n) : digits;
   });
 
-const normalizeForKhmerSpeech = (text) => {
+export const normalizeForKhmerSpeech = (text) => {
   const replacements = [
     [/\bDGACADEMY\b/gi, 'ឌីជី អាកាដេមី'],
     [/\bAI\b/g, 'អេ អាយ'],
@@ -557,7 +570,12 @@ const normalizeForKhmerSpeech = (text) => {
   const withWordsReplaced = replacements.reduce((value, [pattern, replacement]) => (
     value.replace(pattern, replacement)
   ), String(text || ''));
-  return spellOutNumbers(withWordsReplaced);
+  return spellOutNumbers(withWordsReplaced)
+    .normalize('NFC')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/\s+([។៕!?.,])/g, '$1')
+    .trim();
 };
 
 export async function generateTranslateSpeech({ input }) {
@@ -578,6 +596,7 @@ export async function generateTranslateSpeech({ input }) {
       q: segment.text,
     });
     const response = await fetch(`https://translate.google.com/translate_tts?${params.toString()}`, {
+      signal: AbortSignal.timeout(30_000),
       headers: {
         'User-Agent': 'Mozilla/5.0',
         Referer: 'https://translate.google.com/',
@@ -616,6 +635,7 @@ export async function generateOpenRouterSpeech({
     try {
       const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
         method: 'POST',
+        signal: AbortSignal.timeout(TEXT_REQUEST_TIMEOUT_MS),
         headers: headers(),
         body: JSON.stringify({
           model: speechModel,
@@ -683,17 +703,23 @@ export async function generateOpenRouterSpeech({
   throw lastError || new Error('OpenRouter speech request failed.');
 }
 
-export async function startOpenRouterVideo({ prompt, images, referenceUrls, audioReferenceUrls, model, duration, voiceId, motionPrompt, expressiveness }) {
-  const selectedModel = model || process.env.OPEN_ROUTER_VIDEO_MODEL || 'google/veo-3.1-fast';
+export async function startOpenRouterVideo({ prompt, images, referenceUrls, audioReferenceUrls, model, duration, voiceId, motionPrompt, expressiveness, khmerSpeech = false }) {
+  const configuredModel = model || process.env.OPEN_ROUTER_VIDEO_MODEL || STANDARD_VIDEO_MODEL;
+  // Never allow an old/expensive environment override to bypass the per-video
+  // budget. Unknown models fall back to the approved low-cost default before
+  // the paid request is submitted.
+  const selectedModel = isBudgetVideoModel(configuredModel) ? configuredModel : STANDARD_VIDEO_MODEL;
+  const clipDuration = Number.isFinite(duration) && duration > 0 ? duration : 8;
+  const estimatedCost = assertVideoGenerationWithinBudget({ duration: clipDuration, khmerSpeech, model: selectedModel });
   const body = {
-    // Veo 3.1 Fast: same Google Veo family, ~4x cheaper ($0.10/s vs $0.40/s)
-    // than standard Veo 3.1, chosen to keep multi-segment (16s/24s) video
-    // generation affordable. Override via OPEN_ROUTER_VIDEO_MODEL if needed.
     model: selectedModel,
     prompt,
     aspect_ratio: '16:9',
-    resolution: '720p',
-    duration: Number.isFinite(duration) && duration > 0 ? duration : 8,
+    resolution: VIDEO_RESOLUTION,
+    duration: clipDuration,
+    // The app either requests silence or adds its own narration/reference
+    // audio, so paying the video provider for another generated track is waste.
+    generate_audio: false,
   };
 
   if (selectedModel === 'heygen/avatar-iv') {
@@ -749,12 +775,13 @@ export async function startOpenRouterVideo({ prompt, images, referenceUrls, audi
   const jobId = job?.id;
   if (!jobId) throw new Error('OpenRouter did not return a video job id.');
 
-  return { jobId, status: job.status, pollingUrl: job.polling_url };
+  return { jobId, status: job.status, pollingUrl: job.polling_url, estimatedCost };
 }
 
 export async function pollOpenRouterVideo({ jobId }) {
   const statusResponse = await fetch(`${OPENROUTER_BASE_URL}/videos/${encodeURIComponent(jobId)}`, {
     headers: headers(null),
+    signal: AbortSignal.timeout(TEXT_REQUEST_TIMEOUT_MS),
   });
   const status = await statusResponse.json().catch(() => ({}));
   if (!statusResponse.ok) {
@@ -769,6 +796,7 @@ export async function pollOpenRouterVideo({ jobId }) {
 
   const contentResponse = await fetch(`${OPENROUTER_BASE_URL}/videos/${encodeURIComponent(jobId)}/content?index=0`, {
     headers: headers(null),
+    signal: AbortSignal.timeout(MEDIA_REQUEST_TIMEOUT_MS),
   });
   if (!contentResponse.ok) {
     const data = await contentResponse.json().catch(() => ({}));

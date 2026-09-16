@@ -10,8 +10,17 @@ import { getAuth } from "firebase-admin/auth";
 import { FieldValue, getFirestore, type Firestore } from "firebase-admin/firestore";
 import { GoogleGenAI } from "@google/genai";
 import runScheduledHandler from "./api/telegram/run-scheduled.js";
+import telegramWebhookHandler from "./api/telegram/webhook.js";
+import telegramDeliverHandler from "./api/telegram/deliver.js";
 import aiHandler from "./api/ai.js";
 import publishPhotoHandler from "./api/tiktok/publish-photo.js";
+import configCheckHandler from "./api/config/check.js";
+import tiktokAuthHandler from "./api/auth/tiktok.js";
+import tiktokAuthRedirectHandler from "./api/auth/tiktok/redirect.js";
+import tiktokCallbackHandler from "./api/tiktok/callback.js";
+import tiktokMeHandler from "./api/tiktok/me.js";
+import tiktokStatsHandler from "./api/tiktok/stats.js";
+import tiktokPublishHandler from "./api/tiktok/publish.js";
 
 dotenv.config();
 
@@ -47,6 +56,11 @@ const rateLimit = (name: string, maxRequests: number, windowMs: number) => {
   return (req: express.Request, res: express.Response, next: express.NextFunction) => {
     const key = `${name}:${req.ip}:${(req as any).user?.uid || "anonymous"}`;
     const now = Date.now();
+    if (apiRateLimitStore.size > 10_000) {
+      for (const [storedKey, value] of apiRateLimitStore) {
+        if (value.resetAt <= now) apiRateLimitStore.delete(storedKey);
+      }
+    }
     const current = apiRateLimitStore.get(key);
 
     if (!current || current.resetAt <= now) {
@@ -98,15 +112,46 @@ async function startServer() {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("X-Frame-Options", "DENY");
     res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
-    res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+    res.setHeader("Permissions-Policy", "camera=(), microphone=(self), geolocation=()");
     next();
   });
-  app.use(express.json({ limit: "25mb" }));
+  app.use(express.json({
+    limit: "25mb",
+    verify(req, _res, buffer) {
+      (req as any).rawBody = buffer.toString('utf8');
+    },
+  }));
   app.use(cookieParser());
+  const configuredAppOrigin = (() => {
+    try { return process.env.APP_URL ? new URL(process.env.APP_URL).origin : ''; } catch { return ''; }
+  })();
   app.use(cors({
-    origin: true,
+    origin(origin, callback) {
+      if (!origin) return callback(null, true);
+      try {
+        const parsed = new URL(origin);
+        const local = ['localhost', '127.0.0.1'].includes(parsed.hostname);
+        if (local || (configuredAppOrigin && parsed.origin === configuredAppOrigin)) return callback(null, true);
+      } catch {
+        // Invalid Origin headers are rejected below.
+      }
+      return callback(new Error('Origin is not allowed.'));
+    },
     credentials: true
   }));
+
+  // Development uses the exact same hardened handlers as Vercel production.
+  // Keep these registrations before the legacy compatibility routes below so
+  // OAuth CSRF checks, Firebase auth, validation, and audit behavior cannot drift.
+  app.all("/api/config/check", async (req, res) => { await configCheckHandler(req, res); });
+  app.all("/api/auth/tiktok", async (req, res) => { await tiktokAuthHandler(req, res); });
+  app.all("/api/auth/tiktok/redirect", async (req, res) => { await tiktokAuthRedirectHandler(req, res); });
+  app.all("/api/tiktok/callback", async (req, res) => { await tiktokCallbackHandler(req, res); });
+  app.all("/api/tiktok/me", async (req, res) => { await tiktokMeHandler(req, res); });
+  app.all("/api/tiktok/stats", async (req, res) => { await tiktokStatsHandler(req, res); });
+  app.all("/api/tiktok/publish", async (req, res) => { await tiktokPublishHandler(req, res); });
+  app.all("/api/telegram/webhook", async (req, res) => { await telegramWebhookHandler(req, res); });
+  app.all("/api/telegram/deliver", async (req, res) => { await telegramDeliverHandler(req, res); });
 
   // Health check
   app.get("/api/health", (req, res) => {
@@ -680,6 +725,19 @@ Use clear headings and practical bullet points.`;
   // reimplementation, so this route can't drift from what Vercel actually serves.
   app.post("/api/tiktok/publish-photo", async (req, res) => {
     await publishPhotoHandler(req, res);
+  });
+
+  // Convert middleware failures (notably rejected CORS origins) into a stable,
+  // non-leaking API response instead of Express's development stack trace.
+  app.use((error: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (error?.message === 'Origin is not allowed.') {
+      return res.status(403).json({ error: 'Origin is not allowed.' });
+    }
+    if (req.path.startsWith('/api/')) {
+      console.error('Unhandled API middleware error:', error?.message || error);
+      return res.status(500).json({ error: 'Internal server error.' });
+    }
+    return next(error);
   });
 
   // Vite middleware for development

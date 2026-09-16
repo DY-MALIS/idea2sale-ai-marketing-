@@ -1,4 +1,4 @@
-import { getRedirectUri, verifyAndClearOAuthState, saveAutomationTokens } from '../_tiktok.js';
+import { getRedirectUri, sessionCookieAttributes, verifyAndClearOAuthState, saveAutomationTokens } from '../_tiktok.js';
 import { initFirebaseAdmin } from '../_firebaseAdmin.js';
 
 export default async function handler(req, res) {
@@ -65,8 +65,9 @@ export default async function handler(req, res) {
     const existingSetCookie = res.getHeader('Set-Cookie');
     res.setHeader('Set-Cookie', [].concat(
       existingSetCookie || [],
-      `tiktok_token=${token}; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=${data.expires_in || 86400}`,
+      `tiktok_token=${token}; ${sessionCookieAttributes(req)}; Max-Age=${data.expires_in || 86400}`,
     ));
+    const openerOrigin = new URL(getRedirectUri(req)).origin;
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.status(200).send(`
       <!doctype html>
@@ -76,7 +77,7 @@ export default async function handler(req, res) {
           <p>You can close this window and return to aime.angkorgate.</p>
           <script>
             if (window.opener) {
-              window.opener.postMessage({ type: 'TIKTOK_AUTH_SUCCESS' }, '*');
+              window.opener.postMessage({ type: 'TIKTOK_AUTH_SUCCESS' }, ${JSON.stringify(openerOrigin)});
               window.close();
             }
           </script>

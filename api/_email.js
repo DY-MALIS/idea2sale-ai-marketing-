@@ -14,6 +14,7 @@ export async function sendOutreachEmail({ to, subject, body, fromName }) {
 
   const response = await fetch(RESEND_API_URL, {
     method: 'POST',
+    signal: AbortSignal.timeout(30000),
     headers: {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',

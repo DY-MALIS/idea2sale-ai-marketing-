@@ -23,13 +23,18 @@ import { searchBusinessesOnWeb } from './_webBusinessSearch.js';
 import { researchCompetitors } from './_competitorResearch.js';
 import { uploadMediaDataUrl } from './_cloudinaryUpload.js';
 import { sendOutreachEmail } from './_email.js';
+import { createHash } from 'crypto';
 
-// This endpoint has no auth check (it's used from guest/demo sessions with no
-// Firebase login), so without a limit a single connection can script unlimited
-// image/video/TTS calls straight through to paid OpenRouter/Gemini API usage.
+// Most actions remain available to guest/demo traffic, so the shared endpoint
+// needs a general per-IP limit. Paid video generation is stricter below: both
+// registered and guest Firebase sessions authenticate, then receive dedicated
+// per-user and per-IP fail-closed quotas.
 // One shared per-IP budget across every action here, not per-action, since a
 // script abusing this endpoint would just spread calls across actions otherwise.
 const AI_RATE_LIMIT_PER_HOUR = Number(process.env.AI_RATE_LIMIT_PER_HOUR) || 60;
+const VIDEO_GENERATION_RATE_LIMIT_PER_HOUR = Number(process.env.VIDEO_GENERATION_RATE_LIMIT_PER_HOUR) || 3;
+const VIDEO_GENERATION_IP_RATE_LIMIT_PER_HOUR = Number(process.env.VIDEO_GENERATION_IP_RATE_LIMIT_PER_HOUR) || 6;
+const VIDEO_STATUS_RATE_LIMIT_PER_HOUR = Number(process.env.VIDEO_STATUS_RATE_LIMIT_PER_HOUR) || 300;
 // Separate, much higher budget for client-side crash reports -- these cost no
 // AI/API spend, so they shouldn't compete with real AI usage for the same
 // per-IP quota, but still need *some* cap so a broken page stuck in a retry
@@ -39,6 +44,36 @@ const CLIENT_ERROR_RATE_LIMIT_PER_HOUR = Number(process.env.CLIENT_ERROR_RATE_LI
 // AI reply (spam complaints, sender reputation damage) -- a tighter, separate
 // per-IP budget than the general AI quota above.
 const EMAIL_RATE_LIMIT_PER_HOUR = Number(process.env.EMAIL_RATE_LIMIT_PER_HOUR) || 20;
+
+export const getAiRateLimitPolicy = (action) => {
+  if (action === 'videoGenerate') {
+    return {
+      scope: 'video-generate',
+      limit: VIDEO_GENERATION_RATE_LIMIT_PER_HOUR,
+      ipScope: 'video-generate-ip',
+      ipLimit: VIDEO_GENERATION_IP_RATE_LIMIT_PER_HOUR,
+      failClosed: true,
+    };
+  }
+  if (action === 'videoStatus') {
+    return { scope: 'video-status', limit: VIDEO_STATUS_RATE_LIMIT_PER_HOUR, failClosed: false };
+  }
+  return { scope: 'ai', limit: AI_RATE_LIMIT_PER_HOUR, failClosed: false };
+};
+
+const requireAiUser = async (req) => {
+  const authHeader = String(req.headers?.authorization || '');
+  const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  if (!idToken) throw Object.assign(new Error('Sign in before generating or retrieving a video.'), { statusCode: 401 });
+  initFirebaseAdmin();
+  try {
+    return await admin.auth().verifyIdToken(idToken, true);
+  } catch {
+    throw Object.assign(new Error('Video session authentication failed. Sign in again.'), { statusCode: 401 });
+  }
+};
+
+const videoJobDocId = (jobId) => createHash('sha256').update(String(jobId)).digest('hex');
 
 export const FACEBOOK_SCAN_MODES = Object.freeze([
   'customer',
@@ -92,13 +127,13 @@ const GEMINI_VOICE_BY_OPENAI_VOICE = {
 };
 
 const MAX_AGENT_IMAGES = 4;
-const MAX_VIDEO_REFERENCE_IMAGES = 20;
+const MAX_VIDEO_REFERENCE_IMAGES = 1;
+const MAX_VIDEO_REFERENCE_BASE64_CHARS = 2_500_000;
 // Google Veo 3.1 Fast (the underlying video model) only accepts these exact
 // per-clip durations — anything else risks a rejected or misbehaving generation.
 const VIDEO_DURATION_OPTIONS = [4, 6, 8];
-// Total video lengths the app can produce (matches VIDEO_LENGTH_OPTIONS in
-// VideoVoice.tsx) — 16/24 are built by chaining multiple 8s clips client-side.
-const TOTAL_VIDEO_DURATION_OPTIONS = [4, 6, 8, 16, 24];
+// Longer multi-clip generations can exceed the $0.80 per-video ceiling.
+const TOTAL_VIDEO_DURATION_OPTIONS = [4, 6, 8];
 
 const jsonFromText = (text, fallback) => {
   try {
@@ -444,7 +479,7 @@ Do not put the business name (or any other wording) as on-screen text, signage, 
 For video requests, the underlying video model's own speech/dialogue generation is unreliable in Khmer and other non-English languages, so this app generates narration separately (Khmer-tuned voice) and merges it into the finished video. Do not silently default to a silent video: set "voiceOverWanted" to true or false based on the conversation, never guess it as false just because the user didn't mention it. Before asking anything, re-read the user's ORIGINAL request (not just the most recent message) for any wording that already answers this — phrases like "speaking Khmer/English", "និយាយជាភាសាខ្មែរ", "with a voice-over", "narrated in...", "no talking", "silent", "no sound/voice" all already settle voiceOverWanted (and often the language) without needing to ask; asking again after the user already said this is a real failure, not a safe default. Only if the conversation truly contains no such signal at all should you set ready=false once and ask ONE clarifying question offering narration as a choice (e.g. whether they want a voice-over, and if so whether it should speak Khmer, English, or mixed) — do not ask this same question twice. If "voiceOverWanted" is true, do not write that speech into the visual "prompt" field and do not rely on the video model to say it — instead put the exact words to be spoken into "voiceOverText", matching the language they asked for, and ready can only be true once "voiceOverText" is actually filled in (ask for the script as the missing detail if it isn't yet — still only one question total). Set "voiceOverWanted" to false, and leave "voiceOverText" empty, only when the user has explicitly said they don't want narration/voice-over (e.g. "no voice", "silent", "no narration").
 CRITICAL — resolving the narration question after you've already asked it once: if you already asked the narration question in an earlier turn and the user's reply doesn't directly say yes/no to narration but is instead a generic go-ahead ("yes", "create it", "go ahead", "ចាស", "បង្កើតមក" and similar) — do NOT ask the narration question again, and do NOT leave the request stuck unresolved or claim you are unable to proceed. Treat the generic go-ahead itself as approval for narration in whatever language the conversation already established, set voiceOverWanted=true, and write a short, natural voiceOverText yourself (1-3 sentences, in that language) directly from the scene/product/action already described in the conversation — you already have enough context to write reasonable narration without asking a third time. This must result in ready=true in that same turn; never respond by saying you cannot trigger generation yourself or by only offering to draft a script instead of completing the brief.
 The prompt must be a detailed English production prompt suitable for an image or video generation model, describing only the visuals (never write dialogue/spoken words into it, and never ask for specific on-screen text/lettering/signage wording — describe signs and surfaces as blank or generic instead, per the no-on-screen-text rule above).
-For video requests, the app only supports these exact total durations in seconds: 4, 6, 8, 16, 24. Read the conversation for any stated or implied length (e.g. "16 seconds", "16 វិនាទី", "make it longer", "short clip") and set "duration" to the closest of those five allowed values — if nothing is stated, default to 8. If "voiceOverWanted" is true, the "voiceOverText" script's natural spoken length (at a normal, unhurried pace, roughly 2-3 spoken words per second) must fit within the chosen "duration" with a little room to spare — write a shorter script for a short duration and do not write a script that would still be talking after the video ends.`,
+For video requests, the app only supports these exact durations in seconds: 4, 6, 8. This limit keeps each generated video within the $0.80 cost ceiling. Read the conversation for any stated or implied length and set "duration" to the closest allowed value — if nothing is stated, default to 8. If "voiceOverWanted" is true, the "voiceOverText" script's natural spoken length (at a normal, unhurried pace, roughly 2-3 spoken words per second) must fit within the chosen "duration" with a little room to spare — write a shorter script for a short duration and do not write a script that would still be talking after the video ends.`,
       model: resolveOpenRouterTextModel(),
       temperature: 0.2,
       // Reasoning-capable models draw hidden reasoning tokens from this same
@@ -470,7 +505,7 @@ Return exactly this JSON shape:
   "headline": "short poster headline in the user's language, or empty for visual/video",
   "cta": "2-4 word poster CTA in the user's language, or empty for visual/video",
   "posterStyle": "Modern, Minimal, Bold, Elegant, Playful, or Professional",
-  "duration": 4, 6, 8, 16, or 24 (only relevant when kind="video"; total seconds, default 8 if not stated),
+  "duration": 4, 6, or 8 (only relevant when kind="video"; default 8 if not stated),
   "voiceOverWanted": true, false, or null (only relevant when kind="video"; null means not yet settled),
   "voiceOverText": "exact narration/dialogue script to be spoken in the video (any language, usually Khmer), or empty string if no voice-over was requested",
   "missing": "one concise missing detail, or empty string"
@@ -570,6 +605,7 @@ const searchXPosts = async (query) => {
   try {
     const response = await fetch(`https://api.x.com/2/tweets/search/recent?${params.toString()}`, {
       headers: { Authorization: `Bearer ${bearerToken}` },
+      signal: AbortSignal.timeout(30000),
     });
 
     const data = await response.json();
@@ -617,6 +653,15 @@ export default async function handler(req, res) {
   const action = String(req.body?.action || '');
   const languageCode = String(req.body?.language || 'en');
   const language = languageCode === 'km' ? 'Khmer' : 'English';
+  let verifiedVideoUser = null;
+
+  if (action === 'videoGenerate' || action === 'videoStatus') {
+    try {
+      verifiedVideoUser = await requireAiUser(req);
+    } catch (error) {
+      return res.status(error?.statusCode || 401).json({ error: error?.message || 'Video authentication failed.' });
+    }
+  }
 
   // Handled before the AI rate-limit gate below: this costs no AI/API spend,
   // so it shouldn't compete with real AI usage for the same per-IP quota (see
@@ -651,20 +696,35 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true });
   }
 
-  // Fails open: a rate-limit infra hiccup (Firebase misconfigured, transient
-  // error) must never block a legitimate request, only genuinely exceeding
-  // the limit does.
+  // Video submission has a small, fail-closed per-user budget because it starts
+  // paid work. Polling has a separate larger budget, so an ordinary multi-minute
+  // job never consumes the general AI allowance or blocks itself at 60 checks.
+  const rateLimitPolicy = getAiRateLimitPolicy(action);
   try {
     const db = initFirebaseAdmin();
-    const { allowed } = await checkRateLimit(db, {
-      scope: 'ai',
-      key: getClientIp(req),
-      limit: AI_RATE_LIMIT_PER_HOUR,
-    });
-    if (!allowed) {
-      return res.status(429).json({ error: 'Too many AI requests from this connection. Please wait a bit and try again.' });
+    const checks = [{
+      scope: rateLimitPolicy.scope,
+      key: verifiedVideoUser?.uid || getClientIp(req),
+      limit: rateLimitPolicy.limit,
+    }];
+    if (rateLimitPolicy.ipScope && rateLimitPolicy.ipLimit) {
+      // Check the broad abuse boundary first so a denied shared IP does not
+      // consume the legitimate user's smaller personal allowance.
+      checks.unshift({ scope: rateLimitPolicy.ipScope, key: getClientIp(req), limit: rateLimitPolicy.ipLimit });
+    }
+    for (const check of checks) {
+      const { allowed } = await checkRateLimit(db, check);
+      if (!allowed) {
+        return res.status(429).json({ error: action === 'videoGenerate'
+          ? 'Video generation limit reached for this account or connection. Please try again later.'
+          : 'Too many AI requests from this connection. Please wait a bit and try again.' });
+      }
     }
   } catch (error) {
+    if (rateLimitPolicy.failClosed) {
+      console.error('Paid video rate limit check failed; refusing to start generation:', error?.message || error);
+      return res.status(503).json({ error: 'Video generation safety check is temporarily unavailable. Please try again shortly.' });
+    }
     console.error('AI rate limit check failed, allowing request through:', error?.message || error);
   }
 
@@ -861,7 +921,7 @@ Response rules:
           return res.status(400).json({ error: 'Please paste a Google Sheets link, or upload a CSV file instead.' });
         }
         try {
-          const sheetResponse = await fetch(csvUrl);
+          const sheetResponse = await fetch(csvUrl, { signal: AbortSignal.timeout(30000) });
           if (!sheetResponse.ok) throw new Error(`status ${sheetResponse.status}`);
           planText = (await sheetResponse.text()).trim();
         } catch (error) {
@@ -1601,7 +1661,11 @@ Return ONLY a single valid JSON object with this exact structure:
       const normalizedPrompt = await normalizeMediaPrompt(prompt, 'video');
       const images = Array.isArray(req.body?.images)
         ? req.body.images
-            .filter((image) => typeof image?.base64 === 'string' && typeof image?.mimeType === 'string')
+            .filter((image) => (
+              typeof image?.base64 === 'string'
+              && image.base64.length <= MAX_VIDEO_REFERENCE_BASE64_CHARS
+              && /^image\/(?:jpeg|png|webp)$/i.test(String(image?.mimeType || ''))
+            ))
             .slice(0, MAX_VIDEO_REFERENCE_IMAGES)
         : [];
       const requestedDuration = Number(req.body?.duration);
@@ -1618,29 +1682,79 @@ Return ONLY a single valid JSON object with this exact structure:
           voiceGender: req.body.khmerSpeech.voiceGender === 'Male' ? 'Male' : 'Female',
           businessName: String(req.body.khmerSpeech.businessName || '').trim().slice(0, 120),
           performanceStyle: String(req.body.khmerSpeech.performanceStyle || '').trim().slice(0, 1000),
+          duration,
         };
         const speech = await preparePlanVideoSpeech(item);
         const { uploadMediaDataUrl } = await import('./telegram/run-scheduled.js');
         const { job, narrationAudio } = await startKhmerVideoJob(item, speech, uploadMediaDataUrl, { duration, images });
-        return res.status(200).json({
+        const responseBody = {
           ...job,
           narrationAudioUrl: narrationAudio.mediaUrl,
           narrationProvider: narrationAudio.provider,
           narrationFallbackReason: narrationAudio.fallbackReason,
-        });
+          spokenScript: narrationAudio.spokenText || speech.script,
+        };
+        try {
+          await initFirebaseAdmin().collection('video_jobs').doc(videoJobDocId(job.jobId)).set({
+            userId: verifiedVideoUser.uid,
+            jobId: job.jobId,
+            status: 'PROCESSING',
+            createdAt: new Date(),
+          }, { merge: true });
+        } catch (jobStoreError) {
+          console.error('Could not persist Khmer video job ownership; the authenticated owner may still resume it:', jobStoreError?.message || jobStoreError);
+        }
+        return res.status(200).json(responseBody);
       }
       const video = await startOpenRouterVideo({
         prompt: photorealVideoPrompt(normalizedPrompt, images.length > 0),
         images,
         duration,
       });
+      try {
+        await initFirebaseAdmin().collection('video_jobs').doc(videoJobDocId(video.jobId)).set({
+          userId: verifiedVideoUser.uid,
+          jobId: video.jobId,
+          status: 'PROCESSING',
+          createdAt: new Date(),
+        }, { merge: true });
+      } catch (jobStoreError) {
+        console.error('Could not persist video job ownership; the authenticated owner may still resume it:', jobStoreError?.message || jobStoreError);
+      }
       return res.status(200).json(video);
     }
 
     if (action === 'videoStatus') {
       const jobId = String(req.body?.jobId || '').trim();
       if (!jobId) return res.status(400).json({ error: 'Video job id is required.' });
+      const db = initFirebaseAdmin();
+      const jobRef = db.collection('video_jobs').doc(videoJobDocId(jobId));
+      const jobSnap = await jobRef.get().catch(() => null);
+      const savedJob = jobSnap?.exists ? jobSnap.data() : null;
+      if (savedJob?.userId && savedJob.userId !== verifiedVideoUser.uid) {
+        return res.status(403).json({ error: 'This video job belongs to another account.' });
+      }
+      if (savedJob?.mediaUrl) {
+        return res.status(200).json({ jobId, status: 'completed', videoUrl: savedJob.mediaUrl, usage: savedJob.usage || undefined });
+      }
+      if (!savedJob) {
+        // A generation can finish even if the best-effort ownership write after
+        // its paid submission failed. The first authenticated caller possessing
+        // the unguessable job id claims it, preserving recovery without exposing
+        // status polling anonymously.
+        await jobRef.set({ userId: verifiedVideoUser.uid, jobId, status: 'PROCESSING', createdAt: new Date() }, { merge: true });
+      }
       const video = await pollOpenRouterVideo({ jobId });
+      if (video.videoUrl) {
+        const uploaded = await uploadMediaDataUrl({
+          mediaDataUrl: video.videoUrl,
+          mediaType: 'video',
+          folder: `video-results/${verifiedVideoUser.uid}`,
+        });
+        await jobRef.set({ status: 'DONE', mediaUrl: uploaded.mediaUrl, usage: video.usage || null, completedAt: new Date() }, { merge: true });
+        return res.status(200).json({ ...video, videoUrl: uploaded.mediaUrl });
+      }
+      await jobRef.set({ status: video.status || 'PROCESSING', usage: video.usage || null, updatedAt: new Date() }, { merge: true });
       return res.status(200).json(video);
     }
 

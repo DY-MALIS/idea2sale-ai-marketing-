@@ -1,15 +1,19 @@
 import { createKhmerNarration } from './_khmerNarration.js';
-import { transcribeAudioWithOpenRouter } from './_openrouter.js';
+import { normalizeForKhmerSpeech, transcribeAudioWithOpenRouter } from './_openrouter.js';
 import { compareKhmerTranscript, extractVideoDialogue, nativeSpeechPrompt, splitKhmerScript, visualOnlyVideoPrompt, wantsSilentVideo } from '../shared/videoSpeech.js';
 
 export async function preparePlanVideoSpeech(item) {
   const prompt = String(item.prompt || '');
+  const requestedDuration = Number(item.duration);
+  const duration = [4, 6, 8].includes(requestedDuration) ? requestedDuration : 8;
   if (item.voiceOverWanted === false || wantsSilentVideo(prompt)) return { prompt: nativeSpeechPrompt(prompt, ''), script: '', mode: 'silent' };
   // Calendar imports may embed exact dialogue in older English visual prompts.
   const embedded = extractVideoDialogue(prompt).script;
-  const script = String(item.voiceOverText || embedded || await createKhmerNarration(prompt, 8, item.businessName)).trim();
+  const script = normalizeForKhmerSpeech(String(
+    item.voiceOverText || embedded || await createKhmerNarration(prompt, duration, item.businessName),
+  ));
   if (!/[\u1780-\u17ff]/u.test(script)) throw new Error('Khmer dialogue is required for this plan video.');
-  splitKhmerScript(script, [8]);
+  splitKhmerScript(script, [duration]);
   const performanceStyle = String(item.performanceStyle || 'Warm and trustworthy. Speak in a natural Cambodian conversational voice at a steady everyday pace. Keep every Khmer syllable crisp, use only one short phrase-boundary pause, vary pitch gently, and finish cleanly without an announcer tone or theatrical exaggeration.');
   const visual = visualOnlyVideoPrompt(prompt);
   const presenter = item.voiceGender === 'Male' ? 'young adult Cambodian man, age 18 to 25' : 'young adult Cambodian woman, age 18 to 25';

@@ -308,7 +308,11 @@ export const applyCloudinaryLogoOverlay = (videoUrl, logoPublicId) => {
   return String(videoUrl).replace(marker, `${marker}${transform}`);
 };
 
-const startPlanVideoJob = (item, speech) => startKhmerVideoJob(item, speech, uploadMediaDataUrl);
+const startPlanVideoJob = (item, speech) => {
+  const requestedDuration = Number(item.duration);
+  const duration = [4, 6, 8].includes(requestedDuration) ? requestedDuration : 8;
+  return startKhmerVideoJob(item, speech, uploadMediaDataUrl, { duration });
+};
 
 // AI-generated images commonly come out as multi-megabyte, full-resolution (e.g.
 // 2048x2048) PNGs — Telegram's sendPhoto/sendVideo, when given a URL rather than a
@@ -802,8 +806,17 @@ export default async function handler(req, res) {
           ...(generatedNarrationAudio ? { narrationAudio: generatedNarrationAudio } : {}),
           pollAttempts: 0, processingAt: FieldValue.serverTimestamp(),
         });
-        await scheduleContentPlanPoll(req, requestedPlanVideoId);
-        return res.status(200).json({ ok: true, id: requestedPlanVideoId, videoStarted: true, jobId: job.jobId });
+        let pollingDeferred = false;
+        try {
+          await scheduleContentPlanPoll(req, requestedPlanVideoId);
+          await planRef.update({ pollScheduledAt: FieldValue.serverTimestamp(), pollSchedulingError: null });
+        } catch (scheduleError) {
+          pollingDeferred = true;
+          const scheduleMessage = scheduleError?.message || 'Could not schedule video polling.';
+          await planRef.update({ pollSchedulingError: scheduleMessage, pollSchedulingFailedAt: FieldValue.serverTimestamp() });
+          await notifyAdmins(`Video ${job.jobId} started, but polling was deferred and will be recovered by cron: ${scheduleMessage}`);
+        }
+        return res.status(200).json({ ok: true, id: requestedPlanVideoId, videoStarted: true, jobId: job.jobId, pollingDeferred });
       } catch (error) {
         const message = error?.message || 'Could not start video generation.';
         await planRef.update({ status: 'FAILED', errorMessage: message, failedAt: FieldValue.serverTimestamp() });
@@ -846,6 +859,39 @@ export default async function handler(req, res) {
     }));
 
     const results = [];
+
+    // Re-arm paid video jobs whose QStash chain was interrupted. Never reset
+    // these to PENDING: that would submit a second paid generation and orphan
+    // the first. Successful poll scheduling refreshes pollScheduledAt, so the
+    // frequent fallback cron only touches jobs with no active chain.
+    const videoPollRecoveryCutoff = Date.now() - 90 * 1000;
+    const processingVideoSnapshot = await db
+      .collection('content_plan_items')
+      .where('status', '==', 'PROCESSING')
+      .where('type', '==', 'video')
+      .limit(10)
+      .get();
+    for (const processingDoc of processingVideoSnapshot.docs) {
+      const processingVideo = processingDoc.data();
+      if (!processingVideo?.videoJobId) continue;
+      const lastScheduledMs = processingVideo?.pollScheduledAt?.toMillis?.()
+        || processingVideo?.processingAt?.toMillis?.()
+        || 0;
+      if (lastScheduledMs >= videoPollRecoveryCutoff) continue;
+      try {
+        await scheduleContentPlanPoll(req, processingDoc.id);
+        await processingDoc.ref.update({
+          pollScheduledAt: FieldValue.serverTimestamp(),
+          pollSchedulingError: null,
+          pollRecoveredAt: FieldValue.serverTimestamp(),
+        });
+        results.push({ id: processingDoc.id, ok: true, contentPlan: true, pollRecovered: true });
+      } catch (recoveryError) {
+        const message = recoveryError?.message || 'Could not recover video polling.';
+        await processingDoc.ref.update({ pollSchedulingError: message, pollSchedulingFailedAt: FieldValue.serverTimestamp() });
+        results.push({ id: processingDoc.id, ok: false, contentPlan: true, pollRecoveryFailed: true, error: message });
+      }
+    }
 
     // Older narrated videos may already be waiting in REVIEW from the former
     // manual-approval flow. Move every successfully verified one into the same
@@ -1089,8 +1135,17 @@ export default async function handler(req, res) {
           pollAttempts: 0,
           processingAt: FieldValue.serverTimestamp(),
         });
-        await scheduleContentPlanPoll(req, planDoc.id);
-        results.push({ id: planDoc.id, ok: true, contentPlan: true, videoStarted: true });
+        let pollingDeferred = false;
+        try {
+          await scheduleContentPlanPoll(req, planDoc.id);
+          await planDoc.ref.update({ pollScheduledAt: FieldValue.serverTimestamp(), pollSchedulingError: null });
+        } catch (scheduleError) {
+          pollingDeferred = true;
+          const scheduleMessage = scheduleError?.message || 'Could not schedule video polling.';
+          await planDoc.ref.update({ pollSchedulingError: scheduleMessage, pollSchedulingFailedAt: FieldValue.serverTimestamp() });
+          await notifyAdmins(`Video ${job.jobId} started, but polling was deferred and will be recovered by cron: ${scheduleMessage}`);
+        }
+        results.push({ id: planDoc.id, ok: true, contentPlan: true, videoStarted: true, pollingDeferred });
       } catch (error) {
         const message = error?.message || 'Could not start video generation.';
         await planDoc.ref.update({ status: 'FAILED', errorMessage: message, failedAt: FieldValue.serverTimestamp() });

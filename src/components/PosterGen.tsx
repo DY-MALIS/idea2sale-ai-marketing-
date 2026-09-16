@@ -342,6 +342,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
 
   React.useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
       if (event.data?.type === 'TIKTOK_AUTH_SUCCESS') {
         setIsAuthenticating(false);
         fetch('/api/tiktok/me')

@@ -16,8 +16,15 @@ export function createOAuthState() {
   return crypto.randomBytes(24).toString('hex');
 }
 
-export function oauthStateCookieHeader(state) {
-  return `${OAUTH_STATE_COOKIE}=${state}; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=600`;
+export function sessionCookieAttributes(req) {
+  const forwardedProto = String(req?.headers?.['x-forwarded-proto'] || '').split(',')[0].trim();
+  const host = String(req?.headers?.host || req?.headers?.['x-forwarded-host'] || '');
+  const isHttps = forwardedProto === 'https' || (!forwardedProto && !/^(?:localhost|127\.0\.0\.1)(?::|$)/i.test(host));
+  return isHttps ? 'HttpOnly; Secure; SameSite=None; Path=/' : 'HttpOnly; SameSite=Lax; Path=/';
+}
+
+export function oauthStateCookieHeader(state, req) {
+  return `${OAUTH_STATE_COOKIE}=${state}; ${sessionCookieAttributes(req)}; Max-Age=600`;
 }
 
 // Always clear the one-time cookie (success or failure) so a captured callback
@@ -26,7 +33,7 @@ export function oauthStateCookieHeader(state) {
 export function verifyAndClearOAuthState(req, res) {
   const cookieState = getCookie(req, OAUTH_STATE_COOKIE);
   const existing = res.getHeader('Set-Cookie');
-  const clearCookie = `${OAUTH_STATE_COOKIE}=; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=0`;
+  const clearCookie = `${OAUTH_STATE_COOKIE}=; ${sessionCookieAttributes(req)}; Max-Age=0`;
   res.setHeader('Set-Cookie', existing ? [].concat(existing, clearCookie) : clearCookie);
 
   const queryState = String(req.query?.state || '');
