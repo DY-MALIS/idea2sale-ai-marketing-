@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ image: vi.fn(), video: vi.fn(), speech: vi.fn() }));
 vi.mock('../../api/_openrouter.js', () => ({ generateOpenRouterImage: mocks.image, startOpenRouterVideo: mocks.video }));
 vi.mock('../../api/_khmerNarration.js', () => ({ generateKhmerSpeech: mocks.speech }));
-import { startKhmerVideoJob } from '../../api/_khmerVideo.js';
+import { fitKhmerClipDurationToNarration, startKhmerVideoJob } from '../../api/_khmerVideo.js';
 afterEach(() => vi.resetAllMocks());
 it('uses the same measured audio and supplied portrait for manual video lip sync', async () => {
   mocks.speech.mockResolvedValue({ audioUrl: 'audio-data', provider: 'gemini' });
@@ -30,6 +30,29 @@ it('does not start a video when speech would be cut off', async () => {
   const upload = vi.fn().mockResolvedValueOnce({ mediaUrl: 'image' }).mockResolvedValueOnce({ duration: 4.5 });
   await expect(startKhmerVideoJob({}, { script: 'សួស្តី' }, upload, { duration: 4 })).rejects.toThrow('fit within');
   expect(mocks.video).not.toHaveBeenCalled();
+});
+
+it('fits the generated clip to the measured narration instead of stretching motion', async () => {
+  expect(fitKhmerClipDurationToNarration(2.5, 8)).toBe(4);
+  expect(fitKhmerClipDurationToNarration(4.8, 8)).toBe(6);
+  expect(fitKhmerClipDurationToNarration(6.8, 8)).toBe(8);
+
+  mocks.speech.mockResolvedValue({ audioUrl: 'audio-data', duration: 2.5, provider: 'gemini' });
+  mocks.video.mockResolvedValue({ jobId: 'job' });
+  const upload = vi.fn()
+    .mockResolvedValueOnce({ mediaUrl: 'https://image' })
+    .mockResolvedValueOnce({ mediaUrl: 'https://audio' });
+
+  const result = await startKhmerVideoJob(
+    { voiceGender: 'Female' },
+    { script: 'សួស្តី', prompt: 'Presenter', motionPrompt: 'Natural movement' },
+    upload,
+    { duration: 8, images: [{ mimeType: 'image/png', base64: 'AAAA' }] },
+  );
+
+  expect(mocks.video).toHaveBeenCalledWith(expect.objectContaining({ duration: 4 }));
+  expect(mocks.video.mock.calls[0][0].prompt).toContain('4-second clip');
+  expect(result.job.outputDuration).toBe(4);
 });
 
 it('rejects an over-budget duration before any paid preparation starts', async () => {

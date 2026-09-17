@@ -76,14 +76,16 @@ describe('native Khmer video speech', () => {
     expect(prepared.avatarPrompt).toContain('supporting Cambodian coworkers or customers');
     expect(prepared.avatarPrompt).toContain('face occupies at least one third');
     expect(prepared.avatarPrompt).toContain('mouth gently closed');
-    expect(prepared.motionPrompt).toContain('LIP-SYNC AND REAL-TIME MOTION HAVE HIGHEST PRIORITY');
+    expect(prepared.motionPrompt).toContain('LIP-SYNC AND REAL-TIME HUMAN MOTION HAVE HIGHEST PRIORITY');
     expect(prepared.motionPrompt).toContain('two crisp, purposeful hand or task gestures');
     expect(prepared.motionPrompt).toContain('exactly one audible primary speaker');
     expect(prepared.motionPrompt).toContain('supporting people may perform subtle context-appropriate activity');
     expect(prepared.motionPrompt).toContain('completes in 0.4 to 0.7 seconds');
     expect(prepared.motionPrompt).toContain('never stretch one movement across multiple seconds');
     expect(prepared.mode).toBe('edge-seedance');
-    expect(prepared.performanceStyle).toContain('steady everyday pace');
+    expect(prepared.performanceStyle).toContain('lively natural Cambodian conversational voice');
+    expect(prepared.motionPrompt).toContain('continuous subtle breathing');
+    expect(prepared.motionPrompt).toContain('no visible pose may freeze for longer than half a second');
     expect(mocks.narration).not.toHaveBeenCalled();
   });
   it('fills legacy plans with missing dialogue but respects silent requests', async () => {

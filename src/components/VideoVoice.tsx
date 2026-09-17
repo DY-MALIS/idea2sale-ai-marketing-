@@ -663,7 +663,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       openRouterVoice: 'nova',
       browserRate: 1.82,
       browserPitch: 1.08,
-      style: 'Sreymom persona: real Cambodian female creator voice, warm, friendly and confident. Use a steady everyday conversational pace, crisp Khmer syllables, one short phrase-boundary pause and lively but controlled intonation. Sound like a real person talking directly to a customer, never rushed, breathy, robotic or like an announcer.',
+      style: 'Sreymom persona: real Cambodian female creator voice, warm, friendly and confident. Use a lively everyday social-video pace, about ten percent faster than a careful presenter read, with crisp Khmer syllables, at most one very brief phrase-boundary pause and spontaneous human intonation. Sound like a real person talking directly to a customer, never measured, breathy, robotic or like an announcer.',
     },
     piseth: {
       id: 'piseth' as VoicePersona,
@@ -676,7 +676,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       openRouterVoice: 'onyx',
       browserRate: 1.78,
       browserPitch: 0.9,
-      style: 'Piseth persona: real Cambodian male creator voice, confident, calm and emotionally grounded. Use a steady everyday conversational pace, crisp Khmer syllables, one short phrase-boundary pause and natural emphasis. Sound like a real person presenting useful advice, never rushed, muffled, robotic or like an announcer.',
+      style: 'Piseth persona: real Cambodian male creator voice, confident, warm and emotionally grounded. Use a lively everyday social-video pace, about ten percent faster than a careful presenter read, with crisp Khmer syllables, at most one very brief phrase-boundary pause and spontaneous human emphasis. Sound like a real person presenting useful advice, never measured, muffled, robotic or like an announcer.',
     },
   };
 

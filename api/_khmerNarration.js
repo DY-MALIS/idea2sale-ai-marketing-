@@ -12,7 +12,7 @@ const edgeKhmerVoice = (voice) => {
 export async function generateKhmerSpeech({ input, voice = 'Female', performanceStyle = '', context = '' }) {
   if (!/[\u1780-\u17ff]/.test(input)) throw new Error('Khmer narration text is required.');
   const spokenInput = normalizeForKhmerSpeech(input);
-  const clearKhmerStyle = `Native Cambodian Khmer with crisp consonants, complete syllables and clearly separated words. Use one brief pause only at a natural phrase boundary; never rush, mumble, swallow word endings, stretch vowels or use a foreign accent. ${String(performanceStyle || '').trim()}`.trim();
+  const clearKhmerStyle = `Native Cambodian Khmer with crisp consonants, complete syllables and clearly separated words. Speak at a lively everyday social-video pace, about ten percent faster than a careful presenter read, while keeping every word intelligible. Use at most one very brief pause at a natural phrase boundary; never use a measured announcer cadence, pause after each word, mumble, swallow endings, stretch vowels or use a foreign accent. ${String(performanceStyle || '').trim()}`.trim();
   const useEdgeOnly = String(process.env.KHMER_TTS_PROVIDER || '').trim().toLowerCase() === 'edge';
   if (!useEdgeOnly) {
     try {
@@ -28,9 +28,10 @@ export async function generateKhmerSpeech({ input, voice = 'Female', performance
   const fallback = await synthesizeKhmerSpeechViaEdge({
     input: spokenInput,
     voice: edgeKhmerVoice(voice),
-    // Natural speed prioritizes complete Khmer syllables over squeezing a script
-    // into the clip; the measured-duration guard below rejects text that is too long.
-    rate: '+0%',
+    // A small speed lift avoids the unusually measured cadence of the Khmer
+    // fallback voices while preserving pronunciation and a recognizably human
+    // conversational rhythm.
+    rate: '+12%',
   });
   return {
     ...fallback,

@@ -28,14 +28,14 @@ describe('Khmer narration', () => {
       provider: 'edge',
       fallbackReason: expect.any(String),
     });
-    expect(mocks.edge).toHaveBeenCalledWith({ input: 'សួស្តី', voice: 'km-KH-SreymomNeural', rate: '+0%' });
+    expect(mocks.edge).toHaveBeenCalledWith({ input: 'សួស្តី', voice: 'km-KH-SreymomNeural', rate: '+12%' });
   });
 
   it('keeps the requested male voice when Gemini falls back to Edge', async () => {
     mocks.gemini.mockRejectedValue(new Error('provider unavailable'));
     mocks.edge.mockResolvedValue({ audioUrl: 'khmer', provider: 'edge' });
     await generateKhmerSpeech({ input: 'សួស្តី', voice: 'onyx' });
-    expect(mocks.edge).toHaveBeenCalledWith({ input: 'សួស្តី', voice: 'km-KH-PisethNeural', rate: '+0%' });
+    expect(mocks.edge).toHaveBeenCalledWith({ input: 'សួស្តី', voice: 'km-KH-PisethNeural', rate: '+12%' });
   });
 
   it('surfaces failure when both expressive and fallback voices fail', async () => {
