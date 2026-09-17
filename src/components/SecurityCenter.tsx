@@ -47,7 +47,7 @@ const controls: Control[] = [
   {
     label: 'Server secrets never sent to client',
     status: 'live',
-    detail: 'TikTok, Cloudinary, OpenRouter, and Firebase Admin credentials stay in serverless functions. /api/config/check only returns booleans (key present or not), never the values.',
+    detail: 'TikTok, ImageKit, OpenRouter, and Firebase Admin credentials stay in serverless functions. /api/config/check only returns booleans (key present or not), never the values.',
   },
   {
     label: 'Scheduled/cron endpoint authentication',
@@ -70,7 +70,7 @@ const monitoring = [
   'Telegram scheduled post failures',
   'TikTok publish errors (missing video.upload/video.publish scope)',
   'AI API failures (OpenRouter / Gemini)',
-  'Cloudinary upload failures',
+  'ImageKit upload failures',
   'Firestore rule denials',
   'Unusual Firebase Auth sign-in activity',
 ];

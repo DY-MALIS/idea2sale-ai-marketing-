@@ -18,7 +18,7 @@ vi.mock('firebase-admin/firestore', async (importOriginal) => ({
   getFirestore: mockGetFirestore,
 }));
 
-const { GENERATED_VIDEO_STATUSES, applyCloudinaryDeliveryTransform, applyCloudinaryLogoOverlay, escapeTelegramHtml, formatTelegramHtml, postTelegramMessage, sendTelegram, telegramTextFor, truncateForTelegram } =
+const { GENERATED_VIDEO_STATUSES, applyImageKitDeliveryTransform, applyImageKitLogoOverlay, escapeTelegramHtml, formatTelegramHtml, postTelegramMessage, sendTelegram, telegramTextFor, truncateForTelegram } =
   await import('../../../api/telegram/run-scheduled.js');
 
 const originalEnv = { ...process.env };
@@ -97,53 +97,49 @@ describe('telegramTextFor', () => {
   });
 });
 
-describe('applyCloudinaryDeliveryTransform', () => {
-  const imageUrl = 'https://res.cloudinary.com/demo/image/upload/v1700000000/telegram-media/foo.png';
-  const videoUrl = 'https://res.cloudinary.com/demo/video/upload/v1700000000/telegram-media/foo.mp4';
+describe('applyImageKitDeliveryTransform', () => {
+  const imageUrl = 'https://ik.imagekit.io/demo/telegram-media/foo.png';
+  const videoUrl = 'https://ik.imagekit.io/demo/telegram-media/foo.mp4';
 
   it('inserts a resize transform for an image URL', () => {
-    const result = applyCloudinaryDeliveryTransform(imageUrl, 'photo');
-    expect(result).toBe(
-      'https://res.cloudinary.com/demo/image/upload/w_1280,q_auto,f_auto/v1700000000/telegram-media/foo.png'
-    );
+    const result = applyImageKitDeliveryTransform(imageUrl, 'photo');
+    expect(new URL(result).searchParams.get('tr')).toBe('w-1280,q-auto,f-auto');
   });
 
   it('inserts a resize transform for a video URL', () => {
-    const result = applyCloudinaryDeliveryTransform(videoUrl, 'video');
-    expect(result).toBe(
-      'https://res.cloudinary.com/demo/video/upload/q_auto,w_1280/v1700000000/telegram-media/foo.mp4'
-    );
+    const result = applyImageKitDeliveryTransform(videoUrl, 'video');
+    expect(new URL(result).searchParams.get('tr')).toBe('w-1280,q-auto,f-mp4');
   });
 
   it('is idempotent -- calling it twice does not double up the transform', () => {
-    const once = applyCloudinaryDeliveryTransform(imageUrl, 'photo');
-    const twice = applyCloudinaryDeliveryTransform(once, 'photo');
+    const once = applyImageKitDeliveryTransform(imageUrl, 'photo');
+    const twice = applyImageKitDeliveryTransform(once, 'photo');
     expect(twice).toBe(once);
   });
 
-  it('leaves non-Cloudinary URLs unchanged', () => {
+  it('leaves non-ImageKit URLs unchanged', () => {
     const url = 'https://example.com/some/image.png';
-    expect(applyCloudinaryDeliveryTransform(url, 'photo')).toBe(url);
+    expect(applyImageKitDeliveryTransform(url, 'photo')).toBe(url);
   });
 
   it('leaves an empty string unchanged', () => {
-    expect(applyCloudinaryDeliveryTransform('', 'photo')).toBe('');
+    expect(applyImageKitDeliveryTransform('', 'photo')).toBe('');
   });
 });
 
-describe('applyCloudinaryLogoOverlay', () => {
+describe('applyImageKitLogoOverlay', () => {
   it('adds the saved logo as a relative bottom-left video layer', () => {
-    const result = applyCloudinaryLogoOverlay(
-      'https://res.cloudinary.com/demo/video/upload/q_auto,w_1280/v1/video.mp4',
-      'telegram-media/company-logo',
+    const result = applyImageKitLogoOverlay(
+      'https://ik.imagekit.io/demo/telegram-media/video.mp4',
+      '/telegram-media/company-logo.png',
     );
-    expect(result).toContain('l_telegram-media:company-logo/c_scale,fl_relative,w_0.16');
-    expect(result).toContain('fl_layer_apply,g_south_west,x_0.04,y_0.04');
+    expect(new URL(result).searchParams.get('tr')).toContain('l-image,i-telegram-media@@company-logo.png,w-bw_mul_0.16');
+    expect(new URL(result).searchParams.get('tr')).toContain('lfo-bottom_left,lx-20,ly-20,l-end');
   });
 
   it('leaves the video unchanged for an invalid logo id', () => {
-    const url = 'https://res.cloudinary.com/demo/video/upload/v1/video.mp4';
-    expect(applyCloudinaryLogoOverlay(url, '../bad id')).toBe(url);
+    const url = 'https://ik.imagekit.io/demo/video.mp4';
+    expect(applyImageKitLogoOverlay(url, '../bad id')).toBe(url);
   });
 });
 

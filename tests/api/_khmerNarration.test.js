@@ -7,7 +7,7 @@ vi.mock('../../api/_openrouter.js', () => ({
   generateOpenRouterText: mocks.text,
   normalizeForKhmerSpeech: (text) => String(text).normalize('NFC').trim(),
 }));
-import { createKhmerNarration, generateKhmerSpeech, replaceCloudinaryAudio } from '../../api/_khmerNarration.js';
+import { createKhmerNarration, generateKhmerSpeech } from '../../api/_khmerNarration.js';
 afterEach(() => { vi.unstubAllEnvs(); vi.resetAllMocks(); });
 describe('Khmer narration', () => {
   it('uses expressive Gemini speech first and preserves delivery direction', async () => {
@@ -56,10 +56,5 @@ describe('Khmer narration', () => {
     }));
     expect(mocks.text.mock.calls[0][0].prompt).toContain('two connected short clauses');
     expect(mocks.text.mock.calls[0][0].prompt).toContain('DGACADEMY');
-  });
-  it('removes native speech before adding the uploaded Khmer track', () => {
-    expect(replaceCloudinaryAudio('https://res.cloudinary.com/demo/video/upload/v1/test.mp4', 'telegram-media/voice'))
-      .toBe('https://res.cloudinary.com/demo/video/upload/ac_none/l_audio:telegram-media:voice/fl_layer_apply/v1/test.mp4');
-    expect(() => replaceCloudinaryAudio('https://example.com/a.mp4', 'voice')).toThrow();
   });
 });

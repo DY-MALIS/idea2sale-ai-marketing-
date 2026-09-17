@@ -19,7 +19,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../hooks/useToast';
-import { formatCloudinaryUploadError } from '../../shared/cloudinaryError.js';
+import { formatImageKitUploadError } from '../../shared/imageKitError.js';
 import { CreativeAutomationRequest, ScheduleHandoffRequest } from '../types';
 import { getLatestBusinessBranding } from '../lib/businessBranding';
 import { deleteGenerationHistory, GenerationHistoryEntry, saveGenerationHistory, useGenerationHistory } from '../lib/generationHistory';
@@ -38,11 +38,11 @@ type VoicePersona = 'sreymom' | 'piseth';
 const AI_FETCH_TIMEOUT_MS = 70000;
 // videoStatus and videoGenerate are exceptions to the generic 70s budget:
 // - videoStatus: once OpenRouter reports a clip "completed", api/ai.js uploads
-//   it to Cloudinary before returning a short hosted URL, so that final status
+//   it to ImageKit before returning a short hosted URL, so that final status
 //   request includes a provider download + media upload and can take longer.
 // - videoGenerate: for a Khmer-speech avatar video, this one request chains
-//   an avatar image generation, a Cloudinary upload, a TTS narration call and
-//   a second Cloudinary upload (see startKhmerVideoJob in api/_khmerVideo.js)
+//   an avatar image generation, an ImageKit upload, a TTS narration call and
+//   a second ImageKit upload (see startKhmerVideoJob in api/_khmerVideo.js)
 //   before it ever returns a jobId.
 // Either can easily run past 70s. The generic timeout was aborting them
 // client-side (surfacing as "Video generation took too long"/"failed") even
@@ -143,16 +143,18 @@ const uploadVideoDirectly = async (videoDataUrl: string, idToken: string): Promi
   if (blob.size > Number(signature.maxBytes || 48 * 1024 * 1024)) throw new Error('The final video is too large to upload.');
   const form = new FormData();
   form.set('file', new File([blob], 'generated-video.mp4', { type: blob.type || 'video/mp4' }));
-  form.set('api_key', signature.apiKey);
-  form.set('timestamp', String(signature.timestamp));
+  form.set('fileName', 'generated-video.mp4');
+  form.set('publicKey', signature.publicKey);
+  form.set('token', signature.token);
+  form.set('expire', String(signature.expire));
   form.set('signature', signature.signature);
   form.set('folder', signature.folder);
   const uploadResponse = await fetch(signature.uploadUrl, { method: 'POST', body: form });
   const uploaded = await uploadResponse.json().catch(() => ({}));
-  if (!uploadResponse.ok || !uploaded.secure_url) {
-    throw new Error(formatCloudinaryUploadError(uploaded?.error?.message || 'Could not upload the final video.', signature.apiKey));
+  if (!uploadResponse.ok || !uploaded.url) {
+    throw new Error(formatImageKitUploadError(uploaded?.message || uploaded?.error?.message || 'Could not upload the final video.', [signature.publicKey]));
   }
-  return String(uploaded.secure_url);
+  return String(uploaded.url);
 };
 
 // Both the budget Veo path and the Khmer presenter path use one opening image.
@@ -943,7 +945,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       }
 
       // Browser-side ffmpeg steps produce a large data URL. Upload it directly
-      // to Cloudinary with a short-lived signed form instead of routing it back
+      // to ImageKit with a short-lived signed form instead of routing it back
       // through Vercel's 4.5 MB function request limit.
       video = await uploadVideoDirectly(video, idToken);
       completedJobFingerprints.forEach((fingerprint) => removePendingVideoJob(user.uid, fingerprint));

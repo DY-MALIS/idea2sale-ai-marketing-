@@ -60,7 +60,7 @@ describe('claimPendingPost', () => {
 });
 
 describe('findRecentDuplicateTelegramPost', () => {
-  const mediaUrl = 'https://res.cloudinary.com/demo/image/upload/foo.png';
+  const mediaUrl = 'https://ik.imagekit.io/demo/telegram-media/foo.png';
   const recentTs = { toMillis: () => Date.now() - 60_000 }; // 1 minute ago
   const staleTs = { toMillis: () => Date.now() - 20 * 60_000 }; // 20 minutes ago
 

@@ -33,7 +33,7 @@ vi.mock('../../api/_rateLimit.js', () => ({
 vi.mock('../../api/_alert.js', () => ({ notifyAdmins: vi.fn() }));
 vi.mock('../../api/_webBusinessSearch.js', () => ({ searchBusinessesOnWeb: mocks.searchBusinesses }));
 vi.mock('../../api/_competitorResearch.js', () => ({ researchCompetitors: mocks.researchCompetitors }));
-vi.mock('../../api/_cloudinaryUpload.js', () => ({ uploadMediaDataUrl: vi.fn() }));
+vi.mock('../../api/_imagekitUpload.js', () => ({ uploadMediaDataUrl: vi.fn() }));
 vi.mock('../../api/_email.js', () => ({ sendOutreachEmail: vi.fn() }));
 
 import handler from '../../api/ai.js';

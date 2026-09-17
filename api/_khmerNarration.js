@@ -51,10 +51,3 @@ export async function createKhmerNarration(prompt, duration = 8, businessName = 
   if (!/[\u1780-\u17ff]/.test(text || '')) throw new Error('Could not generate a Khmer narration script. Please enter Khmer text.');
   return text.trim();
 }
-
-export function replaceCloudinaryAudio(videoUrl, audioPublicId) {
-  if (!audioPublicId || !/^[\w/-]+$/.test(audioPublicId)) throw new Error('Invalid narration audio asset.');
-  const marker = '/video/upload/';
-  if (!videoUrl.includes(marker)) throw new Error('Video must be uploaded before adding narration.');
-  return videoUrl.replace(marker, `${marker}ac_none/l_audio:${audioPublicId.replaceAll('/', ':')}/fl_layer_apply/`);
-}

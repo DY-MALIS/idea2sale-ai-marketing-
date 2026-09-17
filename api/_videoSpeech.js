@@ -1,6 +1,7 @@
 import { createKhmerNarration } from './_khmerNarration.js';
 import { normalizeForKhmerSpeech, transcribeAudioWithOpenRouter } from './_openrouter.js';
 import { compareKhmerTranscript, extractVideoDialogue, nativeSpeechPrompt, splitKhmerScript, visualOnlyVideoPrompt, wantsSilentVideo } from '../shared/videoSpeech.js';
+import { applyImageKitAudioExtractionTransform, isImageKitMediaUrl } from './_imagekitUpload.js';
 
 export async function preparePlanVideoSpeech(item) {
   const prompt = String(item.prompt || '');
@@ -29,16 +30,15 @@ export async function preparePlanVideoSpeech(item) {
 
 export async function verifyUploadedVideoSpeech(videoUrl, expected) {
   if (!expected) throw new Error('Missing reference dialogue. Review this video before sending.');
-  const url = new URL(videoUrl);
-  if (url.hostname !== 'res.cloudinary.com' || url.protocol !== 'https:' || !url.pathname.includes('/video/upload/')) throw new Error('Invalid uploaded video URL.');
-  url.pathname = url.pathname.replace('/video/upload/', '/video/upload/f_wav,af_16000/').replace(/\.[a-z0-9]+$/i, '.wav');
-  const audio = await fetch(url, { signal: AbortSignal.timeout(30000) });
+  if (!isImageKitMediaUrl(videoUrl)) throw new Error('Invalid uploaded video URL.');
+  const audioUrl = applyImageKitAudioExtractionTransform(videoUrl);
+  const audio = await fetch(audioUrl, { signal: AbortSignal.timeout(30000) });
   if (!audio.ok) throw new Error('Could not extract video audio for verification.');
   const bytes = Buffer.from(await audio.arrayBuffer());
   if (!bytes.length || bytes.length > 6000000) throw new Error('Invalid verification audio size.');
   let transcript;
   try {
-    transcript = await transcribeAudioWithOpenRouter({ audioBase64: bytes.toString('base64'), format: 'wav', languageHint: 'Khmer' });
+    transcript = await transcribeAudioWithOpenRouter({ audioBase64: bytes.toString('base64'), format: 'mp4', languageHint: 'Khmer' });
   } catch (cause) {
     // The generated video is still a valid, paid-for artifact when the separate
     // STT provider is unavailable. Distinguish that infrastructure failure from

@@ -20,7 +20,7 @@ import { checkRateLimit, getClientIp } from './_rateLimit.js';
 import { notifyAdmins } from './_alert.js';
 import { searchBusinessesOnWeb } from './_webBusinessSearch.js';
 import { researchCompetitors } from './_competitorResearch.js';
-import { uploadMediaDataUrl } from './_cloudinaryUpload.js';
+import { uploadMediaDataUrl } from './_imagekitUpload.js';
 import { sendOutreachEmail } from './_email.js';
 import { createHash } from 'crypto';
 
@@ -1490,7 +1490,7 @@ Return ONLY a single valid JSON object with this exact structure:
     // Generated images/videos live only as huge base64 data: URLs in the
     // frontend's React state -- too large to store in a Firestore history
     // document (1MB doc limit). This turns one into a small, permanent
-    // Cloudinary URL so a history entry can reference it cheaply.
+    // ImageKit URL so a history entry can reference it cheaply.
     if (action === 'uploadMedia') {
       const mediaDataUrl = String(req.body?.mediaDataUrl || '');
       const mediaType = ['photo', 'video', 'audio'].includes(req.body?.mediaType) ? req.body.mediaType : undefined;

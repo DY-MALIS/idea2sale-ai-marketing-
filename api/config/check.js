@@ -227,6 +227,11 @@ export default async function handler(req, res) {
     firebase: {
       isInitialized: !!process.env.FIREBASE_PROJECT_ID,
     },
+    imageKit: {
+      hasPublicKey: !!process.env.IMAGEKIT_PUBLIC_KEY,
+      hasPrivateKey: !!process.env.IMAGEKIT_PRIVATE_KEY,
+      hasUrlEndpoint: !!process.env.IMAGEKIT_URL_ENDPOINT,
+    },
     alerts: {
       hasTelegramAdminChat: !!process.env.TELEGRAM_ADMIN_CHAT_ID,
     },

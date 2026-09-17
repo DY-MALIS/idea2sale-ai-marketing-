@@ -2,7 +2,6 @@ import { startKhmerVideoJob } from '../_khmerVideo.js';
 import admin from 'firebase-admin';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { createHash } from 'crypto';
-import { formatCloudinaryUploadError } from '../../shared/cloudinaryError.js';
 import { Client as QStashClient } from '@upstash/qstash';
 import sharp from 'sharp';
 import { logAudit } from '../_audit.js';
@@ -14,6 +13,15 @@ import { preparePlanVideoSpeech } from '../_videoSpeech.js';
 import { generateKhmerSpeech } from '../_khmerNarration.js';
 import { applyPosterTextOverlay } from '../_posterOverlay.js';
 import reviewVideoHandler from './_review-video.js';
+import {
+  applyImageKitDeliveryTransform,
+  applyImageKitLogoOverlay,
+  createImageKitUploadAuth,
+  isImageKitMediaUrl,
+  uploadMediaDataUrl as uploadImageKitMediaDataUrl,
+} from '../_imagekitUpload.js';
+
+export { applyImageKitDeliveryTransform, applyImageKitLogoOverlay };
 
 export const GENERATED_VIDEO_STATUSES = Object.freeze(['DONE', 'PROCESSING', 'REVIEW']);
 
@@ -129,16 +137,6 @@ export const initFirebaseAdmin = () => {
   return databaseId ? getFirestore(app, databaseId) : getFirestore(app);
 };
 
-const getCloudinaryConfig = () => {
-  const cloudName = (process.env.CLOUDINARY_CLOUD_NAME || '').trim();
-  const apiKey = (process.env.CLOUDINARY_API_KEY || '').trim();
-  const apiSecret = (process.env.CLOUDINARY_API_SECRET || '').trim();
-  if (!cloudName || !apiKey || !apiSecret) {
-    throw new Error('Cloudinary is not configured (CLOUDINARY_CLOUD_NAME / CLOUDINARY_API_KEY / CLOUDINARY_API_SECRET).');
-  }
-  return { cloudName, apiKey, apiSecret };
-};
-
 const verifyUser = async (req) => {
   const authHeader = req.headers.authorization || '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
@@ -236,78 +234,20 @@ const migrateGuestData = async (req, res) => {
 
 const createSignedUpload = async (req, res) => {
   const decoded = await verifyUser(req);
-  const { cloudName, apiKey, apiSecret } = getCloudinaryConfig();
-  const timestamp = Math.floor(Date.now() / 1000);
-  const folder = `telegram-media/${decoded.uid}`;
-  const paramsToSign = `folder=${folder}&timestamp=${timestamp}`;
-  const signature = createHash('sha1').update(paramsToSign + apiSecret).digest('hex');
+  const auth = createImageKitUploadAuth();
+  const folder = `/telegram-media/${decoded.uid}`;
 
   return res.status(200).json({
     ok: true,
-    apiKey,
-    timestamp,
-    signature,
+    ...auth,
     folder,
-    uploadUrl: `https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`,
-    maxBytes: 48 * 1024 * 1024
   });
 };
 
-export const uploadMediaDataUrl = async ({ mediaDataUrl, mediaType }) => {
-  if (!mediaDataUrl) return { mediaUrl: '', mediaType: null };
-
-  const match = String(mediaDataUrl).match(/^data:([^;,]+);base64,(.+)$/);
-  if (!match) {
-    throw new Error('Invalid media file data.');
-  }
-
-  const contentType = match[1];
-  const buffer = Buffer.from(match[2], 'base64');
-  const maxBytes = 48 * 1024 * 1024;
-  if (buffer.length > maxBytes) {
-    throw new Error('This media file is too large for web scheduling. Please use a file under 48 MB.');
-  }
-
-  const { cloudName, apiKey, apiSecret } = getCloudinaryConfig();
-
-  const timestamp = Math.floor(Date.now() / 1000);
-  const paramsToSign = `folder=telegram-media&timestamp=${timestamp}`;
-  const signature = createHash('sha1').update(paramsToSign + apiSecret).digest('hex');
-
-  const form = new URLSearchParams();
-  form.set('file', mediaDataUrl);
-  form.set('api_key', apiKey);
-  form.set('timestamp', String(timestamp));
-  form.set('signature', signature);
-  form.set('folder', 'telegram-media');
-
-  const response = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`, {
-    method: 'POST',
-    body: form
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(formatCloudinaryUploadError(data?.error?.message, apiKey));
-  }
-
-  const resolvedMediaType = mediaType || (data.resource_type === 'video' ? 'video' : contentType.startsWith('video/') ? 'video' : 'photo');
-
-  return {
-    mediaUrl: applyCloudinaryDeliveryTransform(data.secure_url, resolvedMediaType),
-    mediaType: resolvedMediaType,
-    publicId: data.public_id,
-    ...(mediaType === 'audio' ? { duration: data.duration } : {}),
-  };
-};
-
-export const applyCloudinaryLogoOverlay = (videoUrl, logoPublicId) => {
-  if (!logoPublicId || !/^[\w/-]+$/.test(logoPublicId)) return videoUrl;
-  const marker = '/video/upload/';
-  if (!String(videoUrl).includes(marker)) return videoUrl;
-  const layerId = logoPublicId.replaceAll('/', ':');
-  const transform = `l_${layerId}/c_scale,fl_relative,w_0.16/fl_layer_apply,g_south_west,x_0.04,y_0.04/`;
-  return String(videoUrl).replace(marker, `${marker}${transform}`);
-};
+export const uploadMediaDataUrl = (options) => uploadImageKitMediaDataUrl({
+  folder: '/telegram-media',
+  ...options,
+});
 
 const startPlanVideoJob = (item, speech) => {
   const requestedDuration = Number(item.duration);
@@ -319,24 +259,9 @@ const startPlanVideoJob = (item, speech) => {
 // 2048x2048) PNGs — Telegram's sendPhoto/sendVideo, when given a URL rather than a
 // direct file upload, silently refuses large files with the cryptic error "Bad
 // Request: wrong type of the web page content" instead of a clear size-limit message
-// (confirmed live: a 6.5MB PNG triggered exactly this). Cloudinary can resize/
+// (confirmed live: a 6.5MB PNG triggered exactly this). ImageKit can resize/
 // recompress on the fly by inserting a transformation segment into the delivery URL,
 // with no need to re-upload — cap dimensions and let it auto-pick quality/format.
-export const applyCloudinaryDeliveryTransform = (secureUrl, mediaType) => {
-  const transform = mediaType === 'video' ? 'q_auto,w_1280' : 'w_1280,q_auto,f_auto';
-  const marker = mediaType === 'video' ? '/video/upload/' : '/image/upload/';
-  const index = secureUrl.indexOf(marker);
-  if (index === -1) return secureUrl;
-  const insertAt = index + marker.length;
-  const rest = secureUrl.slice(insertAt);
-  // Safe to call unconditionally on every outgoing send (some mediaUrls already
-  // carry this transform from upload time, others -- e.g. a URL scheduled
-  // directly, or the legacy immediate-send path -- never got it applied at all).
-  // Skip re-inserting so a URL already carrying the transform isn't doubled up.
-  if (rest.startsWith(transform)) return secureUrl;
-  return `${secureUrl.slice(0, insertAt)}${transform}/${rest}`;
-};
-
 const scheduleQStashDelivery = async (req, postId, scheduledDate) => {
   const token = (process.env.QSTASH_TOKEN || '').trim();
   if (!token) return;
@@ -400,22 +325,20 @@ const createScheduledTelegramPost = async (req, res) => {
   const db = initFirebaseAdmin();
   let uploaded;
   if (mediaUrl) {
-    const { cloudName } = getCloudinaryConfig();
     let parsedUrl;
     try {
       parsedUrl = new URL(mediaUrl);
     } catch {
       return res.status(400).json({ error: 'Invalid media URL.' });
     }
-    const expectedPathPrefix = `/${cloudName}/`;
-    if (parsedUrl.protocol !== 'https:' || parsedUrl.hostname !== 'res.cloudinary.com' || !parsedUrl.pathname.startsWith(expectedPathPrefix)) {
+    if (!isImageKitMediaUrl(mediaUrl)) {
       return res.status(400).json({ error: 'Only media uploaded to the app storage can be scheduled.' });
     }
     uploaded = {
       mediaUrl,
       mediaType: requestedMediaType === 'video' || requestedMediaType === 'photo'
         ? requestedMediaType
-        : parsedUrl.pathname.includes('/video/upload/')
+        : /\.(?:mp4|mov|webm)(?:$|\?)/i.test(mediaUrl)
           ? 'video'
           : 'photo'
     };
@@ -457,7 +380,7 @@ const createScheduledTelegramPost = async (req, res) => {
 // Immediate (non-scheduled) Telegram send, merged in from the former
 // api/telegram/post.js route to stay under Vercel Hobby's 12-function limit.
 // Unlike sendTelegram() above (used for scheduled posts, which only ever hold
-// a Cloudinary mediaUrl), this also accepts a raw mediaDataUrl upload.
+// an ImageKit mediaUrl), this also accepts a raw mediaDataUrl upload.
 export const postTelegramMessage = async (req, res) => {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
@@ -494,11 +417,11 @@ export const postTelegramMessage = async (req, res) => {
   const mediaName = String(req.body?.mediaName || 'telegram-media').trim();
   const mediaType = String(req.body?.mediaType || '').trim().toLowerCase();
   // This immediate-send path (used by the legacy Scheduler.tsx polling loop and its
-  // "send now" button) historically sent whatever Cloudinary URL it was given as-is,
+  // "send now" button) historically sent whatever hosted URL it was given as-is,
   // unlike the newer action=create path, which resizes at upload time. A full-res
   // AI-generated image/video routinely trips Telegram's "wrong type of the web page
   // content" (its way of saying "too large"), so apply the same resize here too.
-  const mediaUrl = applyCloudinaryDeliveryTransform(
+  const mediaUrl = applyImageKitDeliveryTransform(
     String(req.body?.mediaUrl || '').trim(),
     mediaType === 'video' ? 'video' : 'photo'
   );
@@ -635,7 +558,7 @@ export const sendTelegram = async (post, db) => {
   // A post scheduled with a pre-existing mediaUrl (rather than a fresh mediaDataUrl
   // upload) skips the resize applied in uploadMediaDataUrl -- apply it here too so
   // every send path resizes before hitting Telegram, regardless of how the URL got here.
-  const mediaUrl = applyCloudinaryDeliveryTransform(
+  const mediaUrl = applyImageKitDeliveryTransform(
     String(post.mediaUrl || '').trim(),
     mediaType === 'video' ? 'video' : 'photo'
   );
@@ -1045,7 +968,7 @@ export default async function handler(req, res) {
         const postered = await applyPosterTextOverlay(image.imageUrl, item.headline || '', item.cta || '');
         const watermarked = await applyLogoWatermarkServer(postered, profileSnap?.data()?.logoDataUrl);
         const uploaded = await uploadMediaDataUrl({ mediaDataUrl: watermarked, mediaType: 'photo' });
-        // Persist the durable Cloudinary URL as soon as the (paid) image exists, before
+        // Persist the durable ImageKit URL as soon as the (paid) image exists, before
         // the Telegram send that follows can fail -- otherwise a transient delivery
         // failure (rate limit, timeout, missing bot config) hits the catch below and
         // discards an already-generated image, forcing a costly full regeneration on retry.

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Calendar, Bot, Zap, Plus, Sparkles, Clock, X, Send, Instagram, Twitter, Share2, Loader2, AlertCircle, Upload } from 'lucide-react';
-import { formatCloudinaryUploadError } from '../../shared/cloudinaryError.js';
+import { formatImageKitUploadError } from '../../shared/imageKitError.js';
 import AITrainer from './AITrainer';
 import Suggestions from './Suggestions';
 import Scheduler from './Scheduler';
@@ -131,7 +131,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   const uploadTelegramMedia = async (file: File, idToken: string) => {
     let signatureResponse: Response;
     try {
-      // Unlike doUpload() below (the actual Cloudinary upload, already
+      // Unlike doUpload() below (the actual ImageKit upload, already
       // timeout-wrapped), this same-origin call had no timeout at all -- a hung
       // response left isSubmitting stuck true forever, since the finally block
       // that resets it never runs until this await settles.
@@ -155,15 +155,17 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
       throw new Error(signatureData.error || 'Could not prepare the media upload.');
     }
 
-    // Sending a multi-MB file directly to Cloudinary (cross-origin, unlike the
+    // Sending a multi-MB file directly to ImageKit (cross-origin, unlike the
     // same-origin calls above) is the step most exposed to a mid-upload network
     // drop, which surfaces as a bare "Failed to fetch" with no useful detail —
     // one retry plus a clearer message covers the common transient case.
     const doUpload = async () => {
       const form = new FormData();
       form.set('file', file);
-      form.set('api_key', signatureData.apiKey);
-      form.set('timestamp', String(signatureData.timestamp));
+      form.set('fileName', file.name || `scheduled-media-${Date.now()}`);
+      form.set('publicKey', signatureData.publicKey);
+      form.set('token', signatureData.token);
+      form.set('expire', String(signatureData.expire));
       form.set('signature', signatureData.signature);
       form.set('folder', signatureData.folder);
       return withUploadTimeout(fetch(signatureData.uploadUrl, {
@@ -185,12 +187,12 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
       }
     }
     const uploadData = await uploadResponse.json().catch(() => ({}));
-    if (!uploadResponse.ok || !uploadData.secure_url) {
-      throw new Error(formatCloudinaryUploadError(uploadData?.error?.message || 'Media upload failed.', signatureData.apiKey));
+    if (!uploadResponse.ok || !uploadData.url) {
+      throw new Error(formatImageKitUploadError(uploadData?.message || uploadData?.error?.message || 'Media upload failed.', [signatureData.publicKey]));
     }
 
     return {
-      mediaUrl: String(uploadData.secure_url),
+      mediaUrl: String(uploadData.url),
       mediaType: uploadData.resource_type === 'video' || file.type.startsWith('video/') ? 'video' : 'photo'
     };
   };

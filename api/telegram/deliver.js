@@ -8,14 +8,15 @@ import {
   scheduleContentPlanPoll,
   sendTelegram,
   truncateForTelegram,
-  applyCloudinaryLogoOverlay,
+  applyImageKitLogoOverlay,
   uploadMediaDataUrl,
 } from './run-scheduled.js';
 import { pollOpenRouterVideo } from '../_openrouter.js';
 import { claimPendingPost, findRecentDuplicateTelegramPost } from '../_telegramClaim.js';
 import { notifyAdmins } from '../_alert.js';
-import { createKhmerNarration, generateKhmerSpeech, replaceCloudinaryAudio } from '../_khmerNarration.js';
+import { createKhmerNarration, generateKhmerSpeech } from '../_khmerNarration.js';
 import { verifyUploadedVideoSpeech } from '../_videoSpeech.js';
+import { applyImageKitMuteTransform } from '../_imagekitUpload.js';
 import { wantsSilentVideo } from '../../shared/videoSpeech.js';
 
 // A stuck/broken video job should not poll forever: 40 attempts at the
@@ -80,7 +81,7 @@ export const processContentPlanVideo = async (db, itemId, req) => {
 
     const uploaded = await uploadMediaDataUrl({ mediaDataUrl: result.videoUrl, mediaType: 'video' });
     if (item.voiceOverMode === 'silent' || item.voiceOverWanted === false || wantsSilentVideo(item.prompt || '')) {
-      uploaded.mediaUrl = uploaded.mediaUrl.replace('/video/upload/', '/video/upload/ac_none/');
+      uploaded.mediaUrl = applyImageKitMuteTransform(uploaded.mediaUrl);
     }
     const wantsNarration = ['edge-seedance', 'gemini', 'separate'].includes(item.voiceOverMode) && item.voiceOverWanted !== false && item.prompt
       && !wantsSilentVideo(item.prompt);
@@ -91,29 +92,34 @@ export const processContentPlanVideo = async (db, itemId, req) => {
       let narration = item.narrationAudio;
       // Lip movement was generated from this exact track. Regenerating it here
       // can change word timing and break synchronization.
-      if (item.voiceOverMode === 'edge-seedance' && !narration?.publicId) {
+      if (item.voiceOverMode === 'edge-seedance' && !narration?.filePath) {
         throw new Error('Missing original Khmer reference audio. Regenerate the video to restore lip sync.');
       }
       if (!narration) {
         const audio = await generateKhmerSpeech({ input: script, voice: item.voiceGender === 'Male' ? 'onyx' : 'nova', performanceStyle: item.performanceStyle || '', context: item.prompt });
-        narration = await uploadMediaDataUrl({ mediaDataUrl: audio.audioUrl, mediaType: 'audio' });
+        narration = {
+          ...await uploadMediaDataUrl({ mediaDataUrl: audio.audioUrl, mediaType: 'audio' }),
+          duration: Number(audio.duration),
+        };
       }
       if (!Number.isFinite(narration.duration) || narration.duration <= 0) throw new Error('Could not verify Khmer narration duration.');
       if (narration.duration > duration) throw new Error(`Khmer narration exceeds ${duration} seconds. Shorten the dialogue and retry.`);
-      uploaded.mediaUrl = replaceCloudinaryAudio(uploaded.mediaUrl, narration.publicId);
-      // Materialize the transformed asset before asking Telegram to download it.
-      const rendered = await fetch(uploaded.mediaUrl);
-      if (!rendered.ok) throw new Error('Could not render the Khmer narration video.');
-      await rendered.arrayBuffer();
+      // New presenter jobs are generated from this exact reference track, so
+      // the returned video already contains the synchronized narration. Unlike
+      // ImageKit does not replace a video's audio track via URL;
+      // retaining the generated track avoids a second lossy transcode.
+      if (item.voiceOverMode !== 'edge-seedance') {
+        throw new Error('This legacy narrated video must be regenerated with ImageKit-backed reference audio.');
+      }
     }
     // Scheduled videos do not pass through the browser-side ffmpeg watermark.
-    // Apply the same saved logo here through Cloudinary so every delivery path
+    // Apply the same saved logo here through ImageKit so every delivery path
     // uses the Business Profile branding.
     const profileSnap = await db.collection('business_profiles').doc(item.userId).get().catch(() => null);
     const logoDataUrl = String(profileSnap?.data()?.logoDataUrl || '');
     if (logoDataUrl) {
       const uploadedLogo = await uploadMediaDataUrl({ mediaDataUrl: logoDataUrl, mediaType: 'photo' });
-      uploaded.mediaUrl = applyCloudinaryLogoOverlay(uploaded.mediaUrl, uploadedLogo.publicId);
+      uploaded.mediaUrl = applyImageKitLogoOverlay(uploaded.mediaUrl, uploadedLogo.filePath);
     }
     if (item.voiceOverWanted !== false && item.voiceOverMode !== 'silent' && item.prompt && !wantsSilentVideo(item.prompt)) {
       await ref.update({ resultMediaUrl: uploaded.mediaUrl });

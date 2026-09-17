@@ -4,11 +4,10 @@ const { mockPollOpenRouterVideo } = vi.hoisted(() => ({ mockPollOpenRouterVideo:
 const { mockVerifySpeech } = vi.hoisted(() => ({ mockVerifySpeech: vi.fn().mockResolvedValue({ passed: true }) }));
 vi.mock('../../../api/_videoSpeech.js', () => ({ verifyUploadedVideoSpeech: mockVerifySpeech }));
 vi.mock('../../../api/_openrouter.js', () => ({ pollOpenRouterVideo: mockPollOpenRouterVideo }));
-const narrationMocks = vi.hoisted(() => ({ script: vi.fn(), speech: vi.fn(), replace: vi.fn() }));
+const narrationMocks = vi.hoisted(() => ({ script: vi.fn(), speech: vi.fn() }));
 vi.mock('../../../api/_khmerNarration.js', () => ({
   createKhmerNarration: narrationMocks.script,
   generateKhmerSpeech: narrationMocks.speech,
-  replaceCloudinaryAudio: narrationMocks.replace,
 }));
 
 const { mockScheduleContentPlanPoll, mockUploadMediaDataUrl, mockResolveTelegramDestination } = vi.hoisted(() => ({
@@ -24,7 +23,7 @@ vi.mock('../../../api/telegram/run-scheduled.js', () => ({
   sendTelegram: vi.fn(),
   scheduleContentPlanPoll: mockScheduleContentPlanPoll,
   uploadMediaDataUrl: mockUploadMediaDataUrl,
-  applyCloudinaryLogoOverlay: (url) => url,
+  applyImageKitLogoOverlay: (url) => url,
   resolveTelegramDestination: mockResolveTelegramDestination,
 }));
 vi.mock('../../../api/_telegramClaim.js', () => ({ claimPendingPost: vi.fn(), findRecentDuplicateTelegramPost: vi.fn() }));
@@ -69,25 +68,23 @@ describe('processContentPlanVideo', () => {
   it('auto-posts the exact Edge reference track used for lip sync', async () => {
     mockPollOpenRouterVideo.mockResolvedValue({ videoUrl: 'raw' });
     mockUploadMediaDataUrl.mockResolvedValue({ mediaUrl: 'uploaded' });
-    narrationMocks.replace.mockReturnValue('video-with-original-audio');
     mockResolveTelegramDestination.mockResolvedValue({ token: 'token', chatId: 'chat' });
     global.fetch = vi.fn().mockResolvedValue({ ok: true, arrayBuffer: async () => new ArrayBuffer(0), json: async () => ({ ok: true }) });
     const result = await processContentPlanVideo(fakeDb({
       status: 'PROCESSING', videoJobId: 'job', voiceOverMode: 'edge-seedance',
       prompt: 'Presenter', voiceOverText: 'សួស្តី',
-      narrationAudio: { publicId: 'original-reference', duration: 5.2 },
+      narrationAudio: { filePath: '/telegram-media/original-reference.mp3', duration: 5.2 },
     }), 'item', {});
     expect(result.ok).toBe(true);
     expect(narrationMocks.speech).not.toHaveBeenCalled();
-    expect(narrationMocks.replace).toHaveBeenCalledWith('uploaded', 'original-reference');
-    expect(mockVerifySpeech).toHaveBeenCalledWith('video-with-original-audio', 'សួស្តី');
+    expect(mockVerifySpeech).toHaveBeenCalledWith('uploaded', 'សួស្តី');
     expect(result).toEqual({ ok: true });
-    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
     expect(mockResolveTelegramDestination).toHaveBeenCalled();
-    expect(global.fetch.mock.calls[1][0]).toContain('/sendVideo');
+    expect(global.fetch.mock.calls[0][0]).toContain('/sendVideo');
   });
 
-  it.each([undefined, { publicId: 'voice', duration: 8.3 }])('rejects missing or overlong Edge reference audio', async (narrationAudio) => {
+  it.each([undefined, { filePath: '/voice.mp3', duration: 8.3 }])('rejects missing or overlong Edge reference audio', async (narrationAudio) => {
     mockPollOpenRouterVideo.mockResolvedValue({ videoUrl: 'raw' });
     mockUploadMediaDataUrl.mockResolvedValue({ mediaUrl: 'uploaded' });
     global.fetch = vi.fn();
@@ -150,25 +147,21 @@ describe('processContentPlanVideo', () => {
     const result = await processContentPlanVideo(fakeDb({ status: 'PROCESSING', videoJobId: 'job', prompt: 'Natural Khmer dialogue', voiceOverWanted: true }), 'item', {});
     expect(result.ok).toBe(true);
     expect(narrationMocks.speech).not.toHaveBeenCalled();
-    expect(narrationMocks.replace).not.toHaveBeenCalled();
     expect(result).toEqual({ ok: true });
     expect(global.fetch).toHaveBeenCalledTimes(1);
     expect(global.fetch.mock.calls[0][0]).toContain('/sendVideo');
   });
-  it('adds Khmer speech before auto-posting a calendar video', async () => {
+  it('rejects legacy separate-audio jobs that cannot preserve lip sync after migration', async () => {
     mockPollOpenRouterVideo.mockResolvedValue({ videoUrl: 'raw' });
-    mockUploadMediaDataUrl.mockResolvedValueOnce({ mediaUrl: 'uploaded' }).mockResolvedValueOnce({ publicId: 'voice', duration: 4 });
+    mockUploadMediaDataUrl.mockResolvedValueOnce({ mediaUrl: 'uploaded' }).mockResolvedValueOnce({ filePath: '/voice.mp3' });
     narrationMocks.script.mockResolvedValue('សួស្តី');
-    narrationMocks.speech.mockResolvedValue({ audioUrl: 'khmer-audio' });
-    narrationMocks.replace.mockReturnValue('narrated-video');
+    narrationMocks.speech.mockResolvedValue({ audioUrl: 'khmer-audio', duration: 4 });
     mockResolveTelegramDestination.mockResolvedValue({ token: 'token', chatId: 'chat' });
     global.fetch = vi.fn().mockResolvedValue({ ok: true, arrayBuffer: async () => new ArrayBuffer(0), json: async () => ({ ok: true }) });
     const result = await processContentPlanVideo(fakeDb({ status: 'PROCESSING', videoJobId: 'job', voiceOverMode: 'separate', prompt: 'A presenter says in Khmer: សួស្តី' }), 'item', {});
-    expect(result.ok).toBe(true);
+    expect(result.ok).toBe(false);
     expect(narrationMocks.speech).toHaveBeenCalledWith(expect.objectContaining({ input: 'សួស្តី', voice: 'nova' }));
-    expect(result).toEqual({ ok: true });
-    expect(global.fetch).toHaveBeenCalledTimes(2);
-    expect(global.fetch.mock.calls[1][0]).toContain('/sendVideo');
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 
   it('does not send the native video when Khmer speech fails', async () => {
@@ -228,7 +221,7 @@ describe('processContentPlanVideo', () => {
 
   it('delivers the finished video to Telegram and marks the item DONE', async () => {
     mockPollOpenRouterVideo.mockResolvedValue({ videoUrl: 'data:video/mp4;base64,AAAA' });
-    mockUploadMediaDataUrl.mockResolvedValue({ mediaUrl: 'https://res.cloudinary.com/demo/video/upload/v1/foo.mp4' });
+    mockUploadMediaDataUrl.mockResolvedValue({ mediaUrl: 'https://ik.imagekit.io/demo/telegram-media/foo.mp4' });
     mockResolveTelegramDestination.mockResolvedValue({ token: 'bot-token', chatId: '-100123' });
     global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, result: { message_id: 1 } }) });
     const updates = [];
@@ -243,13 +236,13 @@ describe('processContentPlanVideo', () => {
     );
     const sentBody = JSON.parse(global.fetch.mock.calls[0][1].body);
     expect(sentBody.chat_id).toBe('-100123');
-    expect(sentBody.video).toBe('https://res.cloudinary.com/demo/video/upload/v1/foo.mp4');
-    expect(updates.at(-1)).toMatchObject({ status: 'DONE', resultMediaUrl: 'https://res.cloudinary.com/demo/video/upload/v1/foo.mp4' });
+    expect(sentBody.video).toBe('https://ik.imagekit.io/demo/telegram-media/foo.mp4');
+    expect(updates.at(-1)).toMatchObject({ status: 'DONE', resultMediaUrl: 'https://ik.imagekit.io/demo/telegram-media/foo.mp4' });
   });
 
   it('fails the item if no Telegram destination is connected', async () => {
     mockPollOpenRouterVideo.mockResolvedValue({ videoUrl: 'data:video/mp4;base64,AAAA' });
-    mockUploadMediaDataUrl.mockResolvedValue({ mediaUrl: 'https://res.cloudinary.com/demo/video/upload/v1/foo.mp4' });
+    mockUploadMediaDataUrl.mockResolvedValue({ mediaUrl: 'https://ik.imagekit.io/demo/telegram-media/foo.mp4' });
     mockResolveTelegramDestination.mockResolvedValue({ token: '', chatId: '' });
     const updates = [];
     const db = fakeDb({ status: 'PROCESSING', videoJobId: 'job-1', userId: 'u1' }, (p) => updates.push(p));

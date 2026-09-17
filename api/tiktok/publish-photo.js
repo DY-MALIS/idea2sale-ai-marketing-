@@ -1,8 +1,7 @@
-import { createHash } from 'crypto';
 import admin, { initFirebaseAdmin } from '../_firebaseAdmin.js';
 import { logAudit } from '../_audit.js';
 import { getCookie, recordTikTokPostSync } from '../_tiktok.js';
-import { formatCloudinaryUploadError } from '../../shared/cloudinaryError.js';
+import { uploadMediaDataUrl } from '../_imagekitUpload.js';
 
 // Best-effort: TikTok publishing is authenticated via the tiktok_token cookie
 // (one shared TikTok connection for the app), not Firebase Auth, so there is
@@ -20,45 +19,13 @@ async function resolveActorUid(req) {
   }
 }
 
-const getCloudinaryConfig = () => {
-  const cloudName = (process.env.CLOUDINARY_CLOUD_NAME || '').trim();
-  const apiKey = (process.env.CLOUDINARY_API_KEY || '').trim();
-  const apiSecret = (process.env.CLOUDINARY_API_SECRET || '').trim();
-  if (!cloudName || !apiKey || !apiSecret) {
-    throw new Error('Cloudinary is not configured (CLOUDINARY_CLOUD_NAME / CLOUDINARY_API_KEY / CLOUDINARY_API_SECRET).');
-  }
-  return { cloudName, apiKey, apiSecret };
-};
-
-async function uploadImageDataUrlToCloudinary(imageDataUrl) {
-  const match = String(imageDataUrl || '').match(/^data:([^;,]+);base64,(.+)$/);
-  if (!match) {
-    throw new Error('Generated poster is missing or is not a valid image data URL.');
-  }
-
-  const { cloudName, apiKey, apiSecret } = getCloudinaryConfig();
-  const timestamp = Math.floor(Date.now() / 1000);
-  const folder = 'tiktok-photo-posts';
-  const paramsToSign = `folder=${folder}&timestamp=${timestamp}`;
-  const signature = createHash('sha1').update(paramsToSign + apiSecret).digest('hex');
-
-  const form = new URLSearchParams();
-  form.set('file', imageDataUrl);
-  form.set('api_key', apiKey);
-  form.set('timestamp', String(timestamp));
-  form.set('signature', signature);
-  form.set('folder', folder);
-
-  const response = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`, {
-    method: 'POST',
-    body: form,
+async function uploadImageDataUrlToImageKit(imageDataUrl) {
+  const uploaded = await uploadMediaDataUrl({
+    mediaDataUrl: imageDataUrl,
+    mediaType: 'photo',
+    folder: '/tiktok-photo-posts',
   });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(formatCloudinaryUploadError(data?.error?.message, apiKey));
-  }
-
-  return data.secure_url;
+  return uploaded.mediaUrl;
 }
 
 async function tiktokJson(url, token, body) {
@@ -108,7 +75,7 @@ export default async function handler(req, res) {
 
     const photoUrl = /^https:\/\//i.test(imageUrl)
       ? imageUrl
-      : await uploadImageDataUrlToCloudinary(imageDataUrl);
+      : await uploadImageDataUrlToImageKit(imageDataUrl);
 
     if (!photoUrl) {
       return res.status(400).json({

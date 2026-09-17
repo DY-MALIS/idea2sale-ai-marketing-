@@ -21,7 +21,7 @@ for the source of truth.
   `/api/tiktok/publish-photo` and `/api/telegram/run-scheduled` avoid this by having `server.ts` import and mount
   the same handler used in production, so those two can't drift.
 - Firebase (Auth + Firestore) for data and auth
-- Cloudinary for media hosting (Telegram-scheduled media, TikTok photo posts)
+- ImageKit for media hosting (Telegram-scheduled media, TikTok photo posts)
 - Upstash QStash for precise-time scheduled delivery
 - Gemini / OpenRouter for AI generation (copy, images, video, TTS)
 - TikTok Content Posting API for publishing
@@ -84,6 +84,15 @@ npm run dev
    that first connect happens, scheduled TikTok posts stay `PENDING` (not `FAILED`) and publish automatically as
    soon as someone connects. The cron runs via `vercel.json` (once daily) and the GitHub Action fallback poller
    (`telegram-scheduler.yml`, every 10 minutes) — same `CRON_SECRET` as the Telegram poller.
+
+## ImageKit Setup
+
+1. Create an ImageKit account and open Developer options in the ImageKit dashboard.
+2. Copy the public key, private key, and URL endpoint into `IMAGEKIT_PUBLIC_KEY`, `IMAGEKIT_PRIVATE_KEY`, and
+   `IMAGEKIT_URL_ENDPOINT`. The endpoint normally looks like `https://ik.imagekit.io/your_id`.
+3. Keep `IMAGEKIT_PRIVATE_KEY` server-side only. The app returns only a short-lived upload signature and the public
+   key to authenticated browsers; it never sends the private key to the client.
+4. Add the same three variables to Vercel Production before deploying this migration.
 
 ## Telegram Setup
 

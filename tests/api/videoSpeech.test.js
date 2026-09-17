@@ -7,7 +7,7 @@ vi.mock('../../api/_openrouter.js', () => ({
   normalizeForKhmerSpeech: (text) => String(text).normalize('NFC').trim(),
 }));
 import { preparePlanVideoSpeech, verifyUploadedVideoSpeech } from '../../api/_videoSpeech.js';
-afterEach(() => { vi.resetAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => { vi.resetAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe('native Khmer video speech', () => {
   it('preserves mixed Khmer dialogue with English product names and numbers', async () => {
@@ -91,13 +91,16 @@ describe('native Khmer video speech', () => {
     expect(mocks.narration).not.toHaveBeenCalled();
   });
   it('blocks delivery verification on missing audio or mismatched transcription', async () => {
+    vi.stubEnv('IMAGEKIT_PUBLIC_KEY', 'public_test');
+    vi.stubEnv('IMAGEKIT_PRIVATE_KEY', 'private_test');
+    vi.stubEnv('IMAGEKIT_URL_ENDPOINT', 'https://ik.imagekit.io/test');
     vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,arrayBuffer:async()=>new Uint8Array([1,2]).buffer}));
     mocks.transcribe.mockResolvedValue('hello');
-    await expect(verifyUploadedVideoSpeech('https://res.cloudinary.com/demo/video/upload/v1/test.mp4','សួស្តី')).rejects.toMatchObject({ speechVerification: { passed: false, transcript: 'hello', expected: 'សួស្តី' } });
+    await expect(verifyUploadedVideoSpeech('https://ik.imagekit.io/test/telegram-media/test.mp4','សួស្តី')).rejects.toMatchObject({ speechVerification: { passed: false, transcript: 'hello', expected: 'សួស្តី' } });
     mocks.transcribe.mockResolvedValue('សួស្តី');
-    expect(await verifyUploadedVideoSpeech('https://res.cloudinary.com/demo/video/upload/v1/test.mp4','សួស្តី')).toMatchObject({passed:true,naturalnessReviewed:false});
-    expect(mocks.transcribe).toHaveBeenLastCalledWith(expect.objectContaining({format:'wav',languageHint:'Khmer'}));
-    expect(String(global.fetch.mock.calls[0][0])).toContain('/f_wav,af_16000/');
+    expect(await verifyUploadedVideoSpeech('https://ik.imagekit.io/test/telegram-media/test.mp4','សួស្តី')).toMatchObject({passed:true,naturalnessReviewed:false});
+    expect(mocks.transcribe).toHaveBeenLastCalledWith(expect.objectContaining({format:'mp4',languageHint:'Khmer'}));
+    expect(decodeURIComponent(String(global.fetch.mock.calls[0][0]))).toContain('vc-none,ac-aac,f-mp4');
     await expect(verifyUploadedVideoSpeech('https://example.com/test.mp4','សួស្តី')).rejects.toThrow('Invalid');
   });
 });

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Calendar, Clock, Trash2, CheckCircle2, AlertCircle, Share2, Instagram, Twitter, X, Send, RotateCcw } from 'lucide-react';
-import { formatCloudinaryUploadError } from '../../shared/cloudinaryError.js';
+import { formatImageKitUploadError } from '../../shared/imageKitError.js';
 import { db, auth } from '../lib/firebase';
 import { collection, query, where, onSnapshot, deleteDoc, doc, updateDoc, runTransaction, serverTimestamp, getDocs } from 'firebase/firestore';
 import { SchedulePost } from '../types';
@@ -254,8 +254,10 @@ const Scheduler: React.FC = () => {
         });
     const form = new FormData();
     form.set('file', file);
-    form.set('api_key', signatureData.apiKey);
-    form.set('timestamp', String(signatureData.timestamp));
+    form.set('fileName', file.name || `telegram-${post.id}`);
+    form.set('publicKey', signatureData.publicKey);
+    form.set('token', signatureData.token);
+    form.set('expire', String(signatureData.expire));
     form.set('signature', signatureData.signature);
     form.set('folder', signatureData.folder);
 
@@ -270,11 +272,11 @@ const Scheduler: React.FC = () => {
     } catch {
       throw new Error(`Media upload returned HTTP ${uploadResponse.status} instead of JSON.`);
     }
-    if (!uploadResponse.ok || !uploadData.secure_url) {
-      throw new Error(formatCloudinaryUploadError(uploadData?.error?.message || 'Media upload failed.', signatureData.apiKey));
+    if (!uploadResponse.ok || !uploadData.url) {
+      throw new Error(formatImageKitUploadError(uploadData?.message || uploadData?.error?.message || 'Media upload failed.', [signatureData.publicKey]));
     }
 
-    return String(uploadData.secure_url);
+    return String(uploadData.url);
   };
 
   // The in-memory `processingTelegram` ref above only stops this one browser tab

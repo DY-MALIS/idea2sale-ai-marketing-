@@ -31,7 +31,7 @@ see [README.md](README.md) and the in-app Security Overview page for what "share
 - Video publish (`VideoVoice.tsx` → `api/tiktok/publish.js`) fails with a clear scope error if
   `TIKTOK_SCOPES` lacks `video.upload`/`video.publish`, and succeeds once scopes are correct and the account is
   reconnected.
-- Photo publish (`PosterGen.tsx` → `api/tiktok/publish-photo.js`) uploads the generated poster to Cloudinary and
+- Photo publish (`PosterGen.tsx` → `api/tiktok/publish-photo.js`) uploads the generated poster to ImageKit and
   successfully calls the TikTok photo content-posting endpoint.
 - `TIKTOK_POST_MODE=inbox` (default) lands content in the TikTok inbox/draft; test `direct` mode separately since
   it requires an audited app and a valid `privacy_level`.

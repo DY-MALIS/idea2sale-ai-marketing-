@@ -27,7 +27,11 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, { dur
     performanceStyle: speech.performanceStyle || item.performanceStyle || '',
     context: item.prompt || speech.prompt || '',
   });
-  const narrationAudio = await uploadMediaDataUrl({ mediaDataUrl: audio.audioUrl, mediaType: 'audio' });
+  const uploadedNarration = await uploadMediaDataUrl({ mediaDataUrl: audio.audioUrl, mediaType: 'audio' });
+  const narrationAudio = {
+    ...uploadedNarration,
+    duration: Number(audio.duration || uploadedNarration.duration),
+  };
   if (!(narrationAudio.duration > 0 && narrationAudio.duration <= duration)) throw new Error('Khmer narration must fit within the clip. Shorten the script.');
   const job = await startOpenRouterVideo({
     // Mini retains image/audio reference support while keeping an 8-second
