@@ -185,6 +185,16 @@ const copyPromptByType = {
   seo: (prompt) => `Generate 20 SEO keywords and a meta description for: ${prompt}. Target Google and social search intent.`,
 };
 
+export const getVideoCaptionSpec = (value) => value === 'YouTube Shorts'
+  ? {
+      platform: 'YouTube Shorts',
+      instruction: 'Return a ready-to-paste YouTube Shorts post with a compelling title on the first line (maximum 100 characters), then a concise description, one clear CTA, and 3-5 relevant hashtags including #Shorts. Do not add labels such as Title or Description.',
+    }
+  : {
+      platform: 'TikTok',
+      instruction: 'Create a catchy TikTok caption with one clear CTA and 3-5 relevant hashtags. Keep it ready to post.',
+    };
+
 const businessContextFromBody = (body = {}) => {
   const source = body.businessContext && typeof body.businessContext === 'object' ? body.businessContext : body;
   const businessName = String(source?.businessName || '').trim().slice(0, 120);
@@ -514,7 +524,7 @@ Return exactly this JSON shape:
   "ready": true or false,
   "kind": "image", "video", or "none",
   "imageMode": "poster" or "visual" (only relevant when kind="image"),
-  "platform": "TikTok", "Facebook", "X", "Telegram", or "General",
+  "platform": "TikTok", "YouTube", "Facebook", "X", "Telegram", or "General",
   "aspectRatio": "1:1", "9:16", "16:9", "4:5", or "3:4",
   "prompt": "detailed generation prompt describing visuals only, or empty string",
   "headline": "short poster headline in the user's language, or empty for visual/video",
@@ -526,7 +536,7 @@ Return exactly this JSON shape:
   "missing": "one concise missing detail, or empty string"
 }
 
-Aspect ratio defaults: poster=3:4 unless the user names another format, TikTok/Reels/Shorts video=9:16, TikTok image=4:5, Facebook image=4:5, X/Telegram=16:9, General image=1:1, General video=9:16.`,
+Aspect ratio defaults: poster=3:4 unless the user names another format, TikTok/Reels/YouTube Shorts video=9:16, TikTok image=4:5, Facebook image=4:5, X/Telegram=16:9, General image=1:1, General video=9:16.`,
     });
   } catch (error) {
     // If the classifier call itself fails (e.g. the configured model rejects
@@ -539,7 +549,7 @@ Aspect ratio defaults: poster=3:4 unless the user names another format, TikTok/R
   const plan = jsonFromText(rawPlan, null);
   if (!plan || !['image', 'video'].includes(plan.kind)) return null;
 
-  const platform = ['TikTok', 'Facebook', 'X', 'Telegram', 'General'].includes(plan.platform)
+  const platform = ['TikTok', 'YouTube', 'Facebook', 'X', 'Telegram', 'General'].includes(plan.platform)
     ? plan.platform
     : 'General';
   const imageMode = resolveCreativeImageMode(plan.kind, plan.imageMode, conversation);
@@ -1468,14 +1478,17 @@ Return ONLY a single valid JSON object with this exact structure:
 
     if (action === 'videoCaption') {
       const prompt = String(req.body?.prompt || '').trim();
+      const captionSpec = getVideoCaptionSpec(req.body?.platform);
+      const { platform } = captionSpec;
       const businessContext = businessContextFromBody(req.body);
       if (!prompt) return res.status(400).json({ error: 'Scene description is required.' });
-      // The scene description's own language takes priority over the app's fixed
-      // UI display-language toggle, same as every other free-text action here.
-      const outputLanguage = containsKhmerScript(prompt) ? 'Khmer' : 'English';
+      const requestedLanguage = ['Khmer', 'English'].includes(req.body?.language)
+        ? req.body.language
+        : null;
+      const outputLanguage = requestedLanguage || (containsKhmerScript(prompt) ? 'Khmer' : 'English');
       const text = await generateOpenRouterText({
-        system: `You are a social media expert who writes TikTok captions.\n\n${CAMBODIA_MARKET_CONTEXT}${businessContentInstruction(businessContext, { requireName: true })}`,
-        prompt: `Create a catchy TikTok caption and trending hashtags for this scene: "${prompt}". Write entirely in ${outputLanguage}. Keep it ready to post.${businessContext.businessName ? ` Name "${businessContext.businessName}" naturally in the caption or CTA.` : ''}`,
+        system: `You are a social media expert who writes high-performing ${platform} copy.\n\n${CAMBODIA_MARKET_CONTEXT}${businessContentInstruction(businessContext, { requireName: true })}`,
+        prompt: `${captionSpec.instruction}\n\nScene: "${prompt}"\nWrite entirely in ${outputLanguage}.${businessContext.businessName ? ` Name "${businessContext.businessName}" naturally in the copy or CTA.` : ''}`,
       });
       return res.status(200).json({ text });
     }

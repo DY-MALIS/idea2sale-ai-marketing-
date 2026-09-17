@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Calendar, Bot, Zap, Plus, Sparkles, Clock, X, Send, Instagram, Twitter, Share2, Loader2, AlertCircle, Upload } from 'lucide-react';
+import { Calendar, Bot, Zap, Plus, Sparkles, Clock, X, Send, Instagram, Twitter, Share2, Loader2, AlertCircle, Upload, Youtube } from 'lucide-react';
 import { formatImageKitUploadError } from '../../shared/imageKitError.js';
 import AITrainer from './AITrainer';
 import Suggestions from './Suggestions';
@@ -61,7 +61,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   
   // Form state
   const [content, setContent] = useState('');
-  const [platform, setPlatform] = useState<'TIKTOK' | 'INSTAGRAM' | 'TWITTER' | 'TELEGRAM'>('TIKTOK');
+  const [platform, setPlatform] = useState<'TIKTOK' | 'YOUTUBE' | 'INSTAGRAM' | 'TWITTER' | 'TELEGRAM'>('TIKTOK');
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [telegramMediaFile, setTelegramMediaFile] = useState<File | null>(null);
   const [scheduledTime, setScheduledTime] = useState(() => {
@@ -85,6 +85,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     if (!handoffRequest || handledHandoffRef.current === handoffRequest.id) return;
     handledHandoffRef.current = handoffRequest.id;
     const requestId = handoffRequest.id;
+    const targetPlatform = handoffRequest.preferredPlatform || 'TELEGRAM';
 
     setIsAttachingHandoffMedia(true);
     (async () => {
@@ -97,7 +98,13 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
         // was in flight -- handledHandoffRef.current is always the latest request's
         // id, so if it's moved on, this (now-stale) result must not overwrite it.
         if (handledHandoffRef.current !== requestId) return;
-        setTelegramMediaFile(file);
+        if (targetPlatform === 'TIKTOK' || targetPlatform === 'YOUTUBE') {
+          setVideoFile(file);
+          setTelegramMediaFile(null);
+        } else {
+          setTelegramMediaFile(file);
+          setVideoFile(null);
+        }
       } catch (error) {
         console.error('Could not attach the generated media to the scheduler:', error);
       } finally {
@@ -106,7 +113,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     })();
 
     setContent(handoffRequest.caption);
-    setPlatform('TELEGRAM');
+    setPlatform(targetPlatform);
     setIsModalOpen(true);
     onHandoffConsumed?.(handoffRequest.id);
   }, [handoffRequest?.id]);
@@ -247,11 +254,13 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
 
   const saveLocalSchedule = async (userId: string, scheduledDate: Date) => {
     const postId = Date.now().toString();
-    // Only TELEGRAM and TIKTOK collect a media file in this form (see the platform
-    // === 'TIKTOK' / 'TELEGRAM' inputs below) -- pick whichever one actually
-    // applies instead of always reading telegramMediaFile, or a demo TikTok post's
-    // video is silently dropped (mediaDbKey/mediaName end up null) with no error.
-    const mediaFile = platform === 'TELEGRAM' ? telegramMediaFile : platform === 'TIKTOK' ? videoFile : null;
+    // Telegram can carry an image or video; TikTok and YouTube Shorts require a
+    // video. Preserve the selected media for demo-mode schedule cards as well.
+    const mediaFile = platform === 'TELEGRAM'
+      ? telegramMediaFile
+      : platform === 'TIKTOK' || platform === 'YOUTUBE'
+        ? videoFile
+        : null;
     const mediaDbKey = mediaFile ? `${platform.toLowerCase()}-${postId}-${crypto.randomUUID()}` : null;
     if (mediaDbKey && mediaFile) {
       await saveLocalMedia(mediaDbKey, mediaFile);
@@ -261,6 +270,8 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
       ? 'TELEGRAM_AUTO_POST_LOCAL'
       : platform === 'TIKTOK'
       ? 'TIKTOK_DIRECT_POST_LOCAL'
+      : platform === 'YOUTUBE'
+      ? 'YOUTUBE_STUDIO_READY_LOCAL'
       : 'PLANNED_ONLY';
 
     const post = {
@@ -295,7 +306,8 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
 
     const userToUse = user || (isDemoMode ? { uid: 'demo-user' } : null);
 
-    if ((!content.trim() && !(platform === 'TELEGRAM' && telegramMediaFile)) || !scheduledTime || !userToUse || (platform === 'TIKTOK' && !videoFile)) {
+    const requiresVideo = platform === 'TIKTOK' || platform === 'YOUTUBE';
+    if ((!content.trim() && !(platform === 'TELEGRAM' && telegramMediaFile)) || !scheduledTime || !userToUse || (requiresVideo && !videoFile)) {
       setFormError(t('fillAllFieldsErr'));
       return;
     }
@@ -373,7 +385,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
         resetFormAfterSchedule();
         return;
       }
-      if (platform === 'TIKTOK' && videoFile) {
+      if ((platform === 'TIKTOK' || platform === 'YOUTUBE') && videoFile) {
         const safeName = videoFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
         const storageRef = ref(storage, `scheduled-videos/${userToUse.uid}/${Date.now()}-${safeName}`);
         setUploadProgress(0);
@@ -396,7 +408,11 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
         mediaUrl,
         mediaName: telegramMediaFile?.name || null,
         mediaType,
-        publishMode: platform === 'TIKTOK' ? 'TIKTOK_DIRECT_POST' : 'PLANNED_ONLY',
+        publishMode: platform === 'TIKTOK'
+          ? 'TIKTOK_DIRECT_POST'
+          : platform === 'YOUTUBE'
+            ? 'YOUTUBE_STUDIO_READY'
+            : 'PLANNED_ONLY',
         createdAt: serverTimestamp()
       });
       void recordAuditEvent('scheduled_post_created', {
@@ -547,9 +563,10 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-2">{t('platform')}</label>
-                      <div className="grid grid-cols-4 gap-2">
+                      <div className="grid grid-cols-5 gap-2">
                         {[
                           { id: 'TIKTOK', icon: Share2 },
+                          { id: 'YOUTUBE', icon: Youtube },
                           { id: 'INSTAGRAM', icon: Instagram },
                           { id: 'TWITTER', icon: Twitter },
                           { id: 'TELEGRAM', icon: Send }
@@ -583,9 +600,11 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                     </div>
                   </div>
 
-                  {platform === 'TIKTOK' && (
+                  {(platform === 'TIKTOK' || platform === 'YOUTUBE') && (
                     <div>
-                      <label className="block text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-2">TikTok video</label>
+                      <label className="block text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-2">
+                        {platform === 'YOUTUBE' ? 'YouTube Short video' : 'TikTok video'}
+                      </label>
                       <input
                         required
                         type="file"
@@ -593,7 +612,11 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                         onChange={(e) => setVideoFile(e.target.files?.[0] || null)}
                         className="w-full p-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-700 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-brand-600 file:px-3 file:py-2 file:font-bold file:text-white dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
                       />
-                      <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">MP4, MOV, or WebM. Auto-post starts only after TikTok approves video.publish.</p>
+                      <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                        {platform === 'YOUTUBE'
+                          ? 'Vertical 9:16 MP4, MOV, or WebM. This prepares the Short and metadata for upload in YouTube Studio.'
+                          : 'MP4, MOV, or WebM. Auto-post starts only after TikTok approves video.publish.'}
+                      </p>
                     </div>
                   )}
                   {platform === 'TELEGRAM' && (

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Calendar, Clock, Trash2, CheckCircle2, AlertCircle, Share2, Instagram, Twitter, X, Send, RotateCcw } from 'lucide-react';
+import { Calendar, Clock, Trash2, CheckCircle2, AlertCircle, Share2, Instagram, Twitter, X, Send, RotateCcw, Youtube } from 'lucide-react';
 import { formatImageKitUploadError } from '../../shared/imageKitError.js';
 import { db, auth } from '../lib/firebase';
 import { collection, query, where, onSnapshot, deleteDoc, doc, updateDoc, runTransaction, serverTimestamp, getDocs } from 'firebase/firestore';
@@ -542,7 +542,7 @@ const Scheduler: React.FC = () => {
                       <div className={`p-2 rounded-xl ${
                         post.status === 'PUBLISHED' ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-300' : 'bg-brand-50 text-slate-400 border border-brand-100 dark:bg-slate-800 dark:border-slate-700'
                       }`}>
-                        {post.platform === 'INSTAGRAM' ? <Instagram size={20} /> : post.platform === 'TWITTER' ? <Twitter size={20} /> : post.platform === 'TELEGRAM' ? <Send size={20} /> : <Share2 size={20} />}
+                        {post.platform === 'YOUTUBE' ? <Youtube size={20} /> : post.platform === 'INSTAGRAM' ? <Instagram size={20} /> : post.platform === 'TWITTER' ? <Twitter size={20} /> : post.platform === 'TELEGRAM' ? <Send size={20} /> : <Share2 size={20} />}
                       </div>
                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter mt-1 dark:text-slate-400">{post.platform}</span>
                     </div>
@@ -568,6 +568,11 @@ const Scheduler: React.FC = () => {
                       {post.platform === 'TELEGRAM' && post.mediaName && (
                         <p className="mt-2 inline-flex items-center rounded-full border border-sky-200 dark:border-sky-800/60 bg-sky-50 dark:bg-sky-900/30 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-sky-600 dark:text-sky-300">
                           {post.mediaType === 'video' ? 'Video' : 'Image'}: {post.mediaName}
+                        </p>
+                      )}
+                      {(post.platform === 'YOUTUBE' || post.platform === 'TIKTOK') && post.videoName && (
+                        <p className="mt-2 inline-flex items-center rounded-full border border-red-200 bg-red-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-red-600 dark:border-red-800/60 dark:bg-red-900/30 dark:text-red-300">
+                          Video: {post.videoName}
                         </p>
                       )}
                       {post.status === 'FAILED' && post.errorMessage && (

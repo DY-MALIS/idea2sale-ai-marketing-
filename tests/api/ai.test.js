@@ -4,10 +4,24 @@ import {
   FACEBOOK_SCAN_MODES,
   getFacebookCompetitorActivityWindow,
   getAiRateLimitPolicy,
+  getVideoCaptionSpec,
   googleSheetsUrlToCsvExportUrl,
   resolveCreativeImageMode,
   resolveFacebookScanMode,
 } from '../../api/ai.js';
+
+describe('getVideoCaptionSpec', () => {
+  it('creates a YouTube Shorts post with title and Shorts hashtag guidance', () => {
+    const spec = getVideoCaptionSpec('YouTube Shorts');
+    expect(spec.platform).toBe('YouTube Shorts');
+    expect(spec.instruction).toContain('maximum 100 characters');
+    expect(spec.instruction).toContain('#Shorts');
+  });
+
+  it('falls back to TikTok for unknown client values', () => {
+    expect(getVideoCaptionSpec('youtube')).toMatchObject({ platform: 'TikTok' });
+  });
+});
 
 describe('video rate-limit policy', () => {
   it('keeps paid generation and polling out of the shared AI quota', () => {

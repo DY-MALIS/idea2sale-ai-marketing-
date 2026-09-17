@@ -9,7 +9,8 @@ import {
   Volume2,
   Lock,
   Image as ImageIcon,
-  Calendar
+  Calendar,
+  Youtube
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { uint8ArrayToBase64 } from '../lib/base64';
@@ -655,6 +656,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
 
   const [aiCaption, setAiCaption] = useState('');
   const [captionLanguage, setCaptionLanguage] = useState<'Khmer' | 'English'>('Khmer');
+  const [captionPlatform, setCaptionPlatform] = useState<'TikTok' | 'YouTube Shorts'>('TikTok');
   const [isGeneratingCaption, setIsGeneratingCaption] = useState(false);
   const [isPostingTikTok, setIsPostingTikTok] = useState(false);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
@@ -735,21 +737,44 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     return () => window.removeEventListener('message', handleMessage);
   }, []);
 
-  const handleGenerateCaption = async () => {
-    if (!videoPrompt) return;
+  const generateCaptionForPlatform = async (platform: 'TikTok' | 'YouTube Shorts') => {
+    if (!videoPrompt) return '';
+    setCaptionPlatform(platform);
     setIsGeneratingCaption(true);
     try {
       const businessContext = await getLatestBusinessBranding(user, isDemoMode);
-      const response = await fetchAiWithTimeout({ action: 'videoCaption', prompt: videoPrompt, language, businessContext });
+      const response = await fetchAiWithTimeout({
+        action: 'videoCaption',
+        prompt: videoPrompt,
+        language: captionLanguage,
+        platform,
+        businessContext,
+      });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to generate caption.');
-      setAiCaption(data.text || '');
+      const generatedCaption = String(data.text || '').trim();
+      setAiCaption(generatedCaption);
+      return generatedCaption;
     } catch (error) {
       console.error("Caption error:", error);
       notify("Failed to generate caption.", 'error');
+      return '';
     } finally {
       setIsGeneratingCaption(false);
     }
+  };
+
+  const handleGenerateCaption = () => generateCaptionForPlatform(captionPlatform);
+
+  const handlePrepareYouTubeShort = async () => {
+    if (videoNeedsReview || performanceNeedsReview) {
+      handleScheduleThisVideo('YOUTUBE');
+      return;
+    }
+    const youtubeCopy = captionPlatform === 'YouTube Shorts' && aiCaption.trim()
+      ? aiCaption.trim()
+      : await generateCaptionForPlatform('YouTube Shorts');
+    if (youtubeCopy) handleScheduleThisVideo('YOUTUBE', youtubeCopy);
   };
 
   const handleTikTokAuth = async () => {
@@ -1279,7 +1304,10 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     return segments.filter((segment) => segment.text.trim());
   };
 
-  const handleScheduleThisVideo = () => {
+  const handleScheduleThisVideo = (
+    preferredPlatform: ScheduleHandoffRequest['preferredPlatform'] = 'TELEGRAM',
+    captionOverride = '',
+  ) => {
     if (videoNeedsReview || performanceNeedsReview) {
       notify(language === 'km'
         ? 'សូមមើល និងស្តាប់វីដេអូ រួចធីកប្រអប់បញ្ជាក់គុណភាពខាងលើសិន ទើបអាចកំណត់ពេលផុសបាន។'
@@ -1295,7 +1323,8 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       kind: 'video',
       mediaDataUrl: generatedVideo,
       mediaName: `idea2sale-video-${Date.now()}.mp4`,
-      caption: aiCaption.trim() || videoPrompt.trim().slice(0, 900),
+      caption: captionOverride.trim() || aiCaption.trim() || videoPrompt.trim().slice(0, 900),
+      preferredPlatform,
     });
   };
 
@@ -1565,15 +1594,29 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
 
                 {/* AI Caption Generator Section */}
                 <div className="space-y-4 pt-4 border-t border-brand-100">
-                  <div className="flex justify-between items-center">
+                  <div className="flex flex-wrap justify-between items-center gap-3">
                     <h4 className="text-sm font-bold text-brand-700 flex items-center gap-2">
                       <Sparkles size={16} className="text-brand-500" />
                       {t('aiCaptionGenerator')}
                     </h4>
-                    <div className="flex bg-brand-50 p-1 rounded-xl border border-brand-100">
-                      {['Khmer', 'English'].map(lang => (
-                        <button key={lang} onClick={() => setCaptionLanguage(lang as any)} className={cn("px-3 py-1 rounded-lg text-[10px] font-black", captionLanguage === lang ? "bg-white dark:bg-slate-800 text-brand-700 shadow-sm" : "text-brand-400")}>{lang}</button>
-                      ))}
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <div className="flex bg-brand-50 p-1 rounded-xl border border-brand-100">
+                        {(['TikTok', 'YouTube Shorts'] as const).map((platform) => (
+                          <button
+                            key={platform}
+                            type="button"
+                            onClick={() => setCaptionPlatform(platform)}
+                            className={cn("px-3 py-1 rounded-lg text-[10px] font-black", captionPlatform === platform ? "bg-white dark:bg-slate-800 text-brand-700 shadow-sm" : "text-brand-400")}
+                          >
+                            {platform}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="flex bg-brand-50 p-1 rounded-xl border border-brand-100">
+                        {['Khmer', 'English'].map(lang => (
+                          <button key={lang} onClick={() => setCaptionLanguage(lang as any)} className={cn("px-3 py-1 rounded-lg text-[10px] font-black", captionLanguage === lang ? "bg-white dark:bg-slate-800 text-brand-700 shadow-sm" : "text-brand-400")}>{lang}</button>
+                        ))}
+                      </div>
                     </div>
                   </div>
                   
@@ -1862,7 +1905,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                       </button>
                     )}
                     <button
-                      onClick={handleScheduleThisVideo}
+                      onClick={() => handleScheduleThisVideo('TELEGRAM')}
                       className={`flex items-center justify-center gap-2 rounded-2xl border px-5 py-4 font-bold transition-all ${videoNeedsReview || performanceNeedsReview
                         ? 'border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100'
                         : 'border-brand-200 bg-brand-100 text-brand-700 hover:bg-brand-200'}`}
@@ -1872,6 +1915,17 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                       <span>{videoNeedsReview || performanceNeedsReview
                         ? (language === 'km' ? 'បញ្ជាក់គុណភាពសិន' : 'Confirm to schedule')
                         : t('scheduleBtn')}</span>
+                    </button>
+                    <button
+                      onClick={handlePrepareYouTubeShort}
+                      disabled={videoNeedsReview || performanceNeedsReview || isGeneratingCaption}
+                      className="flex items-center justify-center gap-2 rounded-2xl bg-red-600 px-5 py-4 font-bold text-white shadow-xl transition-all hover:bg-red-700 disabled:opacity-50"
+                      title={language === 'km' ? 'រៀបចំវីដេអូ និងអត្ថបទសម្រាប់ YouTube Shorts' : 'Prepare this video and copy for YouTube Shorts'}
+                    >
+                      {isGeneratingCaption && captionPlatform === 'YouTube Shorts'
+                        ? <Loader2 size={24} className="animate-spin" />
+                        : <Youtube size={24} />}
+                      <span>{language === 'km' ? 'រៀបចំ YouTube Shorts' : 'Prepare YouTube Short'}</span>
                     </button>
                   </div>
                 </div>

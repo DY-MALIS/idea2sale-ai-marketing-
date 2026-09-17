@@ -134,7 +134,7 @@ export interface CreativeAutomationRequest {
   kind: 'image' | 'video';
   imageMode?: 'poster' | 'visual';
   prompt: string;
-  platform: 'TikTok' | 'Facebook' | 'X' | 'Telegram' | 'General';
+  platform: 'TikTok' | 'YouTube' | 'Facebook' | 'X' | 'Telegram' | 'General';
   aspectRatio: '1:1' | '9:16' | '16:9' | '4:5' | '3:4';
   language: 'km' | 'en';
   voiceOverText?: string;
@@ -150,12 +150,13 @@ export interface ScheduleHandoffRequest {
   mediaDataUrl: string;
   mediaName: string;
   caption: string;
+  preferredPlatform?: 'TIKTOK' | 'YOUTUBE' | 'INSTAGRAM' | 'TWITTER' | 'TELEGRAM';
 }
 
 export interface SchedulePost {
   id: string;
   content: string;
-  platform: 'TIKTOK' | 'INSTAGRAM' | 'TWITTER' | 'TELEGRAM';
+  platform: 'TIKTOK' | 'YOUTUBE' | 'INSTAGRAM' | 'TWITTER' | 'TELEGRAM';
   scheduledTime: string;
   status: 'PENDING' | 'PROCESSING' | 'PUBLISHED' | 'FAILED';
   userId: string;
