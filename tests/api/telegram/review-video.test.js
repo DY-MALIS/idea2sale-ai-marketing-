@@ -39,6 +39,27 @@ it('allows the owner to manually approve when automatic transcription was unavai
   expect(res.statusCode).toBe(200);
   expect(tx.set).toHaveBeenCalledWith({ name: 'scheduled_posts', id: 'review-abcdefghijk' }, expect.objectContaining({ mediaUrl: 'https://video', status: 'PENDING' }));
 });
+it('recovers a retained legacy video whose audio extraction was previously marked failed', async () => {
+  const tx = setup({
+    userId: 'owner', type: 'video', status: 'FAILED', resultMediaUrl: 'https://video',
+    voiceOverText: 'សួស្តី', errorMessage: 'Could not extract video audio for verification.',
+  });
+  const res = response(); await handler(request(), res);
+  expect(res.statusCode).toBe(200);
+  expect(tx.set).toHaveBeenCalledWith(
+    { name: 'scheduled_posts', id: 'review-abcdefghijk' },
+    expect.objectContaining({ mediaUrl: 'https://video', status: 'PENDING' }),
+  );
+  expect(tx.update).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+    status: 'DONE',
+    speechVerification: expect.objectContaining({
+      unavailable: true,
+      expected: 'សួស្តី',
+      method: 'legacy-audio-extraction-unavailable',
+      naturalnessReviewed: true,
+    }),
+  }));
+});
 it('retries only an owned failed/review item and clears stale generation data', async () => {
   const tx = setup({ userId: 'owner', status: 'FAILED' });
   const res = response(); await handler(request({ action: 'retry' }), res);

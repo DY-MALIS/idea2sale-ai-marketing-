@@ -30,9 +30,14 @@ export default async function reviewVideoHandler(req, res) {
         transaction.update(ref, { status: 'PENDING', errorMessage: null, resultMediaUrl: null, speechVerification: null, narrationAudio: null, videoJobId: null });
         return;
       }
+      const legacyExtractionReview = item.status === 'FAILED'
+        && item.type === 'video'
+        && Boolean(item.resultMediaUrl)
+        && /Could not extract video audio for verification|Invalid verification audio size/i.test(String(item.errorMessage || ''));
       const verificationAllowsManualReview = item.speechVerification?.passed === true
-        || item.speechVerification?.unavailable === true;
-      if (item.status !== 'REVIEW' || item.type !== 'video' || !verificationAllowsManualReview || !mediaUrl || mediaUrl !== item.resultMediaUrl) {
+        || item.speechVerification?.unavailable === true
+        || legacyExtractionReview;
+      if ((item.status !== 'REVIEW' && !legacyExtractionReview) || item.type !== 'video' || !verificationAllowsManualReview || !mediaUrl || mediaUrl !== item.resultMediaUrl) {
         throw new Error('This video is not ready for approval. Refresh and review the current video.');
       }
       const post = db.collection('scheduled_posts').doc(`review-${itemId}`);
@@ -44,7 +49,16 @@ export default async function reviewVideoHandler(req, res) {
       });
       transaction.update(ref, {
         status: 'DONE', reviewedAt: FieldValue.serverTimestamp(), reviewedBy: user.uid,
-        'speechVerification.naturalnessReviewed': true, approvedPostId: post.id,
+        approvedPostId: post.id,
+        ...(legacyExtractionReview
+          ? { speechVerification: {
+            passed: false,
+            unavailable: true,
+            expected: item.voiceOverText || '',
+            method: 'legacy-audio-extraction-unavailable',
+            naturalnessReviewed: true,
+          } }
+          : { 'speechVerification.naturalnessReviewed': true }),
       });
     });
     return res.status(200).json({ ok: true, queued: action === 'approve' });

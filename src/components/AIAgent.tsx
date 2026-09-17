@@ -1253,6 +1253,11 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                     </p>
                     <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
                       {savedPlanItems.map((item) => {
+                        const isLegacyAudioReview = item.status === 'FAILED'
+                          && item.type === 'video'
+                          && Boolean(item.resultMediaUrl)
+                          && /Could not extract video audio for verification|Invalid verification audio size/i.test(item.errorMessage || '');
+                        const displayedStatus: SavedPlanItem['status'] = isLegacyAudioReview ? 'REVIEW' : item.status;
                         const statusStyle: Record<SavedPlanItem['status'], string> = {
                           PENDING: 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300',
                           PROCESSING: 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300',
@@ -1278,8 +1283,8 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                                 <span className="rounded-full bg-white px-2 py-0.5 text-[10px] dark:bg-slate-700">
                                   {item.type === 'video' ? (language === 'km' ? 'វីដេអូ' : 'Video') : (language === 'km' ? 'រូបភាព' : 'Image')}
                                 </span>
-                                <span className={`rounded-full px-2 py-0.5 text-[10px] ${statusStyle[item.status]}`}>
-                                  {statusLabel[item.status]}
+                                <span className={`rounded-full px-2 py-0.5 text-[10px] ${statusStyle[displayedStatus]}`}>
+                                  {statusLabel[displayedStatus]}
                                 </span>
                               </div>
                               <p className="mt-1 truncate text-sm font-bold text-brand-700 dark:text-brand-300">{item.topic}</p>
@@ -1318,7 +1323,14 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                                   </p>
                                 </div>
                               )}
-                              {item.status === 'REVIEW' && (
+                              {isLegacyAudioReview && (
+                                <p className="mt-1 text-[10px] font-bold text-amber-600 dark:text-amber-300">
+                                  {language === 'km'
+                                    ? 'វីដេអូត្រូវបានរក្សាទុក ប៉ុន្តែការផ្ទៀងផ្ទាត់សំឡេងមិនបានបញ្ចប់។ សូមមើល និងស្តាប់មុនអនុម័ត។'
+                                    : 'The video was retained, but audio verification did not finish. Watch and listen before approving.'}
+                                </p>
+                              )}
+                              {(item.status === 'REVIEW' || isLegacyAudioReview) && (
                                 <button type="button" onClick={() => handleReviewPlanItem(item.id, 'approve', item.resultMediaUrl)} className="mt-2 rounded-lg bg-brand-600 p-2 text-xs text-white">
                                   {language === 'km' ? 'បានមើល និងស្តាប់៖ ពាក្យ ល្បឿន មាត់ និងកាយវិការត្រឹមត្រូវ — ដាក់ក្នុងជួរបញ្ជូន Telegram' : 'Reviewed pronunciation, pace, lips and gestures — queue for Telegram'}
                                 </button>
