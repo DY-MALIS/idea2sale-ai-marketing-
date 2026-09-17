@@ -213,6 +213,7 @@ describe('OpenRouter video audio', () => {
 
     const requestBody = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(requestBody.generate_audio).toBe(false);
+    expect(requestBody.aspect_ratio).toBe('9:16');
   });
 });
 

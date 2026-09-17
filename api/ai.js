@@ -1624,12 +1624,10 @@ Return ONLY a single valid JSON object with this exact structure:
 
     if (action === 'videoGenerate') {
       const prompt = String(req.body?.prompt || '').trim();
-      const requestedAspectRatio = String(req.body?.aspectRatio || '9:16');
-      const aspectRatio = requestedAspectRatio === '4:5'
-        ? '3:4'
-        : ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'].includes(requestedAspectRatio)
-          ? requestedAspectRatio
-          : '9:16';
+      // This product creates social short-form video. Keep every generation in
+      // the full-height TikTok/Reels/Shorts canvas; allowing stale 16:9 values
+      // through produced the short, horizontal player the user explicitly rejected.
+      const aspectRatio = '9:16';
       if (!prompt) return res.status(400).json({ error: 'Video prompt is required.' });
       const normalizedPrompt = await normalizeMediaPrompt(prompt, 'video');
       const images = Array.isArray(req.body?.images)

@@ -36,12 +36,10 @@ type VoiceGender = 'Female' | 'Male';
 type VoicePersona = 'sreymom' | 'piseth';
 type VideoAspectRatio = CreativeAutomationRequest['aspectRatio'];
 
-const normalizeVideoAspectRatio = (value: unknown): VideoAspectRatio => {
-  if (value === '4:5') return '3:4';
-  return ['1:1', '9:16', '16:9', '3:4'].includes(String(value))
-    ? value as VideoAspectRatio
-    : '9:16';
-};
+// VideoVoice is exclusively a short-form social-video workflow. Always use a
+// full-height portrait canvas so stale automation/history values cannot bring
+// back the rejected short horizontal player.
+const normalizeVideoAspectRatio = (_value: unknown): VideoAspectRatio => '9:16';
 
 // None of the five /api/ai calls in this file had a timeout of their own --
 // if the connection itself stalls, the fetch just hangs forever with no
@@ -267,24 +265,16 @@ const mediaDuration = (url: string, kind: 'audio' | 'video'): Promise<number> =>
   media.src = url;
 });
 
-const GeneratedVideoPlayer: React.FC<{ src: string; language: 'km' | 'en'; aspectRatio: VideoAspectRatio }> = ({ src, language, aspectRatio }) => {
+const GeneratedVideoPlayer: React.FC<{ src: string; language: 'km' | 'en' }> = ({ src, language }) => {
   const normalizedSrc = normalizeImageKitVideoUrl(src);
   const [playbackSrc, setPlaybackSrc] = useState(normalizedSrc);
   const [recovering, setRecovering] = useState(false);
   const [failed, setFailed] = useState(false);
-  const [detectedRatio, setDetectedRatio] = useState<number | null>(null);
-  const declaredRatio = aspectRatio === '16:9' ? 16 / 9
-    : aspectRatio === '1:1' ? 1
-      : aspectRatio === '3:4' ? 3 / 4
-        : aspectRatio === '4:5' ? 4 / 5
-          : 9 / 16;
-  const displayRatio = detectedRatio || declaredRatio;
 
   React.useEffect(() => {
     setPlaybackSrc(normalizeImageKitVideoUrl(src));
     setRecovering(false);
     setFailed(false);
-    setDetectedRatio(null);
   }, [src]);
 
   const handlePlaybackError = () => {
@@ -303,23 +293,13 @@ const GeneratedVideoPlayer: React.FC<{ src: string; language: 'km' | 'en'; aspec
   };
 
   return (
-    <div
-      style={{ aspectRatio: String(displayRatio) }}
-      className={cn(
-        'relative w-full overflow-hidden rounded-3xl border border-brand-200 bg-black shadow-2xl',
-        displayRatio < 1 ? 'mx-auto max-w-sm' : displayRatio === 1 ? 'mx-auto max-w-xl' : 'max-w-full',
-      )}
-    >
+    <div className="relative mx-auto aspect-[9/16] w-full max-w-sm overflow-hidden rounded-3xl border border-brand-200 bg-black shadow-2xl">
       <video
         key={playbackSrc}
         src={playbackSrc}
         controls
         playsInline
         preload="metadata"
-        onLoadedMetadata={(event) => {
-          const video = event.currentTarget;
-          if (video.videoWidth > 0 && video.videoHeight > 0) setDetectedRatio(video.videoWidth / video.videoHeight);
-        }}
         onCanPlay={() => { setRecovering(false); setFailed(false); }}
         onError={handlePlaybackError}
         className={cn('h-full w-full bg-black object-contain', failed && 'invisible')}
@@ -1824,12 +1804,12 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                   )}
                   {videoNeedsReview ? retainedClips.map((clip, index) => (
                     <div key={index} className="space-y-2">
-                      <GeneratedVideoPlayer src={clip} language={language} aspectRatio={videoAspectRatio} />
+                      <GeneratedVideoPlayer src={clip} language={language} />
                       <a href={clip} download={`review-clip-${index + 1}.mp4`} className="text-brand-700 underline">
                         {language === 'km' ? 'ទាញយកឈុត' : 'Download clip'} {index + 1}
                       </a>
                     </div>
-                  )) : <GeneratedVideoPlayer src={generatedVideo} language={language} aspectRatio={videoAspectRatio} />}
+                  )) : <GeneratedVideoPlayer src={generatedVideo} language={language} />}
                   {(videoNeedsReview || performanceNeedsReview) && (
                     <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
                       <input
