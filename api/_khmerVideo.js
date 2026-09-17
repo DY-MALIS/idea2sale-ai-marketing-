@@ -19,7 +19,12 @@ export const fitKhmerClipDurationToNarration = (narrationDuration, requestedDura
     || maximum;
 };
 
-export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, { duration = 8, images = [], aspectRatio = item.aspectRatio || '9:16' } = {}) => {
+export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
+  duration = 8,
+  images = [],
+  aspectRatio = item.aspectRatio || '9:16',
+  generateAudio,
+} = {}) => {
   const hasKhmerSpeech = speech.mode !== 'silent';
   assertVideoGenerationWithinBudget({
     duration,
@@ -57,6 +62,7 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, { dur
     aspectRatio,
     referenceUrls: [avatarReferenceUrl],
     audioReferenceUrls: [narrationAudio.mediaUrl],
+    generateAudio,
   });
   return {
     job: { ...job, outputDuration: fittedDuration },

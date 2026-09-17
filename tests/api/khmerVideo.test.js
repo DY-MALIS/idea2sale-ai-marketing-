@@ -27,6 +27,25 @@ it('uses the same measured audio and supplied portrait for manual video lip sync
   expect(result.narrationAudio.mediaUrl).toBe('https://audio');
   expect(result.narrationAudio.provider).toBe('gemini');
 });
+it('can keep the Seedance result silent for client-side narration muxing', async () => {
+  mocks.speech.mockResolvedValue({ audioUrl: 'audio-data', duration: 3.4, provider: 'gemini' });
+  mocks.video.mockResolvedValue({ jobId: 'job' });
+  const upload = vi.fn()
+    .mockResolvedValueOnce({ mediaUrl: 'https://image' })
+    .mockResolvedValueOnce({ mediaUrl: 'https://audio' });
+
+  await startKhmerVideoJob(
+    { voiceGender: 'Female' },
+    { script: 'សួស្តី', prompt: 'Presenter', motionPrompt: 'Normal speed' },
+    upload,
+    { duration: 4, images: [{ mimeType: 'image/png', base64: 'AAAA' }], generateAudio: false },
+  );
+
+  expect(mocks.video).toHaveBeenCalledWith(expect.objectContaining({
+    audioReferenceUrls: ['https://audio'],
+    generateAudio: false,
+  }));
+});
 it('does not start a video when speech would be cut off', async () => {
   mocks.image.mockResolvedValue({ imageUrl: 'portrait' });
   mocks.speech.mockResolvedValue({ audioUrl: 'audio' });

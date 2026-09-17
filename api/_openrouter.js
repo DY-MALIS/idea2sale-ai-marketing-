@@ -704,7 +704,7 @@ export async function generateOpenRouterSpeech({
   throw lastError || new Error('OpenRouter speech request failed.');
 }
 
-export async function startOpenRouterVideo({ prompt, images, referenceUrls, audioReferenceUrls, model, duration, aspectRatio = '9:16', voiceId, motionPrompt, expressiveness, khmerSpeech = false }) {
+export async function startOpenRouterVideo({ prompt, images, referenceUrls, audioReferenceUrls, model, duration, aspectRatio = '9:16', voiceId, motionPrompt, expressiveness, khmerSpeech = false, generateAudio }) {
   const configuredModel = model || process.env.OPEN_ROUTER_VIDEO_MODEL || STANDARD_VIDEO_MODEL;
   // Never allow an old/expensive environment override to bypass the per-video
   // budget. Unknown models fall back to the approved low-cost default before
@@ -757,11 +757,15 @@ export async function startOpenRouterVideo({ prompt, images, referenceUrls, audi
       if (/^https:\/\//.test(url)) refs.push({ type: 'audio_url', audio_url: { url } });
     }
     if (refs.length) body.input_references = refs;
-    // Audio references steer lip motion, but generate_audio still controls
-    // whether the returned MP4 actually contains an audible track. Keep silent
-    // jobs silent; narrated Seedance jobs must carry their referenced speech so
-    // server-side scheduled delivery is not a mute video.
-    body.generate_audio = refs.some((reference) => reference.type === 'audio_url');
+    // Audio references steer lip motion, while generate_audio controls whether
+    // Seedance also renders an output track. Interactive generation explicitly
+    // disables that second render and muxes the exact uploaded narration in the
+    // browser. This avoids Seedance's output-audio copyright filter rejecting an
+    // otherwise valid talking video. Scheduled delivery can retain the default
+    // audible output because it has no browser-side muxing step.
+    body.generate_audio = typeof generateAudio === 'boolean'
+      ? generateAudio
+      : refs.some((reference) => reference.type === 'audio_url');
   }
 
   const imageList = Array.isArray(images)

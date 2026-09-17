@@ -215,6 +215,31 @@ describe('OpenRouter video audio', () => {
     expect(requestBody.generate_audio).toBe(false);
     expect(requestBody.aspect_ratio).toBe('9:16');
   });
+
+  it('uses narration for lip motion without generating provider audio when requested', async () => {
+    process.env.OPEN_ROUTER_API_KEY = 'test-key';
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 'video-job', status: 'pending' }),
+    });
+    global.fetch = fetchMock;
+
+    await startOpenRouterVideo({
+      prompt: 'Cambodian presenter speaking at normal speed',
+      model: 'bytedance/seedance-2.0-mini',
+      duration: 4,
+      khmerSpeech: true,
+      referenceUrls: ['https://example.com/presenter.jpg'],
+      audioReferenceUrls: ['https://example.com/narration.mp3'],
+      generateAudio: false,
+    });
+
+    const requestBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(requestBody.generate_audio).toBe(false);
+    expect(requestBody.input_references).toEqual(expect.arrayContaining([
+      { type: 'audio_url', audio_url: { url: 'https://example.com/narration.mp3' } },
+    ]));
+  });
 });
 
 // Regression coverage for a real incident this session: a secret pasted into

@@ -1674,7 +1674,15 @@ Return ONLY a single valid JSON object with this exact structure:
         };
         const speech = await preparePlanVideoSpeech(item);
         const { uploadMediaDataUrl } = await import('./telegram/run-scheduled.js');
-        const { job, narrationAudio } = await startKhmerVideoJob(item, speech, uploadMediaDataUrl, { duration, images, aspectRatio });
+        const { job, narrationAudio } = await startKhmerVideoJob(item, speech, uploadMediaDataUrl, {
+          duration,
+          images,
+          aspectRatio,
+          // The browser adds this exact uploaded track after video generation.
+          // Asking Seedance to generate the output audio again can trip its
+          // copyright filter even though the narration was created by this app.
+          generateAudio: false,
+        });
         const responseBody = {
           ...job,
           narrationAudioUrl: narrationAudio.mediaUrl,
