@@ -188,10 +188,9 @@ describe('OpenRouter video audio', () => {
     const requestBody = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(requestBody.generate_audio).toBe(true);
     expect(requestBody.aspect_ratio).toBe('9:16');
-    expect(requestBody.frame_images).toEqual([{
-      type: 'image_url', image_url: { url: 'https://example.com/presenter.jpg' }, frame_type: 'first_frame',
-    }]);
+    expect(requestBody.frame_images).toBeUndefined();
     expect(requestBody.input_references).toEqual(expect.arrayContaining([
+      { type: 'image_url', image_url: { url: 'https://example.com/presenter.jpg' } },
       { type: 'audio_url', audio_url: { url: 'https://example.com/narration.mp3' } },
     ]));
   });
@@ -236,7 +235,9 @@ describe('OpenRouter video audio', () => {
 
     const requestBody = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(requestBody.generate_audio).toBe(false);
+    expect(requestBody.frame_images).toBeUndefined();
     expect(requestBody.input_references).toEqual(expect.arrayContaining([
+      { type: 'image_url', image_url: { url: 'https://example.com/presenter.jpg' } },
       { type: 'audio_url', audio_url: { url: 'https://example.com/narration.mp3' } },
     ]));
   });

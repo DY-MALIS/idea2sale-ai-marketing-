@@ -742,10 +742,17 @@ export async function startOpenRouterVideo({ prompt, images, referenceUrls, audi
   if (selectedModel.startsWith('bytedance/seedance-2.0')) {
     const refs = [];
     const imageUrls = (Array.isArray(referenceUrls) ? referenceUrls : []).filter(url => /^https:\/\//.test(url));
-    if (imageUrls.length) {
+    const audioUrls = (Array.isArray(audioReferenceUrls) ? audioReferenceUrls : []).filter(url => /^https:\/\//.test(url));
+    if (imageUrls.length && audioUrls.length) {
+      // OpenRouter treats frame_images and input_references as different modes;
+      // frame_images wins when both are present. A talking-avatar request must
+      // therefore keep the portrait and narration together in input_references,
+      // otherwise Seedance can ignore the audio that is meant to drive the lips.
+      for (const url of imageUrls) refs.push({ type: 'image_url', image_url: { url } });
+    } else if (imageUrls.length) {
       // Lock the full-quality presenter portrait as the actual first frame.
-      // This preserves facial detail and framing more strongly than a loose
-      // style reference while the separate audio reference drives lip timing.
+      // This is appropriate only when no audio reference needs multimodal
+      // reference-to-video mode.
       body.frame_images = [{
         type: 'image_url',
         image_url: { url: imageUrls[0] },
@@ -753,9 +760,7 @@ export async function startOpenRouterVideo({ prompt, images, referenceUrls, audi
       }];
       for (const url of imageUrls.slice(1)) refs.push({ type: 'image_url', image_url: { url } });
     }
-    for (const url of Array.isArray(audioReferenceUrls) ? audioReferenceUrls : []) {
-      if (/^https:\/\//.test(url)) refs.push({ type: 'audio_url', audio_url: { url } });
-    }
+    for (const url of audioUrls) refs.push({ type: 'audio_url', audio_url: { url } });
     if (refs.length) body.input_references = refs;
     // Audio references steer lip motion, while generate_audio controls whether
     // Seedance also renders an output track. Interactive generation explicitly
