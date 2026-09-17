@@ -629,9 +629,9 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   const [needsApiKey, setNeedsApiKey] = useState(false);
   const [videoImages, setVideoImages] = useState<{ base64: string; mimeType: string }[]>([]);
   const [videoDuration, setVideoDuration] = useState<number>(8);
-  const [videoAspectRatio, setVideoAspectRatio] = useState<VideoAspectRatio>('9:16');
-  const [generatedVideoAspectRatio, setGeneratedVideoAspectRatio] = useState<VideoAspectRatio>('9:16');
-  const [captionPlatform, setCaptionPlatform] = useState<'TikTok' | 'YouTube'>('TikTok');
+  const [videoAspectRatio, setVideoAspectRatio] = useState<VideoAspectRatio>('16:9');
+  const [generatedVideoAspectRatio, setGeneratedVideoAspectRatio] = useState<VideoAspectRatio>('16:9');
+  const [captionPlatform, setCaptionPlatform] = useState<'TikTok' | 'YouTube'>('YouTube');
   const [segmentProgress, setSegmentProgress] = useState<{ current: number; total: number } | null>(null);
   const [mergingSegments, setMergingSegments] = useState(false);
   const [automationNotice, setAutomationNotice] = useState<string | null>(null);
@@ -1481,6 +1481,30 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
             {activeTool === 'video' ? (
               <div className="space-y-6">
                 <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-brand-400">
+                    {language === 'km' ? 'Platform និងទម្រង់វីដេអូ' : 'Platform and video format'}
+                  </label>
+                  <div className="grid grid-cols-2 gap-2 rounded-2xl border border-brand-100 bg-brand-50 p-1.5 dark:border-slate-700 dark:bg-slate-800">
+                    {(['YouTube', 'TikTok'] as const).map((platform) => (
+                      <button
+                        key={platform}
+                        type="button"
+                        onClick={() => selectVideoPlatform(platform)}
+                        className={cn(
+                          'rounded-xl px-3 py-3 text-xs font-black transition-all',
+                          captionPlatform === platform
+                            ? 'bg-white text-brand-700 shadow-md dark:bg-slate-700 dark:text-brand-300'
+                            : 'text-brand-400 hover:text-brand-700',
+                        )}
+                      >
+                        {platform === 'YouTube'
+                          ? (language === 'km' ? 'YouTube ផ្ដេក 16:9' : 'YouTube landscape 16:9')
+                          : (language === 'km' ? 'TikTok បញ្ឈរ 9:16' : 'TikTok portrait 9:16')}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-2">
                   <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">{t('startingImageLabel')}</label>
                   <div className="flex flex-wrap gap-3">
                     {videoImages.map((image, index) => (
@@ -1630,30 +1654,13 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                     </h4>
                     <div className="flex flex-wrap justify-end gap-2">
                       <div className="flex bg-brand-50 p-1 rounded-xl border border-brand-100">
-                        {(['TikTok', 'YouTube'] as const).map((platform) => (
-                          <button
-                            key={platform}
-                            type="button"
-                            onClick={() => selectVideoPlatform(platform)}
-                            className={cn("px-3 py-1 rounded-lg text-[10px] font-black", captionPlatform === platform ? "bg-white dark:bg-slate-800 text-brand-700 shadow-sm" : "text-brand-400")}
-                          >
-                            {platform === 'YouTube' ? 'YouTube 16:9' : 'TikTok 9:16'}
-                          </button>
-                        ))}
-                      </div>
-                      <div className="flex bg-brand-50 p-1 rounded-xl border border-brand-100">
                         {['Khmer', 'English'].map(lang => (
                           <button key={lang} onClick={() => setCaptionLanguage(lang as any)} className={cn("px-3 py-1 rounded-lg text-[10px] font-black", captionLanguage === lang ? "bg-white dark:bg-slate-800 text-brand-700 shadow-sm" : "text-brand-400")}>{lang}</button>
                         ))}
                       </div>
                     </div>
                   </div>
-                  <p className="rounded-xl border border-brand-100 bg-brand-50 px-3 py-2 text-xs font-bold text-brand-600 dark:border-slate-700 dark:bg-slate-800 dark:text-brand-300">
-                    {captionPlatform === 'YouTube'
-                      ? (language === 'km' ? 'ទម្រង់វីដេអូ៖ YouTube ផ្ដេក 16:9' : 'Video format: YouTube landscape 16:9')
-                      : (language === 'km' ? 'ទម្រង់វីដេអូ៖ TikTok បញ្ឈរ 9:16' : 'Video format: TikTok portrait 9:16')}
-                  </p>
-                  
+
                   <div className="space-y-3">
                     <textarea 
                       value={aiCaption} 
