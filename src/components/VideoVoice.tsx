@@ -791,6 +791,12 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         : 'This video is 9:16. Select YouTube 16:9 and generate a new video first.', 'error');
       return;
     }
+    if (!videoPrompt) {
+      notify(language === 'km'
+        ? 'សូមសរសេរអត្ថបទសម្រាប់វីដេអូ ដើម្បីបង្កើតចំណងជើង YouTube។'
+        : 'Add a video prompt first so a YouTube caption can be generated.', 'error');
+      return;
+    }
     const youtubeCopy = captionPlatform === 'YouTube' && aiCaption.trim()
       ? aiCaption.trim()
       : await generateCaptionForPlatform('YouTube');

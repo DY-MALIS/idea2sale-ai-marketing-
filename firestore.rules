@@ -87,7 +87,7 @@ service cloud.firestore {
         && incoming().userId == request.auth.uid
         && incoming().content is string
         && incoming().content.size() <= 2000
-        && incoming().platform in ['TIKTOK', 'INSTAGRAM', 'TWITTER', 'TELEGRAM']
+        && incoming().platform in ['TIKTOK', 'YOUTUBE', 'INSTAGRAM', 'TWITTER', 'TELEGRAM']
         && incoming().status == 'PENDING';
         
       allow update: if isAdmin() || (isSignedIn()
