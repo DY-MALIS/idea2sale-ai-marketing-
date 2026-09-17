@@ -252,7 +252,10 @@ export const uploadMediaDataUrl = (options) => uploadImageKitMediaDataUrl({
 const startPlanVideoJob = (item, speech) => {
   const requestedDuration = Number(item.duration);
   const duration = [4, 6, 8].includes(requestedDuration) ? requestedDuration : 8;
-  return startKhmerVideoJob(item, speech, uploadMediaDataUrl, { duration });
+  return startKhmerVideoJob(item, speech, uploadMediaDataUrl, {
+    duration,
+    aspectRatio: item.aspectRatio || '9:16',
+  });
 };
 
 // AI-generated images commonly come out as multi-megabyte, full-resolution (e.g.

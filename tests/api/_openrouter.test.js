@@ -179,6 +179,7 @@ describe('OpenRouter video audio', () => {
       prompt: 'Cambodian presenter speaking at normal speed',
       model: 'bytedance/seedance-2.0-mini',
       duration: 4,
+      aspectRatio: '9:16',
       khmerSpeech: true,
       referenceUrls: ['https://example.com/presenter.jpg'],
       audioReferenceUrls: ['https://example.com/narration.mp3'],
@@ -186,6 +187,10 @@ describe('OpenRouter video audio', () => {
 
     const requestBody = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(requestBody.generate_audio).toBe(true);
+    expect(requestBody.aspect_ratio).toBe('9:16');
+    expect(requestBody.frame_images).toEqual([{
+      type: 'image_url', image_url: { url: 'https://example.com/presenter.jpg' }, frame_type: 'first_frame',
+    }]);
     expect(requestBody.input_references).toEqual(expect.arrayContaining([
       { type: 'audio_url', audio_url: { url: 'https://example.com/narration.mp3' } },
     ]));

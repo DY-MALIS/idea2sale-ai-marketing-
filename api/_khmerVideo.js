@@ -6,6 +6,7 @@ import {
   KHMER_VIDEO_MODEL,
   STANDARD_VIDEO_MODEL,
 } from '../shared/videoCost.js';
+import { getOriginalImageKitUrl } from '../shared/imageKitUrl.js';
 
 const KHMER_CLIP_DURATIONS = [4, 6, 8];
 
@@ -18,7 +19,7 @@ export const fitKhmerClipDurationToNarration = (narrationDuration, requestedDura
     || maximum;
 };
 
-export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, { duration = 8, images = [] } = {}) => {
+export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, { duration = 8, images = [], aspectRatio = item.aspectRatio || '9:16' } = {}) => {
   const hasKhmerSpeech = speech.mode !== 'silent';
   assertVideoGenerationWithinBudget({
     duration,
@@ -26,12 +27,13 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, { dur
     model: hasKhmerSpeech ? KHMER_VIDEO_MODEL : STANDARD_VIDEO_MODEL,
   });
   if (speech.mode === 'silent') {
-    return { job: await startOpenRouterVideo({ prompt: speech.prompt, duration }), avatarImage: null };
+    return { job: await startOpenRouterVideo({ prompt: speech.prompt, duration, aspectRatio }), avatarImage: null };
   }
   const image = images.length
     ? { imageUrl: `data:${images[0].mimeType};base64,${images[0].base64}` }
-    : await generateOpenRouterImage({ prompt: speech.avatarPrompt, aspectRatio: '16:9', model: BUDGET_AVATAR_IMAGE_MODEL });
+    : await generateOpenRouterImage({ prompt: speech.avatarPrompt, aspectRatio, model: BUDGET_AVATAR_IMAGE_MODEL });
   const avatarImage = await uploadMediaDataUrl({ mediaDataUrl: image.imageUrl, mediaType: 'photo' });
+  const avatarReferenceUrl = getOriginalImageKitUrl(avatarImage.mediaUrl, process.env.IMAGEKIT_URL_ENDPOINT || '');
   const audio = await generateKhmerSpeech({
     input: speech.script,
     voice: item.voiceGender || 'Female',
@@ -50,9 +52,10 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, { dur
     // Khmer presenter video (including avatar + narration reserve) under $0.80.
     model: KHMER_VIDEO_MODEL,
     khmerSpeech: true,
-    prompt: `${speech.prompt}\n${speech.motionPrompt}\nAUDIO MASTER CLOCK: ${narrationAudio.duration.toFixed(2)} seconds inside a ${fittedDuration}-second clip. Start lip motion on the first phoneme and stop on the last. Speech and lips remain at natural 1x; body and hand reactions use fast-natural 1.25x energy. Complete each gesture in 0.2 to 0.35 seconds. After speech, continue one compact task action without pausing. Never freeze, stretch, ease or slow any movement.`,
+    prompt: `${speech.prompt}\n${speech.motionPrompt}\nAUDIO MASTER CLOCK: ${narrationAudio.duration.toFixed(2)} seconds inside a ${fittedDuration}-second clip. The supplied waveform is authoritative: start the matching visible mouth shape on every phoneme and stop precisely on the last phoneme. Speech, lips, jaw and cheeks remain synchronized frame by frame at natural 1x. Keep the head mostly forward and stable. Body and hand reactions use crisp fast-natural 1.1x energy without motion blur. Complete each gesture in 0.35 to 0.55 seconds. After speech, continue one compact task action without pausing. Never freeze, stretch, ease or slow any movement.`,
     duration: fittedDuration,
-    referenceUrls: [avatarImage.mediaUrl],
+    aspectRatio,
+    referenceUrls: [avatarReferenceUrl],
     audioReferenceUrls: [narrationAudio.mediaUrl],
   });
   return {

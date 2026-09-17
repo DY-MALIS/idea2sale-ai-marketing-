@@ -344,6 +344,7 @@ const parseContentPlanItems = (text, businessName = '') => jsonFromText(text, []
       cta: String(item.cta || '').slice(0, 30),
     } : {
       voiceGender: item.voiceGender === 'Male' ? 'Male' : 'Female',
+      aspectRatio: '9:16',
       voiceOverText: (() => {
         const line = String(item.voiceOverText || '').trim();
         return businessName && !line.toLocaleLowerCase().includes(businessName.toLocaleLowerCase())
@@ -1310,6 +1311,7 @@ Return ONLY a single valid JSON object with this exact structure:
           targetDesire: String(item?.targetDesire || '').slice(0, 250),
           prompt: String(item?.prompt || '').slice(0, 2000),
           voiceGender: item?.voiceGender === 'Male' ? 'Male' : 'Female',
+          aspectRatio: '9:16',
           voiceOverText: brandedVoiceOver.slice(0, 500),
           performanceStyle: String(item?.performanceStyle || '').trim().slice(0, 1000),
           suggestedPostTime: String(item?.suggestedPostTime || '11:30 AM').slice(0, 30),
@@ -1622,6 +1624,12 @@ Return ONLY a single valid JSON object with this exact structure:
 
     if (action === 'videoGenerate') {
       const prompt = String(req.body?.prompt || '').trim();
+      const requestedAspectRatio = String(req.body?.aspectRatio || '9:16');
+      const aspectRatio = requestedAspectRatio === '4:5'
+        ? '3:4'
+        : ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'].includes(requestedAspectRatio)
+          ? requestedAspectRatio
+          : '9:16';
       if (!prompt) return res.status(400).json({ error: 'Video prompt is required.' });
       const normalizedPrompt = await normalizeMediaPrompt(prompt, 'video');
       const images = Array.isArray(req.body?.images)
@@ -1648,10 +1656,11 @@ Return ONLY a single valid JSON object with this exact structure:
           businessName: String(req.body.khmerSpeech.businessName || '').trim().slice(0, 120),
           performanceStyle: String(req.body.khmerSpeech.performanceStyle || '').trim().slice(0, 1000),
           duration,
+          aspectRatio,
         };
         const speech = await preparePlanVideoSpeech(item);
         const { uploadMediaDataUrl } = await import('./telegram/run-scheduled.js');
-        const { job, narrationAudio } = await startKhmerVideoJob(item, speech, uploadMediaDataUrl, { duration, images });
+        const { job, narrationAudio } = await startKhmerVideoJob(item, speech, uploadMediaDataUrl, { duration, images, aspectRatio });
         const responseBody = {
           ...job,
           narrationAudioUrl: narrationAudio.mediaUrl,
@@ -1675,6 +1684,7 @@ Return ONLY a single valid JSON object with this exact structure:
         prompt: photorealVideoPrompt(normalizedPrompt, images.length > 0),
         images,
         duration,
+        aspectRatio,
       });
       try {
         await initFirebaseAdmin().collection('video_jobs').doc(videoJobDocId(video.jobId)).set({

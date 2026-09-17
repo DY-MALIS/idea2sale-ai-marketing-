@@ -23,7 +23,7 @@ describe('ImageKit URL transformations', () => {
 
   it('uses a numeric quality supported by ImageKit for video delivery', () => {
     const result = applyImageKitDeliveryTransform('https://ik.imagekit.io/acme/video.mp4', 'video');
-    expect(new URL(result).searchParams.get('tr')).toBe('w-1280,q-70,f-mp4');
+    expect(new URL(result).searchParams.get('tr')).toBe('w-1280,q-85,f-mp4');
   });
 
   it('does not apply image transformations to narration audio', () => {
@@ -34,8 +34,13 @@ describe('ImageKit URL transformations', () => {
   it('repairs persisted video URLs that used the invalid q-auto transform', () => {
     const legacy = 'https://ik.imagekit.io/acme/video.mp4?tr=w-1280%2Cq-auto%2Cf-mp4%3Aac-none&v=1';
     const repaired = normalizeImageKitVideoUrl(legacy);
-    expect(new URL(repaired).searchParams.get('tr')).toBe('w-1280,q-70,f-mp4:ac-none');
+    expect(new URL(repaired).searchParams.get('tr')).toBe('w-1280,q-85,f-mp4:ac-none');
     expect(new URL(repaired).searchParams.get('v')).toBe('1');
+  });
+
+  it('upgrades older q-70 playback URLs to preserve facial detail', () => {
+    const legacy = 'https://ik.imagekit.io/acme/video.mp4?tr=w-1280%2Cq-70%2Cf-mp4';
+    expect(new URL(normalizeImageKitVideoUrl(legacy)).searchParams.get('tr')).toBe('w-1280,q-85,f-mp4');
   });
 
   it('can fall back to the original asset while preserving unrelated query parameters', () => {

@@ -68,8 +68,8 @@ describe('native Khmer video speech', () => {
   it('prepares an Edge-audio Seedance avatar and meaning-based motion', async () => {
     const prepared = await preparePlanVideoSpeech({ prompt:'Office',voiceOverText:'សួស្តី', voiceGender:'Male' });
     expect(prepared.script).toBe('សួស្តី');
-    expect(prepared.prompt).toContain('supplied audio');
-    expect(prepared.prompt).toContain('NORMAL 1X SPEED, NEVER SLOW MOTION');
+    expect(prepared.prompt).toContain('Supplied audio');
+    expect(prepared.prompt).toContain('REAL-TIME 1X SPEAKING SHOT');
     expect(prepared.avatarPrompt).toContain('adult Cambodian man');
     expect(prepared.avatarPrompt).toContain('age 18 to 25');
     expect(prepared.avatarPrompt).toContain('company-office clothing');
@@ -77,16 +77,17 @@ describe('native Khmer video speech', () => {
     expect(prepared.avatarPrompt).toContain('supporting Cambodian coworkers or customers');
     expect(prepared.avatarPrompt).toContain('face occupies at least one third');
     expect(prepared.avatarPrompt).toContain('mouth gently closed');
-    expect(prepared.motionPrompt).toContain('TOP PRIORITY: FAST NATURAL HUMAN CREATOR ENERGY');
-    expect(prepared.motionPrompt).toContain('1.25x normal speed');
+    expect(prepared.motionPrompt).toContain('TOP PRIORITY: PRECISE AUDIO-DRIVEN HUMAN SPEECH');
+    expect(prepared.motionPrompt).toContain('1.1x energy');
     expect(prepared.motionPrompt).toContain('two compact meaning-based hand or task gestures');
-    expect(prepared.motionPrompt).toContain('finishes in 0.2 to 0.35 seconds');
+    expect(prepared.motionPrompt).toContain('finishes in 0.35 to 0.55 seconds');
     expect(prepared.motionPrompt).toContain('Never stretch one gesture across a phrase');
     expect(prepared.mode).toBe('edge-seedance');
     expect(prepared.performanceStyle).toContain('natural Cambodian conversational voice');
     expect(prepared.performanceStyle).toContain('Fully pronounce every Khmer consonant');
-    expect(prepared.motionPrompt).toContain('subtle breathing');
-    expect(prepared.motionPrompt).toContain('No pose freezes longer than 0.2 seconds');
+    expect(prepared.motionPrompt).toContain('natural breathing');
+    expect(prepared.motionPrompt).toContain('No pose freezes longer than 0.3 seconds');
+    expect(prepared.motionPrompt).toContain('synchronized frame by frame');
     expect(prepared.prompt.length + prepared.motionPrompt.length).toBeLessThan(1100);
     expect(mocks.narration).not.toHaveBeenCalled();
   });

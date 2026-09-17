@@ -34,6 +34,14 @@ import { estimateVideoGenerationCostUsd, MAX_VIDEO_GENERATION_COST_USD } from '.
 type ToolType = 'video' | 'voice';
 type VoiceGender = 'Female' | 'Male';
 type VoicePersona = 'sreymom' | 'piseth';
+type VideoAspectRatio = CreativeAutomationRequest['aspectRatio'];
+
+const normalizeVideoAspectRatio = (value: unknown): VideoAspectRatio => {
+  if (value === '4:5') return '3:4';
+  return ['1:1', '9:16', '16:9', '3:4'].includes(String(value))
+    ? value as VideoAspectRatio
+    : '9:16';
+};
 
 // None of the five /api/ai calls in this file had a timeout of their own --
 // if the connection itself stalls, the fetch just hangs forever with no
@@ -83,9 +91,9 @@ interface PendingVideoJob {
   createdAt: number;
 }
 
-const videoRequestFingerprint = (prompt: string, images: { base64: string; mimeType: string }[], duration: number, script = '') => {
+const videoRequestFingerprint = (prompt: string, images: { base64: string; mimeType: string }[], duration: number, script = '', aspectRatio: VideoAspectRatio = '9:16') => {
   const source = JSON.stringify({
-    prompt, duration, script,
+    prompt, duration, script, aspectRatio,
     images: images.map((image) => ({
       mimeType: image.mimeType,
       length: image.base64.length,
@@ -259,16 +267,24 @@ const mediaDuration = (url: string, kind: 'audio' | 'video'): Promise<number> =>
   media.src = url;
 });
 
-const GeneratedVideoPlayer: React.FC<{ src: string; language: 'km' | 'en' }> = ({ src, language }) => {
+const GeneratedVideoPlayer: React.FC<{ src: string; language: 'km' | 'en'; aspectRatio: VideoAspectRatio }> = ({ src, language, aspectRatio }) => {
   const normalizedSrc = normalizeImageKitVideoUrl(src);
   const [playbackSrc, setPlaybackSrc] = useState(normalizedSrc);
   const [recovering, setRecovering] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [detectedRatio, setDetectedRatio] = useState<number | null>(null);
+  const declaredRatio = aspectRatio === '16:9' ? 16 / 9
+    : aspectRatio === '1:1' ? 1
+      : aspectRatio === '3:4' ? 3 / 4
+        : aspectRatio === '4:5' ? 4 / 5
+          : 9 / 16;
+  const displayRatio = detectedRatio || declaredRatio;
 
   React.useEffect(() => {
     setPlaybackSrc(normalizeImageKitVideoUrl(src));
     setRecovering(false);
     setFailed(false);
+    setDetectedRatio(null);
   }, [src]);
 
   const handlePlaybackError = () => {
@@ -287,13 +303,23 @@ const GeneratedVideoPlayer: React.FC<{ src: string; language: 'km' | 'en' }> = (
   };
 
   return (
-    <div className="relative aspect-video w-full overflow-hidden rounded-3xl border border-brand-200 bg-black shadow-2xl">
+    <div
+      style={{ aspectRatio: String(displayRatio) }}
+      className={cn(
+        'relative w-full overflow-hidden rounded-3xl border border-brand-200 bg-black shadow-2xl',
+        displayRatio < 1 ? 'mx-auto max-w-sm' : displayRatio === 1 ? 'mx-auto max-w-xl' : 'max-w-full',
+      )}
+    >
       <video
         key={playbackSrc}
         src={playbackSrc}
         controls
         playsInline
         preload="metadata"
+        onLoadedMetadata={(event) => {
+          const video = event.currentTarget;
+          if (video.videoWidth > 0 && video.videoHeight > 0) setDetectedRatio(video.videoWidth / video.videoHeight);
+        }}
         onCanPlay={() => { setRecovering(false); setFailed(false); }}
         onError={handlePlaybackError}
         className={cn('h-full w-full bg-black object-contain', failed && 'invisible')}
@@ -546,15 +572,16 @@ const attemptGenerateVideoClip = async (
   prompt: string,
   images: { base64: string; mimeType: string }[],
   duration: number,
+  aspectRatio: VideoAspectRatio,
   khmerSpeech?: { script: string; voiceGender: string; businessName?: string; performanceStyle?: string },
   idToken?: string,
   userId?: string,
 ): Promise<{ videoUrl: string; narrationFallbackReason?: string; pendingFingerprint: string; expectedScript?: string }> => {
   if (!idToken || !userId) throw new Error('Sign in before generating a video.');
-  const fingerprint = videoRequestFingerprint(prompt, images, duration, khmerSpeech?.script || '');
+  const fingerprint = videoRequestFingerprint(prompt, images, duration, khmerSpeech?.script || '', aspectRatio);
   let pending = readPendingVideoJobs().find((job) => job.userId === userId && job.fingerprint === fingerprint);
   if (!pending) {
-    const response = await fetchAiWithTimeout({ action: 'videoGenerate', prompt, images, duration, khmerSpeech }, VIDEO_STATUS_FETCH_TIMEOUT_MS, idToken);
+    const response = await fetchAiWithTimeout({ action: 'videoGenerate', prompt, images, duration, aspectRatio, khmerSpeech }, VIDEO_STATUS_FETCH_TIMEOUT_MS, idToken);
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Video generation failed.');
     if (!data.jobId) throw new Error('Video provider did not return a job id.');
@@ -617,6 +644,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   const [needsApiKey, setNeedsApiKey] = useState(false);
   const [videoImages, setVideoImages] = useState<{ base64: string; mimeType: string }[]>([]);
   const [videoDuration, setVideoDuration] = useState<number>(8);
+  const [videoAspectRatio, setVideoAspectRatio] = useState<VideoAspectRatio>('9:16');
   const [segmentProgress, setSegmentProgress] = useState<{ current: number; total: number } | null>(null);
   const [mergingSegments, setMergingSegments] = useState(false);
   const [automationNotice, setAutomationNotice] = useState<string | null>(null);
@@ -636,6 +664,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     if (payload.voiceGender === 'Male' || payload.voiceGender === 'Female') setVoiceGender(payload.voiceGender);
     if (payload.voicePersona === 'sreymom' || payload.voicePersona === 'piseth') setVoicePersona(payload.voicePersona);
     if (typeof payload.videoDuration === 'number') setVideoDuration(payload.videoDuration);
+    if (payload.videoAspectRatio) setVideoAspectRatio(normalizeVideoAspectRatio(payload.videoAspectRatio));
     setActiveTool('video');
     setVideoNeedsReview(false);
     setPerformanceNeedsReview(false);
@@ -878,6 +907,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     languageOverride?: 'Khmer' | 'English',
     voiceOverTextOverride?: string,
     durationOverride?: number,
+    aspectRatioOverride?: VideoAspectRatio,
   ) => {
     // A second call while one is already running would call resetFFmpeg() (which
     // terminates the shared ffmpeg.wasm singleton) out from under the first call's
@@ -886,6 +916,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     if (loading || audioLoading) return;
     const promptText = typeof promptOverride === 'string' ? promptOverride.trim() : videoPrompt.trim();
     const generationLanguage = languageOverride || videoLanguage;
+    const generationAspectRatio = normalizeVideoAspectRatio(aspectRatioOverride || videoAspectRatio);
     let voiceOverContent = (typeof voiceOverTextOverride === 'string' ? voiceOverTextOverride : (voiceOverEnabled ? voiceOverText : '')).trim();
     if (!promptText && !videoImages.length) return;
 
@@ -943,7 +974,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         if (silentRequested || (spokenSegments && !spokenSegments[i])) {
           segmentPrompt = nativeSpeechPrompt(segmentPrompt, '');
         }
-        const generatedClip = await generateVideoClip(segmentPrompt, referenceImages, segments[i],
+        const generatedClip = await generateVideoClip(segmentPrompt, referenceImages, segments[i], generationAspectRatio,
           spokenSegments?.[i] ? {
             script: spokenSegments[i],
             voiceGender,
@@ -1064,6 +1095,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
               voiceGender,
               voicePersona,
               videoDuration: durationOverride || videoDuration,
+              videoAspectRatio: generationAspectRatio,
             },
           });
         } catch (historyError) {
@@ -1115,6 +1147,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     setVideoLanguage(generationLanguage);
     setCaptionLanguage(generationLanguage);
     setVideoDuration(requestedDuration);
+    setVideoAspectRatio(normalizeVideoAspectRatio(automationRequest.aspectRatio));
     if (requestedVoiceOver) {
       setVoiceOverEnabled(true);
       setVoiceOverText(requestedVoiceOver);
@@ -1125,7 +1158,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         : `The agent prepared a ${automationRequest.platform} brief and started automatic video creation${requestedVoiceOver ? ' with a Khmer voice-over' : ''}.`,
     );
     onAutomationConsumed?.(automationRequest.id);
-    void handleGenerateVideo(automationRequest.prompt, generationLanguage, requestedVoiceOver, requestedDuration);
+    void handleGenerateVideo(automationRequest.prompt, generationLanguage, requestedVoiceOver, requestedDuration, normalizeVideoAspectRatio(automationRequest.aspectRatio));
   }, [automationRequest?.id]);
 
   const handleGenerateAudio = async () => {
@@ -1791,12 +1824,12 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                   )}
                   {videoNeedsReview ? retainedClips.map((clip, index) => (
                     <div key={index} className="space-y-2">
-                      <GeneratedVideoPlayer src={clip} language={language} />
+                      <GeneratedVideoPlayer src={clip} language={language} aspectRatio={videoAspectRatio} />
                       <a href={clip} download={`review-clip-${index + 1}.mp4`} className="text-brand-700 underline">
                         {language === 'km' ? 'ទាញយកឈុត' : 'Download clip'} {index + 1}
                       </a>
                     </div>
-                  )) : <GeneratedVideoPlayer src={generatedVideo} language={language} />}
+                  )) : <GeneratedVideoPlayer src={generatedVideo} language={language} aspectRatio={videoAspectRatio} />}
                   {(videoNeedsReview || performanceNeedsReview) && (
                     <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
                       <input

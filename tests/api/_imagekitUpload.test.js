@@ -86,7 +86,7 @@ describe('server-side ImageKit upload', () => {
       filePath: '/telegram-media/file.mp4',
       duration: 3.5,
     });
-    expect(new URL(result.mediaUrl).searchParams.get('tr')).toBe('w-1280,q-70,f-mp4');
+    expect(new URL(result.mediaUrl).searchParams.get('tr')).toBe('w-1280,q-85,f-mp4');
     const [, request] = global.fetch.mock.calls[0];
     expect(request.headers.Authorization).toMatch(/^Basic /);
     expect(request.body.get('publicKey')).toBeNull();

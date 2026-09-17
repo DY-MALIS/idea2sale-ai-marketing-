@@ -704,7 +704,7 @@ export async function generateOpenRouterSpeech({
   throw lastError || new Error('OpenRouter speech request failed.');
 }
 
-export async function startOpenRouterVideo({ prompt, images, referenceUrls, audioReferenceUrls, model, duration, voiceId, motionPrompt, expressiveness, khmerSpeech = false }) {
+export async function startOpenRouterVideo({ prompt, images, referenceUrls, audioReferenceUrls, model, duration, aspectRatio = '16:9', voiceId, motionPrompt, expressiveness, khmerSpeech = false }) {
   const configuredModel = model || process.env.OPEN_ROUTER_VIDEO_MODEL || STANDARD_VIDEO_MODEL;
   // Never allow an old/expensive environment override to bypass the per-video
   // budget. Unknown models fall back to the approved low-cost default before
@@ -712,10 +712,14 @@ export async function startOpenRouterVideo({ prompt, images, referenceUrls, audi
   const selectedModel = isBudgetVideoModel(configuredModel) ? configuredModel : STANDARD_VIDEO_MODEL;
   const clipDuration = Number.isFinite(duration) && duration > 0 ? duration : 8;
   const estimatedCost = assertVideoGenerationWithinBudget({ duration: clipDuration, khmerSpeech, model: selectedModel });
+  const seedanceRatios = ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'];
+  const commonRatios = ['16:9', '9:16', '1:1'];
+  const supportedRatios = selectedModel.startsWith('bytedance/seedance-2.0') ? seedanceRatios : commonRatios;
+  const resolvedAspectRatio = supportedRatios.includes(String(aspectRatio)) ? String(aspectRatio) : '16:9';
   const body = {
     model: selectedModel,
     prompt,
-    aspect_ratio: '16:9',
+    aspect_ratio: resolvedAspectRatio,
     resolution: VIDEO_RESOLUTION,
     duration: clipDuration,
     // The app either requests silence or adds its own narration/reference
@@ -737,8 +741,17 @@ export async function startOpenRouterVideo({ prompt, images, referenceUrls, audi
 
   if (selectedModel.startsWith('bytedance/seedance-2.0')) {
     const refs = [];
-    for (const url of Array.isArray(referenceUrls) ? referenceUrls : []) {
-      if (/^https:\/\//.test(url)) refs.push({ type: 'image_url', image_url: { url } });
+    const imageUrls = (Array.isArray(referenceUrls) ? referenceUrls : []).filter(url => /^https:\/\//.test(url));
+    if (imageUrls.length) {
+      // Lock the full-quality presenter portrait as the actual first frame.
+      // This preserves facial detail and framing more strongly than a loose
+      // style reference while the separate audio reference drives lip timing.
+      body.frame_images = [{
+        type: 'image_url',
+        image_url: { url: imageUrls[0] },
+        frame_type: 'first_frame',
+      }];
+      for (const url of imageUrls.slice(1)) refs.push({ type: 'image_url', image_url: { url } });
     }
     for (const url of Array.isArray(audioReferenceUrls) ? audioReferenceUrls : []) {
       if (/^https:\/\//.test(url)) refs.push({ type: 'audio_url', audio_url: { url } });

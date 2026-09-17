@@ -25,10 +25,12 @@ export const addImageKitTransform = (mediaUrl, transform, urlEndpoint = '') => {
   return url.toString();
 };
 
-// ImageKit accepts numeric video quality values (for example q-70), but not
+// ImageKit accepts numeric video quality values (for example q-85), but not
 // q-auto. Older generated-video URLs used q-auto and therefore return HTTP 400
 // instead of playable media. Repair those persisted URLs at read time too, so
 // users do not lose access to videos that were already generated and paid for.
+// Upgrade the earlier q-70 delivery setting as well so retained videos render
+// faces and mouth detail at the same higher quality as newly generated clips.
 export const normalizeImageKitVideoUrl = (mediaUrl, urlEndpoint = '') => {
   if (!mediaUrl) return '';
   let url;
@@ -39,8 +41,8 @@ export const normalizeImageKitVideoUrl = (mediaUrl, urlEndpoint = '') => {
   }
   if (!matchesImageKitEndpoint(url, urlEndpoint)) return mediaUrl;
   const transform = url.searchParams.get('tr');
-  if (!transform || !/(^|[:,])q-auto(?=[:,]|$)/.test(transform)) return mediaUrl;
-  url.searchParams.set('tr', transform.replace(/(^|[:,])q-auto(?=[:,]|$)/g, '$1q-70'));
+  if (!transform || !/(^|[:,])q-(?:auto|70)(?=[:,]|$)/.test(transform)) return mediaUrl;
+  url.searchParams.set('tr', transform.replace(/(^|[:,])q-(?:auto|70)(?=[:,]|$)/g, '$1q-85'));
   return url.toString();
 };
 
@@ -62,7 +64,7 @@ export const applyImageKitDeliveryTransform = (mediaUrl, mediaType, urlEndpoint 
   // assets. Adding them made narration URLs return a transformation error,
   // leaving audio-reference video jobs without a usable speech track.
   if (mediaType === 'audio') return mediaUrl;
-  const transform = mediaType === 'video' ? 'w-1280,q-70,f-mp4' : 'w-1280,q-auto,f-auto';
+  const transform = mediaType === 'video' ? 'w-1280,q-85,f-mp4' : 'w-1280,q-auto,f-auto';
   return addImageKitTransform(mediaUrl, transform, urlEndpoint);
 };
 

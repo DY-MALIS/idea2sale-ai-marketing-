@@ -45,6 +45,7 @@ interface PlanItem {
   voiceGender?: 'Male' | 'Female';
   voiceOverText?: string;
   performanceStyle?: string;
+  aspectRatio?: '9:16' | '16:9' | '1:1' | '3:4';
   selected: boolean;
 }
 
@@ -518,6 +519,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         voiceGender: item.voiceGender === 'Male' ? 'Male' : 'Female',
         voiceOverText: item.voiceOverText || '',
         performanceStyle: item.performanceStyle || '',
+        aspectRatio: ['9:16', '16:9', '1:1', '3:4'].includes(item.aspectRatio) ? item.aspectRatio : '9:16',
         selected: true,
       }));
       if (!items.length) {
@@ -621,7 +623,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           businessName: businessContext?.businessName || '',
           ...(item.type === 'image'
             ? { headline: item.headline || '', cta: item.cta || '' }
-            : { voiceGender: item.voiceGender || 'Female', voiceOverText: item.voiceOverText || '', performanceStyle: item.performanceStyle || '', voiceOverWanted: true, voiceOverMode: 'edge-seedance' }),
+            : { voiceGender: item.voiceGender || 'Female', voiceOverText: item.voiceOverText || '', performanceStyle: item.performanceStyle || '', aspectRatio: item.aspectRatio || '9:16', voiceOverWanted: true, voiceOverMode: 'edge-seedance' }),
           status: 'PENDING',
           createdAt: serverTimestamp(),
         });
