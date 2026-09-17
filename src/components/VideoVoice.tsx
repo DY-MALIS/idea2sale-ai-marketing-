@@ -791,15 +791,14 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         : 'This video is 9:16. Select YouTube 16:9 and generate a new video first.', 'error');
       return;
     }
-    if (!videoPrompt) {
+    const existingCaption = captionPlatform === 'YouTube' ? aiCaption.trim() : '';
+    if (!existingCaption && !videoPrompt.trim()) {
       notify(language === 'km'
-        ? 'សូមសរសេរអត្ថបទសម្រាប់វីដេអូ ដើម្បីបង្កើតចំណងជើង YouTube។'
-        : 'Add a video prompt first so a YouTube caption can be generated.', 'error');
+        ? 'សូមសរសេរអត្ថបទសម្រាប់វីដេអូ ឬចំណងជើងផ្ទាល់ ដើម្បីរៀបចំសម្រាប់ YouTube។'
+        : 'Add a video prompt or type a caption first so this can be prepared for YouTube.', 'error');
       return;
     }
-    const youtubeCopy = captionPlatform === 'YouTube' && aiCaption.trim()
-      ? aiCaption.trim()
-      : await generateCaptionForPlatform('YouTube');
+    const youtubeCopy = existingCaption || await generateCaptionForPlatform('YouTube');
     if (youtubeCopy) handleScheduleThisVideo('YOUTUBE', youtubeCopy);
   };
 
