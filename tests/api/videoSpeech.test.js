@@ -69,6 +69,7 @@ describe('native Khmer video speech', () => {
     const prepared = await preparePlanVideoSpeech({ prompt:'Office',voiceOverText:'សួស្តី', voiceGender:'Male' });
     expect(prepared.script).toBe('សួស្តី');
     expect(prepared.prompt).toContain('supplied audio');
+    expect(prepared.prompt).toContain('NORMAL 1X SPEED, NEVER SLOW MOTION');
     expect(prepared.avatarPrompt).toContain('adult Cambodian man');
     expect(prepared.avatarPrompt).toContain('age 18 to 25');
     expect(prepared.avatarPrompt).toContain('company-office clothing');
@@ -76,16 +77,15 @@ describe('native Khmer video speech', () => {
     expect(prepared.avatarPrompt).toContain('supporting Cambodian coworkers or customers');
     expect(prepared.avatarPrompt).toContain('face occupies at least one third');
     expect(prepared.avatarPrompt).toContain('mouth gently closed');
-    expect(prepared.motionPrompt).toContain('LIP-SYNC AND REAL-TIME HUMAN MOTION HAVE HIGHEST PRIORITY');
-    expect(prepared.motionPrompt).toContain('two crisp, purposeful hand or task gestures');
-    expect(prepared.motionPrompt).toContain('exactly one audible primary speaker');
-    expect(prepared.motionPrompt).toContain('supporting people may perform subtle context-appropriate activity');
-    expect(prepared.motionPrompt).toContain('completes in 0.4 to 0.7 seconds');
-    expect(prepared.motionPrompt).toContain('never stretch one movement across multiple seconds');
+    expect(prepared.motionPrompt).toContain('TOP PRIORITY: REAL HUMAN MOTION AT NORMAL 1X SPEED');
+    expect(prepared.motionPrompt).toContain('two meaning-based hand or task gestures');
+    expect(prepared.motionPrompt).toContain('finishes in 0.3 to 0.5 seconds');
+    expect(prepared.motionPrompt).toContain('No movement may be stretched across a full phrase');
     expect(prepared.mode).toBe('edge-seedance');
     expect(prepared.performanceStyle).toContain('lively natural Cambodian conversational voice');
-    expect(prepared.motionPrompt).toContain('continuous subtle breathing');
-    expect(prepared.motionPrompt).toContain('no visible pose may freeze for longer than half a second');
+    expect(prepared.motionPrompt).toContain('subtle breathing');
+    expect(prepared.motionPrompt).toContain('No pose freezes longer than 0.3 seconds');
+    expect(prepared.prompt.length + prepared.motionPrompt.length).toBeLessThan(1100);
     expect(mocks.narration).not.toHaveBeenCalled();
   });
   it('fills legacy plans with missing dialogue but respects silent requests', async () => {
