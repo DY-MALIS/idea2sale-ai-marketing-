@@ -20,7 +20,11 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../hooks/useToast';
 import { formatImageKitUploadError } from '../../shared/imageKitError.js';
-import { applyImageKitMuteTransform } from '../../shared/imageKitUrl.js';
+import {
+  applyImageKitMuteTransform,
+  getOriginalImageKitUrl,
+  normalizeImageKitVideoUrl,
+} from '../../shared/imageKitUrl.js';
 import { CreativeAutomationRequest, ScheduleHandoffRequest } from '../types';
 import { getLatestBusinessBranding } from '../lib/businessBranding';
 import { deleteGenerationHistory, GenerationHistoryEntry, saveGenerationHistory, useGenerationHistory } from '../lib/generationHistory';
@@ -255,6 +259,75 @@ const mediaDuration = (url: string, kind: 'audio' | 'video'): Promise<number> =>
   media.src = url;
 });
 
+const GeneratedVideoPlayer: React.FC<{ src: string; language: 'km' | 'en' }> = ({ src, language }) => {
+  const normalizedSrc = normalizeImageKitVideoUrl(src);
+  const [playbackSrc, setPlaybackSrc] = useState(normalizedSrc);
+  const [recovering, setRecovering] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  React.useEffect(() => {
+    setPlaybackSrc(normalizeImageKitVideoUrl(src));
+    setRecovering(false);
+    setFailed(false);
+  }, [src]);
+
+  const handlePlaybackError = () => {
+    const originalSrc = getOriginalImageKitUrl(normalizedSrc);
+    if (playbackSrc !== originalSrc) {
+      // A transformation can be unavailable while ImageKit is preparing it, or
+      // an old persisted URL may contain a transform that no longer works. The
+      // original uploaded MP4 is still playable, so recover without showing a
+      // collapsed 0:00 player.
+      setRecovering(true);
+      setPlaybackSrc(originalSrc);
+      return;
+    }
+    setRecovering(false);
+    setFailed(true);
+  };
+
+  return (
+    <div className="relative aspect-video w-full overflow-hidden rounded-3xl border border-brand-200 bg-black shadow-2xl">
+      <video
+        key={playbackSrc}
+        src={playbackSrc}
+        controls
+        playsInline
+        preload="metadata"
+        onCanPlay={() => { setRecovering(false); setFailed(false); }}
+        onError={handlePlaybackError}
+        className={cn('h-full w-full bg-black object-contain', failed && 'invisible')}
+      />
+      {recovering && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/70 text-white">
+          <div className="flex items-center gap-2 rounded-full bg-black/60 px-4 py-2 text-sm font-bold">
+            <Loader2 size={18} className="animate-spin" />
+            {language === 'km' ? 'កំពុងបើកវីដេអូដើម…' : 'Loading original video…'}
+          </div>
+        </div>
+      )}
+      {failed && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-950 px-6 text-center text-white">
+          <VideoIcon size={36} className="text-brand-300" />
+          <p className="text-sm font-bold">
+            {language === 'km'
+              ? 'វីដេអូមិនអាចបើកក្នុងកម្មវិធីចាក់នេះបានទេ។'
+              : 'This video could not be opened in the player.'}
+          </p>
+          <a
+            href={getOriginalImageKitUrl(normalizedSrc)}
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-xl bg-white px-4 py-2 text-sm font-bold text-brand-700 hover:bg-brand-50"
+          >
+            {language === 'km' ? 'បើកវីដេអូដើម' : 'Open original video'}
+          </a>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const removeVideoAudio = async (videoUrl: string): Promise<string> => {
   const ffmpeg = await getFFmpeg();
   try {
@@ -452,9 +525,10 @@ const pollPendingVideoJob = async (pending: PendingVideoJob, idToken: string) =>
       throw new Error(statusData.error || 'Video generation failed.');
     }
     if (statusData.videoUrl) {
+      const playableVideoUrl = normalizeImageKitVideoUrl(statusData.videoUrl);
       return pending.narrationAudioUrl
-        ? applyVoiceOver(statusData.videoUrl, pending.narrationAudioUrl, 1)
-        : statusData.videoUrl as string;
+        ? applyVoiceOver(playableVideoUrl, pending.narrationAudioUrl, 1)
+        : playableVideoUrl as string;
     }
   }
   throw new Error('Video is still processing. Resume this same paid job again later; a new job will not be started.');
@@ -559,7 +633,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     setVideoNeedsReview(false);
     setPerformanceNeedsReview(false);
     setVideoVoiceQualityNotice(null);
-    if (entry.mediaUrl) setGeneratedVideo(entry.mediaUrl);
+    if (entry.mediaUrl) setGeneratedVideo(normalizeImageKitVideoUrl(entry.mediaUrl));
   };
   const deleteVideoHistory = (id: string) => { void deleteGenerationHistory({ user, isDemoMode, type: 'video', id }); };
 
@@ -1710,12 +1784,12 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                   )}
                   {videoNeedsReview ? retainedClips.map((clip, index) => (
                     <div key={index} className="space-y-2">
-                      <video src={clip} controls className="w-full rounded-3xl shadow-2xl" />
+                      <GeneratedVideoPlayer src={clip} language={language} />
                       <a href={clip} download={`review-clip-${index + 1}.mp4`} className="text-brand-700 underline">
                         {language === 'km' ? 'ទាញយកឈុត' : 'Download clip'} {index + 1}
                       </a>
                     </div>
-                  )) : <video src={generatedVideo} controls className="w-full rounded-3xl shadow-2xl" />}
+                  )) : <GeneratedVideoPlayer src={generatedVideo} language={language} />}
                   {(videoNeedsReview || performanceNeedsReview) && (
                     <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
                       <input

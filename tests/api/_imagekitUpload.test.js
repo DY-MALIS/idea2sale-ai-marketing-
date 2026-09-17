@@ -56,7 +56,7 @@ describe('ImageKit delivery URLs', () => {
   it('combines delivery and audio-extraction transformations', () => {
     const delivered = applyImageKitDeliveryTransform('https://ik.imagekit.io/acme/video.mp4', 'video');
     const extracted = applyImageKitAudioExtractionTransform(delivered);
-    expect(new URL(extracted).searchParams.get('tr')).toBe('w-1280,q-auto,f-mp4:vc-none,ac-aac,f-mp4');
+    expect(new URL(extracted).searchParams.get('tr')).toBe('w-1280,q-70,f-mp4:vc-none,ac-aac,f-mp4');
   });
 });
 
@@ -86,7 +86,7 @@ describe('server-side ImageKit upload', () => {
       filePath: '/telegram-media/file.mp4',
       duration: 3.5,
     });
-    expect(new URL(result.mediaUrl).searchParams.get('tr')).toBe('w-1280,q-auto,f-mp4');
+    expect(new URL(result.mediaUrl).searchParams.get('tr')).toBe('w-1280,q-70,f-mp4');
     const [, request] = global.fetch.mock.calls[0];
     expect(request.headers.Authorization).toMatch(/^Basic /);
     expect(request.body.get('publicKey')).toBeNull();
