@@ -20,6 +20,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../hooks/useToast';
 import { formatImageKitUploadError } from '../../shared/imageKitError.js';
+import { applyImageKitMuteTransform } from '../../shared/imageKitUrl.js';
 import { CreativeAutomationRequest, ScheduleHandoffRequest } from '../types';
 import { getLatestBusinessBranding } from '../lib/businessBranding';
 import { deleteGenerationHistory, GenerationHistoryEntry, saveGenerationHistory, useGenerationHistory } from '../lib/generationHistory';
@@ -259,7 +260,18 @@ const removeVideoAudio = async (videoUrl: string): Promise<string> => {
   try {
     const { fetchFile } = await import('@ffmpeg/util');
     await ffmpeg.writeFile('silent_input.mp4', await fetchFile(videoUrl));
-    const code = await ffmpeg.exec(['-i', 'silent_input.mp4', '-map', '0:v:0', '-c:v', 'copy', '-an', 'silent_output.mp4']);
+    let code = await ffmpeg.exec(['-y', '-i', 'silent_input.mp4', '-map', '0:v:0', '-c:v', 'copy', '-an', '-movflags', '+faststart', 'silent_output.mp4']);
+    if (code !== 0) {
+      // Some generated clips use a codec that cannot be stream-copied into an
+      // MP4 container. Re-encode only on that compatibility path; the normal
+      // copy path stays fast and lossless.
+      await cleanupFfmpegFiles(ffmpeg, ['silent_output.mp4']);
+      code = await ffmpeg.exec([
+        '-y', '-i', 'silent_input.mp4', '-map', '0:v:0', '-an',
+        '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
+        '-pix_fmt', 'yuv420p', '-movflags', '+faststart', 'silent_output.mp4',
+      ]);
+    }
     if (code !== 0) throw new Error('Could not remove video audio.');
     const data = await ffmpeg.readFile('silent_output.mp4');
     return await new Promise<string>((resolve, reject) => {
@@ -861,7 +873,10 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
           user.uid);
         let clip = generatedClip.videoUrl;
         if (generatedClip.narrationFallbackReason) usedKhmerVoiceFallback = true;
-        if (silentRequested || (spokenSegments && !spokenSegments[i])) clip = await removeVideoAudio(clip);
+        // A fully silent result can be muted reliably by ImageKit after the
+        // final upload. Only mixed spoken/silent segment videos still need a
+        // per-segment browser edit before concatenation.
+        if (!silentRequested && spokenSegments && !spokenSegments[i]) clip = await removeVideoAudio(clip);
         if (spokenSegments?.[i]) {
           try {
             await verifyClipSpeech(clip, generatedClip.expectedScript || spokenSegments[i]);
@@ -948,6 +963,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       // to ImageKit with a short-lived signed form instead of routing it back
       // through Vercel's 4.5 MB function request limit.
       video = await uploadVideoDirectly(video, idToken);
+      if (silentRequested) video = applyImageKitMuteTransform(video);
       completedJobFingerprints.forEach((fingerprint) => removePendingVideoJob(user.uid, fingerprint));
       setGeneratedVideo(video);
       // The final result is already a small hosted URL, so history persistence

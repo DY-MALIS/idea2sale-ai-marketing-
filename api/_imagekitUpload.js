@@ -1,5 +1,11 @@
 import { createHmac, randomUUID } from 'crypto';
 import { formatImageKitUploadError } from '../shared/imageKitError.js';
+import {
+  applyImageKitAudioExtractionTransform as applyAudioExtractionTransform,
+  applyImageKitDeliveryTransform as applyDeliveryTransform,
+  applyImageKitLogoOverlay as applyLogoOverlay,
+  applyImageKitMuteTransform as applyMuteTransform,
+} from '../shared/imageKitUrl.js';
 
 const IMAGEKIT_UPLOAD_URL = 'https://upload.imagekit.io/api/v1/files/upload';
 const MAX_UPLOAD_BYTES = 48 * 1024 * 1024;
@@ -29,46 +35,19 @@ export const createImageKitUploadAuth = () => {
   return { publicKey, token, expire, signature, uploadUrl: IMAGEKIT_UPLOAD_URL, maxBytes: MAX_UPLOAD_BYTES };
 };
 
-const addTransform = (mediaUrl, transform) => {
-  if (!mediaUrl) return '';
-  let url;
-  try {
-    url = new URL(mediaUrl);
-  } catch {
-    return mediaUrl;
-  }
-  let matchesEndpoint = url.hostname === 'ik.imagekit.io' || url.hostname.endsWith('.imagekit.io');
-  try {
-    const configured = new URL(String(process.env.IMAGEKIT_URL_ENDPOINT || ''));
-    const configuredPath = configured.pathname.replace(/\/$/, '');
-    matchesEndpoint ||= url.hostname === configured.hostname
-      && (!configuredPath || url.pathname === configuredPath || url.pathname.startsWith(`${configuredPath}/`));
-  } catch {
-    // The explicit configuration validation happens before uploads. URL helpers
-    // remain safe and simply leave unrelated URLs untouched when it is absent.
-  }
-  if (!matchesEndpoint) return mediaUrl;
-  const current = url.searchParams.get('tr');
-  const steps = current ? current.split(':') : [];
-  if (!steps.includes(transform)) steps.push(transform);
-  url.searchParams.set('tr', steps.join(':'));
-  return url.toString();
-};
+const configuredEndpoint = () => process.env.IMAGEKIT_URL_ENDPOINT || '';
 
-export const applyImageKitDeliveryTransform = (mediaUrl, mediaType) => {
-  const transform = mediaType === 'video' ? 'w-1280,q-auto,f-mp4' : 'w-1280,q-auto,f-auto';
-  return addTransform(mediaUrl, transform);
-};
+export const applyImageKitDeliveryTransform = (mediaUrl, mediaType) =>
+  applyDeliveryTransform(mediaUrl, mediaType, configuredEndpoint());
 
-export const applyImageKitMuteTransform = (mediaUrl) => addTransform(mediaUrl, 'ac-none');
+export const applyImageKitMuteTransform = (mediaUrl) =>
+  applyMuteTransform(mediaUrl, configuredEndpoint());
 
-export const applyImageKitAudioExtractionTransform = (mediaUrl) => addTransform(mediaUrl, 'vc-none,ac-aac,f-mp4');
+export const applyImageKitAudioExtractionTransform = (mediaUrl) =>
+  applyAudioExtractionTransform(mediaUrl, configuredEndpoint());
 
-export const applyImageKitLogoOverlay = (videoUrl, logoFilePath) => {
-  const layerPath = String(logoFilePath || '').replace(/^\/+/, '').replaceAll('/', '@@');
-  if (!layerPath || !/^[A-Za-z0-9@._-]+$/.test(layerPath)) return videoUrl;
-  return addTransform(videoUrl, `l-image,i-${layerPath},w-bw_mul_0.16,lfo-bottom_left,lx-20,ly-20,l-end`);
-};
+export const applyImageKitLogoOverlay = (videoUrl, logoFilePath) =>
+  applyLogoOverlay(videoUrl, logoFilePath, configuredEndpoint());
 
 export const isImageKitMediaUrl = (mediaUrl) => {
   try {
