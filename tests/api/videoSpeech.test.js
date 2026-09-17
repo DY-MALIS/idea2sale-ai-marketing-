@@ -104,11 +104,56 @@ describe('native Khmer video speech', () => {
     vi.stubEnv('IMAGEKIT_URL_ENDPOINT', 'https://ik.imagekit.io/test');
     vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,arrayBuffer:async()=>new Uint8Array([1,2]).buffer}));
     mocks.transcribe.mockResolvedValue('hello');
-    await expect(verifyUploadedVideoSpeech('https://ik.imagekit.io/test/telegram-media/test.mp4','សួស្តី')).rejects.toMatchObject({ speechVerification: { passed: false, transcript: 'hello', expected: 'សួស្តី' } });
+    const deliveredUrl = 'https://ik.imagekit.io/test/telegram-media/test.mp4?tr=w-1280%2Cq-70%2Cf-mp4';
+    await expect(verifyUploadedVideoSpeech(deliveredUrl,'សួស្តី')).rejects.toMatchObject({ speechVerification: { passed: false, transcript: 'hello', expected: 'សួស្តី' } });
     mocks.transcribe.mockResolvedValue('សួស្តី');
-    expect(await verifyUploadedVideoSpeech('https://ik.imagekit.io/test/telegram-media/test.mp4','សួស្តី')).toMatchObject({passed:true,naturalnessReviewed:false});
+    expect(await verifyUploadedVideoSpeech(deliveredUrl,'សួស្តី')).toMatchObject({passed:true,naturalnessReviewed:false});
     expect(mocks.transcribe).toHaveBeenLastCalledWith(expect.objectContaining({format:'mp4',languageHint:'Khmer'}));
     expect(decodeURIComponent(String(global.fetch.mock.calls[0][0]))).toContain('vc-none,ac-aac,f-mp4');
+    expect(decodeURIComponent(String(global.fetch.mock.calls[0][0]))).not.toContain('w-1280,q-70');
+    expect(global.fetch.mock.calls[0][1]).toMatchObject({ redirect: 'manual' });
     await expect(verifyUploadedVideoSpeech('https://example.com/test.mp4','សួស្តី')).rejects.toThrow('Invalid');
+  });
+  it('retries ImageKit extraction and routes persistent failures to manual review', async () => {
+    vi.stubEnv('IMAGEKIT_PUBLIC_KEY', 'public_test');
+    vi.stubEnv('IMAGEKIT_PRIVATE_KEY', 'private_test');
+    vi.stubEnv('IMAGEKIT_URL_ENDPOINT', 'https://ik.imagekit.io/test');
+    const headers = { get: vi.fn(name => name === 'ik-error' ? 'Transformation is still processing' : null) };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 302, headers }));
+    const waitForRetry = vi.fn().mockResolvedValue(undefined);
+    await expect(verifyUploadedVideoSpeech(
+      'https://ik.imagekit.io/test/telegram-media/test.mp4?tr=w-1280%2Cq-70%2Cf-mp4',
+      'សួស្តី',
+      { waitForRetry },
+    )).rejects.toMatchObject({
+      verificationUnavailable: true,
+      speechVerification: {
+        passed: false,
+        unavailable: true,
+        expected: 'សួស្តី',
+        method: 'audio-extraction-unavailable',
+        httpStatus: 302,
+        providerError: 'Transformation is still processing',
+      },
+    });
+    expect(global.fetch).toHaveBeenCalledTimes(5);
+    expect(waitForRetry).toHaveBeenCalledTimes(4);
+  });
+  it('continues verification when ImageKit extraction succeeds after a retry', async () => {
+    vi.stubEnv('IMAGEKIT_PUBLIC_KEY', 'public_test');
+    vi.stubEnv('IMAGEKIT_PRIVATE_KEY', 'private_test');
+    vi.stubEnv('IMAGEKIT_URL_ENDPOINT', 'https://ik.imagekit.io/test');
+    const pending = { ok: false, status: 302, headers: { get: () => null } };
+    const ready = { ok: true, status: 200, headers: { get: () => null }, arrayBuffer: async () => new Uint8Array([1, 2]).buffer };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(pending).mockResolvedValueOnce(ready));
+    mocks.transcribe.mockResolvedValue('សួស្តី');
+    const waitForRetry = vi.fn().mockResolvedValue(undefined);
+    await expect(verifyUploadedVideoSpeech(
+      'https://ik.imagekit.io/test/telegram-media/test.mp4',
+      'សួស្តី',
+      { waitForRetry },
+    )).resolves.toMatchObject({ passed: true });
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(waitForRetry).toHaveBeenCalledTimes(1);
   });
 });

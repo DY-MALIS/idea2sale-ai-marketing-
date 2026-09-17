@@ -53,10 +53,10 @@ describe('ImageKit delivery URLs', () => {
     expect(isImageKitMediaUrl('https://example.com/file.mp4')).toBe(false);
   });
 
-  it('combines delivery and audio-extraction transformations', () => {
+  it('extracts audio from the original asset without delivery transforms', () => {
     const delivered = applyImageKitDeliveryTransform('https://ik.imagekit.io/acme/video.mp4', 'video');
     const extracted = applyImageKitAudioExtractionTransform(delivered);
-    expect(new URL(extracted).searchParams.get('tr')).toBe('w-1280,q-70,f-mp4:vc-none,ac-aac,f-mp4');
+    expect(new URL(extracted).searchParams.get('tr')).toBe('vc-none,ac-aac,f-mp4');
   });
 });
 

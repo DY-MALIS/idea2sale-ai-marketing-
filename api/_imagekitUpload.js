@@ -5,6 +5,7 @@ import {
   applyImageKitDeliveryTransform as applyDeliveryTransform,
   applyImageKitLogoOverlay as applyLogoOverlay,
   applyImageKitMuteTransform as applyMuteTransform,
+  getOriginalImageKitUrl,
 } from '../shared/imageKitUrl.js';
 
 const IMAGEKIT_UPLOAD_URL = 'https://upload.imagekit.io/api/v1/files/upload';
@@ -44,7 +45,10 @@ export const applyImageKitMuteTransform = (mediaUrl) =>
   applyMuteTransform(mediaUrl, configuredEndpoint());
 
 export const applyImageKitAudioExtractionTransform = (mediaUrl) =>
-  applyAudioExtractionTransform(mediaUrl, configuredEndpoint());
+  applyAudioExtractionTransform(
+    getOriginalImageKitUrl(mediaUrl, configuredEndpoint()),
+    configuredEndpoint(),
+  );
 
 export const applyImageKitLogoOverlay = (videoUrl, logoFilePath) =>
   applyLogoOverlay(videoUrl, logoFilePath, configuredEndpoint());
