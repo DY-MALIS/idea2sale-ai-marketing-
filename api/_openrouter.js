@@ -27,6 +27,7 @@ const getApiKey = () => {
 // source, regardless of which env var it ended up in or which call site hit
 // the bad value first.
 const SECRET_LIKE_PATTERNS = [
+  /(?:invalid|unknown)\s+api[_ -]?key\s*(?:[:=]\s*)?[A-Za-z0-9_-]{6,}/gi,
   /sk-or-v1-[a-f0-9]{16,}/gi,
   /sk-[A-Za-z0-9_-]{20,}/g,
   /AIza[A-Za-z0-9_-]{20,}/g,

@@ -2,6 +2,7 @@ import { startKhmerVideoJob } from '../_khmerVideo.js';
 import admin from 'firebase-admin';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { createHash } from 'crypto';
+import { formatCloudinaryUploadError } from '../../shared/cloudinaryError.js';
 import { Client as QStashClient } from '@upstash/qstash';
 import sharp from 'sharp';
 import { logAudit } from '../_audit.js';
@@ -286,7 +287,7 @@ export const uploadMediaDataUrl = async ({ mediaDataUrl, mediaType }) => {
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data?.error?.message || 'Cloudinary upload failed.');
+    throw new Error(formatCloudinaryUploadError(data?.error?.message, apiKey));
   }
 
   const resolvedMediaType = mediaType || (data.resource_type === 'video' ? 'video' : contentType.startsWith('video/') ? 'video' : 'photo');

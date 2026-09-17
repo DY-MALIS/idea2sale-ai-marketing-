@@ -2,6 +2,7 @@ import { createHash } from 'crypto';
 import admin, { initFirebaseAdmin } from '../_firebaseAdmin.js';
 import { logAudit } from '../_audit.js';
 import { getCookie, recordTikTokPostSync } from '../_tiktok.js';
+import { formatCloudinaryUploadError } from '../../shared/cloudinaryError.js';
 
 // Best-effort: TikTok publishing is authenticated via the tiktok_token cookie
 // (one shared TikTok connection for the app), not Firebase Auth, so there is
@@ -54,7 +55,7 @@ async function uploadImageDataUrlToCloudinary(imageDataUrl) {
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data?.error?.message || 'Cloudinary upload failed.');
+    throw new Error(formatCloudinaryUploadError(data?.error?.message, apiKey));
   }
 
   return data.secure_url;

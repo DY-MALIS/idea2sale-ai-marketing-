@@ -1730,7 +1730,7 @@ Return ONLY a single valid JSON object with this exact structure:
     // actual HTTP response (and, for socialAgent, gets persisted into a user's
     // AI Agent chat history in Firestore) passes through here first.
     const message = redactSecrets(error?.message || '');
-    const keyError = /OPEN_ROUTER_API_KEY|unauthorized|invalid api key/i.test(message);
+    const keyError = /OPEN_ROUTER_API_KEY|unauthorized|invalid api[_ -]?key/i.test(message);
     return res.status(keyError ? 503 : 500).json({
       error: keyError ? 'OpenRouter API key is missing or invalid. Update OPEN_ROUTER_API_KEY in Vercel.' : message || 'AI generation failed.',
     });

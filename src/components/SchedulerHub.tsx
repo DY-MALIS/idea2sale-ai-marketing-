@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Calendar, Bot, Zap, Plus, Sparkles, Clock, X, Send, Instagram, Twitter, Share2, Loader2, AlertCircle, Upload } from 'lucide-react';
+import { formatCloudinaryUploadError } from '../../shared/cloudinaryError.js';
 import AITrainer from './AITrainer';
 import Suggestions from './Suggestions';
 import Scheduler from './Scheduler';
@@ -185,7 +186,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     }
     const uploadData = await uploadResponse.json().catch(() => ({}));
     if (!uploadResponse.ok || !uploadData.secure_url) {
-      throw new Error(uploadData?.error?.message || 'Media upload failed.');
+      throw new Error(formatCloudinaryUploadError(uploadData?.error?.message || 'Media upload failed.', signatureData.apiKey));
     }
 
     return {

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Calendar, Clock, Trash2, CheckCircle2, AlertCircle, Share2, Instagram, Twitter, X, Send, RotateCcw } from 'lucide-react';
+import { formatCloudinaryUploadError } from '../../shared/cloudinaryError.js';
 import { db, auth } from '../lib/firebase';
 import { collection, query, where, onSnapshot, deleteDoc, doc, updateDoc, runTransaction, serverTimestamp, getDocs } from 'firebase/firestore';
 import { SchedulePost } from '../types';
@@ -270,7 +271,7 @@ const Scheduler: React.FC = () => {
       throw new Error(`Media upload returned HTTP ${uploadResponse.status} instead of JSON.`);
     }
     if (!uploadResponse.ok || !uploadData.secure_url) {
-      throw new Error(uploadData?.error?.message || 'Media upload failed.');
+      throw new Error(formatCloudinaryUploadError(uploadData?.error?.message || 'Media upload failed.', signatureData.apiKey));
     }
 
     return String(uploadData.secure_url);

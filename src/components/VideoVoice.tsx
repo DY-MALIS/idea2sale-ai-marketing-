@@ -19,6 +19,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../hooks/useToast';
+import { formatCloudinaryUploadError } from '../../shared/cloudinaryError.js';
 import { CreativeAutomationRequest, ScheduleHandoffRequest } from '../types';
 import { getLatestBusinessBranding } from '../lib/businessBranding';
 import { deleteGenerationHistory, GenerationHistoryEntry, saveGenerationHistory, useGenerationHistory } from '../lib/generationHistory';
@@ -148,7 +149,9 @@ const uploadVideoDirectly = async (videoDataUrl: string, idToken: string): Promi
   form.set('folder', signature.folder);
   const uploadResponse = await fetch(signature.uploadUrl, { method: 'POST', body: form });
   const uploaded = await uploadResponse.json().catch(() => ({}));
-  if (!uploadResponse.ok || !uploaded.secure_url) throw new Error(uploaded?.error?.message || 'Could not upload the final video.');
+  if (!uploadResponse.ok || !uploaded.secure_url) {
+    throw new Error(formatCloudinaryUploadError(uploaded?.error?.message || 'Could not upload the final video.', signature.apiKey));
+  }
   return String(uploaded.secure_url);
 };
 

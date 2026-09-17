@@ -199,6 +199,14 @@ describe('redactSecrets', () => {
     expect(redactSecrets(`bad value ${longToken} here`)).toBe('bad value [redacted] here');
   });
 
+  it('redacts a shorter API key echoed in an invalid_api_key error', () => {
+    const fakeKey = 'shortFakeKey12345';
+    const result = redactSecrets(`Invalid api_key ${fakeKey}`);
+
+    expect(result).toBe('[redacted]');
+    expect(result).not.toContain(fakeKey);
+  });
+
   it('leaves ordinary error text with no secret-shaped substring untouched', () => {
     expect(redactSecrets('Model not found. Please try again.')).toBe('Model not found. Please try again.');
   });

@@ -1,4 +1,5 @@
 import { createHash } from 'crypto';
+import { formatCloudinaryUploadError } from '../shared/cloudinaryError.js';
 
 const getCloudinaryConfig = () => {
   const cloudName = (process.env.CLOUDINARY_CLOUD_NAME || '').trim();
@@ -59,7 +60,7 @@ export const uploadMediaDataUrl = async ({ mediaDataUrl, mediaType, folder = 'ge
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data?.error?.message || 'Cloudinary upload failed.');
+    throw new Error(formatCloudinaryUploadError(data?.error?.message, apiKey));
   }
 
   const resolvedMediaType = mediaType || (data.resource_type === 'video' ? 'video' : contentType.startsWith('video/') ? 'video' : 'photo');
