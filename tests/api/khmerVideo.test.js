@@ -18,8 +18,9 @@ it('uses the same measured audio and supplied portrait for manual video lip sync
   });
   expect(mocks.video).toHaveBeenCalledWith(expect.objectContaining({ model: 'bytedance/seedance-2.0-mini', khmerSpeech: true, duration: 4, referenceUrls: ['https://image'], audioReferenceUrls: ['https://audio'], prompt: expect.stringContaining('3.40 seconds') }));
   expect(mocks.video.mock.calls[0][0].prompt).toContain('AUDIO MASTER CLOCK');
-  expect(mocks.video.mock.calls[0][0].prompt).toContain('Real-time 1x playback only');
-  expect(mocks.video.mock.calls[0][0].prompt).toContain('complete each gesture in 0.3 to 0.5 seconds');
+  expect(mocks.video.mock.calls[0][0].prompt).toContain('Speech and lips remain at natural 1x');
+  expect(mocks.video.mock.calls[0][0].prompt).toContain('fast-natural 1.25x energy');
+  expect(mocks.video.mock.calls[0][0].prompt).toContain('Complete each gesture in 0.2 to 0.35 seconds');
   expect(mocks.video.mock.calls[0][0].prompt).toContain('Never freeze, stretch, ease or slow any movement');
   expect(result.narrationAudio.mediaUrl).toBe('https://audio');
   expect(result.narrationAudio.provider).toBe('gemini');

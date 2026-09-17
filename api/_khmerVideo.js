@@ -50,7 +50,7 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, { dur
     // Khmer presenter video (including avatar + narration reserve) under $0.80.
     model: KHMER_VIDEO_MODEL,
     khmerSpeech: true,
-    prompt: `${speech.prompt}\n${speech.motionPrompt}\nAUDIO MASTER CLOCK: ${narrationAudio.duration.toFixed(2)} seconds inside a ${fittedDuration}-second clip. Start lip motion on the first phoneme and stop on the last. Real-time 1x playback only. Keep facial motion alive and complete each gesture in 0.3 to 0.5 seconds. After speech, continue one small task action at normal speed. Never freeze, stretch, ease or slow any movement.`,
+    prompt: `${speech.prompt}\n${speech.motionPrompt}\nAUDIO MASTER CLOCK: ${narrationAudio.duration.toFixed(2)} seconds inside a ${fittedDuration}-second clip. Start lip motion on the first phoneme and stop on the last. Speech and lips remain at natural 1x; body and hand reactions use fast-natural 1.25x energy. Complete each gesture in 0.2 to 0.35 seconds. After speech, continue one compact task action without pausing. Never freeze, stretch, ease or slow any movement.`,
     duration: fittedDuration,
     referenceUrls: [avatarImage.mediaUrl],
     audioReferenceUrls: [narrationAudio.mediaUrl],
