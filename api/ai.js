@@ -185,15 +185,17 @@ const copyPromptByType = {
   seo: (prompt) => `Generate 20 SEO keywords and a meta description for: ${prompt}. Target Google and social search intent.`,
 };
 
-export const getVideoCaptionSpec = (value) => value === 'YouTube Shorts'
+export const getVideoCaptionSpec = (value) => value === 'YouTube'
   ? {
-      platform: 'YouTube Shorts',
-      instruction: 'Return a ready-to-paste YouTube Shorts post with a compelling title on the first line (maximum 100 characters), then a concise description, one clear CTA, and 3-5 relevant hashtags including #Shorts. Do not add labels such as Title or Description.',
+      platform: 'YouTube',
+      instruction: 'Return a ready-to-paste YouTube video post with a compelling title on the first line (maximum 100 characters), then a concise searchable description, one clear CTA, and 3-5 relevant hashtags. Do not add labels such as Title or Description.',
     }
   : {
       platform: 'TikTok',
       instruction: 'Create a catchy TikTok caption with one clear CTA and 3-5 relevant hashtags. Keep it ready to post.',
     };
+
+export const resolveVideoAspectRatio = (value) => value === '16:9' ? '16:9' : '9:16';
 
 const businessContextFromBody = (body = {}) => {
   const source = body.businessContext && typeof body.businessContext === 'object' ? body.businessContext : body;
@@ -438,7 +440,7 @@ ${imageToVideo ? `- IMAGE-TO-VIDEO: Treat the supplied first-frame image as the 
 - Begin visible but gentle motion immediately, build one continuous action through the middle, and settle naturally near the end. Do not keep the subject frozen for most of the clip.` : ''}
 - Product, people, hands, faces, and environment must stay consistent between frames with no warping or sudden identity changes.
 - No readable text, lettering, or signage anywhere (see hard constraint above) — also avoid distorted/garbled text artifacts, melted objects, duplicated limbs, flickering, excessive saturation, impossible motion, and fantasy effects.
-- Create a premium short-form ad style video suitable for TikTok, with a realistic product-demo feeling.`;
+- Create a premium marketing-video style suitable for the requested platform and aspect ratio, with a realistic product-demo feeling.`;
 
 const agentSystemPrompt = `You are aime.angkorgate AI Agent, an intelligent conversational assistant for creators, sellers, and small businesses.
 Your job is to understand the user's actual goal, preserve useful conversational context, and answer like a capable human expert who can explain, create, troubleshoot, plan, compare, rewrite, translate, advise, and see and analyze images the user attaches (product photos, screenshots, references — describe exactly what is in them, never say you can't see an attached image).
@@ -536,7 +538,7 @@ Return exactly this JSON shape:
   "missing": "one concise missing detail, or empty string"
 }
 
-Aspect ratio defaults: poster=3:4 unless the user names another format, TikTok/Reels/YouTube Shorts video=9:16, TikTok image=4:5, Facebook image=4:5, X/Telegram=16:9, General image=1:1, General video=9:16.`,
+Aspect ratio defaults: poster=3:4 unless the user names another format, TikTok/Reels/Shorts video=9:16, YouTube video=16:9, TikTok image=4:5, Facebook image=4:5, X/Telegram=16:9, General image=1:1, General video=9:16.`,
     });
   } catch (error) {
     // If the classifier call itself fails (e.g. the configured model rejects
@@ -554,7 +556,7 @@ Aspect ratio defaults: poster=3:4 unless the user names another format, TikTok/R
     : 'General';
   const imageMode = resolveCreativeImageMode(plan.kind, plan.imageMode, conversation);
   const fallbackRatio = plan.kind === 'video'
-    ? '9:16'
+    ? platform === 'YouTube' ? '16:9' : '9:16'
     : imageMode === 'poster'
       ? '3:4'
     : platform === 'TikTok' || platform === 'Facebook'
@@ -562,9 +564,11 @@ Aspect ratio defaults: poster=3:4 unless the user names another format, TikTok/R
       : platform === 'X' || platform === 'Telegram'
         ? '16:9'
         : '1:1';
-  const aspectRatio = ['1:1', '9:16', '16:9', '4:5', '3:4'].includes(plan.aspectRatio)
-    ? plan.aspectRatio
-    : fallbackRatio;
+  const aspectRatio = plan.kind === 'video'
+    ? fallbackRatio
+    : ['1:1', '9:16', '16:9', '4:5', '3:4'].includes(plan.aspectRatio)
+      ? plan.aspectRatio
+      : fallbackRatio;
   const prompt = String(plan.prompt || '').trim().slice(0, 5000);
   const duration = TOTAL_VIDEO_DURATION_OPTIONS.includes(Number(plan.duration)) ? Number(plan.duration) : 8;
   const generatedVoiceOverText = String(plan.voiceOverText || '').trim().slice(0, 2000);
@@ -1637,10 +1641,9 @@ Return ONLY a single valid JSON object with this exact structure:
 
     if (action === 'videoGenerate') {
       const prompt = String(req.body?.prompt || '').trim();
-      // This product creates social short-form video. Keep every generation in
-      // the full-height TikTok/Reels/Shorts canvas; allowing stale 16:9 values
-      // through produced the short, horizontal player the user explicitly rejected.
-      const aspectRatio = '9:16';
+      // TikTok/Reels use portrait; a standard YouTube post uses landscape.
+      // Reject every other stale/unsupported ratio instead of passing it through.
+      const aspectRatio = resolveVideoAspectRatio(req.body?.aspectRatio);
       if (!prompt) return res.status(400).json({ error: 'Video prompt is required.' });
       const normalizedPrompt = await normalizeMediaPrompt(prompt, 'video');
       const images = Array.isArray(req.body?.images)

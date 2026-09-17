@@ -8,18 +8,27 @@ import {
   googleSheetsUrlToCsvExportUrl,
   resolveCreativeImageMode,
   resolveFacebookScanMode,
+  resolveVideoAspectRatio,
 } from '../../api/ai.js';
 
 describe('getVideoCaptionSpec', () => {
-  it('creates a YouTube Shorts post with title and Shorts hashtag guidance', () => {
-    const spec = getVideoCaptionSpec('YouTube Shorts');
-    expect(spec.platform).toBe('YouTube Shorts');
+  it('creates a standard YouTube post with title and searchable description guidance', () => {
+    const spec = getVideoCaptionSpec('YouTube');
+    expect(spec.platform).toBe('YouTube');
     expect(spec.instruction).toContain('maximum 100 characters');
-    expect(spec.instruction).toContain('#Shorts');
+    expect(spec.instruction).toContain('searchable description');
   });
 
   it('falls back to TikTok for unknown client values', () => {
     expect(getVideoCaptionSpec('youtube')).toMatchObject({ platform: 'TikTok' });
+  });
+});
+
+describe('resolveVideoAspectRatio', () => {
+  it('keeps standard YouTube video horizontal while social short video stays portrait', () => {
+    expect(resolveVideoAspectRatio('16:9')).toBe('16:9');
+    expect(resolveVideoAspectRatio('9:16')).toBe('9:16');
+    expect(resolveVideoAspectRatio('4:3')).toBe('9:16');
   });
 });
 

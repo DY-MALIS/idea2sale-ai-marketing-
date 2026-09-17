@@ -37,10 +37,9 @@ type VoiceGender = 'Female' | 'Male';
 type VoicePersona = 'sreymom' | 'piseth';
 type VideoAspectRatio = CreativeAutomationRequest['aspectRatio'];
 
-// VideoVoice is exclusively a short-form social-video workflow. Always use a
-// full-height portrait canvas so stale automation/history values cannot bring
-// back the rejected short horizontal player.
-const normalizeVideoAspectRatio = (_value: unknown): VideoAspectRatio => '9:16';
+// Keep platform formats explicit: social short video is portrait while a
+// standard YouTube post is landscape. Unsupported legacy values stay portrait.
+const normalizeVideoAspectRatio = (value: unknown): VideoAspectRatio => value === '16:9' ? '16:9' : '9:16';
 
 // None of the five /api/ai calls in this file had a timeout of their own --
 // if the connection itself stalls, the fetch just hangs forever with no
@@ -87,6 +86,7 @@ interface PendingVideoJob {
   narrationAudioUrl?: string;
   narrationFallbackReason?: string;
   expectedScript?: string;
+  aspectRatio?: VideoAspectRatio;
   createdAt: number;
 }
 
@@ -266,7 +266,7 @@ const mediaDuration = (url: string, kind: 'audio' | 'video'): Promise<number> =>
   media.src = url;
 });
 
-const GeneratedVideoPlayer: React.FC<{ src: string; language: 'km' | 'en' }> = ({ src, language }) => {
+const GeneratedVideoPlayer: React.FC<{ src: string; language: 'km' | 'en'; aspectRatio: VideoAspectRatio }> = ({ src, language, aspectRatio }) => {
   const normalizedSrc = normalizeImageKitVideoUrl(src);
   const [playbackSrc, setPlaybackSrc] = useState(normalizedSrc);
   const [recovering, setRecovering] = useState(false);
@@ -294,7 +294,10 @@ const GeneratedVideoPlayer: React.FC<{ src: string; language: 'km' | 'en' }> = (
   };
 
   return (
-    <div className="relative mx-auto aspect-[9/16] w-full max-w-sm overflow-hidden rounded-3xl border border-brand-200 bg-black shadow-2xl">
+    <div className={cn(
+      'relative mx-auto w-full overflow-hidden rounded-3xl border border-brand-200 bg-black shadow-2xl',
+      aspectRatio === '16:9' ? 'aspect-video max-w-4xl' : 'aspect-[9/16] max-w-sm',
+    )}>
       <video
         key={playbackSrc}
         src={playbackSrc}
@@ -573,6 +576,7 @@ const attemptGenerateVideoClip = async (
       narrationAudioUrl: data.narrationAudioUrl || undefined,
       narrationFallbackReason: data.narrationFallbackReason || undefined,
       expectedScript: data.spokenScript || khmerSpeech?.script || undefined,
+      aspectRatio,
       createdAt: Date.now(),
     };
     savePendingVideoJob(pending);
@@ -604,7 +608,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   const [voiceOverText, setVoiceOverText] = useState('');
   const [addingVoiceOver, setAddingVoiceOver] = useState(false);
   const [activeTool, setActiveTool] = useState<ToolType>('video');
-  const [videoPrompt, setVideoPrompt] = useState('A realistic 8-second TikTok product ad: close-up product reveal on a real table, warm natural light, slow camera push-in, hand places the product naturally, detailed texture, cinematic depth of field, clean premium brand feeling');
+  const [videoPrompt, setVideoPrompt] = useState('A realistic 8-second product marketing video: close-up product reveal on a real table, warm natural light, slow camera push-in, hand places the product naturally, detailed texture, cinematic depth of field, clean premium brand feeling');
   const [videoLanguage, setVideoLanguage] = useState<'Khmer' | 'English'>('Khmer');
   const [voiceLanguage, setVoiceLanguage] = useState<'Khmer' | 'English'>('Khmer');
   const [voiceGender, setVoiceGender] = useState<VoiceGender>('Female');
@@ -626,6 +630,8 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   const [videoImages, setVideoImages] = useState<{ base64: string; mimeType: string }[]>([]);
   const [videoDuration, setVideoDuration] = useState<number>(8);
   const [videoAspectRatio, setVideoAspectRatio] = useState<VideoAspectRatio>('9:16');
+  const [generatedVideoAspectRatio, setGeneratedVideoAspectRatio] = useState<VideoAspectRatio>('9:16');
+  const [captionPlatform, setCaptionPlatform] = useState<'TikTok' | 'YouTube'>('TikTok');
   const [segmentProgress, setSegmentProgress] = useState<{ current: number; total: number } | null>(null);
   const [mergingSegments, setMergingSegments] = useState(false);
   const [automationNotice, setAutomationNotice] = useState<string | null>(null);
@@ -645,7 +651,10 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     if (payload.voiceGender === 'Male' || payload.voiceGender === 'Female') setVoiceGender(payload.voiceGender);
     if (payload.voicePersona === 'sreymom' || payload.voicePersona === 'piseth') setVoicePersona(payload.voicePersona);
     if (typeof payload.videoDuration === 'number') setVideoDuration(payload.videoDuration);
-    if (payload.videoAspectRatio) setVideoAspectRatio(normalizeVideoAspectRatio(payload.videoAspectRatio));
+    const restoredRatio = normalizeVideoAspectRatio(payload.videoAspectRatio);
+    setVideoAspectRatio(restoredRatio);
+    setGeneratedVideoAspectRatio(restoredRatio);
+    setCaptionPlatform(restoredRatio === '16:9' ? 'YouTube' : 'TikTok');
     setActiveTool('video');
     setVideoNeedsReview(false);
     setPerformanceNeedsReview(false);
@@ -656,7 +665,6 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
 
   const [aiCaption, setAiCaption] = useState('');
   const [captionLanguage, setCaptionLanguage] = useState<'Khmer' | 'English'>('Khmer');
-  const [captionPlatform, setCaptionPlatform] = useState<'TikTok' | 'YouTube Shorts'>('TikTok');
   const [isGeneratingCaption, setIsGeneratingCaption] = useState(false);
   const [isPostingTikTok, setIsPostingTikTok] = useState(false);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
@@ -737,7 +745,13 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     return () => window.removeEventListener('message', handleMessage);
   }, []);
 
-  const generateCaptionForPlatform = async (platform: 'TikTok' | 'YouTube Shorts') => {
+  const selectVideoPlatform = (platform: 'TikTok' | 'YouTube') => {
+    if (captionPlatform !== platform) setAiCaption('');
+    setCaptionPlatform(platform);
+    setVideoAspectRatio(platform === 'YouTube' ? '16:9' : '9:16');
+  };
+
+  const generateCaptionForPlatform = async (platform: 'TikTok' | 'YouTube') => {
     if (!videoPrompt) return '';
     setCaptionPlatform(platform);
     setIsGeneratingCaption(true);
@@ -766,14 +780,20 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
 
   const handleGenerateCaption = () => generateCaptionForPlatform(captionPlatform);
 
-  const handlePrepareYouTubeShort = async () => {
+  const handlePrepareYouTubeVideo = async () => {
     if (videoNeedsReview || performanceNeedsReview) {
       handleScheduleThisVideo('YOUTUBE');
       return;
     }
-    const youtubeCopy = captionPlatform === 'YouTube Shorts' && aiCaption.trim()
+    if (generatedVideoAspectRatio !== '16:9') {
+      notify(language === 'km'
+        ? 'វីដេអូនេះជា 9:16។ សូមជ្រើស YouTube 16:9 ហើយបង្កើតវីដេអូថ្មីសិន។'
+        : 'This video is 9:16. Select YouTube 16:9 and generate a new video first.', 'error');
+      return;
+    }
+    const youtubeCopy = captionPlatform === 'YouTube' && aiCaption.trim()
       ? aiCaption.trim()
-      : await generateCaptionForPlatform('YouTube Shorts');
+      : await generateCaptionForPlatform('YouTube');
     if (youtubeCopy) handleScheduleThisVideo('YOUTUBE', youtubeCopy);
   };
 
@@ -888,6 +908,10 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         }
       }
       video = await uploadVideoDirectly(video, idToken);
+      const resumedAspectRatio = normalizeVideoAspectRatio(resumableVideoJob.aspectRatio);
+      setGeneratedVideoAspectRatio(resumedAspectRatio);
+      setVideoAspectRatio(resumedAspectRatio);
+      setCaptionPlatform(resumedAspectRatio === '16:9' ? 'YouTube' : 'TikTok');
       setGeneratedVideo(video);
       setVideoNeedsReview(speechNeedsReview);
       if (speechNeedsReview) {
@@ -922,6 +946,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     const promptText = typeof promptOverride === 'string' ? promptOverride.trim() : videoPrompt.trim();
     const generationLanguage = languageOverride || videoLanguage;
     const generationAspectRatio = normalizeVideoAspectRatio(aspectRatioOverride || videoAspectRatio);
+    setGeneratedVideoAspectRatio(generationAspectRatio);
     let voiceOverContent = (typeof voiceOverTextOverride === 'string' ? voiceOverTextOverride : (voiceOverEnabled ? voiceOverText : '')).trim();
     if (!promptText && !videoImages.length) return;
 
@@ -1152,7 +1177,9 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     setVideoLanguage(generationLanguage);
     setCaptionLanguage(generationLanguage);
     setVideoDuration(requestedDuration);
-    setVideoAspectRatio(normalizeVideoAspectRatio(automationRequest.aspectRatio));
+    const requestedAspectRatio = normalizeVideoAspectRatio(automationRequest.aspectRatio);
+    setVideoAspectRatio(requestedAspectRatio);
+    setCaptionPlatform(requestedAspectRatio === '16:9' ? 'YouTube' : 'TikTok');
     if (requestedVoiceOver) {
       setVoiceOverEnabled(true);
       setVoiceOverText(requestedVoiceOver);
@@ -1163,7 +1190,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         : `The agent prepared a ${automationRequest.platform} brief and started automatic video creation${requestedVoiceOver ? ' with a Khmer voice-over' : ''}.`,
     );
     onAutomationConsumed?.(automationRequest.id);
-    void handleGenerateVideo(automationRequest.prompt, generationLanguage, requestedVoiceOver, requestedDuration, normalizeVideoAspectRatio(automationRequest.aspectRatio));
+    void handleGenerateVideo(automationRequest.prompt, generationLanguage, requestedVoiceOver, requestedDuration, requestedAspectRatio);
   }, [automationRequest?.id]);
 
   const handleGenerateAudio = async () => {
@@ -1506,7 +1533,9 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                   <textarea
                     value={videoPrompt}
                     onChange={(e) => setVideoPrompt(e.target.value)}
-                    placeholder="Describe a realistic TikTok ad: product, location, camera movement, action, lighting, mood..."
+                    placeholder={captionPlatform === 'YouTube'
+                      ? 'Describe a realistic YouTube video: subject, location, camera movement, action, lighting, mood...'
+                      : 'Describe a realistic TikTok ad: product, location, camera movement, action, lighting, mood...'}
                     className="w-full h-32 p-5 rounded-2xl bg-brand-50 border border-brand-200 outline-none transition-all resize-none shadow-inner dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
                   />
                 </div>
@@ -1601,14 +1630,14 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                     </h4>
                     <div className="flex flex-wrap justify-end gap-2">
                       <div className="flex bg-brand-50 p-1 rounded-xl border border-brand-100">
-                        {(['TikTok', 'YouTube Shorts'] as const).map((platform) => (
+                        {(['TikTok', 'YouTube'] as const).map((platform) => (
                           <button
                             key={platform}
                             type="button"
-                            onClick={() => setCaptionPlatform(platform)}
+                            onClick={() => selectVideoPlatform(platform)}
                             className={cn("px-3 py-1 rounded-lg text-[10px] font-black", captionPlatform === platform ? "bg-white dark:bg-slate-800 text-brand-700 shadow-sm" : "text-brand-400")}
                           >
-                            {platform}
+                            {platform === 'YouTube' ? 'YouTube 16:9' : 'TikTok 9:16'}
                           </button>
                         ))}
                       </div>
@@ -1619,6 +1648,11 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                       </div>
                     </div>
                   </div>
+                  <p className="rounded-xl border border-brand-100 bg-brand-50 px-3 py-2 text-xs font-bold text-brand-600 dark:border-slate-700 dark:bg-slate-800 dark:text-brand-300">
+                    {captionPlatform === 'YouTube'
+                      ? (language === 'km' ? 'ទម្រង់វីដេអូ៖ YouTube ផ្ដេក 16:9' : 'Video format: YouTube landscape 16:9')
+                      : (language === 'km' ? 'ទម្រង់វីដេអូ៖ TikTok បញ្ឈរ 9:16' : 'Video format: TikTok portrait 9:16')}
+                  </p>
                   
                   <div className="space-y-3">
                     <textarea 
@@ -1847,12 +1881,12 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                   )}
                   {videoNeedsReview ? retainedClips.map((clip, index) => (
                     <div key={index} className="space-y-2">
-                      <GeneratedVideoPlayer src={clip} language={language} />
+                      <GeneratedVideoPlayer src={clip} language={language} aspectRatio={generatedVideoAspectRatio} />
                       <a href={clip} download={`review-clip-${index + 1}.mp4`} className="text-brand-700 underline">
                         {language === 'km' ? 'ទាញយកឈុត' : 'Download clip'} {index + 1}
                       </a>
                     </div>
-                  )) : <GeneratedVideoPlayer src={generatedVideo} language={language} />}
+                  )) : <GeneratedVideoPlayer src={generatedVideo} language={language} aspectRatio={generatedVideoAspectRatio} />}
                   {(videoNeedsReview || performanceNeedsReview) && (
                     <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
                       <input
@@ -1917,15 +1951,15 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                         : t('scheduleBtn')}</span>
                     </button>
                     <button
-                      onClick={handlePrepareYouTubeShort}
+                      onClick={handlePrepareYouTubeVideo}
                       disabled={videoNeedsReview || performanceNeedsReview || isGeneratingCaption}
                       className="flex items-center justify-center gap-2 rounded-2xl bg-red-600 px-5 py-4 font-bold text-white shadow-xl transition-all hover:bg-red-700 disabled:opacity-50"
-                      title={language === 'km' ? 'រៀបចំវីដេអូ និងអត្ថបទសម្រាប់ YouTube Shorts' : 'Prepare this video and copy for YouTube Shorts'}
+                      title={language === 'km' ? 'រៀបចំវីដេអូផ្ដេក 16:9 និងអត្ថបទសម្រាប់ YouTube' : 'Prepare this 16:9 landscape video and copy for YouTube'}
                     >
-                      {isGeneratingCaption && captionPlatform === 'YouTube Shorts'
+                      {isGeneratingCaption && captionPlatform === 'YouTube'
                         ? <Loader2 size={24} className="animate-spin" />
                         : <Youtube size={24} />}
-                      <span>{language === 'km' ? 'រៀបចំ YouTube Shorts' : 'Prepare YouTube Short'}</span>
+                      <span>{language === 'km' ? 'រៀបចំ YouTube 16:9' : 'Prepare YouTube 16:9'}</span>
                     </button>
                   </div>
                 </div>

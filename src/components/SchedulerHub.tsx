@@ -254,7 +254,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
 
   const saveLocalSchedule = async (userId: string, scheduledDate: Date) => {
     const postId = Date.now().toString();
-    // Telegram can carry an image or video; TikTok and YouTube Shorts require a
+    // Telegram can carry an image or video; TikTok and YouTube require a
     // video. Preserve the selected media for demo-mode schedule cards as well.
     const mediaFile = platform === 'TELEGRAM'
       ? telegramMediaFile
@@ -603,7 +603,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                   {(platform === 'TIKTOK' || platform === 'YOUTUBE') && (
                     <div>
                       <label className="block text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-2">
-                        {platform === 'YOUTUBE' ? 'YouTube Short video' : 'TikTok video'}
+                        {platform === 'YOUTUBE' ? 'YouTube landscape video (16:9)' : 'TikTok portrait video (9:16)'}
                       </label>
                       <input
                         required
@@ -614,7 +614,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                       />
                       <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                         {platform === 'YOUTUBE'
-                          ? 'Vertical 9:16 MP4, MOV, or WebM. This prepares the Short and metadata for upload in YouTube Studio.'
+                          ? 'Horizontal 16:9 MP4, MOV, or WebM. This prepares the video and metadata for upload in YouTube Studio.'
                           : 'MP4, MOV, or WebM. Auto-post starts only after TikTok approves video.publish.'}
                       </p>
                     </div>
