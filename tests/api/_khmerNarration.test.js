@@ -15,7 +15,7 @@ describe('Khmer narration', () => {
     expect(await generateKhmerSpeech({ input: 'សួស្តី', voice: 'onyx', performanceStyle: 'warm', context: 'training' }))
       .toMatchObject({ audioUrl: 'natural-khmer', provider: 'gemini', spokenText: 'សួស្តី' });
     expect(mocks.gemini).toHaveBeenCalledWith(expect.objectContaining({
-      input: 'សួស្តី', voice: 'onyx', performanceStyle: expect.stringContaining('crisp consonants'), context: 'training',
+      input: 'សួស្តី', voice: 'onyx', performanceStyle: expect.stringContaining('crisp initial and final consonants'), context: 'training',
     }));
     expect(mocks.edge).not.toHaveBeenCalled();
   });
@@ -28,14 +28,14 @@ describe('Khmer narration', () => {
       provider: 'edge',
       fallbackReason: expect.any(String),
     });
-    expect(mocks.edge).toHaveBeenCalledWith({ input: 'សួស្តី', voice: 'km-KH-SreymomNeural', rate: '+12%' });
+    expect(mocks.edge).toHaveBeenCalledWith({ input: 'សួស្តី', voice: 'km-KH-SreymomNeural', rate: '+6%' });
   });
 
   it('keeps the requested male voice when Gemini falls back to Edge', async () => {
     mocks.gemini.mockRejectedValue(new Error('provider unavailable'));
     mocks.edge.mockResolvedValue({ audioUrl: 'khmer', provider: 'edge' });
     await generateKhmerSpeech({ input: 'សួស្តី', voice: 'onyx' });
-    expect(mocks.edge).toHaveBeenCalledWith({ input: 'សួស្តី', voice: 'km-KH-PisethNeural', rate: '+12%' });
+    expect(mocks.edge).toHaveBeenCalledWith({ input: 'សួស្តី', voice: 'km-KH-PisethNeural', rate: '+6%' });
   });
 
   it('surfaces failure when both expressive and fallback voices fail', async () => {

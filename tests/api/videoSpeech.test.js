@@ -83,7 +83,8 @@ describe('native Khmer video speech', () => {
     expect(prepared.motionPrompt).toContain('finishes in 0.2 to 0.35 seconds');
     expect(prepared.motionPrompt).toContain('Never stretch one gesture across a phrase');
     expect(prepared.mode).toBe('edge-seedance');
-    expect(prepared.performanceStyle).toContain('lively natural Cambodian conversational voice');
+    expect(prepared.performanceStyle).toContain('natural Cambodian conversational voice');
+    expect(prepared.performanceStyle).toContain('Fully pronounce every Khmer consonant');
     expect(prepared.motionPrompt).toContain('subtle breathing');
     expect(prepared.motionPrompt).toContain('No pose freezes longer than 0.2 seconds');
     expect(prepared.prompt.length + prepared.motionPrompt.length).toBeLessThan(1100);

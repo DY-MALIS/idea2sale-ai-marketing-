@@ -15,7 +15,7 @@ export async function preparePlanVideoSpeech(item) {
   ));
   if (!/[\u1780-\u17ff]/u.test(script)) throw new Error('Khmer dialogue is required for this plan video.');
   splitKhmerScript(script, [duration]);
-  const performanceStyle = String(item.performanceStyle || 'Warm and trustworthy. Speak in a lively natural Cambodian conversational voice at an everyday social-video pace, about ten percent faster than a careful presenter read. Keep every Khmer syllable crisp, use at most one very brief phrase-boundary pause, vary pitch naturally, and finish cleanly without an announcer tone or theatrical exaggeration.');
+  const performanceStyle = String(item.performanceStyle || 'Warm and trustworthy. Speak in a natural Cambodian conversational voice at an everyday social-video pace. Fully pronounce every Khmer consonant, vowel, syllable and word ending; keep neighboring words distinct. Use at most one brief clause-boundary pause, vary pitch naturally, and finish cleanly without an announcer tone or theatrical exaggeration.');
   const visual = visualOnlyVideoPrompt(prompt);
   const presenter = item.voiceGender === 'Male' ? 'young adult Cambodian man, age 18 to 25' : 'young adult Cambodian woman, age 18 to 25';
   return {

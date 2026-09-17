@@ -17,7 +17,8 @@ describe('OpenRouter Gemini TTS adapter (mocked network)', () => {
     expect(body.input).toContain('SCRIPT:\nសួស្តី AI។');
     expect(body.input).toContain('warm then excited');
     expect(body.input).toContain('Plan topic');
-    expect(body.input).toContain('ten percent faster than a careful presenter read');
+    expect(body.input).toContain('every Khmer initial consonant, vowel, final consonant and syllable');
+    expect(body.input).toContain('never swallow word endings');
     expect(body.input).toContain('real person talking directly to one customer');
     expect(body).toMatchObject({model:'google/gemini-3.1-flash-tts-preview',voice:'Charon',response_format:'pcm'});
     const wav = Buffer.from(result.audioUrl.split(',')[1],'base64');
