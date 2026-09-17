@@ -58,6 +58,10 @@ export const getOriginalImageKitUrl = (mediaUrl, urlEndpoint = '') => {
 };
 
 export const applyImageKitDeliveryTransform = (mediaUrl, mediaType, urlEndpoint = '') => {
+  // Width, image-quality and image-format transforms do not apply to MP3/WAV
+  // assets. Adding them made narration URLs return a transformation error,
+  // leaving audio-reference video jobs without a usable speech track.
+  if (mediaType === 'audio') return mediaUrl;
   const transform = mediaType === 'video' ? 'w-1280,q-70,f-mp4' : 'w-1280,q-auto,f-auto';
   return addImageKitTransform(mediaUrl, transform, urlEndpoint);
 };

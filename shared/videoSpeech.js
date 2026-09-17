@@ -25,6 +25,11 @@ export function visualOnlyVideoPrompt(prompt = '') {
     .replace(/\b(?:speaks?|says?|talks?|narrates?)\s+(?:in\s+)?(?:English|Khmer|Cambodian Khmer)\b[^.\n]*[.\n]?/giu, 'faces the camera. ')
     .replace(/\b(?:English|Khmer|Cambodian Khmer)\s+(?:dialogue|speech|narration|voice[- ]?over)\b[^.\n]*[.\n]?/giu, '')
     .replace(/\b(?:include|use|generate|add)\s+(?:natural\s+)?spoken narration\b[^.\n]*[.\n]?/giu, '')
+    // Speaking-shot motion follows the real-time narration. Remove cinematic
+    // slow-motion directions inherited from generic product-video prompts;
+    // otherwise Seedance tends to stretch one gesture over most of the clip.
+    .replace(/\b(?:slow|slowly|gentle|gently)\s+(?:camera\s+)?(?:push(?:-?in)?|pull(?:-?out)?|dolly(?:-?in|-?out)?|pan|tilt|zoom|orbit|movement)\b/giu, 'stable camera')
+    .replace(/\b(?:cinematic\s+)?slow[- ]motion\b/giu, 'real-time motion')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }

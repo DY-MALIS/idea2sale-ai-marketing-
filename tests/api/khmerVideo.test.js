@@ -19,6 +19,8 @@ it('uses the same measured audio and supplied portrait for manual video lip sync
   expect(mocks.video).toHaveBeenCalledWith(expect.objectContaining({ model: 'bytedance/seedance-2.0-mini', khmerSpeech: true, duration: 4, referenceUrls: ['https://image'], audioReferenceUrls: ['https://audio'], prompt: expect.stringContaining('3.40 seconds') }));
   expect(mocks.video.mock.calls[0][0].prompt).toContain('master clock');
   expect(mocks.video.mock.calls[0][0].prompt).toContain('real-time 1x speed');
+  expect(mocks.video.mock.calls[0][0].prompt).toContain('continue one small context-relevant task action');
+  expect(mocks.video.mock.calls[0][0].prompt).toContain('do not freeze, pose or draw out the movement');
   expect(result.narrationAudio.mediaUrl).toBe('https://audio');
   expect(result.narrationAudio.provider).toBe('gemini');
 });

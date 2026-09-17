@@ -26,6 +26,11 @@ describe('ImageKit URL transformations', () => {
     expect(new URL(result).searchParams.get('tr')).toBe('w-1280,q-70,f-mp4');
   });
 
+  it('does not apply image transformations to narration audio', () => {
+    const audio = 'https://ik.imagekit.io/acme/narration.mp3';
+    expect(applyImageKitDeliveryTransform(audio, 'audio')).toBe(audio);
+  });
+
   it('repairs persisted video URLs that used the invalid q-auto transform', () => {
     const legacy = 'https://ik.imagekit.io/acme/video.mp4?tr=w-1280%2Cq-auto%2Cf-mp4%3Aac-none&v=1';
     const repaired = normalizeImageKitVideoUrl(legacy);

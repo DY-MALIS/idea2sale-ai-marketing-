@@ -385,7 +385,11 @@ const applyVoiceOver = async (videoDataUrl: string, audioDataUrl: string, speed 
       '-c:v', 'copy',
       '-filter:a', `atempo=${safeSpeed},apad`,
       '-c:a', 'aac',
+      '-b:a', '160k',
+      '-ar', '48000',
+      '-disposition:a:0', 'default',
       '-shortest',
+      '-movflags', '+faststart',
       'vo_output.mp4',
     ]);
     const data = await ffmpeg.readFile('vo_output.mp4');
@@ -527,7 +531,10 @@ const pollPendingVideoJob = async (pending: PendingVideoJob, idToken: string) =>
     if (statusData.videoUrl) {
       const playableVideoUrl = normalizeImageKitVideoUrl(statusData.videoUrl);
       return pending.narrationAudioUrl
-        ? applyVoiceOver(playableVideoUrl, pending.narrationAudioUrl, 1)
+        // Older narration uploads were accidentally given image-only ImageKit
+        // transformations. Strip those parameters so already-paid resumable
+        // jobs can still fetch and mux their original MP3.
+        ? applyVoiceOver(playableVideoUrl, getOriginalImageKitUrl(pending.narrationAudioUrl), 1)
         : playableVideoUrl as string;
     }
   }

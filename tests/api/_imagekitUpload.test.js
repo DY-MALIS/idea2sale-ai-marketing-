@@ -93,4 +93,25 @@ describe('server-side ImageKit upload', () => {
     expect(request.body.get('file')).toBe('data:video/mp4;base64,AAAA');
     expect(request.body.get('folder')).toBe('/telegram-media');
   });
+
+  it('returns narration audio without an incompatible image transform', async () => {
+    configureImageKit();
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        url: 'https://ik.imagekit.io/acme/generation-history/narration.mp3',
+        fileId: 'audio-id',
+        filePath: '/generation-history/narration.mp3',
+        duration: 3.5,
+      }),
+    });
+
+    const result = await uploadMediaDataUrl({
+      mediaDataUrl: 'data:audio/mpeg;base64,AAAA',
+      mediaType: 'audio',
+    });
+
+    expect(result.mediaUrl).toBe('https://ik.imagekit.io/acme/generation-history/narration.mp3');
+    expect(result.duration).toBe(3.5);
+  });
 });

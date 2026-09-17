@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { resolveOpenRouterTextModel, resolveOpenRouterImageModel, generateOpenRouterImage, generateOpenRouterText, generateOpenRouterWebSearch, normalizeForKhmerSpeech, redactSecrets } from '../../api/_openrouter.js';
+import { resolveOpenRouterTextModel, resolveOpenRouterImageModel, generateOpenRouterImage, generateOpenRouterText, generateOpenRouterWebSearch, normalizeForKhmerSpeech, redactSecrets, startOpenRouterVideo } from '../../api/_openrouter.js';
 
 const originalEnv = { ...process.env };
 const originalFetch = global.fetch;
@@ -163,6 +163,51 @@ describe('OpenRouter text token budgets', () => {
     const requestBody = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(requestBody.max_tokens).toBe(6000);
     expect(requestBody.reasoning).toEqual({ effort: 'medium' });
+  });
+});
+
+describe('OpenRouter video audio', () => {
+  it('requests an audible output when Seedance receives narration audio', async () => {
+    process.env.OPEN_ROUTER_API_KEY = 'test-key';
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 'video-job', status: 'pending' }),
+    });
+    global.fetch = fetchMock;
+
+    await startOpenRouterVideo({
+      prompt: 'Cambodian presenter speaking at normal speed',
+      model: 'bytedance/seedance-2.0-mini',
+      duration: 4,
+      khmerSpeech: true,
+      referenceUrls: ['https://example.com/presenter.jpg'],
+      audioReferenceUrls: ['https://example.com/narration.mp3'],
+    });
+
+    const requestBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(requestBody.generate_audio).toBe(true);
+    expect(requestBody.input_references).toEqual(expect.arrayContaining([
+      { type: 'audio_url', audio_url: { url: 'https://example.com/narration.mp3' } },
+    ]));
+  });
+
+  it('keeps Seedance output silent when there is no narration reference', async () => {
+    process.env.OPEN_ROUTER_API_KEY = 'test-key';
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 'video-job', status: 'pending' }),
+    });
+    global.fetch = fetchMock;
+
+    await startOpenRouterVideo({
+      prompt: 'Silent product shot',
+      model: 'bytedance/seedance-2.0-mini',
+      duration: 4,
+      referenceUrls: ['https://example.com/product.jpg'],
+    });
+
+    const requestBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(requestBody.generate_audio).toBe(false);
   });
 });
 
