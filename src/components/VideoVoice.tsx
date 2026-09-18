@@ -781,14 +781,18 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   const handleGenerateCaption = () => generateCaptionForPlatform(captionPlatform);
 
   const handlePrepareYouTubeVideo = async () => {
-    if (videoNeedsReview || performanceNeedsReview) {
-      handleScheduleThisVideo('YOUTUBE');
+    if (generatedVideoAspectRatio !== '16:9') {
+      // This action used to show an error while leaving the old portrait result
+      // on screen, which made "Prepare YouTube 16:9" look like a broken format
+      // converter. Make the action literal instead: select YouTube and start a
+      // new paid generation with an explicit override, so an asynchronous React
+      // state update can never leak the previous 9:16 choice into the request.
+      selectVideoPlatform('YouTube');
+      await handleGenerateVideo(undefined, undefined, undefined, undefined, '16:9');
       return;
     }
-    if (generatedVideoAspectRatio !== '16:9') {
-      notify(language === 'km'
-        ? 'វីដេអូនេះជា 9:16។ សូមជ្រើស YouTube 16:9 ហើយបង្កើតវីដេអូថ្មីសិន។'
-        : 'This video is 9:16. Select YouTube 16:9 and generate a new video first.', 'error');
+    if (videoNeedsReview || performanceNeedsReview) {
+      handleScheduleThisVideo('YOUTUBE');
       return;
     }
     const existingCaption = captionPlatform === 'YouTube' ? aiCaption.trim() : '';
@@ -1852,7 +1856,15 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
               className="w-full bg-gradient-to-r from-brand-600 to-crab-shell text-white font-bold py-5 rounded-2xl flex items-center justify-center gap-3 shadow-xl disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {loading || audioLoading ? <Loader2 className="animate-spin" /> : <Sparkles size={22} />}
-              <span className="text-lg">{loading || audioLoading ? t('generating') : t('generateWithAi')}</span>
+              <span className="text-lg">
+                {loading || audioLoading
+                  ? t('generating')
+                  : activeTool === 'video'
+                    ? (captionPlatform === 'YouTube'
+                      ? (language === 'km' ? 'បង្កើតវីដេអូ YouTube ផ្ដេក 16:9' : 'Generate YouTube landscape 16:9')
+                      : (language === 'km' ? 'បង្កើតវីដេអូ TikTok បញ្ឈរ 9:16' : 'Generate TikTok portrait 9:16'))
+                    : t('generateWithAi')}
+              </span>
             </button>
           </div>
         </div>
@@ -1893,6 +1905,11 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                 </div>
               ) : activeTool === 'video' && generatedVideo ? (
                 <div className="w-full space-y-6">
+                  <div className="mx-auto w-fit rounded-full border border-brand-200 bg-brand-50 px-4 py-2 text-xs font-black text-brand-700 dark:border-slate-600 dark:bg-slate-800 dark:text-brand-300">
+                    {generatedVideoAspectRatio === '16:9'
+                      ? (language === 'km' ? 'វីដេអូ YouTube ផ្ដេក 16:9' : 'YouTube landscape video · 16:9')
+                      : (language === 'km' ? 'វីដេអូ TikTok បញ្ឈរ 9:16' : 'TikTok portrait video · 9:16')}
+                  </div>
                   {videoVoiceQualityNotice && (
                     <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm font-semibold text-amber-800">
                       {videoVoiceQualityNotice}
@@ -1971,14 +1988,18 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                     </button>
                     <button
                       onClick={handlePrepareYouTubeVideo}
-                      disabled={videoNeedsReview || performanceNeedsReview || isGeneratingCaption}
+                      disabled={isGeneratingCaption || (generatedVideoAspectRatio === '16:9' && (videoNeedsReview || performanceNeedsReview))}
                       className="flex items-center justify-center gap-2 rounded-2xl bg-red-600 px-5 py-4 font-bold text-white shadow-xl transition-all hover:bg-red-700 disabled:opacity-50"
-                      title={language === 'km' ? 'រៀបចំវីដេអូផ្ដេក 16:9 និងអត្ថបទសម្រាប់ YouTube' : 'Prepare this 16:9 landscape video and copy for YouTube'}
+                      title={generatedVideoAspectRatio === '16:9'
+                        ? (language === 'km' ? 'រៀបចំវីដេអូផ្ដេក 16:9 និងអត្ថបទសម្រាប់ YouTube' : 'Prepare this 16:9 landscape video and copy for YouTube')
+                        : (language === 'km' ? 'បង្កើតវីដេអូថ្មីផ្ដេក 16:9 សម្រាប់ YouTube' : 'Generate a new 16:9 landscape video for YouTube')}
                     >
                       {isGeneratingCaption && captionPlatform === 'YouTube'
                         ? <Loader2 size={24} className="animate-spin" />
                         : <Youtube size={24} />}
-                      <span>{language === 'km' ? 'រៀបចំ YouTube 16:9' : 'Prepare YouTube 16:9'}</span>
+                      <span>{generatedVideoAspectRatio === '16:9'
+                        ? (language === 'km' ? 'រៀបចំ YouTube 16:9' : 'Prepare YouTube 16:9')
+                        : (language === 'km' ? 'បង្កើតថ្មី YouTube ផ្ដេក 16:9' : 'Generate new YouTube 16:9')}</span>
                     </button>
                   </div>
                 </div>
