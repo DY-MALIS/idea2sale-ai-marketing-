@@ -20,6 +20,21 @@ describe('Khmer narration', () => {
     expect(mocks.edge).not.toHaveBeenCalled();
   });
 
+  it('asks the voice to preserve every word while fitting the target clip', async () => {
+    mocks.gemini.mockResolvedValue({ audioUrl: 'natural-khmer', provider: 'gemini' });
+    await generateKhmerSpeech({ input: 'សួស្តី', targetDuration: 6 });
+    expect(mocks.gemini.mock.calls[0][0].performanceStyle).toContain('within 5.85 seconds');
+    expect(mocks.gemini.mock.calls[0][0].performanceStyle).toContain('Do not omit, abbreviate or cut off any word');
+  });
+
+  it('uses the requested measured rate when an overlong read is retried with Edge', async () => {
+    mocks.edge.mockResolvedValue({ audioUrl: 'fitted-khmer', provider: 'edge' });
+    const result = await generateKhmerSpeech({ input: 'សួស្តី', targetDuration: 8, forceEdge: true, edgeRate: '+14%' });
+    expect(mocks.gemini).not.toHaveBeenCalled();
+    expect(mocks.edge).toHaveBeenCalledWith({ input: 'សួស្តី', voice: 'km-KH-SreymomNeural', rate: '+14%' });
+    expect(result.fallbackReason).toContain('preserved the full script');
+  });
+
   it('falls back to a natural-speed Edge female Khmer voice', async () => {
     mocks.gemini.mockRejectedValue(new Error('provider unavailable'));
     mocks.edge.mockResolvedValue({ audioUrl: 'khmer', provider: 'edge' });

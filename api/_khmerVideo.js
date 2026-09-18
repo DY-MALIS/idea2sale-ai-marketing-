@@ -8,15 +8,19 @@ import {
 } from '../shared/videoCost.js';
 import { getOriginalImageKitUrl } from '../shared/imageKitUrl.js';
 
-const KHMER_CLIP_DURATIONS = [4, 6, 8];
+const MIN_KHMER_CLIP_DURATION = 4;
+const MAX_KHMER_CLIP_DURATION = 8;
 
 export const fitKhmerClipDurationToNarration = (narrationDuration, requestedDuration) => {
-  const maximum = KHMER_CLIP_DURATIONS.includes(Number(requestedDuration)) ? Number(requestedDuration) : 8;
-  // Leave only a short natural settling beat after the final phoneme. A short
-  // sentence inside an eight-second clip otherwise makes the model stretch
-  // ordinary gestures into conspicuous AI slow motion.
-  return KHMER_CLIP_DURATIONS.find((seconds) => seconds <= maximum && seconds >= narrationDuration + 0.15)
-    || maximum;
+  const requested = [4, 6, 8].includes(Number(requestedDuration)) ? Number(requestedDuration) : 8;
+  // Seedance supports every whole-second duration from 4 through 15, unlike
+  // Veo's fixed 4/6/8 choices. Size the clip from the measured waveform: this
+  // preserves the user's exact words, leaves a short settling beat, and avoids
+  // stretching a short read across an unnecessarily long requested clip.
+  const measured = Number(narrationDuration);
+  if (!Number.isFinite(measured) || measured <= 0) return requested;
+  const fitted = Math.max(MIN_KHMER_CLIP_DURATION, Math.ceil(measured + 0.15));
+  return Math.min(MAX_KHMER_CLIP_DURATION, fitted);
 };
 
 export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
@@ -34,24 +38,48 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
   if (speech.mode === 'silent') {
     return { job: await startOpenRouterVideo({ prompt: speech.prompt, duration, aspectRatio }), avatarImage: null };
   }
+  const speechOptions = {
+    input: speech.script,
+    voice: item.voiceGender || 'Female',
+    performanceStyle: speech.performanceStyle || item.performanceStyle || '',
+    context: item.prompt || speech.prompt || '',
+    targetDuration: duration,
+  };
+
+  let audio = await generateKhmerSpeech(speechOptions);
+  let uploadedNarration;
+  let measuredDuration = Number(audio.duration);
+  if (!(measuredDuration > 0) || measuredDuration <= MAX_KHMER_CLIP_DURATION) {
+    uploadedNarration = await uploadMediaDataUrl({ mediaDataUrl: audio.audioUrl, mediaType: 'audio' });
+    measuredDuration = Number(audio.duration || uploadedNarration.duration);
+  }
+
+  // Keep every word. If the expressive voice (or the normal Edge fallback)
+  // exceeds the hard budget, retry the same script once with a measured,
+  // pitch-preserving neural speech-rate increase before any paid image/video
+  // preparation starts.
+  if (measuredDuration > MAX_KHMER_CLIP_DURATION) {
+    const currentRateFactor = /edge-/i.test(String(audio.provider || audio.model || '')) ? 1.12 : 1;
+    const requiredRatePercent = Math.min(35, Math.max(14,
+      Math.ceil(((currentRateFactor * measuredDuration) / (MAX_KHMER_CLIP_DURATION - 0.15) - 1) * 100) + 2));
+    audio = await generateKhmerSpeech({
+      ...speechOptions,
+      forceEdge: true,
+      edgeRate: `+${requiredRatePercent}%`,
+    });
+    uploadedNarration = await uploadMediaDataUrl({ mediaDataUrl: audio.audioUrl, mediaType: 'audio' });
+    measuredDuration = Number(audio.duration || uploadedNarration.duration);
+  }
+
+  const narrationAudio = { ...uploadedNarration, duration: measuredDuration };
+  if (!(narrationAudio.duration > 0 && narrationAudio.duration <= MAX_KHMER_CLIP_DURATION)) throw new Error('Khmer narration exceeds the maximum 8-second clip. Use a longer video workflow or adjust the delivery pace.');
+  const fittedDuration = fitKhmerClipDurationToNarration(narrationAudio.duration, duration);
+  assertVideoGenerationWithinBudget({ duration: fittedDuration, khmerSpeech: true, model: KHMER_VIDEO_MODEL });
   const image = images.length
     ? { imageUrl: `data:${images[0].mimeType};base64,${images[0].base64}` }
     : await generateOpenRouterImage({ prompt: speech.avatarPrompt, aspectRatio, model: BUDGET_AVATAR_IMAGE_MODEL });
   const avatarImage = await uploadMediaDataUrl({ mediaDataUrl: image.imageUrl, mediaType: 'photo' });
   const avatarReferenceUrl = getOriginalImageKitUrl(avatarImage.mediaUrl, process.env.IMAGEKIT_URL_ENDPOINT || '');
-  const audio = await generateKhmerSpeech({
-    input: speech.script,
-    voice: item.voiceGender || 'Female',
-    performanceStyle: speech.performanceStyle || item.performanceStyle || '',
-    context: item.prompt || speech.prompt || '',
-  });
-  const uploadedNarration = await uploadMediaDataUrl({ mediaDataUrl: audio.audioUrl, mediaType: 'audio' });
-  const narrationAudio = {
-    ...uploadedNarration,
-    duration: Number(audio.duration || uploadedNarration.duration),
-  };
-  if (!(narrationAudio.duration > 0 && narrationAudio.duration <= duration)) throw new Error('Khmer narration must fit within the clip. Shorten the script.');
-  const fittedDuration = fitKhmerClipDurationToNarration(narrationAudio.duration, duration);
   const job = await startOpenRouterVideo({
     // Mini retains image/audio reference support while keeping an 8-second
     // Khmer presenter video (including avatar + narration reserve) under $0.80.

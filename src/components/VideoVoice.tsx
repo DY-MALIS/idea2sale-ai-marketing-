@@ -30,7 +30,7 @@ import { CreativeAutomationRequest, ScheduleHandoffRequest } from '../types';
 import { getLatestBusinessBranding } from '../lib/businessBranding';
 import { deleteGenerationHistory, GenerationHistoryEntry, saveGenerationHistory, useGenerationHistory } from '../lib/generationHistory';
 import HistoryPanel from './HistoryPanel';
-import { estimateVideoGenerationCostUsd, MAX_VIDEO_GENERATION_COST_USD } from '../../shared/videoCost.js';
+import { estimateVideoGenerationCostUsd, MAX_VIDEO_DURATION_SECONDS, MAX_VIDEO_GENERATION_COST_USD } from '../../shared/videoCost.js';
 
 type ToolType = 'video' | 'voice';
 type VoiceGender = 'Female' | 'Male';
@@ -1590,8 +1590,8 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                   </div>
                   <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">
                     {language === 'km'
-                      ? `តម្លៃប៉ាន់ស្មាន៖ $${estimateVideoGenerationCostUsd({ duration: videoDuration, khmerSpeech: videoLanguage === 'Khmer' && voiceOverEnabled }).toFixed(2)} · កំណត់អតិបរមា $${MAX_VIDEO_GENERATION_COST_USD.toFixed(2)}`
-                      : `Estimated cost: $${estimateVideoGenerationCostUsd({ duration: videoDuration, khmerSpeech: videoLanguage === 'Khmer' && voiceOverEnabled }).toFixed(2)} · Maximum $${MAX_VIDEO_GENERATION_COST_USD.toFixed(2)}`}
+                      ? `${videoLanguage === 'Khmer' && voiceOverEnabled ? 'តម្លៃអតិបរមាប៉ាន់ស្មាន' : 'តម្លៃប៉ាន់ស្មាន'}៖ $${estimateVideoGenerationCostUsd({ duration: videoLanguage === 'Khmer' && voiceOverEnabled ? MAX_VIDEO_DURATION_SECONDS : videoDuration, khmerSpeech: videoLanguage === 'Khmer' && voiceOverEnabled }).toFixed(2)} · កំណត់អតិបរមា $${MAX_VIDEO_GENERATION_COST_USD.toFixed(2)}`
+                      : `${videoLanguage === 'Khmer' && voiceOverEnabled ? 'Estimated maximum' : 'Estimated cost'}: $${estimateVideoGenerationCostUsd({ duration: videoLanguage === 'Khmer' && voiceOverEnabled ? MAX_VIDEO_DURATION_SECONDS : videoDuration, khmerSpeech: videoLanguage === 'Khmer' && voiceOverEnabled }).toFixed(2)} · Maximum $${MAX_VIDEO_GENERATION_COST_USD.toFixed(2)}`}
                   </p>
                 </div>
 

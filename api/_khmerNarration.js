@@ -9,11 +9,23 @@ const edgeKhmerVoice = (voice) => {
     : 'km-KH-SreymomNeural';
 };
 
-export async function generateKhmerSpeech({ input, voice = 'Female', performanceStyle = '', context = '' }) {
+export async function generateKhmerSpeech({
+  input,
+  voice = 'Female',
+  performanceStyle = '',
+  context = '',
+  targetDuration,
+  forceEdge = false,
+  edgeRate,
+}) {
   if (!/[\u1780-\u17ff]/.test(input)) throw new Error('Khmer narration text is required.');
   const spokenInput = normalizeForKhmerSpeech(input);
-  const clearKhmerStyle = `Native Cambodian Khmer with crisp initial and final consonants, complete syllables, correct vowel length and clearly separated words. Fully pronounce every word ending without merging adjacent words. Speak at a natural everyday social-video pace, never faster than clear articulation allows. Use at most one brief pause at a natural clause boundary; never use a measured announcer cadence, pause after each word, mumble, swallow endings, stretch vowels or use a foreign accent. ${String(performanceStyle || '').trim()}`.trim();
-  const useEdgeOnly = String(process.env.KHMER_TTS_PROVIDER || '').trim().toLowerCase() === 'edge';
+  const targetSeconds = Number(targetDuration);
+  const timingDirection = Number.isFinite(targetSeconds) && targetSeconds >= 4 && targetSeconds <= 8
+    ? ` Complete the exact script within ${Math.max(3.5, targetSeconds - 0.15).toFixed(2)} seconds using a naturally brisk conversational pace and minimal pauses. Do not omit, abbreviate or cut off any word.`
+    : '';
+  const clearKhmerStyle = `Native Cambodian Khmer with crisp initial and final consonants, complete syllables, correct vowel length and clearly separated words. Fully pronounce every word ending without merging adjacent words. Speak at a natural everyday social-video pace, never faster than clear articulation allows. Use at most one brief pause at a natural clause boundary; never use a measured announcer cadence, pause after each word, mumble, swallow endings, stretch vowels or use a foreign accent.${timingDirection} ${String(performanceStyle || '').trim()}`.trim();
+  const useEdgeOnly = forceEdge || String(process.env.KHMER_TTS_PROVIDER || '').trim().toLowerCase() === 'edge';
   if (!useEdgeOnly) {
     try {
       return {
@@ -28,15 +40,20 @@ export async function generateKhmerSpeech({ input, voice = 'Female', performance
   const fallback = await synthesizeKhmerSpeechViaEdge({
     input: spokenInput,
     voice: edgeKhmerVoice(voice),
-    // A modest speed lift avoids the unusually measured fallback cadence while
-    // leaving enough room for complete Khmer consonants, vowels and word ends.
-    rate: '+6%',
+    // Targeted presenter clips need a slightly brisker fallback cadence than
+    // standalone speech. A measured overrun can request a stronger one-time
+    // correction without changing or truncating the script.
+    rate: /^\+\d{1,2}%$/.test(String(edgeRate || ''))
+      ? String(edgeRate)
+      : (timingDirection ? '+12%' : '+6%'),
   });
   return {
     ...fallback,
     spokenText: spokenInput,
-    fallbackReason: useEdgeOnly
-      ? 'Edge Khmer voice was explicitly selected.'
+    fallbackReason: forceEdge
+      ? 'The expressive read exceeded the clip duration; a brisk Khmer neural voice preserved the full script.'
+      : useEdgeOnly
+        ? 'Edge Khmer voice was explicitly selected.'
       : 'Expressive Khmer voice was unavailable; standard Khmer neural voice was used.',
   };
 }
