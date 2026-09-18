@@ -1699,6 +1699,7 @@ Return ONLY a single valid JSON object with this exact structure:
           await initFirebaseAdmin().collection('video_jobs').doc(videoJobDocId(job.jobId)).set({
             userId: verifiedVideoUser.uid,
             jobId: job.jobId,
+            aspectRatio,
             status: 'PROCESSING',
             createdAt: new Date(),
           }, { merge: true });
@@ -1717,6 +1718,7 @@ Return ONLY a single valid JSON object with this exact structure:
         await initFirebaseAdmin().collection('video_jobs').doc(videoJobDocId(video.jobId)).set({
           userId: verifiedVideoUser.uid,
           jobId: video.jobId,
+          aspectRatio,
           status: 'PROCESSING',
           createdAt: new Date(),
         }, { merge: true });
@@ -1737,7 +1739,13 @@ Return ONLY a single valid JSON object with this exact structure:
         return res.status(403).json({ error: 'This video job belongs to another account.' });
       }
       if (savedJob?.mediaUrl) {
-        return res.status(200).json({ jobId, status: 'completed', videoUrl: savedJob.mediaUrl, usage: savedJob.usage || undefined });
+        return res.status(200).json({
+          jobId,
+          status: 'completed',
+          videoUrl: savedJob.mediaUrl,
+          usage: savedJob.usage || undefined,
+          outputAspectRatio: savedJob.aspectRatio || undefined,
+        });
       }
       if (!savedJob) {
         // A generation can finish even if the best-effort ownership write after
@@ -1754,10 +1762,10 @@ Return ONLY a single valid JSON object with this exact structure:
           folder: `video-results/${verifiedVideoUser.uid}`,
         });
         await jobRef.set({ status: 'DONE', mediaUrl: uploaded.mediaUrl, usage: video.usage || null, completedAt: new Date() }, { merge: true });
-        return res.status(200).json({ ...video, videoUrl: uploaded.mediaUrl });
+        return res.status(200).json({ ...video, videoUrl: uploaded.mediaUrl, outputAspectRatio: savedJob?.aspectRatio || undefined });
       }
       await jobRef.set({ status: video.status || 'PROCESSING', usage: video.usage || null, updatedAt: new Date() }, { merge: true });
-      return res.status(200).json(video);
+      return res.status(200).json({ ...video, outputAspectRatio: savedJob?.aspectRatio || undefined });
     }
 
     return res.status(400).json({ error: 'Unknown AI action.' });

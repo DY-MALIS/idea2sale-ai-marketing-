@@ -140,7 +140,10 @@ const removePendingVideoJob = (userId: string, fingerprint: string) => {
 };
 
 const latestPendingVideoJob = (userId: string) => readPendingVideoJobs()
-  .filter((job) => job.userId === userId)
+  // The generator is now landscape-only. Do not surface a legacy portrait job
+  // as the current resumable result: that was the path that let an old 9:16
+  // job replace a newly requested 16:9 generation on screen.
+  .filter((job) => job.userId === userId && job.aspectRatio === '16:9')
   .sort((left, right) => right.createdAt - left.createdAt)[0] || null;
 
 const uploadVideoDirectly = async (videoDataUrl: string, idToken: string): Promise<string> => {
@@ -537,6 +540,10 @@ const pollPendingVideoJob = async (pending: PendingVideoJob, idToken: string) =>
         removePendingVideoJob(pending.userId, pending.fingerprint);
       }
       throw new Error(statusData.error || 'Video generation failed.');
+    }
+    if (statusData.outputAspectRatio === '16:9' || statusData.outputAspectRatio === '9:16') {
+      pending.aspectRatio = statusData.outputAspectRatio;
+      savePendingVideoJob(pending);
     }
     if (statusData.videoUrl) {
       const playableVideoUrl = normalizeImageKitVideoUrl(statusData.videoUrl);
