@@ -36,6 +36,7 @@ import { downloadCsv } from '../lib/csvExport';
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { normalizeFacebookScanHistoryResult } from '../lib/facebookScanHistory';
+import { competitorActivityKey, summarizeCompetitorActivities } from '../lib/competitorActivity';
 
 interface FacebookScannerProps {
   onCreativeAutomation: (request: CreativeAutomationRequest) => void;
@@ -61,6 +62,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<FacebookScanResult | null>(null);
+  const [comparisonBaseline, setComparisonBaseline] = useState<FacebookScanResult | null>(null);
   const [copied, setCopied] = useState(false);
   const [copiedLead, setCopiedLead] = useState<number | null>(null);
   const [businessName, setBusinessName] = useState('');
@@ -256,6 +258,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
         counterStrategy: competitor.counterStrategy || '',
         publicActivitySignals: competitor.publicActivitySignals || [],
         recentActivities: competitor.recentActivities || [],
+        activityWindow: result?.activityWindow || null,
         customerSegments: competitor.customerSegments || [],
         recommendedService: competitor.counterStrategy || '',
         inboxMessage: '',
@@ -290,6 +293,13 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     recentActivityTitle: 'សកម្មភាពក្នុង ៧ ថ្ងៃចុងក្រោយ',
     recentActivityThroughToday: 'រហូតដល់ថ្ងៃនេះ',
     noRecentActivity: 'មិនមានសកម្មភាពសាធារណៈដែលបានផ្ទៀងផ្ទាត់ក្នុងរយៈពេល ៧ ថ្ងៃនេះទេ។',
+    weeklyCaptureTitle: 'ការចាប់យកសកម្មភាពគូប្រកួតប្រចាំសប្ដាហ៍',
+    weeklyCaptureBody: 'លទ្ធផលនេះត្រូវបានរក្សាទុកជា snapshot។ ស្កេនពាក្យដដែលម្ដងទៀតនៅសប្ដាហ៍ក្រោយ ដើម្បីឃើញសកម្មភាពថ្មីរបស់គូប្រកួត។',
+    capturedActivities: 'សកម្មភាពដែលបានចាប់យក',
+    newSincePrevious: 'សកម្មភាពថ្មីពីការចាប់យកមុន',
+    firstCapture: 'នេះជាការចាប់យកលើកដំបូង',
+    exportActivityReport: 'ទាញយករបាយការណ៍សកម្មភាព',
+    newActivity: 'ថ្មី',
     eyebrow: 'Facebook Audience Intelligence',
     title: 'ស្គេនអតិថិជន និងគូប្រជែង',
     subtitle: 'វិភាគតម្រូវការ ចំណង់ចំណូលចិត្ត គូប្រជែង និងបង្កើតកាលវិភាគវីដេអូដោយ AI។',
@@ -384,6 +394,13 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     recentActivityTitle: 'Activity in the last 7 days',
     recentActivityThroughToday: 'through today',
     noRecentActivity: 'No verified public activity was found in this 7-day period.',
+    weeklyCaptureTitle: 'Weekly competitor activity capture',
+    weeklyCaptureBody: 'This result is saved as a snapshot. Scan the same query again next week to see newly captured competitor activity.',
+    capturedActivities: 'Captured activities',
+    newSincePrevious: 'New since the previous capture',
+    firstCapture: 'This is the first capture',
+    exportActivityReport: 'Download activity report',
+    newActivity: 'New',
     eyebrow: 'Facebook Audience Intelligence',
     title: 'Customer & competitor scanner',
     subtitle: 'Understand demand, preferences and competitors, then turn the findings into an AI video calendar.',
@@ -485,6 +502,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
   const activeScanMode = scanModes.find((mode) => mode.id === scanMode) || scanModes[0];
   const competitorModeIds: ScanMode[] = ['competitor_activity', 'competitor_customers'];
   const resultIsCompetitorScan = competitorModeIds.includes(result?.scanMode || scanMode);
+  const resultIsActivityScan = (result?.scanMode || scanMode) === 'competitor_activity';
   // The user's selected scan category is authoritative for the whole result.
   // An AI-generated per-row opportunityType can occasionally be mislabeled;
   // using it here hid customer-only actions such as Chat via Bot from a real
@@ -495,7 +513,28 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
   const selectScanCategory = (category: 'customer' | 'competitor') => {
     setScanMode(category === 'competitor' ? 'competitor_activity' : 'customer');
     setResult(null);
+    setComparisonBaseline(null);
     setError('');
+  };
+
+  const scanHistory = useGenerationHistory(user, isDemoMode, 'facebook_scan');
+
+  const findPreviousCompetitorCapture = (
+    targetQuery: string,
+    targetCountry: string,
+    beforeCreatedAt = Number.POSITIVE_INFINITY,
+  ): FacebookScanResult | null => {
+    const normalizedQuery = targetQuery.trim().toLocaleLowerCase();
+    for (const entry of scanHistory) {
+      if (entry.createdAt >= beforeCreatedAt) continue;
+      const payload = (entry.payload || {}) as Record<string, unknown>;
+      if (String(payload.scanMode || '') !== 'competitor_activity') continue;
+      if (String(payload.country || '') !== targetCountry) continue;
+      if (String(payload.query || '').trim().toLocaleLowerCase() !== normalizedQuery) continue;
+      const restored = normalizeFacebookScanHistoryResult(payload.result as Partial<FacebookScanResult> | undefined);
+      if (restored) return restored;
+    }
+    return null;
   };
 
   const scan = async () => {
@@ -524,12 +563,20 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data?.error || 'Facebook research could not be completed.');
       setResult(data as FacebookScanResult);
+      setComparisonBaseline(scanMode === 'competitor_activity'
+        ? findPreviousCompetitorCapture(cleanQuery, country)
+        : null);
       setDeselectedLeads(new Set());
       const leadCount = Array.isArray(data.potentialLeads) ? data.potentialLeads.length : 0;
+      const activityCount = Array.isArray(data.competitors)
+        ? data.competitors.reduce((total: number, competitor: FacebookCompetitorInsight) => total + (competitor.recentActivities?.length || 0), 0)
+        : 0;
       void saveGenerationHistory({
         user, isDemoMode, type: 'facebook_scan',
         title: cleanQuery,
-        summary: isKm ? `Lead ចំនួន ${leadCount}` : `${leadCount} lead${leadCount === 1 ? '' : 's'} found`,
+        summary: scanMode === 'competitor_activity'
+          ? (isKm ? `ចាប់យកបាន ${activityCount} សកម្មភាពក្នុង ៧ ថ្ងៃ` : `${activityCount} competitor activit${activityCount === 1 ? 'y' : 'ies'} captured in 7 days`)
+          : (isKm ? `Lead ចំនួន ${leadCount}` : `${leadCount} lead${leadCount === 1 ? '' : 's'} found`),
         payload: { query: cleanQuery, country, days, scanMode, result: data },
       }).catch((historyError) => console.error('Failed to save scan history:', historyError));
     } catch (scanError: any) {
@@ -539,7 +586,6 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     }
   };
 
-  const scanHistory = useGenerationHistory(user, isDemoMode, 'facebook_scan');
   // Normalizes every field defensively instead of trusting the saved shape
   // as-is: an entry saved by an earlier version of this schema (before a field
   // like targetPersonas existed, for example) would otherwise pass `undefined`
@@ -557,7 +603,16 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
       }
       const raw = payload.result as Partial<FacebookScanResult> | undefined;
       const normalized = normalizeFacebookScanHistoryResult(raw);
-      if (normalized) setResult(normalized);
+      if (normalized) {
+        setResult(normalized);
+        setComparisonBaseline(normalized.scanMode === 'competitor_activity'
+          ? findPreviousCompetitorCapture(
+              typeof payload.query === 'string' ? payload.query : normalized.query,
+              typeof payload.country === 'string' ? payload.country : country,
+              entry.createdAt,
+            )
+          : null);
+      }
       setDeselectedLeads(new Set());
     } catch (err) {
       console.error('Failed to restore scan history entry:', err);
@@ -605,6 +660,31 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     { title: text.likes, icon: Heart, items: result.customerInsights.whatTheyLike, iconClass: 'bg-rose-100 text-rose-600 dark:bg-rose-950/50 dark:text-rose-300' },
     { title: text.content, icon: Video, items: result.customerInsights.contentDesires, iconClass: 'bg-violet-100 text-violet-600 dark:bg-violet-950/50 dark:text-violet-300' },
   ] : [];
+
+  const capturedActivitySummary = resultIsActivityScan
+    ? summarizeCompetitorActivities(result, comparisonBaseline)
+    : null;
+
+  const exportCompetitorActivities = () => {
+    if (!result || !capturedActivitySummary) return;
+    const headers = isKm
+      ? ['គូប្រកួត', 'កាលបរិច្ឆេទ', 'សកម្មភាព', 'ថ្មីពីការចាប់យកមុន', 'ប្រភព', 'ចាប់ពីថ្ងៃ', 'ដល់ថ្ងៃ']
+      : ['Competitor', 'Date', 'Activity', 'New since previous capture', 'Source URL', 'Window start', 'Window end'];
+    const rows = result.competitors.flatMap((competitor) => (
+      (competitor.recentActivities || []).map((activity) => [
+        competitor.pageName,
+        activity.date,
+        activity.activity,
+        capturedActivitySummary.newActivityKeys.has(competitorActivityKey(competitor.pageName, activity)) ? 'Yes' : 'No',
+        activity.sourceUrl,
+        result.activityWindow?.startDate || '',
+        result.activityWindow?.endDate || '',
+      ])
+    ));
+    if (!rows.length) return;
+    const safeQuery = result.query.trim().slice(0, 40).replace(/[^\p{L}\p{N}]+/gu, '-') || 'competitor-activity';
+    downloadCsv(`${safeQuery}-weekly-activity-${result.activityWindow?.endDate || new Date().toISOString().slice(0, 10)}.csv`, [headers, ...rows]);
+  };
 
   return (
     <div className="space-y-8 pb-12">
@@ -747,6 +827,44 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
             </section>
           )}
 
+          {resultIsCompetitorScan && capturedActivitySummary && (
+            <section className="glass rounded-3xl border border-indigo-200 p-6 dark:border-indigo-900">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <h3 className="flex items-center gap-2 text-xl font-black text-slate-800 dark:text-white">
+                    <Radar className="text-indigo-500" />{text.weeklyCaptureTitle}
+                  </h3>
+                  <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600 dark:text-slate-300">{text.weeklyCaptureBody}</p>
+                  <p className="mt-2 text-xs font-bold text-indigo-600 dark:text-indigo-300">
+                    {result.activityWindow?.startDate || ''}{result.activityWindow ? ' – ' : ''}{result.activityWindow?.endDate || text.recentActivityThroughToday}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={exportCompetitorActivities}
+                  disabled={!capturedActivitySummary.totalCount}
+                  className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-bold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <FileSpreadsheet size={16} />{text.exportActivityReport}
+                </button>
+              </div>
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl bg-indigo-50 p-4 dark:bg-indigo-950/40">
+                  <p className="text-xs font-black uppercase tracking-wider text-indigo-500">{text.capturedActivities}</p>
+                  <p className="mt-1 text-3xl font-black text-indigo-800 dark:text-indigo-200">{capturedActivitySummary.totalCount}</p>
+                </div>
+                <div className="rounded-2xl bg-emerald-50 p-4 dark:bg-emerald-950/40">
+                  <p className="text-xs font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-300">
+                    {capturedActivitySummary.hasPreviousCapture ? text.newSincePrevious : text.firstCapture}
+                  </p>
+                  <p className="mt-1 text-3xl font-black text-emerald-800 dark:text-emerald-200">
+                    {capturedActivitySummary.hasPreviousCapture ? capturedActivitySummary.newCount : capturedActivitySummary.totalCount}
+                  </p>
+                </div>
+              </div>
+            </section>
+          )}
+
           {resultIsCompetitorScan && <section>
             <h3 className="mb-4 flex items-center gap-2 text-xl font-black text-slate-800 dark:text-white"><BarChart3 className="text-indigo-500" />{text.competitors}</h3>
             {result.competitors.length ? (
@@ -775,6 +893,9 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                               {competitor.recentActivities.map((activity, activityIndex) => (
                                 <li key={`${activity.date}-${activity.sourceUrl}-${activityIndex}`} className="text-sm leading-6 text-slate-700 dark:text-slate-200">
                                   <span className="mr-2 rounded-md bg-indigo-100 px-2 py-1 text-xs font-bold text-indigo-700 dark:bg-indigo-900 dark:text-indigo-200">{activity.date}</span>
+                                  {capturedActivitySummary?.hasPreviousCapture && capturedActivitySummary.newActivityKeys.has(competitorActivityKey(competitor.pageName, activity)) && (
+                                    <span className="mr-2 rounded-md bg-emerald-100 px-2 py-1 text-xs font-black uppercase text-emerald-700 dark:bg-emerald-900 dark:text-emerald-200">{text.newActivity}</span>
+                                  )}
                                   {activity.activity}
                                   <a href={activity.sourceUrl} target="_blank" rel="noopener noreferrer" className="ml-2 inline-flex items-center gap-1 font-bold text-blue-600 hover:underline">
                                     <ExternalLink size={12} />{text.viewEvidence}
