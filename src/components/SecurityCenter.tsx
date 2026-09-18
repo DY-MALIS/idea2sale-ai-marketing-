@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ShieldCheck, LockKeyhole, FileWarning, DatabaseBackup, Activity, Users, Bot, AlertTriangle, ListChecks, ShieldAlert, Loader2, Download, UploadCloud } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
+import { ShieldCheck, LockKeyhole, FileWarning, DatabaseBackup, Activity, Users, Bot, AlertTriangle, ListChecks, ShieldAlert, Loader2, Download, UploadCloud, Mail, Copy, X } from 'lucide-react';
 import { collection, query, orderBy, limit, onSnapshot, DocumentData } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 import { useIsAdmin } from '../hooks/useIsAdmin';
@@ -90,8 +91,11 @@ const SecurityCenter: React.FC = () => {
             hosting multiple unrelated companies' confidential data under one deployment.
           </p>
         </div>
-        <div className="rounded-lg border border-amber-200 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-900/30 px-4 py-3 text-sm font-semibold text-amber-900 dark:text-amber-300">
-          {liveCount}/{controls.length} controls fully live — review "Partial" and "Not implemented" rows before handling sensitive data
+        <div className="flex flex-col items-start gap-3 lg:items-end">
+          <div className="rounded-lg border border-amber-200 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-900/30 px-4 py-3 text-sm font-semibold text-amber-900 dark:text-amber-300">
+            {liveCount}/{controls.length} controls fully live — review "Partial" and "Not implemented" rows before handling sensitive data
+          </div>
+          <UsedEmailsButton />
         </div>
       </header>
 
@@ -366,6 +370,126 @@ const AdminUserDataPanel: React.FC = () => {
         </div>
       )}
     </section>
+  );
+};
+
+// Quick-access entry point to "which emails have already signed up" without
+// digging through the full Admin User Data table below -- reuses the same
+// admin-users endpoint, just narrowed to the one field this button is for.
+const UsedEmailsButton: React.FC = () => {
+  const { isAdmin, checking } = useIsAdmin();
+  const [open, setOpen] = useState(false);
+  const [emails, setEmails] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  const loadEmails = async () => {
+    if (!auth.currentUser) return;
+    setLoading(true);
+    setError('');
+    try {
+      const idToken = await auth.currentUser.getIdToken();
+      const response = await fetch('/api/config/check?action=admin-users', {
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Could not load emails.');
+      const users: AdminUserSummary[] = Array.isArray(data.users) ? data.users : [];
+      setEmails(users.map((u) => u.email).filter((email): email is string => !!email));
+    } catch (loadError: any) {
+      setError(loadError?.message || 'Could not load emails.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleOpen = () => {
+    setOpen(true);
+    setCopied(false);
+    void loadEmails();
+  };
+
+  const copyAllEmails = async () => {
+    try {
+      await navigator.clipboard.writeText(emails.join('\n'));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard access can be blocked by the browser -- the list is still
+      // visible on screen, so this is a convenience, not the only way out.
+    }
+  };
+
+  if (checking || !isAdmin) return null;
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={handleOpen}
+        className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-brand-700"
+      >
+        <Mail className="h-4 w-4" /> View Registered Emails / មើល Email អ្នកប្រើប្រាស់
+      </button>
+      <AnimatePresence>
+        {open && (
+          <div className="fixed inset-0 z-[150] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setOpen(false)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 16 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 16 }}
+              className="relative flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-3xl bg-white shadow-2xl dark:bg-slate-800"
+            >
+              <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-6 py-4 dark:border-slate-700">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-950 dark:text-slate-100">Registered Emails / Email អ្នកប្រើប្រាស់</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">{loading ? 'Loading…' : `${emails.length} email${emails.length === 1 ? '' : 's'}`}</p>
+                </div>
+                <button type="button" onClick={() => setOpen(false)} aria-label="Close" className="rounded-xl p-2 hover:bg-slate-100 dark:hover:bg-slate-700">
+                  <X className="h-5 w-5 text-slate-400" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto px-6 py-4">
+                {loading ? (
+                  <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-brand-400" /></div>
+                ) : error ? (
+                  <p className="text-sm text-red-600">{error}</p>
+                ) : emails.length === 0 ? (
+                  <p className="text-sm text-slate-500 dark:text-slate-400">No registered emails found.</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {emails.map((email, index) => (
+                      <li key={`${email}-${index}`} className="truncate rounded-xl bg-slate-50 px-4 py-2.5 text-sm text-slate-800 dark:bg-slate-900/40 dark:text-slate-200">
+                        {email}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              {!loading && !error && emails.length > 0 && (
+                <div className="border-t border-slate-100 px-6 py-4 dark:border-slate-700">
+                  <button
+                    type="button"
+                    onClick={copyAllEmails}
+                    className="inline-flex items-center gap-2 rounded-lg border border-brand-300 px-4 py-2.5 text-sm font-bold text-brand-700 dark:border-slate-600 dark:text-brand-400"
+                  >
+                    <Copy className="h-4 w-4" /> {copied ? 'Copied!' : 'Copy all emails'}
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </>
   );
 };
 
