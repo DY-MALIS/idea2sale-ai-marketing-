@@ -993,7 +993,14 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       const segments = getVideoSegments(
         VIDEO_LENGTH_OPTIONS.includes(durationOverride as typeof VIDEO_LENGTH_OPTIONS[number]) ? (durationOverride as number) : videoDuration,
       );
-      const spokenSegments = nativeKhmerSpeech && voiceOverContent ? splitKhmerScript(voiceOverContent, segments) : null;
+      // Every currently supported user action is one clip (4/6/8 seconds).
+      // Preserve the exact Khmer script and let the server measure its real TTS
+      // duration; a code-point budget falsely rejects short-looking Khmer text
+      // because vowel/diacritic signs each increase String.length. Keep the
+      // splitter only for a future multi-clip workflow.
+      const spokenSegments = nativeKhmerSpeech && voiceOverContent
+        ? (segments.length === 1 ? [voiceOverContent] : splitKhmerScript(voiceOverContent, segments))
+        : null;
       const clipUrls: string[] = [];
       let referenceImages = videoImages;
       for (let i = 0; i < segments.length; i += 1) {

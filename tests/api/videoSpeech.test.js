@@ -91,6 +91,12 @@ describe('native Khmer video speech', () => {
     expect(prepared.prompt.length + prepared.motionPrompt.length).toBeLessThan(1100);
     expect(mocks.narration).not.toHaveBeenCalled();
   });
+  it('does not reject a visually short Khmer script from combining-mark character counts', async () => {
+    const script = 'បង្កើនប្រសិទ្ធភាពការងាររបស់អ្នកឲ្យលឿនជាមួយ AI និង DGACADEMY ថ្ងៃនេះ។';
+    expect(script.length).toBeGreaterThan(4 * 12);
+    const prepared = await preparePlanVideoSpeech({ prompt: 'Office', voiceOverText: script, duration: 4 });
+    expect(prepared.script).toBe(script);
+  });
   it('fills legacy plans with missing dialogue but respects silent requests', async () => {
     mocks.narration.mockResolvedValue('សួស្តី');
     expect((await preparePlanVideoSpeech({prompt:'Office', duration: 4})).script).toBe('សួស្តី');

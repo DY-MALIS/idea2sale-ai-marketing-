@@ -1,6 +1,6 @@
 import { createKhmerNarration } from './_khmerNarration.js';
 import { normalizeForKhmerSpeech, transcribeAudioWithOpenRouter } from './_openrouter.js';
-import { compareKhmerTranscript, extractVideoDialogue, nativeSpeechPrompt, splitKhmerScript, visualOnlyVideoPrompt, wantsSilentVideo } from '../shared/videoSpeech.js';
+import { compareKhmerTranscript, extractVideoDialogue, nativeSpeechPrompt, visualOnlyVideoPrompt, wantsSilentVideo } from '../shared/videoSpeech.js';
 import { applyImageKitAudioExtractionTransform, isImageKitMediaUrl } from './_imagekitUpload.js';
 
 const wait = (milliseconds) => new Promise(resolve => setTimeout(resolve, milliseconds));
@@ -33,7 +33,11 @@ export async function preparePlanVideoSpeech(item) {
     item.voiceOverText || embedded || await createKhmerNarration(prompt, duration, item.businessName),
   ));
   if (!/[\u1780-\u17ff]/u.test(script)) throw new Error('Khmer dialogue is required for this plan video.');
-  splitKhmerScript(script, [duration]);
+  // Do not reject a single short clip from Khmer code-point counts. Khmer
+  // vowels and combining signs make visually short text look artificially long
+  // to String.length, while startKhmerVideoJob measures the real synthesized
+  // waveform and can safely expand a 4/6-second request up to the 8-second cost
+  // ceiling. The measured audio duration is the authoritative fit check.
   const performanceStyle = String(item.performanceStyle || 'Warm and trustworthy. Speak in a natural Cambodian conversational voice at an everyday social-video pace. Fully pronounce every Khmer consonant, vowel, syllable and word ending; keep neighboring words distinct. Use at most one brief clause-boundary pause, vary pitch naturally, and finish cleanly without an announcer tone or theatrical exaggeration.');
   const visual = visualOnlyVideoPrompt(prompt);
   const presenter = item.voiceGender === 'Male' ? 'young adult Cambodian man, age 18 to 25' : 'young adult Cambodian woman, age 18 to 25';
