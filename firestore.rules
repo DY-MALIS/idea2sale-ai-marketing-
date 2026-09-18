@@ -193,14 +193,24 @@ service cloud.firestore {
         && incoming().inboxMessage is string
         && incoming().inboxMessage.size() <= 1500;
 
-      // Only the "contacted" outreach-status flag can be toggled after
-      // creation -- every other field is set once at save time and never
-      // edited, so this stays narrow rather than opening up a general update.
+      // Keep updates narrow: customer outreach status may be toggled, and the
+      // organizer may explicitly move a saved record between the customer and
+      // competitor tabs. No researched/contact fields can be rewritten.
       allow update: if isSignedIn()
         && existing().ownerId == request.auth.uid
         && incoming().ownerId == request.auth.uid
-        && incoming().diff(existing()).affectedKeys().hasOnly(['contacted', 'contactedAt'])
-        && incoming().contacted is bool;
+        && (
+          (
+            incoming().diff(existing()).affectedKeys().hasOnly(['contacted', 'contactedAt'])
+            && incoming().contacted is bool
+          )
+          ||
+          (
+            incoming().diff(existing()).affectedKeys().hasOnly(['recordType', 'opportunityType', 'updatedAt'])
+            && incoming().recordType in ['customer', 'competitor']
+            && incoming().opportunityType in ['customer', 'competitor_activity']
+          )
+        );
 
       allow delete: if isAdmin() || (isSignedIn() && existing().ownerId == request.auth.uid);
     }

@@ -21,7 +21,7 @@ interface SavedLead {
   facebookPageUrl?: string;
   linkedinUrl?: string;
   leadLevel?: string;
-  opportunityType?: 'customer' | 'ai_interest' | 'high_value' | 'construction' | 'competitor_activity' | 'competitor_customers' | 'hiring' | 'workers';
+  opportunityType?: 'customer' | 'ai_interest' | 'market_trends' | 'high_value' | 'construction' | 'competitor_activity' | 'competitor_customers' | 'hiring' | 'workers';
   entityKind?: 'company' | 'contractor_team' | 'service_provider' | 'freelancer' | 'job_seeker';
   serviceOrJobType?: string;
   jobTypes?: string[];

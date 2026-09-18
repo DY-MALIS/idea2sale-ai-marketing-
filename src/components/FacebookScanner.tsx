@@ -24,6 +24,7 @@ import {
   ShoppingBag,
   Sparkles,
   Target,
+  TrendingUp,
   Users,
   Video,
 } from 'lucide-react';
@@ -293,6 +294,10 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     recentActivityTitle: 'សកម្មភាពក្នុង ៧ ថ្ងៃចុងក្រោយ',
     recentActivityThroughToday: 'រហូតដល់ថ្ងៃនេះ',
     noRecentActivity: 'មិនមានសកម្មភាពសាធារណៈដែលបានផ្ទៀងផ្ទាត់ក្នុងរយៈពេល ៧ ថ្ងៃនេះទេ។',
+    marketTrendsTitle: 'រលកទីផ្សារ និង Content ក្នុង ៧ ថ្ងៃចុងក្រោយ',
+    noMarketTrends: 'មិនមាន trend ដែលមានកាលបរិច្ឆេទ និងប្រភពអាចផ្ទៀងផ្ទាត់បានក្នុងរយៈពេលនេះទេ។',
+    trendEvidence: 'ភស្តុតាងសាធារណៈ',
+    trendOpportunity: 'ឱកាសសម្រាប់អាជីវកម្ម និងវីដេអូ',
     weeklyCaptureTitle: 'ការចាប់យកសកម្មភាពគូប្រកួតប្រចាំសប្ដាហ៍',
     weeklyCaptureBody: 'លទ្ធផលនេះត្រូវបានរក្សាទុកជា snapshot។ ស្កេនពាក្យដដែលម្ដងទៀតនៅសប្ដាហ៍ក្រោយ ដើម្បីឃើញសកម្មភាពថ្មីរបស់គូប្រកួត។',
     capturedActivities: 'សកម្មភាពដែលបានចាប់យក',
@@ -376,6 +381,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     modeOptions: [
       { id: 'customer', label: 'ស្វែងរកអតិថិជន', description: 'រកតាមឈ្មោះ ប្រភេទអតិថិជន ក្រុមហ៊ុន វិស័យ ទីតាំង ឬតម្រូវការ', suggestions: ['អាជីវកម្មត្រូវការ Content', 'ភោជនីយដ្ឋានភ្នំពេញ', 'គ្លីនិកកម្ពុជា', 'ក្រុមហ៊ុនសំណង់សៀមរាប', 'ឈ្មោះក្រុមហ៊ុនជាក់លាក់'] },
       { id: 'ai_interest', label: 'អ្នកចាប់អារម្មណ៍ AI', description: 'រកអាជីវកម្មដែលមានភាពសមស្របនឹង AI និង automation', suggestions: ['អាជីវកម្មចាប់អារម្មណ៍ AI', 'ក្រុមហ៊ុន digital transformation', 'សាលាបណ្តុះបណ្តាល AI'] },
+      { id: 'market_trends', label: 'ស្វែងរករលកទីផ្សារ', description: 'រក trend តម្រូវការ និង Content ដែលកំពុងកើនឡើងក្នុង ៧ ថ្ងៃ ដោយមានប្រភព', suggestions: ['trend AI កម្ពុជា', 'trend អាហារ និងភេសជ្ជៈ', 'trend skincare Cambodia', 'Content កំពុងពេញនិយម'] },
       { id: 'high_value', label: 'អ្នកមានសក្តានុពលចំណាយ', description: 'វាយតម្លៃពី premium positioning និងសកម្មភាពផ្សាយពាណិជ្ជកម្មសាធារណៈ', suggestions: ['អចលនទ្រព្យ premium', 'គ្លីនិកសម្ផស្ស', 'សណ្ឋាគារ និង resort'] },
       { id: 'construction', label: 'ម៉ៅការសំណង់', description: 'រកម៉ៅការ developer និងអ្នកផ្គត់ផ្គង់សំណង់', suggestions: ['ម៉ៅការសំណង់កម្ពុជា', 'Property developer Phnom Penh', 'អ្នកផ្គត់ផ្គង់សម្ភារៈសំណង់'] },
       { id: 'workers', label: 'ស្វែងរកជាង និងអ្នករកការងារ', description: 'រកអ្នកផ្តល់សេវា ក្រុមជាង freelancer និងអ្នកប្រកាសរកការងារតាមជំនាញ', suggestions: ['ជាងសង់ផ្ទះភ្នំពេញ', 'ជាងលាបថ្នាំកម្ពុជា', 'ជាងភ្លើងកំពុងរកការងារ', 'ជាងទឹកសៀមរាប', 'ក្រុមម៉ៅការសំណង់'] },
@@ -394,6 +400,10 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     recentActivityTitle: 'Activity in the last 7 days',
     recentActivityThroughToday: 'through today',
     noRecentActivity: 'No verified public activity was found in this 7-day period.',
+    marketTrendsTitle: 'Market and content waves in the last 7 days',
+    noMarketTrends: 'No dated, source-verifiable trend was found in this period.',
+    trendEvidence: 'Public evidence',
+    trendOpportunity: 'Business and video opportunity',
     weeklyCaptureTitle: 'Weekly competitor activity capture',
     weeklyCaptureBody: 'This result is saved as a snapshot. Scan the same query again next week to see newly captured competitor activity.',
     capturedActivities: 'Captured activities',
@@ -477,6 +487,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     modeOptions: [
       { id: 'customer', label: 'Find customers', description: 'Search by name, customer type, company, industry, location, or need', suggestions: ['businesses needing content', 'Phnom Penh restaurants', 'Cambodia clinics', 'Siem Reap construction companies', 'specific company name'] },
       { id: 'ai_interest', label: 'AI-interested prospects', description: 'Find businesses that fit AI and automation services', suggestions: ['businesses interested in AI', 'digital transformation companies', 'AI training businesses'] },
+      { id: 'market_trends', label: 'Find market waves', description: 'Find sourced trends in demand and content rising during the last 7 days', suggestions: ['Cambodia AI trends', 'food and beverage trends', 'skincare trends Cambodia', 'trending content formats'] },
       { id: 'high_value', label: 'High-value prospects', description: 'Estimate potential from premium positioning and public ad activity', suggestions: ['premium real estate', 'aesthetic clinics', 'hotels and resorts'] },
       { id: 'construction', label: 'Construction contractors', description: 'Find contractors, developers and construction suppliers', suggestions: ['Cambodia construction contractors', 'Phnom Penh property developers', 'construction material suppliers'] },
       { id: 'workers', label: 'Find workers & job seekers', description: 'Find public service providers, trade teams, freelancers, and people publicly seeking work by skill', suggestions: ['house builders Phnom Penh', 'painters Cambodia', 'electricians seeking work', 'plumbers Siem Reap', 'construction contractor teams'] },
@@ -503,6 +514,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
   const competitorModeIds: ScanMode[] = ['competitor_activity', 'competitor_customers'];
   const resultIsCompetitorScan = competitorModeIds.includes(result?.scanMode || scanMode);
   const resultIsActivityScan = (result?.scanMode || scanMode) === 'competitor_activity';
+  const resultIsTrendScan = (result?.scanMode || scanMode) === 'market_trends';
   // The user's selected scan category is authoritative for the whole result.
   // An AI-generated per-row opportunityType can occasionally be mislabeled;
   // using it here hid customer-only actions such as Chat via Bot from a real
@@ -629,7 +641,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
       kind: 'video',
       prompt: `${item.prompt}\n\nPerformance direction: ${item.performanceStyle}\nHook: ${item.hook}`,
       platform: 'Facebook',
-      aspectRatio: '9:16',
+      aspectRatio: '16:9',
       language: 'km',
       voiceOverText: item.voiceOverText,
       duration: 8,
@@ -811,6 +823,42 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
               </article>
             ))}
           </div>}
+
+          {resultIsTrendScan && (
+            <section>
+              <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
+                <h3 className="flex items-center gap-2 text-xl font-black text-slate-800 dark:text-white">
+                  <TrendingUp className="text-fuchsia-500" />{text.marketTrendsTitle}
+                </h3>
+                <span className="text-xs font-bold text-fuchsia-600 dark:text-fuchsia-300">
+                  {result.activityWindow?.startDate || ''}{result.activityWindow ? ' – ' : ''}{result.activityWindow?.endDate || ''}
+                </span>
+              </div>
+              {result.marketTrends?.length ? (
+                <div className="grid gap-4 lg:grid-cols-2">
+                  {result.marketTrends.map((trend, index) => (
+                    <article key={`${trend.sourceUrl}-${index}`} className="glass rounded-3xl border border-fuchsia-100 p-5 dark:border-fuchsia-950">
+                      <div className="flex items-start justify-between gap-3">
+                        <h4 className="font-black text-slate-800 dark:text-white">{trend.topic}</h4>
+                        <span className="shrink-0 rounded-full bg-fuchsia-100 px-3 py-1 text-xs font-bold text-fuchsia-700 dark:bg-fuchsia-950 dark:text-fuchsia-300">{trend.date}</span>
+                      </div>
+                      <p className="mt-4 text-xs font-black uppercase tracking-wider text-slate-400">{text.trendEvidence}</p>
+                      <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-slate-300">{trend.evidence}</p>
+                      <div className="mt-4 rounded-2xl bg-emerald-50 p-4 dark:bg-emerald-950/30">
+                        <p className="text-xs font-black uppercase tracking-wider text-emerald-700 dark:text-emerald-300">{text.trendOpportunity}</p>
+                        <p className="mt-1 text-sm leading-6 text-emerald-900 dark:text-emerald-100">{trend.opportunity}</p>
+                      </div>
+                      <a href={trend.sourceUrl} target="_blank" rel="noopener noreferrer" className="mt-4 inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:underline">
+                        <ExternalLink size={13} />{text.viewEvidence}
+                      </a>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-3xl border border-dashed border-fuchsia-200 bg-fuchsia-50/60 p-6 text-sm text-fuchsia-800 dark:border-fuchsia-900 dark:bg-fuchsia-950/20 dark:text-fuchsia-200">{text.noMarketTrends}</div>
+              )}
+            </section>
+          )}
 
           {!resultIsCompetitorScan && !!result.customerInsights.targetPersonas.length && (
             <section>

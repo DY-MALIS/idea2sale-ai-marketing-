@@ -23,6 +23,7 @@ export const normalizeFacebookScanHistoryResult = (
       targetPersonas: Array.isArray(insights.targetPersonas) ? insights.targetPersonas : [],
     },
     competitors: Array.isArray(raw.competitors) ? raw.competitors : [],
+    marketTrends: Array.isArray(raw.marketTrends) ? raw.marketTrends : [],
     potentialLeads: Array.isArray(raw.potentialLeads) ? raw.potentialLeads : [],
     videoPlan: Array.isArray(raw.videoPlan) ? raw.videoPlan : [],
     summaryReport: typeof raw.summaryReport === 'string' ? raw.summaryReport : '',

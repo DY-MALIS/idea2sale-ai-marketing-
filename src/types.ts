@@ -53,6 +53,14 @@ export interface FacebookRecentActivity {
   sourceUrl: string;
 }
 
+export interface FacebookMarketTrend {
+  topic: string;
+  date: string;
+  evidence: string;
+  opportunity: string;
+  sourceUrl: string;
+}
+
 export interface FacebookCompetitorInsight {
   pageName: string;
   matchReason?: string;
@@ -89,7 +97,7 @@ export interface FacebookPotentialLead {
   recommendedService: string;
   inboxMessage: string;
   evidenceSourceUrl?: string;
-  opportunityType?: 'customer' | 'ai_interest' | 'high_value' | 'construction' | 'competitor_activity' | 'competitor_customers' | 'hiring' | 'workers';
+  opportunityType?: 'customer' | 'ai_interest' | 'market_trends' | 'high_value' | 'construction' | 'competitor_activity' | 'competitor_customers' | 'hiring' | 'workers';
   fitScore?: number;
   interestSignals?: string[];
   spendingSignals?: string[];
@@ -124,6 +132,7 @@ export interface FacebookScanResult {
   activityWindow?: { startDate: string; endDate: string };
   customerInsights: FacebookCustomerInsights;
   competitors: FacebookCompetitorInsight[];
+  marketTrends?: FacebookMarketTrend[];
   potentialLeads: FacebookPotentialLead[];
   videoPlan: FacebookVideoPlanItem[];
   summaryReport: string;

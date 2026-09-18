@@ -59,6 +59,7 @@ describe('resolveFacebookScanMode', () => {
     const expectedModes = [
       'customer',
       'ai_interest',
+      'market_trends',
       'high_value',
       'construction',
       'workers',

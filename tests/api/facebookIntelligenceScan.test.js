@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   text: vi.fn(),
   searchBusinesses: vi.fn(),
   researchCompetitors: vi.fn(),
+  researchMarketTrends: vi.fn(),
   checkRateLimit: vi.fn(),
 }));
 
@@ -33,6 +34,7 @@ vi.mock('../../api/_rateLimit.js', () => ({
 vi.mock('../../api/_alert.js', () => ({ notifyAdmins: vi.fn() }));
 vi.mock('../../api/_webBusinessSearch.js', () => ({ searchBusinessesOnWeb: mocks.searchBusinesses }));
 vi.mock('../../api/_competitorResearch.js', () => ({ researchCompetitors: mocks.researchCompetitors }));
+vi.mock('../../api/_marketTrendResearch.js', () => ({ researchMarketTrends: mocks.researchMarketTrends }));
 vi.mock('../../api/_imagekitUpload.js', () => ({ uploadMediaDataUrl: vi.fn() }));
 vi.mock('../../api/_email.js', () => ({ sendOutreachEmail: vi.fn() }));
 
@@ -59,6 +61,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   mocks.checkRateLimit.mockResolvedValue({ allowed: true });
   mocks.researchCompetitors.mockResolvedValue({ competitors: [], entitySummary: '' });
+  mocks.researchMarketTrends.mockResolvedValue([]);
   mocks.searchBusinesses.mockResolvedValue([{
     businessName: 'Sokha Painting Service',
     entityKind: 'service_provider',
@@ -176,6 +179,52 @@ it('returns dated competitor activity and its exact 7-day window', async () => {
         activity: 'Published a seven-day promotional campaign.',
         sourceUrl: 'https://rival.example.com/promotion',
       }],
+    }],
+  });
+});
+
+it('returns source-verified market waves for the exact 7-day window', async () => {
+  mocks.researchMarketTrends.mockImplementation(async ({ endDate }) => [{
+    topic: 'Short product demonstrations',
+    date: endDate,
+    evidence: 'Multiple public campaigns used concise product demonstrations.',
+    opportunity: 'Create an eight-second proof-first demonstration video.',
+    sourceUrl: 'https://trends.example.com/product-demos',
+  }]);
+
+  const req = {
+    method: 'POST',
+    headers: {},
+    socket: { remoteAddress: '127.0.0.1' },
+    body: {
+      action: 'facebookIntelligenceScan',
+      query: 'Cambodia skincare',
+      scanMode: 'market_trends',
+      countries: ['KH'],
+      days: 7,
+      language: 'en',
+    },
+  };
+  const res = responseRecorder();
+
+  await handler(req, res);
+
+  expect(res.statusCode).toBe(200);
+  expect(mocks.researchMarketTrends).toHaveBeenCalledWith(expect.objectContaining({
+    query: 'Cambodia skincare',
+    country: 'Cambodia',
+    startDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    endDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+  }));
+  expect(res.body).toMatchObject({
+    scanMode: 'market_trends',
+    activityWindow: {
+      startDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      endDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    },
+    marketTrends: [{
+      topic: 'Short product demonstrations',
+      sourceUrl: 'https://trends.example.com/product-demos',
     }],
   });
 });

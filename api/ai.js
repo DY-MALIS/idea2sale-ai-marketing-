@@ -20,6 +20,7 @@ import { checkRateLimit, getClientIp } from './_rateLimit.js';
 import { notifyAdmins } from './_alert.js';
 import { searchBusinessesOnWeb } from './_webBusinessSearch.js';
 import { researchCompetitors } from './_competitorResearch.js';
+import { researchMarketTrends } from './_marketTrendResearch.js';
 import { uploadMediaDataUrl } from './_imagekitUpload.js';
 import { sendOutreachEmail } from './_email.js';
 import { createHash } from 'crypto';
@@ -77,6 +78,7 @@ const videoJobDocId = (jobId) => createHash('sha256').update(String(jobId)).dige
 export const FACEBOOK_SCAN_MODES = Object.freeze([
   'customer',
   'ai_interest',
+  'market_trends',
   'high_value',
   'construction',
   'workers',
@@ -359,7 +361,7 @@ const parseContentPlanItems = (text, businessName = '') => jsonFromText(text, []
       cta: String(item.cta || '').slice(0, 30),
     } : {
       voiceGender: item.voiceGender === 'Male' ? 'Male' : 'Female',
-      aspectRatio: '9:16',
+      aspectRatio: '16:9',
       voiceOverText: (() => {
         const line = String(item.voiceOverText || '').trim();
         return businessName && !line.toLocaleLowerCase().includes(businessName.toLocaleLowerCase())
@@ -1009,6 +1011,10 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
           searchHint: 'businesses AI automation digital transformation',
           instruction: 'Prioritize public signals of AI, automation, digital transformation, data, software, or content-technology interest. Never claim a private preference.',
         },
+        market_trends: {
+          searchHint: 'rising market trends customer interests viral content demand this week',
+          instruction: 'Find verified public market and content trends from the last 7 days. Prioritize repeated customer interests, rising demand, campaign formats, and concrete video opportunities. Never claim a trend without dated public evidence.',
+        },
         high_value: {
           searchHint: 'premium high value businesses active advertising',
           instruction: 'Estimate commercial fit only from public premium positioning, visible advertising, multiple locations, high-ticket offerings, or professional web presence. Never claim to know revenue, wealth, budget, or private financial data.',
@@ -1069,7 +1075,7 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
       // be another thing to keep in sync); it's derived the same way target/
       // competitor research is, from a live, citation-backed web search on the
       // business's own name.
-      const [webSearchSettled, xContextSettled, competitorResearchSettled, ownBusinessResearchSettled] = await Promise.allSettled([
+      const [webSearchSettled, xContextSettled, competitorResearchSettled, ownBusinessResearchSettled, marketTrendResearchSettled] = await Promise.allSettled([
         !isCompetitorScan ? searchBusinessesOnWeb({
           searchTerms,
           searchObjective: `${scanModeConfig.searchHint}. ${scanModeConfig.instruction}`,
@@ -1089,6 +1095,14 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
         isCompetitorScan && userBusinessName
           ? researchCompetitors({ query: userBusinessName, country: searchCountry, exhaustive: false })
           : Promise.resolve(null),
+        scanMode === 'market_trends'
+          ? researchMarketTrends({
+              query,
+              country: searchCountry,
+              startDate: activityWindow.startDate,
+              endDate: activityWindow.endDate,
+            })
+          : Promise.resolve([]),
       ]);
 
       let rawWebBusinesses = [];
@@ -1132,6 +1146,13 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
         console.warn('Own-business self-lookup failed or skipped:', ownBusinessResearchSettled.reason?.message);
       }
 
+      let verifiedMarketTrends = [];
+      if (marketTrendResearchSettled.status === 'fulfilled') {
+        verifiedMarketTrends = marketTrendResearchSettled.value;
+      } else {
+        console.warn('Market trend research failed or skipped:', marketTrendResearchSettled.reason?.message);
+      }
+
       const webBusinessSummary = rawWebBusinesses.length
         ? rawWebBusinesses.map((biz, idx) => {
             const activitySummary = (biz.recentActivities || []).map((activity) => `${activity.date}: ${activity.jobTitle ? `[Job: ${activity.jobTitle}] ` : ''}${activity.activity} (${activity.sourceUrl})`).join(' ; ') || 'none required for this scan mode';
@@ -1165,6 +1186,11 @@ ${xContext ? `Live social signals: ${xContext.slice(0, 800)}` : ''}
 Verified Competitor Research (each competitor is backed by a real, independently-checked source URL -- see section 2 below for how to use this):
 ${targetEntitySummary ? `What "${query}" actually is, per live search: ${targetEntitySummary}` : ''}
 ${competitorResearchSummary}
+
+Verified 7-day Market Trends (use these exact dated, source-linked trends for trend analysis and the video plan; never invent another trend):
+${verifiedMarketTrends.length
+  ? verifiedMarketTrends.map((trend, index) => `[Trend ${index + 1}] ${trend.date} | ${trend.topic} | Evidence: ${trend.evidence} | Opportunity: ${trend.opportunity} | Source: ${trend.sourceUrl}`).join('\n')
+  : 'No verified dated market trend was found in this 7-day window.'}
 
 CRITICAL TASK:
 Deeply scan and analyze Facebook customer behavior, pain points, competitor strategies, and produce a complete day-by-day Video Production Schedule.
@@ -1328,7 +1354,7 @@ Return ONLY a single valid JSON object with this exact structure:
           targetDesire: String(item?.targetDesire || '').slice(0, 250),
           prompt: String(item?.prompt || '').slice(0, 2000),
           voiceGender: item?.voiceGender === 'Male' ? 'Male' : 'Female',
-          aspectRatio: '9:16',
+          aspectRatio: '16:9',
           voiceOverText: brandedVoiceOver.slice(0, 500),
           performanceStyle: String(item?.performanceStyle || '').trim().slice(0, 1000),
           suggestedPostTime: String(item?.suggestedPostTime || '11:30 AM').slice(0, 30),
@@ -1430,7 +1456,7 @@ Return ONLY a single valid JSON object with this exact structure:
         success: true,
         query,
         scanMode,
-        activityWindow: isCompetitorScan ? activityWindow : undefined,
+        activityWindow: isCompetitorScan || scanMode === 'market_trends' ? activityWindow : undefined,
         webBusinessesFound: rawWebBusinesses.length,
         webSearchAvailable,
         customerInsights: {
@@ -1440,6 +1466,7 @@ Return ONLY a single valid JSON object with this exact structure:
           targetPersonas: !isCompetitorScan && Array.isArray(parsed?.customerInsights?.targetPersonas) ? parsed.customerInsights.targetPersonas : [],
         },
         competitors,
+        marketTrends: scanMode === 'market_trends' ? verifiedMarketTrends : [],
         potentialLeads,
         videoPlan: normalizedPlan,
         summaryReport: String(parsed?.summaryReport || ''),
