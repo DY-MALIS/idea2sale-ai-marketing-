@@ -25,7 +25,11 @@ it('uses the same measured audio and supplied portrait for manual video lip sync
   });
   expect(mocks.video).toHaveBeenCalledWith(expect.objectContaining({ model: 'bytedance/seedance-2.0-mini', khmerSpeech: true, duration: 4, aspectRatio: '9:16', referenceUrls: ['https://ik.imagekit.io/test/image.png'], audioReferenceUrls: ['https://audio'], prompt: expect.stringContaining('3.40 seconds') }));
   expect(mocks.video.mock.calls[0][0].prompt).toContain('AUDIO MASTER CLOCK');
-  expect(mocks.video.mock.calls[0][0].prompt).toContain('Speech, lips, jaw and cheeks remain synchronized frame by frame at natural 1x');
+  expect(mocks.video.mock.calls[0][0].prompt).toContain('KHMER PHONEME TRANSCRIPT');
+  expect(mocks.video.mock.calls[0][0].prompt).toContain('"សួស្តី"');
+  expect(mocks.video.mock.calls[0][0].prompt).toContain('Never infer, invent, speak, or visibly articulate any English word');
+  expect(mocks.video.mock.calls[0][0].prompt).toContain('Do not use generic talking-mouth animation');
+  expect(mocks.video.mock.calls[0][0].prompt).toContain('Speech, lips, jaw, tongue and cheeks remain synchronized frame by frame at natural 1x');
   expect(mocks.video.mock.calls[0][0].prompt).toContain('fast-natural 1.1x energy');
   expect(mocks.video.mock.calls[0][0].prompt).toContain('Complete each gesture in 0.35 to 0.55 seconds');
   expect(mocks.video.mock.calls[0][0].prompt).toContain('synchronized frame by frame');

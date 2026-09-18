@@ -29,8 +29,9 @@ describe('native Khmer video speech', () => {
     expect(nativeSpeechPrompt('says in Khmer: "សួស្តី។"', '')).not.toContain('សួស្តី');
   });
   it('removes stale English speech and hook directions from an audio-driven visual brief', () => {
-    const visual = visualOnlyVideoPrompt('A Cambodian presenter in an office. She speaks in English about competitors.\nHook: Want to know your competitor?\nSlow camera push-in with cinematic slow motion. Warm camera light.');
+    const visual = visualOnlyVideoPrompt('A Cambodian presenter in an office. She speaks in English about competitors. The presenter explains why customers should buy now.\nHook: Want to know your competitor?\nSlow camera push-in with cinematic slow motion. Warm camera light.');
     expect(visual).not.toMatch(/English|Want to know|Hook:/i);
+    expect(visual).not.toMatch(/customers should buy|explains/i);
     expect(visual).not.toMatch(/slow[- ]motion|slow camera/i);
     expect(visual).toContain('stable camera');
     expect(visual).toContain('real-time motion');

@@ -22,6 +22,12 @@ export function visualOnlyVideoPrompt(prompt = '') {
   return extractVideoDialogue(String(prompt))
     .visual
     .replace(/^\s*(?:hook|dialogue|spoken (?:line|words)|voice[- ]?over|narration|audio direction)\s*:\s*.*$/gimu, '')
+    // An audio-reference video must not contain a second, text-inferred speech
+    // source. Remove ordinary English speaking clauses too (not only the legacy
+    // "speaks in English" form below), otherwise the video model can animate
+    // the mouth from those English semantics while the browser later muxes the
+    // authoritative Khmer narration track.
+    .replace(/\b(?:speaks?|says?|talks?|narrates?|explains?|discusses?|announces?|mentions?|asks?|tells?)\b[^.\n]*[.\n]?/giu, 'faces the camera. ')
     .replace(/\b(?:speaks?|says?|talks?|narrates?)\s+(?:in\s+)?(?:English|Khmer|Cambodian Khmer)\b[^.\n]*[.\n]?/giu, 'faces the camera. ')
     .replace(/\b(?:English|Khmer|Cambodian Khmer)\s+(?:dialogue|speech|narration|voice[- ]?over)\b[^.\n]*[.\n]?/giu, '')
     .replace(/\b(?:include|use|generate|add)\s+(?:natural\s+)?spoken narration\b[^.\n]*[.\n]?/giu, '')
