@@ -13,6 +13,7 @@ export const normalizeFacebookScanHistoryResult = (
     success: true,
     query: typeof raw.query === 'string' ? raw.query : '',
     scanMode: raw.scanMode,
+    researchTarget: typeof raw.researchTarget === 'string' ? raw.researchTarget : undefined,
     webBusinessesFound: typeof raw.webBusinessesFound === 'number' ? raw.webBusinessesFound : undefined,
     webSearchAvailable: typeof raw.webSearchAvailable === 'boolean' ? raw.webSearchAvailable : undefined,
     activityWindow: hasValidActivityWindow ? raw.activityWindow : undefined,

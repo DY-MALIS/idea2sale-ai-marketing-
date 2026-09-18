@@ -228,3 +228,48 @@ it('returns source-verified market waves for the exact 7-day window', async () =
     }],
   });
 });
+
+it('uses the Business Profile as the target for a generic competitor-activity instruction', async () => {
+  mocks.researchCompetitors.mockImplementation(async ({ query, activityEndDate }) => ({
+    competitors: query === 'DGACADEMY' ? [{
+      name: 'Verified Academy Rival',
+      matchReason: 'Provides competing professional training in Cambodia.',
+      positioning: 'Professional training',
+      sourceUrl: 'https://academy-rival.example.com',
+      recentActivities: [{
+        date: activityEndDate,
+        activity: 'Published a new public training promotion.',
+        sourceUrl: 'https://academy-rival.example.com/promotion',
+      }],
+    }] : [],
+    entitySummary: query === 'DGACADEMY' ? 'A professional training academy.' : '',
+  }));
+
+  const req = {
+    method: 'POST',
+    headers: {},
+    socket: { remoteAddress: '127.0.0.1' },
+    body: {
+      action: 'facebookIntelligenceScan',
+      query: 'ស្វែងរកសកម្មភាពរបស់គូប្រកួតក្នុង ១ អាទិត្យ',
+      businessName: 'DGACADEMY',
+      scanMode: 'competitor_activity',
+      countries: ['KH'],
+      days: 7,
+      language: 'km',
+    },
+  };
+  const res = responseRecorder();
+
+  await handler(req, res);
+
+  expect(res.statusCode).toBe(200);
+  expect(mocks.researchCompetitors).toHaveBeenCalledWith(expect.objectContaining({ query: 'DGACADEMY' }));
+  expect(res.body).toMatchObject({
+    researchTarget: 'DGACADEMY',
+    competitors: [{
+      pageName: 'Verified Academy Rival',
+      recentActivities: [expect.objectContaining({ activity: 'Published a new public training promotion.' })],
+    }],
+  });
+});

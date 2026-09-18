@@ -334,6 +334,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     savedCompetitor: 'បានរក្សាទុក!',
     noVerifiedLeads: 'មិនទាន់មាន Lead ដែលបានផ្ទៀងផ្ទាត់ទេ។ សូមសាកល្បងស្គេនម្តងទៀត ដើម្បីទទួលបានឈ្មោះអាជីវកម្មពិត។',
     noVerifiedCompetitors: 'ការស្វែងរកលើវេបផ្ទាល់មិនរកឃើញឈ្មោះគូប្រកួតប្រជែងពិតដែលអាចផ្ទៀងផ្ទាត់បានទេ។ ប្រព័ន្ធនឹងមិនស្មានឈ្មោះឡើយ។',
+    researchTarget: 'គោលដៅស្រាវជ្រាវ',
     needSignals: 'សញ្ញាថាត្រូវការ Content/Video',
     recommendedService: 'សេវាកម្មដែលគួរផ្តល់ជូន',
     publicContact: 'ព័ត៌មានទំនាក់ទំនងសាធារណៈ',
@@ -440,6 +441,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     savedCompetitor: 'Saved!',
     noVerifiedLeads: 'No verified leads yet. Try scanning again to receive real business names.',
     noVerifiedCompetitors: 'Live web search found no real, verifiable competitor names. The system will not guess any.',
+    researchTarget: 'Research target',
     needSignals: 'Signals they may need content/video',
     recommendedService: 'Recommended service',
     publicContact: 'Public contact',
@@ -808,6 +810,11 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
               {result.webSearchAvailable ? text.live : text.estimated}
             </span>
             {!!result.webSearchAvailable && <span className="rounded-full bg-blue-50 px-4 py-2 text-xs font-bold text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">{resultIsCompetitorScan ? result.competitors.length : (result.potentialLeads?.length || 0)} {resultIsCompetitorScan ? text.competitors : text.webBusinesses}</span>}
+            {resultIsCompetitorScan && result.researchTarget && (
+              <span className="rounded-full bg-indigo-50 px-4 py-2 text-xs font-bold text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300">
+                {text.researchTarget}: {result.researchTarget}
+              </span>
+            )}
           </div>
 
           {!resultIsCompetitorScan && <div className="grid gap-5 xl:grid-cols-3">
@@ -983,7 +990,10 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                 ))}
               </div>
             ) : (
-              <div className="rounded-3xl border border-dashed border-amber-300 bg-amber-50/70 p-6 text-sm leading-6 text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">{text.noVerifiedCompetitors}</div>
+              <div className="rounded-3xl border border-dashed border-amber-300 bg-amber-50/70 p-6 text-sm leading-6 text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+                <p>{text.noVerifiedCompetitors}</p>
+                {result.researchTarget && <p className="mt-2 font-black">{text.researchTarget}: {result.researchTarget}</p>}
+              </div>
             )}
           </section>}
 

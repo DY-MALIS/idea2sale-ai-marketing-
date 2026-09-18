@@ -7,6 +7,7 @@ import {
   getVideoCaptionSpec,
   googleSheetsUrlToCsvExportUrl,
   resolveCreativeImageMode,
+  resolveCompetitorResearchTarget,
   resolveFacebookScanMode,
   resolveVideoAspectRatio,
 } from '../../api/ai.js';
@@ -76,6 +77,24 @@ describe('resolveFacebookScanMode', () => {
   it('falls back safely when a client submits an unknown mode', () => {
     expect(resolveFacebookScanMode('private_profiles')).toBe('customer');
     expect(resolveFacebookScanMode(undefined)).toBe('customer');
+  });
+});
+
+describe('resolveCompetitorResearchTarget', () => {
+  it('uses the Business Profile when the query is only a generic competitor-activity instruction', () => {
+    expect(resolveCompetitorResearchTarget(
+      'ស្វែងរកសកម្មភាពរបស់គូប្រកួតក្នុង ១ អាទិត្យ',
+      'DGACADEMY',
+    )).toBe('DGACADEMY');
+    expect(resolveCompetitorResearchTarget(
+      'find competitor activity from this week',
+      'DGACADEMY',
+    )).toBe('DGACADEMY');
+  });
+
+  it('preserves an explicit competitor or niche target', () => {
+    expect(resolveCompetitorResearchTarget('skincare competitors Cambodia', 'DGACADEMY')).toBe('skincare competitors Cambodia');
+    expect(resolveCompetitorResearchTarget('DGACADEMY competitors', 'DGACADEMY')).toBe('DGACADEMY competitors');
   });
 });
 

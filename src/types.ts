@@ -129,6 +129,7 @@ export interface FacebookScanResult {
   webBusinessesFound?: number;
   webSearchAvailable?: boolean;
   scanMode?: FacebookPotentialLead['opportunityType'];
+  researchTarget?: string;
   activityWindow?: { startDate: string; endDate: string };
   customerInsights: FacebookCustomerInsights;
   competitors: FacebookCompetitorInsight[];

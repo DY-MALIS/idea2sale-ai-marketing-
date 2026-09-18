@@ -92,6 +92,19 @@ export const resolveFacebookScanMode = (value) => {
   return FACEBOOK_SCAN_MODES.includes(requested) ? requested : 'customer';
 };
 
+export const resolveCompetitorResearchTarget = (query, businessName) => {
+  const requested = String(query || '').trim();
+  const ownBusiness = String(businessName || '').trim();
+  if (!ownBusiness || !requested) return requested;
+  if (requested.toLocaleLowerCase().includes(ownBusiness.toLocaleLowerCase())) return requested;
+  const looksLikeGenericInstruction = (
+    /(?:ស្វែងរក|បង្ហាញ|តាមដាន)[\s\S]{0,120}(?:សកម្មភាព|អ្វីខ្លះ)[\s\S]{0,120}(?:ប្រកួត|ប្រកូដ)/i.test(requested)
+    || /(?:find|show|track|capture)[\s\S]{0,100}competitor[\s\S]{0,100}(?:activity|activities|did|week)/i.test(requested)
+    || /what[\s\S]{0,80}competitor[\s\S]{0,80}(?:did|posted|launched)/i.test(requested)
+  );
+  return looksLikeGenericInstruction ? ownBusiness : requested;
+};
+
 const calendarDateInTimeZone = (date, timeZone) => {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone,
@@ -1063,6 +1076,9 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
       const searchTerms = query.slice(0, 250);
       const countryNames = { KH: 'Cambodia', TH: 'Thailand', VN: 'Vietnam', US: 'United States' };
       const searchCountry = countries.map((code) => countryNames[code] || code).join(', ');
+      const primaryCompetitorResearchTarget = isCompetitorScan
+        ? resolveCompetitorResearchTarget(query, userBusinessName)
+        : query;
 
       // Web search, X/social context, and competitor research are independent,
       // so they run concurrently rather than one-after-another -- this scan
@@ -1085,15 +1101,21 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
           activityStartDate: scanMode === 'hiring' ? hiringActivityWindow.startDate : '',
           activityEndDate: scanMode === 'hiring' ? hiringActivityWindow.endDate : '',
         }) : Promise.resolve([]),
-        fetchXContextForEntity(query),
+        fetchXContextForEntity(isCompetitorScan ? primaryCompetitorResearchTarget : query),
         isCompetitorScan ? researchCompetitors({
-          query,
+          query: primaryCompetitorResearchTarget,
           country: searchCountry,
           activityStartDate: activityWindow.startDate,
           activityEndDate: activityWindow.endDate,
         }) : Promise.resolve({ competitors: [], entitySummary: '' }),
         isCompetitorScan && userBusinessName
-          ? researchCompetitors({ query: userBusinessName, country: searchCountry, exhaustive: false })
+          ? researchCompetitors({
+              query: userBusinessName,
+              country: searchCountry,
+              activityStartDate: activityWindow.startDate,
+              activityEndDate: activityWindow.endDate,
+              exhaustive: false,
+            })
           : Promise.resolve(null),
         scanMode === 'market_trends'
           ? researchMarketTrends({
@@ -1144,6 +1166,24 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
         ownBusinessSummary = ownBusinessResearchSettled.value.entitySummary;
       } else if (ownBusinessResearchSettled.status === 'rejected') {
         console.warn('Own-business self-lookup failed or skipped:', ownBusinessResearchSettled.reason?.message);
+      }
+
+      // A common Khmer/English input is an instruction such as "find what my
+      // competitors did this week" rather than an actual company/category.
+      // The primary research understandably finds no entity for that sentence.
+      // Reuse the independently searched Business Profile as a safe fallback,
+      // including its dated activities, instead of returning a misleading empty
+      // result while a real business name is already available to the scanner.
+      let competitorResearchTarget = primaryCompetitorResearchTarget;
+      if (
+        isCompetitorScan
+        && verifiedCompetitors.length === 0
+        && ownBusinessResearchSettled.status === 'fulfilled'
+        && ownBusinessResearchSettled.value?.competitors?.length
+      ) {
+        verifiedCompetitors = ownBusinessResearchSettled.value.competitors;
+        targetEntitySummary = ownBusinessResearchSettled.value.entitySummary || targetEntitySummary;
+        competitorResearchTarget = userBusinessName;
       }
 
       let verifiedMarketTrends = [];
@@ -1456,6 +1496,7 @@ Return ONLY a single valid JSON object with this exact structure:
         success: true,
         query,
         scanMode,
+        researchTarget: isCompetitorScan ? competitorResearchTarget : query,
         activityWindow: isCompetitorScan || scanMode === 'market_trends' ? activityWindow : undefined,
         webBusinessesFound: rawWebBusinesses.length,
         webSearchAvailable,
