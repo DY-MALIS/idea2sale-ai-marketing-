@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useLanguage } from '../contexts/LanguageContext';
-import { CreativeAutomationRequest, FacebookCompetitorInsight, FacebookPotentialLead, FacebookScanResult, FacebookVideoPlanItem } from '../types';
+import { CreativeAutomationRequest, FacebookCompetitorInsight, FacebookPotentialLead, FacebookRecentActivity, FacebookScanResult, FacebookVideoPlanItem } from '../types';
 import { deleteGenerationHistory, GenerationHistoryEntry, saveGenerationHistory, useGenerationHistory } from '../lib/generationHistory';
 import HistoryPanel from './HistoryPanel';
 import { downloadCsv } from '../lib/csvExport';
@@ -51,6 +51,26 @@ const countryOptions = [
   { code: 'VN', label: 'Vietnam' },
   { code: 'US', label: 'United States' },
 ];
+
+const activityPlatform = (activity: FacebookRecentActivity): NonNullable<FacebookRecentActivity['platform']> => {
+  if (activity.platform) return activity.platform;
+  try {
+    const host = new URL(activity.sourceUrl).hostname.toLowerCase();
+    if (host === 'facebook.com' || host.endsWith('.facebook.com') || host === 'fb.com') return 'Facebook';
+    if (host === 'tiktok.com' || host.endsWith('.tiktok.com')) return 'TikTok';
+    if (host === 'linkedin.com' || host.endsWith('.linkedin.com')) return 'LinkedIn';
+  } catch {
+    // Old history entries may contain an invalid or missing source URL.
+  }
+  return 'Web';
+};
+
+const activityPlatformClass = (platform: NonNullable<FacebookRecentActivity['platform']>) => ({
+  Facebook: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-200',
+  TikTok: 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900',
+  LinkedIn: 'bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-200',
+  Web: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-200',
+}[platform]);
 
 const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation }) => {
   const { language } = useLanguage();
@@ -250,7 +270,8 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
         website: '',
         linkedinUrl: competitor.linkedinUrl || '',
         facebookPageName: competitor.pageName || '',
-        facebookPageUrl: '',
+        facebookPageUrl: competitor.facebookUrl || '',
+        tiktokUrl: competitor.tiktokUrl || '',
         leadLevel: '',
         matchReason: competitor.matchReason || '',
         topAngle: competitor.topAngle || '',
@@ -304,6 +325,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     newSincePrevious: 'សកម្មភាពថ្មីពីការចាប់យកមុន',
     firstCapture: 'នេះជាការចាប់យកលើកដំបូង',
     exportActivityReport: 'ទាញយករបាយការណ៍សកម្មភាព',
+    sourceCoverage: 'ប្រភពដែលបានចាប់យក',
     newActivity: 'ថ្មី',
     eyebrow: 'Facebook Audience Intelligence',
     title: 'ស្គេនអតិថិជន និងគូប្រជែង',
@@ -339,7 +361,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     recommendedService: 'សេវាកម្មដែលគួរផ្តល់ជូន',
     publicContact: 'ព័ត៌មានទំនាក់ទំនងសាធារណៈ',
     viewPage: 'បើក Facebook Page',
-    viewEvidence: 'មើលប្រភពផ្សាយពាណិជ្ជកម្ម',
+    viewEvidence: 'មើលភស្តុតាងសាធារណៈ',
     copyInbox: 'ចម្លងសារ Inbox',
     angle: 'ទិសដៅសំខាន់',
     offer: 'យុទ្ធសាស្ត្រផ្តល់ជូន',
@@ -351,6 +373,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     copy: 'ចម្លងរបាយការណ៍',
     copied: 'បានចម្លង',
     live: 'ការស្វែងរកលើវេបបានភ្ជាប់',
+    socialSearchConnected: 'បានភ្ជាប់ Web + Facebook + TikTok + LinkedIn',
     estimated: 'AI market estimate',
     webBusinesses: 'Lead ពិតដែលបានផ្ទៀងផ្ទាត់',
     viewMap: 'មើលលើ Google Maps',
@@ -411,6 +434,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     newSincePrevious: 'New since the previous capture',
     firstCapture: 'This is the first capture',
     exportActivityReport: 'Download activity report',
+    sourceCoverage: 'Captured by source',
     newActivity: 'New',
     eyebrow: 'Facebook Audience Intelligence',
     title: 'Customer & competitor scanner',
@@ -446,7 +470,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     recommendedService: 'Recommended service',
     publicContact: 'Public contact',
     viewPage: 'Open Facebook Page',
-    viewEvidence: 'View public ad evidence',
+    viewEvidence: 'View public evidence',
     copyInbox: 'Copy Inbox message',
     angle: 'Leading angle',
     offer: 'Offer strategy',
@@ -458,6 +482,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     copy: 'Copy report',
     copied: 'Copied',
     live: 'Web search connected',
+    socialSearchConnected: 'Web + Facebook + TikTok + LinkedIn connected',
     estimated: 'AI market estimate',
     webBusinesses: 'verified leads',
     viewMap: 'View on Google Maps',
@@ -702,17 +727,23 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
   const capturedActivitySummary = resultIsActivityScan
     ? summarizeCompetitorActivities(result, comparisonBaseline)
     : null;
+  const activityPlatformCounts = (result?.competitors || []).flatMap((competitor) => competitor.recentActivities || [])
+    .reduce<Record<NonNullable<FacebookRecentActivity['platform']>, number>>((counts, activity) => {
+      counts[activityPlatform(activity)] += 1;
+      return counts;
+    }, { Facebook: 0, TikTok: 0, LinkedIn: 0, Web: 0 });
 
   const exportCompetitorActivities = () => {
     if (!result || !capturedActivitySummary) return;
     const headers = isKm
-      ? ['គូប្រកួត', 'កាលបរិច្ឆេទ', 'សកម្មភាព', 'ថ្មីពីការចាប់យកមុន', 'ប្រភព', 'ចាប់ពីថ្ងៃ', 'ដល់ថ្ងៃ']
-      : ['Competitor', 'Date', 'Activity', 'New since previous capture', 'Source URL', 'Window start', 'Window end'];
+      ? ['គូប្រកួត', 'កាលបរិច្ឆេទ', 'សកម្មភាព', 'Platform', 'ថ្មីពីការចាប់យកមុន', 'ប្រភព', 'ចាប់ពីថ្ងៃ', 'ដល់ថ្ងៃ']
+      : ['Competitor', 'Date', 'Activity', 'Platform', 'New since previous capture', 'Source URL', 'Window start', 'Window end'];
     const rows = result.competitors.flatMap((competitor) => (
       (competitor.recentActivities || []).map((activity) => [
         competitor.pageName,
         activity.date,
         activity.activity,
+        activityPlatform(activity),
         capturedActivitySummary.newActivityKeys.has(competitorActivityKey(competitor.pageName, activity)) ? 'Yes' : 'No',
         activity.sourceUrl,
         result.activityWindow?.startDate || '',
@@ -850,7 +881,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
           <div className="flex flex-wrap items-center gap-3">
             <span className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-bold ${result.webSearchAvailable ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300'}`}>
               {result.webSearchAvailable ? <Check size={15} /> : <Sparkles size={15} />}
-              {result.webSearchAvailable ? text.live : text.estimated}
+              {result.webSearchAvailable ? (resultIsCompetitorScan ? text.socialSearchConnected : text.live) : text.estimated}
             </span>
             {!!result.webSearchAvailable && <span className="rounded-full bg-blue-50 px-4 py-2 text-xs font-bold text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">{resultIsCompetitorScan ? result.competitors.length : (result.potentialLeads?.length || 0)} {resultIsCompetitorScan ? text.competitors : text.webBusinesses}</span>}
             {resultIsCompetitorScan && result.researchTarget && (
@@ -960,6 +991,17 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                   </p>
                 </div>
               </div>
+              <div className="mt-4">
+                <p className="mb-2 text-xs font-black uppercase tracking-wider text-slate-400">{text.sourceCoverage}</p>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {(['Facebook', 'TikTok', 'LinkedIn', 'Web'] as const).map((platform) => (
+                    <div key={platform} className={`flex items-center justify-between rounded-xl px-3 py-2 text-xs font-black ${activityPlatformClass(platform)}`}>
+                      <span>{platform}</span>
+                      <span className="rounded-full bg-white/70 px-2 py-0.5 text-sm text-slate-800 dark:bg-black/20 dark:text-inherit">{activityPlatformCounts[platform]}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </section>
           )}
 
@@ -990,6 +1032,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                             <ul className="mt-3 space-y-3">
                               {competitor.recentActivities.map((activity, activityIndex) => (
                                 <li key={`${activity.date}-${activity.sourceUrl}-${activityIndex}`} className="text-sm leading-6 text-slate-700 dark:text-slate-200">
+                                  <span className={`mr-2 rounded-md px-2 py-1 text-xs font-black ${activityPlatformClass(activityPlatform(activity))}`}>{activityPlatform(activity)}</span>
                                   <span className="mr-2 rounded-md bg-indigo-100 px-2 py-1 text-xs font-bold text-indigo-700 dark:bg-indigo-900 dark:text-indigo-200">{activity.date}</span>
                                   {capturedActivitySummary?.hasPreviousCapture && capturedActivitySummary.newActivityKeys.has(competitorActivityKey(competitor.pageName, activity)) && (
                                     <span className="mr-2 rounded-md bg-emerald-100 px-2 py-1 text-xs font-black uppercase text-emerald-700 dark:bg-emerald-900 dark:text-emerald-200">{text.newActivity}</span>
@@ -1009,6 +1052,8 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                       {!competitor.recentActivities?.length && !!competitor.publicActivitySignals?.length && <div><dt className="font-bold text-slate-400">{text.publicActivity}</dt><dd className="mt-1 text-slate-700 dark:text-slate-200">{competitor.publicActivitySignals.join(' • ')}</dd></div>}
                       {!!competitor.customerSegments?.length && <div><dt className="font-bold text-slate-400">{text.customerSegments}</dt><dd className="mt-1 text-slate-700 dark:text-slate-200">{competitor.customerSegments.join(' • ')}</dd></div>}
                       <div className="flex flex-wrap gap-3">
+                        {competitor.facebookUrl && <a href={competitor.facebookUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 font-bold text-blue-600 hover:underline"><Facebook size={14} />Facebook</a>}
+                        {competitor.tiktokUrl && <a href={competitor.tiktokUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 font-bold text-slate-800 hover:underline dark:text-slate-100"><ExternalLink size={14} />TikTok</a>}
                         {competitor.linkedinUrl && <a href={competitor.linkedinUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 font-bold text-sky-700 hover:underline dark:text-sky-300"><ExternalLink size={14} />LinkedIn</a>}
                         {competitor.sourceUrl && <a href={competitor.sourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 font-bold text-blue-600 hover:underline"><ExternalLink size={14} />{text.viewEvidence}</a>}
                       </div>

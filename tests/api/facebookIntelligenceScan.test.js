@@ -127,11 +127,15 @@ it('returns dated competitor activity and its exact 7-day window', async () => {
       name: 'Verified Rival',
       matchReason: 'Offers the same service to the same market.',
       positioning: 'Premium local service',
+      facebookUrl: 'https://www.facebook.com/verified-rival',
+      tiktokUrl: 'https://www.tiktok.com/@verifiedrival',
+      linkedinUrl: 'https://www.linkedin.com/company/verified-rival/',
       sourceUrl: 'https://rival.example.com',
       recentActivities: [{
         date: activityEndDate,
         activity: 'Published a seven-day promotional campaign.',
-        sourceUrl: 'https://rival.example.com/promotion',
+        sourceUrl: 'https://www.facebook.com/verified-rival/posts/123',
+        platform: 'Facebook',
       }],
     }],
     entitySummary: 'A local service category.',
@@ -174,10 +178,14 @@ it('returns dated competitor activity and its exact 7-day window', async () => {
     scanMode: 'competitor_activity',
     competitors: [{
       pageName: 'Verified Rival',
+      facebookUrl: 'https://www.facebook.com/verified-rival',
+      tiktokUrl: 'https://www.tiktok.com/@verifiedrival',
+      linkedinUrl: 'https://www.linkedin.com/company/verified-rival/',
       recentActivities: [{
         date: res.body.activityWindow.endDate,
         activity: 'Published a seven-day promotional campaign.',
-        sourceUrl: 'https://rival.example.com/promotion',
+        sourceUrl: 'https://www.facebook.com/verified-rival/posts/123',
+        platform: 'Facebook',
       }],
     }],
   });

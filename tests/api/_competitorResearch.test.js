@@ -35,7 +35,7 @@ it('returns only competitors whose source URL is real and reachable', async () =
   expect(result.isSpecificEntity).toBe(true);
   expect(result.entitySummary).toContain('DGACADEMY');
   expect(result.competitors).toEqual([
-    { name: 'Real School A', matchReason: 'Same English courses and city', positioning: 'Premium pricing', linkedinUrl: 'https://www.linkedin.com/school/real-school-a/', sourceUrl: 'https://real-school-a.example.com' },
+    { name: 'Real School A', matchReason: 'Same English courses and city', positioning: 'Premium pricing', facebookUrl: '', tiktokUrl: '', linkedinUrl: 'https://www.linkedin.com/school/real-school-a/', sourceUrl: 'https://real-school-a.example.com' },
   ]);
 });
 
@@ -188,6 +188,54 @@ it('keeps only reachable, explicitly dated activity inside the requested 7-day w
   });
 
   expect(result.competitors[0].recentActivities).toEqual([
-    { date: '2026-09-14', activity: 'Published a new course offer', sourceUrl: 'https://competitor.example.com/current' },
+    { date: '2026-09-14', activity: 'Published a new course offer', sourceUrl: 'https://competitor.example.com/current', platform: 'Web' },
   ]);
+});
+
+it('searches Facebook, TikTok, and LinkedIn separately and labels social activity sources', async () => {
+  mocks.webSearch.mockResolvedValue({
+    content: JSON.stringify({
+      competitors: [{
+        name: 'Social Academy',
+        isDirectCompetitor: true,
+        matchConfidence: 'high',
+        matchReason: 'Offers the same business training in Cambodia',
+        positioning: 'Practical training',
+        facebookUrl: 'https://www.facebook.com/socialacademy',
+        tiktokUrl: 'https://www.tiktok.com/@socialacademy',
+        linkedinUrl: 'https://www.linkedin.com/company/socialacademy/',
+        sourceUrl: 'https://socialacademy.example.com',
+        recentActivities: [
+          { date: '2026-09-18', activity: 'Posted a course promotion', sourceUrl: 'https://www.facebook.com/socialacademy/posts/123' },
+          { date: '2026-09-17', activity: 'Published a short training video', sourceUrl: 'https://www.tiktok.com/@socialacademy/video/456' },
+          { date: '2026-09-16', activity: 'Announced a workshop', sourceUrl: 'https://www.linkedin.com/posts/socialacademy_workshop-activity-789' },
+        ],
+      }],
+    }),
+  });
+  vi.stubGlobal('fetch', vi.fn(async (url) => ({
+    ok: String(url).includes('socialacademy.example.com'),
+    status: String(url).includes('socialacademy.example.com') ? 200 : 403,
+  })));
+
+  const result = await researchCompetitors({
+    query: 'business training',
+    activityStartDate: '2026-09-12',
+    activityEndDate: '2026-09-18',
+  });
+
+  const prompts = mocks.webSearch.mock.calls.map(([request]) => request.prompt).join('\n');
+  expect(prompts).toContain('FACEBOOK PASS');
+  expect(prompts).toContain('TIKTOK PASS');
+  expect(prompts).toContain('LINKEDIN PASS');
+  expect(result.competitors[0]).toMatchObject({
+    facebookUrl: 'https://www.facebook.com/socialacademy',
+    tiktokUrl: 'https://www.tiktok.com/@socialacademy',
+    linkedinUrl: 'https://www.linkedin.com/company/socialacademy/',
+    recentActivities: [
+      expect.objectContaining({ platform: 'Facebook' }),
+      expect.objectContaining({ platform: 'TikTok' }),
+      expect.objectContaining({ platform: 'LinkedIn' }),
+    ],
+  });
 });

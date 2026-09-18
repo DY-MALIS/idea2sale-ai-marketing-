@@ -51,6 +51,7 @@ export interface FacebookRecentActivity {
   activity: string;
   jobTitle?: string;
   sourceUrl: string;
+  platform?: 'Facebook' | 'TikTok' | 'LinkedIn' | 'Web';
 }
 
 export interface FacebookMarketTrend {
@@ -69,6 +70,8 @@ export interface FacebookCompetitorInsight {
   weakness: string;
   counterStrategy: string;
   sourceUrl?: string;
+  facebookUrl?: string;
+  tiktokUrl?: string;
   linkedinUrl?: string;
   publicActivitySignals?: string[];
   recentActivities?: FacebookRecentActivity[];

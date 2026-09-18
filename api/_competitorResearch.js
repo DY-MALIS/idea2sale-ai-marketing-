@@ -34,6 +34,30 @@ const jsonFromText = (text) => {
   }
 };
 
+export const socialPlatformFromUrl = (value) => {
+  try {
+    const { hostname } = new URL(String(value || ''));
+    const host = hostname.toLowerCase().replace(/^www\./, '');
+    if (host === 'facebook.com' || host === 'm.facebook.com' || host === 'fb.com') return 'Facebook';
+    if (host === 'tiktok.com' || host.endsWith('.tiktok.com')) return 'TikTok';
+    if (host === 'linkedin.com' || host.endsWith('.linkedin.com')) return 'LinkedIn';
+  } catch {
+    // Non-URLs are treated as ordinary web evidence and rejected downstream.
+  }
+  return 'Web';
+};
+
+const validFacebookUrl = (value) => /^https:\/\/(?:(?:www|m)\.)?(?:facebook\.com|fb\.com)\/(?!profile\.php(?:\?|$))[^\s]+/i.test(value);
+const validTikTokUrl = (value) => /^https:\/\/(?:www\.)?tiktok\.com\/@[^/?#\s]+(?:[/?#][^\s]*)?$/i.test(value);
+const validLinkedInUrl = (value) => /^https:\/\/(?:[a-z0-9-]+\.)?linkedin\.com\/(?:company|school|showcase)\//i.test(value);
+const validLinkedInPostUrl = (value) => /^https:\/\/(?:[a-z0-9-]+\.)?linkedin\.com\/(?:posts\/|feed\/update\/)/i.test(value);
+const isSupportedPublicSocialUrl = (value) => (
+  validFacebookUrl(value)
+  || validTikTokUrl(value)
+  || validLinkedInUrl(value)
+  || validLinkedInPostUrl(value)
+);
+
 export async function researchCompetitors({ query, country = 'Cambodia', activityStartDate = '', activityEndDate = '', exhaustive = true }) {
   const hasActivityWindow = /^\d{4}-\d{2}-\d{2}$/.test(activityStartDate)
     && /^\d{4}-\d{2}-\d{2}$/.test(activityEndDate)
@@ -42,10 +66,10 @@ export async function researchCompetitors({ query, country = 'Cambodia', activit
     : '';
   const searchFocuses = [
     'Prioritize official company websites, Google/Apple map results, and local business directories. Search the exact category plus the target city, province, and country. Find the most visible direct competitors first.',
-    'Prioritize official LinkedIn company/school/showcase pages. Search the category, common English spelling, local-language spelling, abbreviations, and transliterations. Prefer an independently reachable website or directory URL as sourceUrl when available.',
-    'Prioritize real Facebook business Pages and other public business social pages. Search category and location variations, current public posts, offers, and events. Never use personal profiles.',
-    'Prioritize customer review platforms, marketplaces, professional directories, and local category lists. Look for active direct substitutes that official-site searches may miss.',
-    'Prioritize industry associations, awards, credible local news, comparison/list articles, event exhibitor lists, and partner directories. Use these to find established or emerging direct competitors missed by the other passes.',
+    'FACEBOOK PASS: Search site:facebook.com for real public business Pages and their dated public posts, reels, offers, ads, events, and promotions. Return the exact Page URL and direct post/reel URL. Never use personal profiles or private content.',
+    'TIKTOK PASS: Search site:tiktok.com for official public business profiles and dated public videos from those businesses. Return the exact @profile URL and direct /video/ URL. Never guess a handle and never use an unrelated creator.',
+    'LINKEDIN PASS: Search site:linkedin.com/company, site:linkedin.com/school, and public organization posts. Return the exact organization URL and direct public post URL. Never use personal profiles.',
+    'Prioritize customer review platforms, industry associations, credible local news, comparison lists, event exhibitor lists, marketplaces, and professional directories to find direct competitors or dated activities missed by the platform passes.',
   ];
   const activeSearchFocuses = exhaustive ? searchFocuses : searchFocuses.slice(0, 1);
   const buildPrompt = (focus) => `Search the live web about "${query}" in ${country}.
@@ -63,7 +87,7 @@ Step 2 -- Find real competitors: search for REAL, named businesses. A business o
 Every competitor you list MUST satisfy all four and come with a real source URL backing it. Explicitly exclude suppliers, distributors that do not sell a substitute, agencies serving the target, partners, customers, parent/sister companies, businesses that merely share a broad industry, and companies outside the real geographic/customer market. Rank the most important direct competitors first based on visible public market presence and relevance to the same customers, not on guessed revenue or private data. Return up to 20 strong matches actually found in this pass; never target a quota and never pad the list. Search alternate spellings and local-language names so legitimate local businesses are not missed. Never invent a competitor name and never list one you cannot support with a real source URL.
 Every entry you return already met all four criteria above, so always set "isDirectCompetitor": true and "matchConfidence": "high" for it -- these are not separate judgment calls. If you are not fully confident a business satisfies all four, omit it entirely rather than listing it with a lower confidence; there is no "medium" or "low" tier, only include or exclude.
 
-For each verified competitor, provide a short factual "matchReason" stating the exact overlapping product/service, customer group, and location supported by the search evidence. Search for its official LinkedIn organization page in addition to Facebook and web sources. Only return a LinkedIn company, school, or showcase URL explicitly found in live results; never return a personal profile and never construct a URL from the company name. Only fill in "positioning" if the source actually supports it; otherwise leave it as an empty string rather than inferring.
+For each verified competitor, provide a short factual "matchReason" stating the exact overlapping product/service, customer group, and location supported by the search evidence. Search for its official Facebook Page, TikTok @profile, and LinkedIn organization page. Only return URLs explicitly found in live results; never return a personal profile and never construct a URL from the company name. For recentActivities, the sourceUrl must be the direct dated post/video/reel URL, not merely a profile or homepage. Only fill in "positioning" if the source actually supports it; otherwise leave it as an empty string rather than inferring.
 
 Return ONLY a single valid JSON object, no markdown:
 {
@@ -76,9 +100,11 @@ Return ONLY a single valid JSON object, no markdown:
       "matchConfidence": "high",
       "matchReason": "factual reason this is a direct competitor, grounded in the source",
       "positioning": "only if directly supported by the source, else empty string",
+      "facebookUrl": "official public Facebook business Page URL if found, else empty string",
+      "tiktokUrl": "official public TikTok @profile URL if found, else empty string",
       "linkedinUrl": "official LinkedIn company/school/showcase page URL if found, else empty string",
       "recentActivities": [
-        { "date": "YYYY-MM-DD", "activity": "specific public post, ad, offer, event, or campaign", "sourceUrl": "direct public URL proving this activity and date" }
+        { "date": "YYYY-MM-DD", "activity": "specific public post, video, ad, offer, event, or campaign", "sourceUrl": "direct public URL proving this activity and date" }
       ],
       "sourceUrl": "the exact URL this came from"
     }
@@ -101,6 +127,8 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
   const mergedCandidates = new Map();
   parsedResults.forEach((parsed) => {
     (Array.isArray(parsed?.competitors) ? parsed.competitors : []).forEach((item) => {
+      const facebookUrl = String(item?.facebookUrl || '').trim().slice(0, 300);
+      const tiktokUrl = String(item?.tiktokUrl || '').trim().slice(0, 300);
       const linkedinUrl = String(item?.linkedinUrl || '').trim().slice(0, 300);
       const isDirectCompetitor = item?.isDirectCompetitor === true;
       const matchConfidence = String(item?.matchConfidence || '').trim().toLowerCase();
@@ -108,13 +136,16 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
         name: String(item?.name || '').trim().slice(0, 200),
         matchReason: String(item?.matchReason || '').trim().slice(0, 500),
         positioning: String(item?.positioning || '').trim().slice(0, 300),
-        linkedinUrl: /^https:\/\/(?:[a-z0-9-]+\.)?linkedin\.com\/(?:company|school|showcase)\//i.test(linkedinUrl) ? linkedinUrl : '',
+        facebookUrl: validFacebookUrl(facebookUrl) ? facebookUrl : '',
+        tiktokUrl: validTikTokUrl(tiktokUrl) ? tiktokUrl : '',
+        linkedinUrl: validLinkedInUrl(linkedinUrl) ? linkedinUrl : '',
         sourceUrl: String(item?.sourceUrl || '').trim().slice(0, 300),
         ...(hasActivityWindow ? { recentActivities: (Array.isArray(item?.recentActivities) ? item.recentActivities : [])
           .map((activity) => ({
             date: String(activity?.date || '').trim(),
             activity: String(activity?.activity || '').trim().slice(0, 400),
             sourceUrl: String(activity?.sourceUrl || '').trim().slice(0, 300),
+            platform: socialPlatformFromUrl(activity?.sourceUrl),
           }))
           .filter((activity) => (
             /^\d{4}-\d{2}-\d{2}$/.test(activity.date)
@@ -141,6 +172,8 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
         ...existing,
         matchReason: existing.matchReason || candidate.matchReason,
         positioning: existing.positioning || candidate.positioning,
+        facebookUrl: existing.facebookUrl || candidate.facebookUrl,
+        tiktokUrl: existing.tiktokUrl || candidate.tiktokUrl,
         linkedinUrl: existing.linkedinUrl || candidate.linkedinUrl,
         ...(hasActivityWindow ? { recentActivities: activities } : {}),
       });
@@ -155,10 +188,14 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
   // Activity URLs are checked sequentially within each worker, keeping total
   // outbound verification concurrency at the worker limit.
   const verified = (await mapWithConcurrency(candidates, URL_VERIFICATION_CONCURRENCY, async (item) => {
-    if (!(await urlIsReachable(item.sourceUrl))) return null;
+    // Public social networks commonly reject server-side HEAD/GET checks even
+    // for real public pages. These URLs already came from grounded search, so
+    // validate their exact supported host/shape instead of dropping them on a
+    // platform anti-bot response. Ordinary web sources still require HTTP.
+    if (!isSupportedPublicSocialUrl(item.sourceUrl) && !(await urlIsReachable(item.sourceUrl))) return null;
     const activityChecks = [];
     for (const activity of item.recentActivities || []) {
-      if (await urlIsReachable(activity.sourceUrl)) activityChecks.push(activity);
+      if (isSupportedPublicSocialUrl(activity.sourceUrl) || await urlIsReachable(activity.sourceUrl)) activityChecks.push(activity);
     }
     return hasActivityWindow ? { ...item, recentActivities: activityChecks.filter(Boolean) } : item;
   })).filter(Boolean);

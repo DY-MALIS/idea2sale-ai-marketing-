@@ -1202,7 +1202,7 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
 
       const competitorResearchSummary = verifiedCompetitors.length
         ? verifiedCompetitors.map((c, idx) => (
-            `[Verified Competitor ${idx + 1}] Name: ${c.name}${c.matchReason ? ` | Why it competes: ${c.matchReason}` : ''}${c.positioning ? ` | Positioning: ${c.positioning}` : ''}${c.linkedinUrl ? ` | LinkedIn: ${c.linkedinUrl}` : ''} | Verified activity ${activityWindow.startDate} through ${activityWindow.endDate}: ${(c.recentActivities || []).map((activity) => `${activity.date}: ${activity.activity} (${activity.sourceUrl})`).join(' ; ') || 'none found'} | Source: ${c.sourceUrl}`
+            `[Verified Competitor ${idx + 1}] Name: ${c.name}${c.matchReason ? ` | Why it competes: ${c.matchReason}` : ''}${c.positioning ? ` | Positioning: ${c.positioning}` : ''}${c.facebookUrl ? ` | Facebook: ${c.facebookUrl}` : ''}${c.tiktokUrl ? ` | TikTok: ${c.tiktokUrl}` : ''}${c.linkedinUrl ? ` | LinkedIn: ${c.linkedinUrl}` : ''} | Verified activity ${activityWindow.startDate} through ${activityWindow.endDate}: ${(c.recentActivities || []).map((activity) => `${activity.date}: [${activity.platform || 'Web'}] ${activity.activity} (${activity.sourceUrl})`).join(' ; ') || 'none found'} | Source: ${c.sourceUrl}`
           )).join('\n')
         : 'Live competitor search found 0 verified real competitors for this target.';
 
@@ -1487,6 +1487,8 @@ Return ONLY a single valid JSON object with this exact structure:
             : asList(match.publicActivitySignals),
           recentActivities: isCompetitorScan ? (verified.recentActivities || []) : [],
           customerSegments: asList(match.customerSegments),
+          facebookUrl: verified.facebookUrl || '',
+          tiktokUrl: verified.tiktokUrl || '',
           linkedinUrl: verified.linkedinUrl || '',
           sourceUrl: verified.sourceUrl,
         };

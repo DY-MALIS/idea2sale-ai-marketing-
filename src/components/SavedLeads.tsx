@@ -19,6 +19,7 @@ interface SavedLead {
   website?: string;
   facebookPageName?: string;
   facebookPageUrl?: string;
+  tiktokUrl?: string;
   linkedinUrl?: string;
   leadLevel?: string;
   opportunityType?: 'customer' | 'ai_interest' | 'market_trends' | 'high_value' | 'construction' | 'competitor_activity' | 'competitor_customers' | 'hiring' | 'workers';
@@ -236,6 +237,9 @@ const SavedLeads: React.FC = () => {
                     <div className="mt-2 flex flex-wrap gap-2">
                       {lead.facebookPageUrl && (
                         <a href={lead.facebookPageUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:underline"><ExternalLink size={12} />Facebook</a>
+                      )}
+                      {lead.tiktokUrl && (
+                        <a href={lead.tiktokUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-bold text-slate-800 hover:underline dark:text-slate-100"><ExternalLink size={12} />TikTok</a>
                       )}
                       {lead.linkedinUrl && (
                         <a href={lead.linkedinUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-bold text-sky-700 hover:underline dark:text-sky-300"><ExternalLink size={12} />LinkedIn</a>
