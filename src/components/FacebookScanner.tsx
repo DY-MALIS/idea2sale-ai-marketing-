@@ -523,9 +523,21 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
   // customer scan. Competitor scans still hide those actions as requested.
   const isCompetitorLead = (_lead: FacebookPotentialLead) => resultIsCompetitorScan;
   const scanCategory = competitorModeIds.includes(scanMode) ? 'competitor' : 'customer';
+  const visibleScanModes = scanModes.filter((mode) => (
+    scanCategory === 'competitor'
+      ? competitorModeIds.includes(mode.id)
+      : !competitorModeIds.includes(mode.id)
+  ));
 
   const selectScanCategory = (category: 'customer' | 'competitor') => {
     setScanMode(category === 'competitor' ? 'competitor_activity' : 'customer');
+    setResult(null);
+    setComparisonBaseline(null);
+    setError('');
+  };
+
+  const selectScanMode = (mode: ScanMode) => {
+    setScanMode(mode);
     setResult(null);
     setComparisonBaseline(null);
     setError('');
@@ -669,6 +681,18 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
       ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300'
       : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300';
 
+  const signalGroupsForLead = (lead: FacebookPotentialLead) => [
+    { label: text.jobTypes, items: lead.jobTypes, tone: 'border-indigo-200 bg-indigo-50 text-indigo-800 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-200' },
+    { label: text.interestSignals, items: lead.interestSignals, tone: 'border-violet-200 bg-violet-50 text-violet-800 dark:border-violet-900 dark:bg-violet-950/30 dark:text-violet-200' },
+    { label: text.spendingSignals, items: lead.spendingSignals, tone: 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200' },
+    { label: text.hiringSignals, items: lead.hiringSignals, tone: 'border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200' },
+    { label: text.competitorSignals, items: lead.competitorSignals, tone: 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200' },
+  ].filter((group) => group.items?.length);
+
+  const hasLeadSignals = (lead: FacebookPotentialLead) => (
+    Boolean(lead.needSignals?.length) || signalGroupsForLead(lead).length > 0
+  );
+
   const insightCards = result ? [
     { title: text.bought, icon: ShoppingBag, items: result.customerInsights.whatTheyBought, iconClass: 'bg-amber-100 text-amber-600 dark:bg-amber-950/50 dark:text-amber-300' },
     { title: text.likes, icon: Heart, items: result.customerInsights.whatTheyLike, iconClass: 'bg-rose-100 text-rose-600 dark:bg-rose-950/50 dark:text-rose-300' },
@@ -752,6 +776,25 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
               <span><span className="block font-black text-slate-800 dark:text-white">{text.competitorCategory}</span><span className="mt-1 block text-xs leading-5 text-slate-500 dark:text-slate-400">{text.competitorCategoryDesc}</span></span>
             </button>
           </div>
+          <div className="rounded-2xl border border-brand-100 bg-white/55 p-3 dark:border-slate-700 dark:bg-slate-900/40">
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {visibleScanModes.map((mode) => (
+                <button
+                  key={mode.id}
+                  type="button"
+                  onClick={() => selectScanMode(mode.id)}
+                  className={`shrink-0 rounded-xl px-3 py-2 text-xs font-bold transition ${scanMode === mode.id
+                    ? scanCategory === 'competitor'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'bg-emerald-600 text-white shadow-sm'
+                    : 'bg-white text-slate-600 hover:bg-brand-50 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'}`}
+                >
+                  {mode.label}
+                </button>
+              ))}
+            </div>
+            <p className="mt-2 px-1 text-xs leading-5 text-slate-500 dark:text-slate-400">{activeScanMode.description}</p>
+          </div>
         </div>
         <div className="grid gap-5 lg:grid-cols-[1fr_190px_150px]">
           <label className="space-y-2">
@@ -766,14 +809,14 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                 className="h-14 w-full bg-transparent text-sm font-medium text-slate-800 outline-none placeholder:text-slate-400 dark:text-white"
               />
             </div>
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              <span className="text-xs font-medium text-slate-400">{text.tryAsking}</span>
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 pt-1">
+              <span className="shrink-0 text-xs font-medium text-slate-400">{text.tryAsking}</span>
               {activeScanMode.suggestions.map((suggestion) => (
                 <button
                   key={suggestion}
                   type="button"
                   onClick={() => setQuery(suggestion)}
-                  className="rounded-full border border-brand-200 bg-white/70 px-3 py-1 text-xs font-semibold text-brand-700 transition hover:bg-brand-50 dark:border-brand-800 dark:bg-slate-900/60 dark:text-brand-300 dark:hover:bg-slate-800"
+                  className="shrink-0 rounded-full border border-brand-200 bg-white/70 px-3 py-1 text-xs font-semibold text-brand-700 transition hover:bg-brand-50 dark:border-brand-800 dark:bg-slate-900/60 dark:text-brand-300 dark:hover:bg-slate-800"
                 >
                   {suggestion}
                 </button>
@@ -1021,9 +1064,9 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
               )}
             </div>
             {result.potentialLeads?.length ? (
-              <div className="grid gap-5 xl:grid-cols-2">
+              <div className="grid gap-4 xl:grid-cols-2">
                 {result.potentialLeads.map((lead, index) => (
-                  <article key={`${lead.pageName}-${index}`} className="glass rounded-3xl p-6">
+                  <article key={`${lead.pageName}-${index}`} className="glass rounded-3xl p-5">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <label className="flex items-start gap-3">
                         <input
@@ -1039,32 +1082,34 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                         </div>
                       </label>
                       <div className="flex flex-wrap items-center gap-2">
-                        {typeof lead.fitScore === 'number' && <span className="rounded-full bg-blue-100 px-3 py-1.5 text-xs font-black text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">{text.score}: {lead.fitScore}/100</span>}
-                        <span className={`rounded-full px-3 py-1.5 text-xs font-black uppercase tracking-wider ${leadBadgeClass(lead.leadLevel)}`}>{lead.leadLevel}</span>
+                        {typeof lead.fitScore === 'number' && lead.fitScore > 0 && <span className="rounded-full bg-blue-100 px-3 py-1.5 text-xs font-black text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">{text.score}: {lead.fitScore}/100</span>}
+                        {(Boolean(lead.needSignals?.length) || (lead.fitScore || 0) > 0) && <span className={`rounded-full px-3 py-1.5 text-xs font-black uppercase tracking-wider ${leadBadgeClass(lead.leadLevel)}`}>{lead.leadLevel}</span>}
                       </div>
                     </div>
 
-                    {[
-                      { label: text.jobTypes, items: lead.jobTypes, tone: 'border-indigo-200 bg-indigo-50 text-indigo-800 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-200' },
-                      { label: text.interestSignals, items: lead.interestSignals, tone: 'border-violet-200 bg-violet-50 text-violet-800 dark:border-violet-900 dark:bg-violet-950/30 dark:text-violet-200' },
-                      { label: text.spendingSignals, items: lead.spendingSignals, tone: 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200' },
-                      { label: text.hiringSignals, items: lead.hiringSignals, tone: 'border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200' },
-                      { label: text.competitorSignals, items: lead.competitorSignals, tone: 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200' },
-                    ].filter((group) => !isCompetitorLead(lead) && group.items?.length).map((group) => (
-                      <div key={group.label} className={`mt-4 rounded-2xl border p-3 text-sm ${group.tone}`}>
-                        <p className="text-xs font-black uppercase tracking-wider">{group.label}</p>
-                        <p className="mt-1 leading-6">{group.items?.join(' • ')}</p>
-                      </div>
-                    ))}
+                    {!isCompetitorLead(lead) && hasLeadSignals(lead) && (
+                      <details className="group mt-4 rounded-2xl border border-slate-200 bg-white/60 dark:border-slate-700 dark:bg-slate-900/40">
+                        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-xs font-black uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                          <span className="flex items-center gap-2"><TrendingUp size={15} className="text-emerald-500" />{text.needSignals}</span>
+                          <span className="text-base leading-none text-slate-400 transition group-open:rotate-45">+</span>
+                        </summary>
+                        <div className="border-t border-slate-100 px-4 pb-4 dark:border-slate-800">
+                          {!!lead.needSignals?.length && (
+                            <ul className="mt-3 space-y-2">
+                              {lead.needSignals.map((signal, signalIndex) => <li key={signalIndex} className="flex gap-2 text-sm leading-6 text-slate-600 dark:text-slate-300"><Check className="mt-1 shrink-0 text-emerald-500" size={15} />{signal}</li>)}
+                            </ul>
+                          )}
+                          {signalGroupsForLead(lead).map((group) => (
+                            <div key={group.label} className={`mt-3 rounded-xl border p-3 text-sm ${group.tone}`}>
+                              <p className="text-xs font-black uppercase tracking-wider">{group.label}</p>
+                              <p className="mt-1 leading-6">{group.items?.join(' • ')}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    )}
 
-                    {!isCompetitorLead(lead) && <div className="mt-5">
-                      <p className="text-xs font-black uppercase tracking-wider text-slate-400">{text.needSignals}</p>
-                      <ul className="mt-2 space-y-2">
-                        {lead.needSignals.map((signal, signalIndex) => <li key={signalIndex} className="flex gap-2 text-sm leading-6 text-slate-600 dark:text-slate-300"><Check className="mt-1 shrink-0 text-emerald-500" size={15} />{signal}</li>)}
-                      </ul>
-                    </div>}
-
-                    {!isCompetitorLead(lead) && <div className="mt-4 rounded-2xl bg-emerald-50 p-4 dark:bg-emerald-950/30">
+                    {!isCompetitorLead(lead) && !!lead.recommendedService && <div className="mt-4 rounded-2xl bg-emerald-50 p-4 dark:bg-emerald-950/30">
                       <p className="text-xs font-black uppercase tracking-wider text-emerald-700 dark:text-emerald-300">{text.recommendedService}</p>
                       <p className="mt-1 text-sm leading-6 text-emerald-900 dark:text-emerald-100">{lead.recommendedService}</p>
                     </div>}
@@ -1096,27 +1141,35 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                         )}
                       </div>
                     ) : (
-                      <div className="mt-4 rounded-2xl border border-brand-100 bg-white/70 p-4 dark:border-slate-700 dark:bg-slate-900/60">
-                        <div className="flex flex-wrap items-center gap-2 text-xs font-black uppercase tracking-wider text-brand-500">
-                          <MessageCircle size={15} />Inbox
-                          {businessName && <span className="rounded-full bg-brand-50 px-2 py-1 normal-case tracking-normal text-brand-700 dark:bg-slate-800 dark:text-brand-300">{isKm ? 'ផ្ញើពី' : 'From'} {businessName}</span>}
-                        </div>
-                        <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">{ensureBusinessInInboxMessage(lead.inboxMessage, businessName)}</p>
-                      </div>
+                      <details className="group mt-4 rounded-2xl border border-brand-100 bg-white/70 dark:border-slate-700 dark:bg-slate-900/60">
+                        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-xs font-black uppercase tracking-wider text-brand-500">
+                          <span className="flex flex-wrap items-center gap-2"><MessageCircle size={15} />Inbox {businessName && <span className="rounded-full bg-brand-50 px-2 py-1 normal-case tracking-normal text-brand-700 dark:bg-slate-800 dark:text-brand-300">{isKm ? 'ផ្ញើពី' : 'From'} {businessName}</span>}</span>
+                          <span className="text-base leading-none text-slate-400 transition group-open:rotate-45">+</span>
+                        </summary>
+                        <p className="border-t border-brand-50 px-4 py-3 text-sm leading-6 text-slate-600 dark:border-slate-800 dark:text-slate-300">{ensureBusinessInInboxMessage(lead.inboxMessage, businessName)}</p>
+                      </details>
                     )}
 
-                    <div className="mt-4 space-y-1 rounded-2xl border border-brand-100 bg-white/70 p-4 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300">
-                        <p className="mb-2 text-xs font-black uppercase tracking-wider text-slate-400">{text.publicContacts}</p>
+                    <details className="group mt-4 rounded-2xl border border-brand-100 bg-white/70 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300">
+                      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-300">
+                        <span className="flex items-center gap-2"><BriefcaseBusiness size={15} />{text.publicContacts}</span>
+                        <span className="flex min-w-0 items-center gap-3">
+                          {(lead.phone || lead.email) && <span className="hidden max-w-56 truncate font-medium normal-case tracking-normal text-slate-400 sm:block">{lead.phone || lead.email}</span>}
+                          <span className="text-base leading-none text-slate-400 transition group-open:rotate-45">+</span>
+                        </span>
+                      </summary>
+                      <div className="space-y-1.5 border-t border-brand-50 px-4 py-3 dark:border-slate-800">
                         <p><span className="font-bold text-slate-400">{text.companyName}: </span>{lead.businessName}</p>
                         {lead.address && <p><span className="font-bold text-slate-400">{text.address}: </span>{lead.address}</p>}
                         {lead.phone && <p><span className="font-bold text-slate-400">{text.call}: </span>{lead.phone}</p>}
-                        <p><span className="font-bold text-slate-400">{text.email}: </span>{lead.email ? <a className="font-semibold text-blue-600 hover:underline" href={`mailto:${lead.email}`}>{lead.email}</a> : <span className="text-slate-400">{text.notFoundPublic}</span>}</p>
-                        <p><span className="font-bold text-slate-400">{text.telegram}: </span>{lead.telegram ? (/^(?:https?:\/\/|@)/i.test(lead.telegram) ? <a className="font-semibold text-sky-600 hover:underline" href={lead.telegram.startsWith('@') ? `https://t.me/${lead.telegram.slice(1)}` : lead.telegram} target="_blank" rel="noopener noreferrer">{lead.telegram}</a> : lead.telegram) : <span className="text-slate-400">{text.notFoundPublic}</span>}</p>
-                        <p><span className="font-bold text-slate-400">{text.facebookPage}: </span>{lead.facebookUrl ? <a className="font-semibold text-blue-600 hover:underline" href={lead.facebookUrl} target="_blank" rel="noopener noreferrer">{lead.facebookPageName || lead.businessName}</a> : (lead.facebookPageName || <span className="text-slate-400">{text.notFoundPublic}</span>)}</p>
-                        <p><span className="font-bold text-slate-400">LinkedIn: </span>{lead.linkedinUrl ? <a className="font-semibold text-sky-700 hover:underline dark:text-sky-300" href={lead.linkedinUrl} target="_blank" rel="noopener noreferrer">{lead.businessName}</a> : <span className="text-slate-400">{text.notFoundPublic}</span>}</p>
-                    </div>
+                        {lead.email && <p><span className="font-bold text-slate-400">{text.email}: </span><a className="font-semibold text-blue-600 hover:underline" href={`mailto:${lead.email}`}>{lead.email}</a></p>}
+                        {lead.telegram && <p><span className="font-bold text-slate-400">{text.telegram}: </span>{/^(?:https?:\/\/|@)/i.test(lead.telegram) ? <a className="font-semibold text-sky-600 hover:underline" href={lead.telegram.startsWith('@') ? `https://t.me/${lead.telegram.slice(1)}` : lead.telegram} target="_blank" rel="noopener noreferrer">{lead.telegram}</a> : lead.telegram}</p>}
+                        {(lead.facebookUrl || lead.facebookPageName) && <p><span className="font-bold text-slate-400">{text.facebookPage}: </span>{lead.facebookUrl ? <a className="font-semibold text-blue-600 hover:underline" href={lead.facebookUrl} target="_blank" rel="noopener noreferrer">{lead.facebookPageName || lead.businessName}</a> : lead.facebookPageName}</p>}
+                        {lead.linkedinUrl && <p><span className="font-bold text-slate-400">LinkedIn: </span><a className="font-semibold text-sky-700 hover:underline dark:text-sky-300" href={lead.linkedinUrl} target="_blank" rel="noopener noreferrer">{lead.businessName}</a></p>}
+                      </div>
+                    </details>
 
-                    <div className="mt-4 flex flex-wrap gap-2">
+                    <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
                       {lead.facebookUrl && <a href={lead.facebookUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white"><ExternalLink size={14} />{text.viewPage}</a>}
                       {lead.linkedinUrl && <a href={lead.linkedinUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-sky-700 px-3 py-2 text-xs font-bold text-white"><ExternalLink size={14} />LinkedIn</a>}
                       {lead.evidenceSourceUrl && <a href={lead.evidenceSourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-brand-200 bg-white/70 px-3 py-2 text-xs font-bold text-brand-700 dark:bg-slate-900 dark:text-brand-300"><ExternalLink size={14} />{text.viewEvidence}</a>}
