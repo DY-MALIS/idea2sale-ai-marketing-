@@ -561,7 +561,7 @@ const attemptGenerateVideoClip = async (
   khmerSpeech?: { script: string; voiceGender: string; businessName?: string; performanceStyle?: string },
   idToken?: string,
   userId?: string,
-): Promise<{ videoUrl: string; narrationFallbackReason?: string; pendingFingerprint: string; expectedScript?: string }> => {
+): Promise<{ videoUrl: string; narrationFallbackReason?: string; pendingFingerprint: string; expectedScript?: string; outputAspectRatio: VideoAspectRatio }> => {
   if (!idToken || !userId) throw new Error('Sign in before generating a video.');
   const fingerprint = videoRequestFingerprint(prompt, images, duration, khmerSpeech?.script || '', aspectRatio);
   let pending = readPendingVideoJobs().find((job) => job.userId === userId && job.fingerprint === fingerprint);
@@ -578,7 +578,7 @@ const attemptGenerateVideoClip = async (
       narrationFallbackReason: data.narrationFallbackReason || undefined,
       usesProviderAudio: data.usesProviderAudio === true,
       expectedScript: data.spokenScript || khmerSpeech?.script || undefined,
-      aspectRatio,
+      aspectRatio: normalizeVideoAspectRatio(data.outputAspectRatio || aspectRatio),
       createdAt: Date.now(),
     };
     savePendingVideoJob(pending);
@@ -589,6 +589,7 @@ const attemptGenerateVideoClip = async (
     narrationFallbackReason: pending.narrationFallbackReason || undefined,
     pendingFingerprint: fingerprint,
     expectedScript: pending.expectedScript || undefined,
+    outputAspectRatio: normalizeVideoAspectRatio(pending.aspectRatio),
   };
 };
 
@@ -959,13 +960,9 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     // The interactive generator is intentionally landscape-first. Automated
     // jobs may still pass an explicit ratio, but a manual click must never reuse
     // stale TikTok state from a restored/history job.
-    const generationAspectRatio = aspectRatioOverride
-      ? normalizeVideoAspectRatio(aspectRatioOverride)
-      : '16:9';
-    if (!aspectRatioOverride) {
-      setVideoAspectRatio('16:9');
-      setCaptionPlatform('YouTube');
-    }
+    const generationAspectRatio: VideoAspectRatio = '16:9';
+    setVideoAspectRatio('16:9');
+    setCaptionPlatform('YouTube');
     setGeneratedVideoAspectRatio(generationAspectRatio);
     let voiceOverContent = (typeof voiceOverTextOverride === 'string' ? voiceOverTextOverride : (voiceOverEnabled ? voiceOverText : '')).trim();
     if (!promptText && !videoImages.length) return;
@@ -1040,6 +1037,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
           } : undefined,
           idToken,
           user.uid);
+        setGeneratedVideoAspectRatio(generatedClip.outputAspectRatio);
         let clip = generatedClip.videoUrl;
         if (generatedClip.narrationFallbackReason) usedKhmerVoiceFallback = true;
         // A fully silent result can be muted reliably by ImageKit after the

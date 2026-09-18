@@ -195,7 +195,10 @@ export const getVideoCaptionSpec = (value) => value === 'YouTube'
       instruction: 'Create a catchy TikTok caption with one clear CTA and 3-5 relevant hashtags. Keep it ready to post.',
     };
 
-export const resolveVideoAspectRatio = (value) => value === '16:9' ? '16:9' : '9:16';
+// Interactive video generation is landscape-only. Enforce this again on the
+// server so stale browser bundles, restored automation requests, or old 9:16
+// client state cannot start another paid portrait job.
+export const resolveVideoAspectRatio = () => '16:9';
 
 const businessContextFromBody = (body = {}) => {
   const source = body.businessContext && typeof body.businessContext === 'object' ? body.businessContext : body;
@@ -1685,6 +1688,7 @@ Return ONLY a single valid JSON object with this exact structure:
         });
         const responseBody = {
           ...job,
+          outputAspectRatio: aspectRatio,
           narrationAudioUrl: narrationAudio.mediaUrl,
           narrationProvider: narrationAudio.provider,
           narrationFallbackReason: narrationAudio.fallbackReason,
@@ -1719,7 +1723,7 @@ Return ONLY a single valid JSON object with this exact structure:
       } catch (jobStoreError) {
         console.error('Could not persist video job ownership; the authenticated owner may still resume it:', jobStoreError?.message || jobStoreError);
       }
-      return res.status(200).json(video);
+      return res.status(200).json({ ...video, outputAspectRatio: aspectRatio });
     }
 
     if (action === 'videoStatus') {

@@ -27,8 +27,8 @@ describe('getVideoCaptionSpec', () => {
 describe('resolveVideoAspectRatio', () => {
   it('keeps standard YouTube video horizontal while social short video stays portrait', () => {
     expect(resolveVideoAspectRatio('16:9')).toBe('16:9');
-    expect(resolveVideoAspectRatio('9:16')).toBe('9:16');
-    expect(resolveVideoAspectRatio('4:3')).toBe('9:16');
+    expect(resolveVideoAspectRatio('9:16')).toBe('16:9');
+    expect(resolveVideoAspectRatio('4:3')).toBe('16:9');
   });
 });
 
