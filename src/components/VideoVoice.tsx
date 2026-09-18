@@ -85,7 +85,6 @@ interface PendingVideoJob {
   jobId: string;
   narrationAudioUrl?: string;
   narrationFallbackReason?: string;
-  usesProviderAudio?: boolean;
   expectedScript?: string;
   aspectRatio?: VideoAspectRatio;
   createdAt: number;
@@ -541,7 +540,7 @@ const pollPendingVideoJob = async (pending: PendingVideoJob, idToken: string) =>
     }
     if (statusData.videoUrl) {
       const playableVideoUrl = normalizeImageKitVideoUrl(statusData.videoUrl);
-      return pending.narrationAudioUrl && !pending.usesProviderAudio
+      return pending.narrationAudioUrl
         // Older narration uploads were accidentally given image-only ImageKit
         // transformations. Strip those parameters so already-paid resumable
         // jobs can still fetch and mux their original MP3.
@@ -576,7 +575,6 @@ const attemptGenerateVideoClip = async (
       jobId: data.jobId,
       narrationAudioUrl: data.narrationAudioUrl || undefined,
       narrationFallbackReason: data.narrationFallbackReason || undefined,
-      usesProviderAudio: data.usesProviderAudio === true,
       expectedScript: data.spokenScript || khmerSpeech?.script || undefined,
       aspectRatio: normalizeVideoAspectRatio(data.outputAspectRatio || aspectRatio),
       createdAt: Date.now(),

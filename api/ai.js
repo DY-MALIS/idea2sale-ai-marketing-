@@ -1682,8 +1682,9 @@ Return ONLY a single valid JSON object with this exact structure:
           images,
           aspectRatio,
           // Render the referenced Khmer narration and mouth motion together in
-          // one audiovisual pass. Post-generation dubbing preserved the words
-          // but could leave the face articulating generic/English speech.
+          // one audiovisual pass. The browser still replaces the provider track
+          // with this exact reference afterward because some completed jobs omit
+          // their audio stream even when audio generation was requested.
           generateAudio: true,
         });
         const responseBody = {
@@ -1692,7 +1693,6 @@ Return ONLY a single valid JSON object with this exact structure:
           narrationAudioUrl: narrationAudio.mediaUrl,
           narrationProvider: narrationAudio.provider,
           narrationFallbackReason: narrationAudio.fallbackReason,
-          usesProviderAudio: true,
           spokenScript: narrationAudio.spokenText || speech.script,
         };
         try {
