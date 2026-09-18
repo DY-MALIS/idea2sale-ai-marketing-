@@ -369,7 +369,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
       { id: 'high_value', label: 'អ្នកមានសក្តានុពលចំណាយ', description: 'វាយតម្លៃពី premium positioning និងសកម្មភាពផ្សាយពាណិជ្ជកម្មសាធារណៈ', suggestions: ['អចលនទ្រព្យ premium', 'គ្លីនិកសម្ផស្ស', 'សណ្ឋាគារ និង resort'] },
       { id: 'construction', label: 'ម៉ៅការសំណង់', description: 'រកម៉ៅការ developer និងអ្នកផ្គត់ផ្គង់សំណង់', suggestions: ['ម៉ៅការសំណង់កម្ពុជា', 'Property developer Phnom Penh', 'អ្នកផ្គត់ផ្គង់សម្ភារៈសំណង់'] },
       { id: 'workers', label: 'ស្វែងរកជាង និងអ្នករកការងារ', description: 'រកអ្នកផ្តល់សេវា ក្រុមជាង freelancer និងអ្នកប្រកាសរកការងារតាមជំនាញ', suggestions: ['ជាងសង់ផ្ទះភ្នំពេញ', 'ជាងលាបថ្នាំកម្ពុជា', 'ជាងភ្លើងកំពុងរកការងារ', 'ជាងទឹកសៀមរាប', 'ក្រុមម៉ៅការសំណង់'] },
-      { id: 'competitor_activity', label: 'សកម្មភាពគូប្រកួត', description: 'វិភាគ content offer ad និងចំណុចខ្សោយសាធារណៈ', suggestions: ['ឈ្មោះ Page គូប្រកួត', 'គូប្រកួត skincare Cambodia', 'គូប្រកួតអចលនទ្រព្យ'] },
+      { id: 'competitor_activity', label: 'សកម្មភាពគូប្រកួត ៧ ថ្ងៃចុងក្រោយ', description: 'ស្វែងរក post, offer, ad, promotion និង campaign ដែលមានកាលបរិច្ឆេទ និងប្រភពច្បាស់', suggestions: ['ឈ្មោះ Page គូប្រកួត', 'គូប្រកួត skincare Cambodia', 'គូប្រកួតអចលនទ្រព្យ'] },
       { id: 'competitor_customers', label: 'អតិថិជនគូប្រកួត', description: 'រក customer segments និង buying triggers តាមសញ្ញាសាធារណៈ', suggestions: ['អតិថិជនរបស់ Page គូប្រកួត', 'customer reviews competitor', 'audience របស់គូប្រកួត'] },
       { id: 'hiring', label: 'ក្រុមហ៊ុនកំពុងរើសបុគ្គលិក', description: 'រកឈ្មោះក្រុមហ៊ុនដែលមានប្រកាសជ្រើសរើសថ្មីៗ និង link ភស្តុតាង', suggestions: ['ក្រុមហ៊ុនកំពុងរើសបុគ្គលិកកម្ពុជា', 'ក្រុមហ៊ុនរើស Sales', 'គ្លីនិករើសបុគ្គលិក', 'ការងារ Digital Marketing Cambodia', 'ក្រុមហ៊ុនរើស Marketing Manager'] },
     ],
@@ -463,7 +463,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
       { id: 'high_value', label: 'High-value prospects', description: 'Estimate potential from premium positioning and public ad activity', suggestions: ['premium real estate', 'aesthetic clinics', 'hotels and resorts'] },
       { id: 'construction', label: 'Construction contractors', description: 'Find contractors, developers and construction suppliers', suggestions: ['Cambodia construction contractors', 'Phnom Penh property developers', 'construction material suppliers'] },
       { id: 'workers', label: 'Find workers & job seekers', description: 'Find public service providers, trade teams, freelancers, and people publicly seeking work by skill', suggestions: ['house builders Phnom Penh', 'painters Cambodia', 'electricians seeking work', 'plumbers Siem Reap', 'construction contractor teams'] },
-      { id: 'competitor_activity', label: 'Competitor activity', description: 'Analyze public content, offers, ads and weaknesses', suggestions: ['competitor Page name', 'skincare competitors Cambodia', 'real estate competitors'] },
+      { id: 'competitor_activity', label: 'Competitor activity — last 7 days', description: 'Find dated public posts, offers, ads, promotions and campaigns with evidence links', suggestions: ['competitor Page name', 'skincare competitors Cambodia', 'real estate competitors'] },
       { id: 'competitor_customers', label: 'Competitor customers', description: 'Infer customer segments and buying triggers from public signals', suggestions: ['competitor Page customers', 'competitor customer reviews', 'competitor audience segments'] },
       { id: 'hiring', label: 'Companies hiring staff', description: 'Find named employers with recent public job posts and evidence links', suggestions: ['companies hiring staff Cambodia', 'companies hiring sales Cambodia', 'clinics hiring staff', 'digital marketing jobs Cambodia', 'hiring marketing manager'] },
     ],
@@ -760,7 +760,34 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                       <div><dt className="font-bold text-slate-400">{text.offer}</dt><dd className="mt-1 text-slate-700 dark:text-slate-200">{competitor.offerStrategy}</dd></div>
                       <div><dt className="font-bold text-rose-500">{text.weakness}</dt><dd className="mt-1 text-slate-700 dark:text-slate-200">{competitor.weakness}</dd></div>
                       <div className="rounded-2xl bg-emerald-50 p-3 dark:bg-emerald-950/30"><dt className="font-bold text-emerald-700 dark:text-emerald-300">{text.counter}</dt><dd className="mt-1 text-emerald-800 dark:text-emerald-100">{competitor.counterStrategy}</dd></div>
-                      {!!competitor.publicActivitySignals?.length && <div><dt className="font-bold text-slate-400">{text.publicActivity}</dt><dd className="mt-1 text-slate-700 dark:text-slate-200">{competitor.publicActivitySignals.join(' • ')}</dd></div>}
+                      <div className="rounded-2xl border border-indigo-200 bg-indigo-50/80 p-4 dark:border-indigo-900 dark:bg-indigo-950/30">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <dt className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-300">
+                            <CalendarDays size={15} />{text.recentActivityTitle}
+                          </dt>
+                          <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                            {result.activityWindow?.startDate || ''}{result.activityWindow ? ' – ' : ''}{result.activityWindow?.endDate || text.recentActivityThroughToday}
+                          </span>
+                        </div>
+                        <dd>
+                          {competitor.recentActivities?.length ? (
+                            <ul className="mt-3 space-y-3">
+                              {competitor.recentActivities.map((activity, activityIndex) => (
+                                <li key={`${activity.date}-${activity.sourceUrl}-${activityIndex}`} className="text-sm leading-6 text-slate-700 dark:text-slate-200">
+                                  <span className="mr-2 rounded-md bg-indigo-100 px-2 py-1 text-xs font-bold text-indigo-700 dark:bg-indigo-900 dark:text-indigo-200">{activity.date}</span>
+                                  {activity.activity}
+                                  <a href={activity.sourceUrl} target="_blank" rel="noopener noreferrer" className="ml-2 inline-flex items-center gap-1 font-bold text-blue-600 hover:underline">
+                                    <ExternalLink size={12} />{text.viewEvidence}
+                                  </a>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">{text.noRecentActivity}</p>
+                          )}
+                        </dd>
+                      </div>
+                      {!competitor.recentActivities?.length && !!competitor.publicActivitySignals?.length && <div><dt className="font-bold text-slate-400">{text.publicActivity}</dt><dd className="mt-1 text-slate-700 dark:text-slate-200">{competitor.publicActivitySignals.join(' • ')}</dd></div>}
                       {!!competitor.customerSegments?.length && <div><dt className="font-bold text-slate-400">{text.customerSegments}</dt><dd className="mt-1 text-slate-700 dark:text-slate-200">{competitor.customerSegments.join(' • ')}</dd></div>}
                       <div className="flex flex-wrap gap-3">
                         {competitor.linkedinUrl && <a href={competitor.linkedinUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 font-bold text-sky-700 hover:underline dark:text-sky-300"><ExternalLink size={14} />LinkedIn</a>}

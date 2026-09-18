@@ -1018,8 +1018,8 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
           instruction: 'Prioritize construction contractors, property developers, architects, engineering firms, and building-material suppliers that can be verified publicly.',
         },
         competitor_activity: {
-          searchHint: 'competitors advertisements offers campaigns content',
-          instruction: 'Prioritize verified competitor activity: public ads, content angles, offers, positioning, and actionable gaps. Clearly separate observed public evidence from inference.',
+          searchHint: 'competitors dated posts advertisements promotions offers campaigns launches events last 7 days',
+          instruction: 'Find what each competitor publicly did during the exact 7-day window ending today: dated posts, ads, promotions, offers, campaigns, launches, or events. Every reported activity must include its publication date and a direct public evidence URL. Clearly separate verified activity from positioning or inference.',
         },
         competitor_customers: {
           searchHint: 'competitor customer segments reviews audience needs',

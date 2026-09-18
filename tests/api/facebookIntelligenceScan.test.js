@@ -117,3 +117,65 @@ it('routes the workers scan mode through worker/trade web discovery end to end',
     }],
   });
 });
+
+it('returns dated competitor activity and its exact 7-day window', async () => {
+  mocks.researchCompetitors.mockImplementation(async ({ activityStartDate, activityEndDate }) => ({
+    competitors: [{
+      name: 'Verified Rival',
+      matchReason: 'Offers the same service to the same market.',
+      positioning: 'Premium local service',
+      sourceUrl: 'https://rival.example.com',
+      recentActivities: [{
+        date: activityEndDate,
+        activity: 'Published a seven-day promotional campaign.',
+        sourceUrl: 'https://rival.example.com/promotion',
+      }],
+    }],
+    entitySummary: 'A local service category.',
+  }));
+  mocks.text.mockResolvedValue(JSON.stringify({
+    customerInsights: { whatTheyBought: [], whatTheyLike: [], contentDesires: [], targetPersonas: [] },
+    competitors: [{ pageName: 'Verified Rival', topAngle: 'Premium service' }],
+    potentialLeads: [],
+    videoPlan: [],
+    summaryReport: 'Competitor activity scan.',
+  }));
+
+  const req = {
+    method: 'POST',
+    headers: {},
+    socket: { remoteAddress: '127.0.0.1' },
+    body: {
+      action: 'facebookIntelligenceScan',
+      query: 'local service competitors',
+      scanMode: 'competitor_activity',
+      countries: ['KH'],
+      days: 7,
+      language: 'en',
+    },
+  };
+  const res = responseRecorder();
+
+  await handler(req, res);
+
+  expect(res.statusCode).toBe(200);
+  expect(mocks.researchCompetitors).toHaveBeenCalledWith(expect.objectContaining({
+    query: 'local service competitors',
+    country: 'Cambodia',
+    activityStartDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    activityEndDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+  }));
+  expect((new Date(`${res.body.activityWindow.endDate}T00:00:00Z`) - new Date(`${res.body.activityWindow.startDate}T00:00:00Z`)) / 86_400_000).toBe(6);
+  expect(res.body).toMatchObject({
+    success: true,
+    scanMode: 'competitor_activity',
+    competitors: [{
+      pageName: 'Verified Rival',
+      recentActivities: [{
+        date: res.body.activityWindow.endDate,
+        activity: 'Published a seven-day promotional campaign.',
+        sourceUrl: 'https://rival.example.com/promotion',
+      }],
+    }],
+  });
+});
