@@ -13,16 +13,28 @@ installGlobalErrorReporting();
 // A deploy renames lazy-loaded chunk files (Vite content-hashes them), so a
 // tab left open across a deploy can try to fetch a chunk that no longer
 // exists on the server once the user navigates to a not-yet-loaded screen.
-// Vite fires this event instead of just rejecting the import -- reload once
-// to pick up the current build; the sessionStorage guard stops a real,
-// persistent network failure from reload-looping forever.
-const RELOAD_GUARD_KEY = 'vite-chunk-reload-attempted';
-sessionStorage.removeItem(RELOAD_GUARD_KEY);
-window.addEventListener('vite:preloadError', (event) => {
-  if (sessionStorage.getItem(RELOAD_GUARD_KEY)) return;
-  sessionStorage.setItem(RELOAD_GUARD_KEY, '1');
-  event.preventDefault();
+// Reload once to pick up the current build. The guard is a timestamp (not a
+// one-shot flag cleared on boot) and deliberately survives the reload via
+// sessionStorage, so a chunk that is still missing after the fresh load
+// (real outage, not a stale reference) falls through to the ErrorBoundary
+// instead of reload-looping forever; a genuinely new stale-chunk error
+// later in the same tab still gets its own retry once the cooldown passes.
+const CHUNK_RELOAD_GUARD_KEY = 'vite-chunk-reload-at';
+const CHUNK_RELOAD_COOLDOWN_MS = 15000;
+const reloadForStaleChunk = (): void => {
+  const lastAttempt = Number(sessionStorage.getItem(CHUNK_RELOAD_GUARD_KEY) || 0);
+  if (Date.now() - lastAttempt < CHUNK_RELOAD_COOLDOWN_MS) return;
+  sessionStorage.setItem(CHUNK_RELOAD_GUARD_KEY, String(Date.now()));
   window.location.reload();
+};
+window.addEventListener('vite:preloadError', (event) => {
+  event.preventDefault();
+  reloadForStaleChunk();
+});
+window.addEventListener('unhandledrejection', (event) => {
+  if (/failed to fetch dynamically imported module|error loading dynamically imported module/i.test(String(event.reason?.message || event.reason || ''))) {
+    reloadForStaleChunk();
+  }
 });
 
 createRoot(document.getElementById('root')!).render(
