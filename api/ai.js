@@ -1678,16 +1678,17 @@ Return ONLY a single valid JSON object with this exact structure:
           duration,
           images,
           aspectRatio,
-          // The browser adds this exact uploaded track after video generation.
-          // Asking Seedance to generate the output audio again can trip its
-          // copyright filter even though the narration was created by this app.
-          generateAudio: false,
+          // Render the referenced Khmer narration and mouth motion together in
+          // one audiovisual pass. Post-generation dubbing preserved the words
+          // but could leave the face articulating generic/English speech.
+          generateAudio: true,
         });
         const responseBody = {
           ...job,
           narrationAudioUrl: narrationAudio.mediaUrl,
           narrationProvider: narrationAudio.provider,
           narrationFallbackReason: narrationAudio.fallbackReason,
+          usesProviderAudio: true,
           spokenScript: narrationAudio.spokenText || speech.script,
         };
         try {

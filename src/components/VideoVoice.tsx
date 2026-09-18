@@ -85,6 +85,7 @@ interface PendingVideoJob {
   jobId: string;
   narrationAudioUrl?: string;
   narrationFallbackReason?: string;
+  usesProviderAudio?: boolean;
   expectedScript?: string;
   aspectRatio?: VideoAspectRatio;
   createdAt: number;
@@ -540,7 +541,7 @@ const pollPendingVideoJob = async (pending: PendingVideoJob, idToken: string) =>
     }
     if (statusData.videoUrl) {
       const playableVideoUrl = normalizeImageKitVideoUrl(statusData.videoUrl);
-      return pending.narrationAudioUrl
+      return pending.narrationAudioUrl && !pending.usesProviderAudio
         // Older narration uploads were accidentally given image-only ImageKit
         // transformations. Strip those parameters so already-paid resumable
         // jobs can still fetch and mux their original MP3.
@@ -575,6 +576,7 @@ const attemptGenerateVideoClip = async (
       jobId: data.jobId,
       narrationAudioUrl: data.narrationAudioUrl || undefined,
       narrationFallbackReason: data.narrationFallbackReason || undefined,
+      usesProviderAudio: data.usesProviderAudio === true,
       expectedScript: data.spokenScript || khmerSpeech?.script || undefined,
       aspectRatio,
       createdAt: Date.now(),
@@ -954,7 +956,16 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     if (loading || audioLoading) return;
     const promptText = typeof promptOverride === 'string' ? promptOverride.trim() : videoPrompt.trim();
     const generationLanguage = languageOverride || videoLanguage;
-    const generationAspectRatio = normalizeVideoAspectRatio(aspectRatioOverride || videoAspectRatio);
+    // The interactive generator is intentionally landscape-first. Automated
+    // jobs may still pass an explicit ratio, but a manual click must never reuse
+    // stale TikTok state from a restored/history job.
+    const generationAspectRatio = aspectRatioOverride
+      ? normalizeVideoAspectRatio(aspectRatioOverride)
+      : '16:9';
+    if (!aspectRatioOverride) {
+      setVideoAspectRatio('16:9');
+      setCaptionPlatform('YouTube');
+    }
     setGeneratedVideoAspectRatio(generationAspectRatio);
     let voiceOverContent = (typeof voiceOverTextOverride === 'string' ? voiceOverTextOverride : (voiceOverEnabled ? voiceOverText : '')).trim();
     if (!promptText && !videoImages.length) return;
@@ -1500,24 +1511,8 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                   <label className="text-[10px] font-bold uppercase tracking-widest text-brand-400">
                     {language === 'km' ? 'Platform និងទម្រង់វីដេអូ' : 'Platform and video format'}
                   </label>
-                  <div className="grid grid-cols-2 gap-2 rounded-2xl border border-brand-100 bg-brand-50 p-1.5 dark:border-slate-700 dark:bg-slate-800">
-                    {(['YouTube', 'TikTok'] as const).map((platform) => (
-                      <button
-                        key={platform}
-                        type="button"
-                        onClick={() => selectVideoPlatform(platform)}
-                        className={cn(
-                          'rounded-xl px-3 py-3 text-xs font-black transition-all',
-                          captionPlatform === platform
-                            ? 'bg-white text-brand-700 shadow-md dark:bg-slate-700 dark:text-brand-300'
-                            : 'text-brand-400 hover:text-brand-700',
-                        )}
-                      >
-                        {platform === 'YouTube'
-                          ? (language === 'km' ? 'YouTube ផ្ដេក 16:9' : 'YouTube landscape 16:9')
-                          : (language === 'km' ? 'TikTok បញ្ឈរ 9:16' : 'TikTok portrait 9:16')}
-                      </button>
-                    ))}
+                  <div className="rounded-2xl border border-brand-200 bg-brand-50 p-4 text-center text-sm font-black text-brand-700 shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-brand-300">
+                    {language === 'km' ? 'ទម្រង់ផ្ដេក 16:9 (ចាក់សោ)' : 'Landscape 16:9 (locked)'}
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -1860,9 +1855,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                 {loading || audioLoading
                   ? t('generating')
                   : activeTool === 'video'
-                    ? (captionPlatform === 'YouTube'
-                      ? (language === 'km' ? 'បង្កើតវីដេអូ YouTube ផ្ដេក 16:9' : 'Generate YouTube landscape 16:9')
-                      : (language === 'km' ? 'បង្កើតវីដេអូ TikTok បញ្ឈរ 9:16' : 'Generate TikTok portrait 9:16'))
+                    ? (language === 'km' ? 'បង្កើតវីដេអូផ្ដេក 16:9' : 'Generate landscape video 16:9')
                     : t('generateWithAi')}
               </span>
             </button>

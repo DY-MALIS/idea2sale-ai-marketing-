@@ -37,7 +37,7 @@ it('uses the same measured audio and supplied portrait for manual video lip sync
   expect(result.narrationAudio.mediaUrl).toBe('https://audio');
   expect(result.narrationAudio.provider).toBe('gemini');
 });
-it('can keep the Seedance result silent for client-side narration muxing', async () => {
+it('can render the narration and lip motion together when provider audio is requested', async () => {
   mocks.speech.mockResolvedValue({ audioUrl: 'audio-data', duration: 3.4, provider: 'gemini' });
   mocks.video.mockResolvedValue({ jobId: 'job' });
   const upload = uploadStub();
@@ -46,12 +46,12 @@ it('can keep the Seedance result silent for client-side narration muxing', async
     { voiceGender: 'Female' },
     { script: 'សួស្តី', prompt: 'Presenter', motionPrompt: 'Normal speed' },
     upload,
-    { duration: 4, images: [{ mimeType: 'image/png', base64: 'AAAA' }], generateAudio: false },
+    { duration: 4, images: [{ mimeType: 'image/png', base64: 'AAAA' }], generateAudio: true },
   );
 
   expect(mocks.video).toHaveBeenCalledWith(expect.objectContaining({
     audioReferenceUrls: ['https://audio'],
-    generateAudio: false,
+    generateAudio: true,
   }));
 });
 it('expands a short requested clip instead of rejecting an appropriate script', async () => {
