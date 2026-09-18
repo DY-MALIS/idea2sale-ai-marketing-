@@ -396,7 +396,20 @@ const UsedEmailsButton: React.FC = () => {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'Could not load emails.');
       const users: AdminUserSummary[] = Array.isArray(data.users) ? data.users : [];
-      setEmails(users.map((u) => u.email).filter((email): email is string => !!email));
+      // listUsers() returns one row per Firebase Auth UID, and the same email
+      // can end up on more than one UID (e.g. a deleted-and-recreated account,
+      // or a second identity that was never linked) -- dedupe by lowercased
+      // email so this quick view answers "which emails" rather than "how many
+      // sign-in records".
+      const rawEmails = users.map((u) => u.email).filter((email): email is string => !!email);
+      const seen = new Set<string>();
+      const uniqueEmails = rawEmails.filter((email) => {
+        const key = email.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      }).sort((a, b) => a.localeCompare(b));
+      setEmails(uniqueEmails);
     } catch (loadError: any) {
       setError(loadError?.message || 'Could not load emails.');
     } finally {
