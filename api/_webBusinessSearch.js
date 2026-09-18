@@ -16,6 +16,7 @@
 import { generateOpenRouterWebSearch } from './_openrouter.js';
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
+import { isSupportedPublicSocialUrl } from './_socialUrls.js';
 
 const MAX_BUSINESS_CANDIDATES = 75;
 const URL_VERIFICATION_CONCURRENCY = 8;
@@ -325,12 +326,21 @@ If you find no real businesses, return {"businesses": []}.`;
   const candidates = [...candidateMap.values()].slice(0, MAX_BUSINESS_CANDIDATES);
 
   const verified = await mapWithConcurrency(candidates, URL_VERIFICATION_CONCURRENCY, async (item) => {
+    // Public social networks commonly reject server-side HEAD/GET checks even
+    // for genuine public pages (anti-bot responses), and a Facebook Page is
+    // very often the only "website" a small Cambodian business has -- so
+    // requiring a passing HTTP check here was silently dropping real,
+    // findable businesses. A URL already matching a supported platform's real
+    // public-page shape is trusted on its shape instead; ordinary web sources
+    // still require a real HTTP check.
     const checkUrl = item.sourceUrl || item.website;
-    const reachable = checkUrl ? await urlIsReachable(checkUrl) : false;
+    const reachable = checkUrl
+      ? (isSupportedPublicSocialUrl(checkUrl) || await urlIsReachable(checkUrl))
+      : false;
     if (!reachable) return null;
     const activityChecks = [];
     for (const activity of item.recentActivities || []) {
-      if (await urlIsReachable(activity.sourceUrl)) activityChecks.push(activity);
+      if (isSupportedPublicSocialUrl(activity.sourceUrl) || await urlIsReachable(activity.sourceUrl)) activityChecks.push(activity);
     }
     return activityWindow ? { ...item, recentActivities: activityChecks } : item;
   });

@@ -182,6 +182,39 @@ it('revalidates every redirect and blocks a public URL redirecting to a private 
   expect(fetch).toHaveBeenCalledTimes(1);
 });
 
+it('keeps a business whose Facebook Page is its only source even when the page blocks server-side fetches', async () => {
+  mocks.webSearch.mockResolvedValue({
+    content: JSON.stringify({
+      businesses: [{
+        name: 'Small Shop',
+        businessType: 'Retail',
+        sourceUrl: 'https://www.facebook.com/smallshop.kh',
+      }],
+    }),
+  });
+  // Facebook returning 403 to a server-side HEAD/GET is the real-world anti-bot
+  // behavior this test guards against silently filtering out.
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 403 })));
+
+  const businesses = await searchBusinessesOnWeb({ searchTerms: 'small shops' });
+
+  expect(businesses).toHaveLength(1);
+  expect(businesses[0].businessName).toBe('Small Shop');
+});
+
+it('still drops an ordinary website that fails its HTTP check', async () => {
+  mocks.webSearch.mockResolvedValue({
+    content: JSON.stringify({
+      businesses: [{ name: 'Dead Site Co', sourceUrl: 'https://dead-site.example.com' }],
+    }),
+  });
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404 })));
+
+  const businesses = await searchBusinessesOnWeb({ searchTerms: 'shops' });
+
+  expect(businesses).toHaveLength(0);
+});
+
 it('caps and throttles business URL verification for oversized model responses', async () => {
   const businesses = Array.from({ length: 90 }, (_, index) => ({
     name: `Business ${index + 1}`,

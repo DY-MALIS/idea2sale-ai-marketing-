@@ -7,6 +7,9 @@
 // come from an actual, independently-checked source URL.
 import { generateOpenRouterWebSearch } from './_openrouter.js';
 import { urlIsReachable } from './_webBusinessSearch.js';
+import { socialPlatformFromUrl, validFacebookUrl, validTikTokUrl, validLinkedInUrl, isSupportedPublicSocialUrl } from './_socialUrls.js';
+
+export { socialPlatformFromUrl };
 
 const MAX_COMPETITOR_CANDIDATES = 75;
 const URL_VERIFICATION_CONCURRENCY = 8;
@@ -33,30 +36,6 @@ const jsonFromText = (text) => {
     return {};
   }
 };
-
-export const socialPlatformFromUrl = (value) => {
-  try {
-    const { hostname } = new URL(String(value || ''));
-    const host = hostname.toLowerCase().replace(/^www\./, '');
-    if (host === 'facebook.com' || host === 'm.facebook.com' || host === 'fb.com') return 'Facebook';
-    if (host === 'tiktok.com' || host.endsWith('.tiktok.com')) return 'TikTok';
-    if (host === 'linkedin.com' || host.endsWith('.linkedin.com')) return 'LinkedIn';
-  } catch {
-    // Non-URLs are treated as ordinary web evidence and rejected downstream.
-  }
-  return 'Web';
-};
-
-const validFacebookUrl = (value) => /^https:\/\/(?:(?:www|m)\.)?(?:facebook\.com|fb\.com)\/(?!profile\.php(?:\?|$))[^\s]+/i.test(value);
-const validTikTokUrl = (value) => /^https:\/\/(?:www\.)?tiktok\.com\/@[^/?#\s]+(?:[/?#][^\s]*)?$/i.test(value);
-const validLinkedInUrl = (value) => /^https:\/\/(?:[a-z0-9-]+\.)?linkedin\.com\/(?:company|school|showcase)\//i.test(value);
-const validLinkedInPostUrl = (value) => /^https:\/\/(?:[a-z0-9-]+\.)?linkedin\.com\/(?:posts\/|feed\/update\/)/i.test(value);
-const isSupportedPublicSocialUrl = (value) => (
-  validFacebookUrl(value)
-  || validTikTokUrl(value)
-  || validLinkedInUrl(value)
-  || validLinkedInPostUrl(value)
-);
 
 export async function researchCompetitors({ query, country = 'Cambodia', activityStartDate = '', activityEndDate = '', exhaustive = true }) {
   const hasActivityWindow = /^\d{4}-\d{2}-\d{2}$/.test(activityStartDate)
