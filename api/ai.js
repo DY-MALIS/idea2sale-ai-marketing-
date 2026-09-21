@@ -110,6 +110,31 @@ export const classifyScanMode = (query) => {
   return 'customer';
 };
 
+const KHMER_DIGITS = '០១២៣៤៥៦៧៨៩';
+const toArabicDigits = (value) => String(value || '').replace(/[០-៩]/g, (digit) => String(KHMER_DIGITS.indexOf(digit)));
+
+const LEAD_COUNT_NOUN = '(?:ក្រុមហ៊ុន|អតិថិជន|គូប្រកួត|គូប្រជែង|ដៃគូ|leads?|companies?|customers?|businesses?|competitors?|prospects?|results?)';
+const LEAD_COUNT_VERB = '(?:ស្វែងរក|រក|find|search(?:\\s+for)?|top|show(?:\\s+me)?|give\\s+me)';
+
+// Lets someone type a count right in the search box ("ស្វែងរកអតិថិជន ១០
+// ក្រុមហ៊ុន", "find 15 companies") instead of needing a separate control for
+// it -- capped to a sane range so a stray unrelated number in the query
+// (a price, a year, a phone-number fragment) can't be misread as a huge
+// requested count.
+export const extractRequestedLeadCount = (query) => {
+  const text = toArabicDigits(query);
+  const match = text.match(new RegExp(`(\\d{1,3})\\s*${LEAD_COUNT_NOUN}`, 'i'))
+    || text.match(new RegExp(`${LEAD_COUNT_VERB}\\s*(\\d{1,3})\\s*${LEAD_COUNT_NOUN}`, 'i'))
+    || text.match(new RegExp(`${LEAD_COUNT_NOUN}\\s*(\\d{1,3})`, 'i'));
+  const count = match ? Number(match[1]) : 0;
+  return count > 0 && count <= 50 ? count : 0;
+};
+
+// Applied when the query didn't name a count, so results stay a curated,
+// response-size-safe list of the most prominent verified matches instead of
+// an unbounded dump of everything the web search happened to turn up.
+export const DEFAULT_SCAN_ENTITY_CAP = 15;
+
 export const resolveFacebookScanMode = (value, query = '') => {
   const requested = String(value || '').trim();
   if (requested && FACEBOOK_SCAN_MODES.includes(requested)) return requested;
@@ -1035,6 +1060,10 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
       const userBusinessName = String(req.body?.businessName || '').trim().slice(0, 120);
       const isKhmer = containsKhmerScript(query) || languageCode === 'km';
       const outputLanguage = isKhmer ? 'Khmer' : 'English';
+      // A count typed right in the query ("find 10 companies") is honored
+      // exactly; otherwise results stay capped to a curated top set instead
+      // of an unbounded dump of every verified match.
+      const entityCap = extractRequestedLeadCount(query) || DEFAULT_SCAN_ENTITY_CAP;
       const countries = (Array.isArray(req.body?.countries) ? req.body.countries : ['KH'])
         .map((code) => String(code).trim().toUpperCase())
         .filter((code) => /^[A-Z]{2}$/.test(code))
@@ -1163,6 +1192,7 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
       } else {
         console.warn('OpenRouter web business search failed or skipped:', webSearchSettled.reason?.message);
       }
+      rawWebBusinesses = rawWebBusinesses.slice(0, entityCap);
 
       let xContext = '';
       if (xContextSettled.status === 'fulfilled') {
@@ -1211,6 +1241,7 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
         targetEntitySummary = ownBusinessResearchSettled.value.entitySummary || targetEntitySummary;
         competitorResearchTarget = userBusinessName;
       }
+      verifiedCompetitors = verifiedCompetitors.slice(0, entityCap);
 
       let verifiedMarketTrends = [];
       if (marketTrendResearchSettled.status === 'fulfilled') {

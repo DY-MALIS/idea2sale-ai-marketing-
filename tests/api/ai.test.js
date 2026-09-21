@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   classifyScanMode,
+  DEFAULT_SCAN_ENTITY_CAP,
   ensureBusinessInInboxMessage,
+  extractRequestedLeadCount,
   FACEBOOK_SCAN_MODES,
   getFacebookCompetitorActivityWindow,
   getAiRateLimitPolicy,
@@ -116,6 +118,29 @@ describe('classifyScanMode', () => {
     expect(classifyScanMode('ភោជនីយដ្ឋានភ្នំពេញ')).toBe('customer');
     expect(classifyScanMode('')).toBe('customer');
     expect(classifyScanMode(undefined)).toBe('customer');
+  });
+});
+
+describe('extractRequestedLeadCount', () => {
+  it('reads a count typed directly in the query, in Khmer or English, either word order', () => {
+    expect(extractRequestedLeadCount('ស្វែងរកអតិថិជន ១០ ក្រុមហ៊ុន')).toBe(10);
+    expect(extractRequestedLeadCount('find 15 companies for skincare')).toBe(15);
+    expect(extractRequestedLeadCount('top 20 leads for real estate')).toBe(20);
+  });
+
+  it('ignores an unrelated number and falls back to no explicit count', () => {
+    expect(extractRequestedLeadCount('ភោជនីយដ្ឋានភ្នំពេញ')).toBe(0);
+    expect(extractRequestedLeadCount('restaurant open since 2015')).toBe(0);
+    expect(extractRequestedLeadCount('')).toBe(0);
+  });
+
+  it('rejects an implausibly large count instead of trusting it verbatim', () => {
+    expect(extractRequestedLeadCount('find 500 companies')).toBe(0);
+  });
+
+  it('keeps a sane default cap for when no count is specified', () => {
+    expect(DEFAULT_SCAN_ENTITY_CAP).toBeGreaterThan(0);
+    expect(DEFAULT_SCAN_ENTITY_CAP).toBeLessThanOrEqual(25);
   });
 });
 
