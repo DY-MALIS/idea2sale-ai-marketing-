@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  classifyScanMode,
   ensureBusinessInInboxMessage,
   FACEBOOK_SCAN_MODES,
   getFacebookCompetitorActivityWindow,
@@ -74,9 +75,47 @@ describe('resolveFacebookScanMode', () => {
     }
   });
 
-  it('falls back safely when a client submits an unknown mode', () => {
+  it('falls back safely when a client submits an unknown mode and no query to classify from', () => {
     expect(resolveFacebookScanMode('private_profiles')).toBe('customer');
     expect(resolveFacebookScanMode(undefined)).toBe('customer');
+  });
+
+  it('classifies an unset/auto mode from the free-text query instead of forcing a manual tab pick', () => {
+    expect(resolveFacebookScanMode('auto', 'ក្រុមហ៊ុនកំពុងរើសបុគ្គលិក Sales')).toBe('hiring');
+    expect(resolveFacebookScanMode(undefined, 'companies hiring marketing staff')).toBe('hiring');
+    expect(resolveFacebookScanMode('', 'trend skincare Cambodia this week')).toBe('market_trends');
+  });
+
+  it('still honors an explicit manual tab selection over what the query text would suggest', () => {
+    expect(resolveFacebookScanMode('customer', 'ក្រុមហ៊ុនកំពុងរើសបុគ្គលិក Sales')).toBe('customer');
+  });
+});
+
+describe('classifyScanMode', () => {
+  it('detects hiring intent before the broader competitor keyword', () => {
+    expect(classifyScanMode('ក្រុមហ៊ុនកំពុងរើសបុគ្គលិក Marketing Manager')).toBe('hiring');
+    expect(classifyScanMode('companies hiring sales staff')).toBe('hiring');
+  });
+
+  it('distinguishes a competitor\'s customers from general competitor activity', () => {
+    expect(classifyScanMode('អតិថិជនរបស់គូប្រកួត Page នេះ')).toBe('competitor_customers');
+    expect(classifyScanMode('who are the customers of my competitor')).toBe('competitor_customers');
+    expect(classifyScanMode('គូប្រកួត skincare Cambodia')).toBe('competitor_activity');
+    expect(classifyScanMode('what did my competitor post this week')).toBe('competitor_activity');
+  });
+
+  it('detects trend, AI-interest, high-value, construction, and worker/freelancer intents', () => {
+    expect(classifyScanMode('trend AI កម្ពុជា')).toBe('market_trends');
+    expect(classifyScanMode('អាជីវកម្មចាប់អារម្មណ៍ AI និង automation')).toBe('ai_interest');
+    expect(classifyScanMode('អចលនទ្រព្យ premium resort')).toBe('high_value');
+    expect(classifyScanMode('ក្រុមហ៊ុនសំណង់ property developer Phnom Penh')).toBe('construction');
+    expect(classifyScanMode('ជាងលាបថ្នាំ freelancer រកការងារ')).toBe('workers');
+  });
+
+  it('falls back to a general customer search when nothing matches', () => {
+    expect(classifyScanMode('ភោជនីយដ្ឋានភ្នំពេញ')).toBe('customer');
+    expect(classifyScanMode('')).toBe('customer');
+    expect(classifyScanMode(undefined)).toBe('customer');
   });
 });
 

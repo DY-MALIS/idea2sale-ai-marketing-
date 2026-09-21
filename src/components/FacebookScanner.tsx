@@ -9,6 +9,7 @@ import {
   Building2,
   CalendarDays,
   Check,
+  ChevronDown,
   Clock3,
   Copy,
   ExternalLink,
@@ -80,6 +81,12 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
   const [country, setCountry] = useState('KH');
   const [days, setDays] = useState(7);
   const [scanMode, setScanMode] = useState<ScanMode>('customer');
+  // The scanner defaults to auto-detecting intent from the query text (see
+  // scan() below) instead of forcing a manual category pick first. This only
+  // flips true once the person actually touches a category/mode control, so
+  // their explicit choice is respected instead of being silently overridden.
+  const [modeExplicit, setModeExplicit] = useState(false);
+  const [showModeOptions, setShowModeOptions] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<FacebookScanResult | null>(null);
@@ -392,6 +399,9 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     customerCategoryDesc: 'ស្វែងរកតាមឈ្មោះ ប្រភេទអតិថិជន ក្រុមហ៊ុន វិស័យ ទីតាំង ឬតម្រូវការ',
     competitorCategory: 'វិភាគដៃគូប្រកួតប្រជែង',
     competitorCategoryDesc: 'តាមដានសកម្មភាព និងអតិថិជនរបស់គូប្រជែង',
+    autoModeHint: 'គ្រាន់តែវាយអ្វីដែលអ្នកកំពុងស្វែងរក — AI នឹងកំណត់ប្រភេទសមស្របដោយខ្លួនឯង (អតិថិជន, គូប្រកួត, និន្នាការទីផ្សារ, ការជ្រើសរើសបុគ្គលិក និងជម្រើសផ្សេងទៀត)។',
+    manualModeToggleShow: 'កំណត់ប្រភេទស្វែងរកដោយដៃ (ស្រេចចិត្ត)',
+    manualModeToggleHide: 'លាក់ជម្រើសកំណត់ដោយដៃ',
     score: 'ពិន្ទុសក្តានុពល',
     interestSignals: 'សញ្ញាចាប់អារម្មណ៍ AI/សេវាកម្ម',
     spendingSignals: 'សញ្ញាសមត្ថភាពចំណាយ (ការប៉ាន់ស្មាន)',
@@ -501,6 +511,9 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     customerCategoryDesc: 'Search by name, customer type, company, industry, location, or need',
     competitorCategory: 'Research competitors',
     competitorCategoryDesc: 'Track competitor activity and customer segments',
+    autoModeHint: "Just type what you're looking for — AI figures out the right search type automatically (customers, competitors, market trends, hiring, and more).",
+    manualModeToggleShow: 'Choose a search type manually (optional)',
+    manualModeToggleHide: 'Hide manual options',
     score: 'Opportunity score',
     interestSignals: 'AI/service interest signals',
     spendingSignals: 'Estimated spending-potential signals',
@@ -556,6 +569,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
 
   const selectScanCategory = (category: 'customer' | 'competitor') => {
     setScanMode(category === 'competitor' ? 'competitor_activity' : 'customer');
+    setModeExplicit(true);
     setResult(null);
     setComparisonBaseline(null);
     setError('');
@@ -563,6 +577,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
 
   const selectScanMode = (mode: ScanMode) => {
     setScanMode(mode);
+    setModeExplicit(true);
     setResult(null);
     setComparisonBaseline(null);
     setError('');
@@ -603,7 +618,10 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
         body: JSON.stringify({
           action: 'facebookIntelligenceScan',
           query: cleanQuery,
-          scanMode,
+          // Only send an explicit category the person actually picked -- by
+          // default the server infers the right search type from the query
+          // text itself, so nothing has to be pre-selected before scanning.
+          scanMode: modeExplicit ? scanMode : 'auto',
           countries: [country],
           days,
           language,
@@ -614,7 +632,11 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data?.error || 'Facebook research could not be completed.');
       setResult(data as FacebookScanResult);
-      setComparisonBaseline(scanMode === 'competitor_activity'
+      // The server resolves 'auto' into a concrete mode and returns it on the
+      // result -- prefer that over local state, which may still say the
+      // default ('customer') when nothing was manually picked.
+      const resolvedMode = (data?.scanMode as ScanMode) || scanMode;
+      setComparisonBaseline(resolvedMode === 'competitor_activity'
         ? findPreviousCompetitorCapture(cleanQuery, country)
         : null);
       setDeselectedLeads(new Set());
@@ -625,10 +647,10 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
       void saveGenerationHistory({
         user, isDemoMode, type: 'facebook_scan',
         title: cleanQuery,
-        summary: scanMode === 'competitor_activity'
+        summary: resolvedMode === 'competitor_activity'
           ? (isKm ? `ចាប់យកបាន ${activityCount} សកម្មភាពក្នុង ៧ ថ្ងៃ` : `${activityCount} competitor activit${activityCount === 1 ? 'y' : 'ies'} captured in 7 days`)
           : (isKm ? `Lead ចំនួន ${leadCount}` : `${leadCount} lead${leadCount === 1 ? '' : 's'} found`),
-        payload: { query: cleanQuery, country, days, scanMode, result: data },
+        payload: { query: cleanQuery, country, days, scanMode: resolvedMode, result: data },
       }).catch((historyError) => console.error('Failed to save scan history:', historyError));
     } catch (scanError: any) {
       setError(scanError?.message || (isKm ? 'មិនអាចវិភាគបានទេ។ សូមព្យាយាមម្តងទៀត។' : 'The scan failed. Please try again.'));
@@ -651,6 +673,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
       if (typeof payload.days === 'number') setDays(payload.days);
       if (typeof payload.scanMode === 'string' && text.modeOptions.some((option) => option.id === payload.scanMode)) {
         setScanMode(payload.scanMode as ScanMode);
+        setModeExplicit(true);
       }
       const raw = payload.result as Partial<FacebookScanResult> | undefined;
       const normalized = normalizeFacebookScanHistoryResult(raw);
@@ -785,6 +808,24 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
             <h3 className="text-sm font-black uppercase tracking-wider text-brand-700 dark:text-brand-300">{text.scanType}</h3>
             <span className="max-w-2xl text-xs leading-5 text-slate-500 dark:text-slate-400">{text.privacyScope}</span>
           </div>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-brand-100 bg-white/55 px-4 py-3 dark:border-slate-700 dark:bg-slate-900/40">
+            <div className="flex items-center gap-2">
+              <Sparkles className="shrink-0 text-brand-500" size={18} />
+              <p className="text-xs leading-5 text-slate-600 dark:text-slate-300">
+                {modeExplicit ? activeScanMode.description : text.autoModeHint}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowModeOptions((prev) => !prev)}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-brand-700 transition hover:bg-brand-50 dark:text-brand-300 dark:hover:bg-slate-800"
+            >
+              {showModeOptions ? text.manualModeToggleHide : text.manualModeToggleShow}
+              <ChevronDown size={14} className={`transition-transform ${showModeOptions ? 'rotate-180' : ''}`} />
+            </button>
+          </div>
+          {showModeOptions && (
+          <>
           <div className="mb-4 grid gap-3 sm:grid-cols-2">
             <button
               type="button"
@@ -826,6 +867,8 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
             </div>
             <p className="mt-2 px-1 text-xs leading-5 text-slate-500 dark:text-slate-400">{activeScanMode.description}</p>
           </div>
+          </>
+          )}
         </div>
         <div className="grid gap-5 lg:grid-cols-[1fr_190px_150px]">
           <label className="space-y-2">

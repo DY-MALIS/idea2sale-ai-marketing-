@@ -87,9 +87,33 @@ export const FACEBOOK_SCAN_MODES = Object.freeze([
   'hiring',
 ]);
 
-export const resolveFacebookScanMode = (value) => {
-  const requested = String(value || 'customer');
-  return FACEBOOK_SCAN_MODES.includes(requested) ? requested : 'customer';
+// Ordered most-specific-first: each entry's pattern is checked in turn and the
+// first match wins, so a query naming a narrow intent (hiring, a competitor's
+// customers) is not swallowed by a broader one (competitor activity, generic
+// customer search) that happens to share a keyword.
+const SCAN_MODE_CLASSIFIER_RULES = [
+  ['hiring', /(?:រើសបុគ្គលិក|ជ្រើសរើស(?:បុគ្គលិក|ថ្មី)?|hiring|recruit(?:ing|ment)?|job\s*vacan|vacancy|is\s+hiring|looking\s+for\s+staff)/i],
+  ['competitor_customers', /(?:អតិថិជន(?:របស់)?គូប្រកួត|អតិថិជនគូប្រជែង|customer[s]?\s+of\s+(?:a\s+|my\s+)?competitor|competitor['’]?s\s+customer|competitor\s+audience)/i],
+  ['competitor_activity', /(?:គូប្រកួត|ប្រកួតប្រជែង|ប្រកូដប្រជែង|\bcompetitor(?:s)?\b|\brival(?:s)?\b)/i],
+  ['market_trends', /(?:រលកទីផ្សារ|ត្រេន|ពេញនិយមកំពុង|កំពុងកើនឡើង|\btrend(?:s|ing)?\b|\bviral\b|market\s+wave)/i],
+  ['ai_interest', /(?:ចាប់អារម្មណ៍\s*AI|\bAI\b|automation|digital\s+transformation|\bchatbot\b)/i],
+  ['high_value', /(?:សក្តានុពលចំណាយ|\bpremium\b|\bluxury\b|high[\s-]?value|high[\s-]?end|\bresort\b)/i],
+  ['construction', /(?:សំណង់|ម៉ៅការសំណង់|\bconstruction\b|property\s+developer|building\s+material|material\s+supplier)/i],
+  ['workers', /(?:ជាង\S*|អ្នករកការងារ|រកការងារ|\bfreelancer(?:s)?\b|contractor\s+team|tradesperson|available\s+for\s+work)/i],
+];
+
+export const classifyScanMode = (query) => {
+  const text = String(query || '');
+  for (const [mode, pattern] of SCAN_MODE_CLASSIFIER_RULES) {
+    if (pattern.test(text)) return mode;
+  }
+  return 'customer';
+};
+
+export const resolveFacebookScanMode = (value, query = '') => {
+  const requested = String(value || '').trim();
+  if (requested && FACEBOOK_SCAN_MODES.includes(requested)) return requested;
+  return classifyScanMode(query);
 };
 
 export const resolveCompetitorResearchTarget = (query, businessName) => {
@@ -1053,7 +1077,7 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
           instruction: 'Find public service providers, contractor teams, skilled workers, freelancers, and explicit public job-seeking listings matching the exact requested trade. Never use private profiles or infer that a person is seeking work.',
         },
       };
-      const scanMode = resolveFacebookScanMode(req.body?.scanMode);
+      const scanMode = resolveFacebookScanMode(req.body?.scanMode, query);
       const scanModeConfig = scanModeConfigs[scanMode];
       const isCompetitorScan = ['competitor_activity', 'competitor_customers'].includes(scanMode);
       const today = new Date();
