@@ -1448,6 +1448,21 @@ Return ONLY a single valid JSON object with this exact structure:
         .map((sourceWebBiz) => {
           const key = String(sourceWebBiz.businessName || '').trim().toLocaleLowerCase();
           const lead = parsedLeadsByName.get(key) || {};
+          // The model is instructed to return an entry for every business, but
+          // when it still misses one, "lead" is {} here -- ensureBusinessInInboxMessage
+          // only ensures the sender is named, it does not invent pitch content,
+          // so an empty lead.inboxMessage used to fall through as a bare
+          // greeting with nothing else to say. Its Khmer/English branch is also
+          // picked by sniffing the text for Khmer characters, which silently
+          // resolved to English for an empty string regardless of the scan's
+          // actual language. Build a real, correctly-languaged fallback body
+          // here so both problems are fixed together.
+          const recommendedService = String(lead?.recommendedService || (isKhmer
+            ? `មាតិកា Photo/Video ខ្លីៗសមស្របនឹង ${sourceWebBiz.businessType || 'អាជីវកម្មនេះ'}។`
+            : `Short-form photo and video content tailored to ${sourceWebBiz.businessType || 'this business'}.`)).slice(0, 300);
+          const fallbackInboxMessage = isKhmer
+            ? `ខ្ញុំឃើញថា ${sourceWebBiz.businessName || 'អាជីវកម្មរបស់អ្នក'} អាចនឹងទទួលបានផលប្រយោជន៍ពី${recommendedService} សូមទាក់ទងមកខ្ញុំបើចាប់អារម្មណ៍។`
+            : `I noticed ${sourceWebBiz.businessName || 'your business'} could benefit from ${recommendedService} Feel free to reach out if you're interested.`;
 
           return {
             businessType: String(lead?.businessType || sourceWebBiz.businessType || 'Business').slice(0, 120),
@@ -1473,10 +1488,8 @@ Return ONLY a single valid JSON object with this exact structure:
               ? (sourceWebBiz.recentActivities || []).map((activity) => `${activity.date}: ${activity.activity}`)
               : (Array.isArray(lead?.competitorSignals) ? lead.competitorSignals : []).map((value) => String(value).slice(0, 240)).filter(Boolean).slice(0, 4),
             recentActivities: isCompetitorScan || scanMode === 'hiring' ? (sourceWebBiz.recentActivities || []) : [],
-            recommendedService: String(lead?.recommendedService || (isKhmer
-              ? `មាតិកា Photo/Video ខ្លីៗសមស្របនឹង ${sourceWebBiz.businessType || 'អាជីវកម្មនេះ'}។`
-              : `Short-form photo and video content tailored to ${sourceWebBiz.businessType || 'this business'}.`)).slice(0, 300),
-            inboxMessage: isCompetitorScan ? '' : ensureBusinessInInboxMessage(lead?.inboxMessage, userBusinessName).slice(0, 1200),
+            recommendedService,
+            inboxMessage: isCompetitorScan ? '' : ensureBusinessInInboxMessage(String(lead?.inboxMessage || '').trim() || fallbackInboxMessage, userBusinessName).slice(0, 1200),
             source: 'web_search',
             businessName: sourceWebBiz.businessName,
             entityKind: sourceWebBiz.entityKind || 'company',
