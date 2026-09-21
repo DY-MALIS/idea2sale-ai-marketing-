@@ -37,3 +37,25 @@ it('keeps only reachable trends explicitly dated inside the requested week', asy
   expect(trends).toEqual([expect.objectContaining({ topic: 'Verified wave', date: '2026-09-18' })]);
   expect(mocks.webSearch).toHaveBeenCalledWith(expect.objectContaining({ maxResults: 12 }));
 });
+
+it('keeps a trend whose evidence is a Facebook post even when the reachability check fails', async () => {
+  mocks.webSearch.mockResolvedValue({
+    content: JSON.stringify({
+      trends: [
+        { topic: 'Social wave', date: '2026-09-18', evidence: 'Public post', opportunity: 'React to it', sourceUrl: 'https://www.facebook.com/somepage/posts/123' },
+      ],
+    }),
+  });
+  // Facebook returning an anti-bot response to a server-side check is the
+  // real-world case this bypass guards against.
+  mocks.reachable.mockResolvedValue(false);
+
+  const trends = await researchMarketTrends({
+    query: 'skincare',
+    country: 'Cambodia',
+    startDate: '2026-09-12',
+    endDate: '2026-09-18',
+  });
+
+  expect(trends).toEqual([expect.objectContaining({ topic: 'Social wave' })]);
+});

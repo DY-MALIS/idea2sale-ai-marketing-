@@ -1,5 +1,6 @@
 import { generateOpenRouterWebSearch } from './_openrouter.js';
 import { urlIsReachable } from './_webBusinessSearch.js';
+import { isSupportedPublicSocialUrl } from './_socialUrls.js';
 
 const jsonFromText = (text) => {
   const match = String(text || '').match(/\{[\s\S]*\}/);
@@ -54,9 +55,13 @@ Return only valid JSON:
     .filter((trend, index, all) => all.findIndex((other) => other.sourceUrl === trend.sourceUrl && other.topic === trend.topic) === index)
     .slice(0, 8);
 
+  // A trend's evidence is very often a Facebook/TikTok/LinkedIn post -- those
+  // platforms commonly reject server-side HEAD/GET checks even for genuine
+  // public posts, so requiring a passing HTTP check here would silently drop
+  // real trend evidence the same way it did for customer/competitor search.
   const verified = [];
   for (const trend of candidates) {
-    if (await urlIsReachable(trend.sourceUrl)) verified.push(trend);
+    if (isSupportedPublicSocialUrl(trend.sourceUrl) || await urlIsReachable(trend.sourceUrl)) verified.push(trend);
   }
   return verified;
 }
