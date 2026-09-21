@@ -473,6 +473,8 @@ HARD CONSTRAINT, highest priority: ${KHMER_ATTIRE_GUIDANCE}
 
 HARD CONSTRAINT: Render every subject, person, and action explicitly named in the Scene above -- if the Scene describes a person doing something (e.g. holding an item, smiling, standing somewhere), that person must actually appear performing that action, not be replaced with a people-free product/still-life shot. Do not invent extra decorative props, furniture, books, framed art, or figurines that were not mentioned in the Scene, especially text-bearing objects (books, magazines, menus, signs) -- these are exactly where foreign-script text keeps leaking in when the model adds them unprompted.
 
+DEFAULT PRESENTER AGE (only when the Scene does not itself specify an age, life stage, or a real named/known individual for a person): render that person as a young Cambodian adult in their early-to-mid 20s, not elderly or middle-aged. This is a fallback default, not an override -- if the Scene explicitly describes a different age (a child, an elderly grandparent, a specific real person, etc.), follow the Scene exactly instead.
+
 Photorealistic cinematic video requirements:
 - Make the scene look filmed with a real camera, not animation, cartoon, or 3D render.
 - Use continuous realistic movement from the first frame to the last: natural body weight shifts, breathing, blinking, facial micro-expressions, cloth and hair responding gently to motion, and believable object physics.
