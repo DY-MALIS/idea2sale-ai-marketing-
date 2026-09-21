@@ -6,7 +6,16 @@ import {
 } from '../shared/videoCost.js';
 
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
-const TEXT_REQUEST_TIMEOUT_MS = 70_000;
+// Empirically measured against the live API with the actual
+// facebookIntelligenceScan prompt (27k chars, 15 verified businesses): most
+// calls return in 3-5s, but a genuinely observed run took 94.5s with no sign
+// of hanging -- normal load variance on a "preview" model, not a stuck
+// request. The prior 70s value was silently cutting off legitimate slower
+// completions (see the response.json() handling below for how that produced
+// an empty result with no visible error instead of a clear failure). 180s
+// still leaves headroom under this function's 300s Vercel maxDuration once
+// the earlier parallel web-search calls are accounted for.
+const TEXT_REQUEST_TIMEOUT_MS = 180_000;
 const MEDIA_REQUEST_TIMEOUT_MS = 240_000;
 
 const getApiKey = () => {
@@ -253,15 +262,24 @@ export async function generateOpenRouterText({
     }),
   });
 
-  // A non-2xx response can come back with a non-JSON body (HTML error page during
-  // an outage, empty body, etc) -- without the fallback, response.json() throws a
-  // raw SyntaxError that masks the intended friendly error message below, for
-  // every one of this heavily-used function's ~14+ callers across api/ai.js and
-  // api/telegram/webhook.js.
-  const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(redactSecrets(data?.error?.message || data?.message || 'OpenRouter request failed.'));
+    // A non-2xx response can come back with a non-JSON body (HTML error page
+    // during an outage, empty body, etc) -- without this fallback,
+    // response.json() throws a raw SyntaxError that masks the intended
+    // friendly error message below, for every one of this heavily-used
+    // function's ~14+ callers across api/ai.js and api/telegram/webhook.js.
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(redactSecrets(errorData?.error?.message || errorData?.message || 'OpenRouter request failed.'));
   }
+  // On a 200 OK response, let a malformed/incomplete body throw naturally
+  // instead of swallowing it -- this previously used the same tolerant
+  // .catch(() => ({})) as the error-response path above, which meant a
+  // response cut short mid-stream (e.g. by the AbortSignal timeout above
+  // firing while the body was still arriving) silently produced an empty
+  // `data`, and therefore an empty `content` below, with no thrown error at
+  // all. A real request that took longer than the timeout allowed looked
+  // identical to a fast, genuinely empty answer.
+  const data = await response.json();
 
   const content = data?.choices?.[0]?.message?.content || '';
   // On a reasoning-capable model, hidden reasoning tokens draw from the same
