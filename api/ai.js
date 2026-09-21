@@ -1259,6 +1259,8 @@ ${verifiedMarketTrends.length
 CRITICAL TASK:
 Deeply scan and analyze Facebook customer behavior, pain points, competitor strategies, and produce a complete day-by-day Video Production Schedule.
 
+RESPONSE LANGUAGE: Write every descriptive/free-text field in ${outputLanguage} -- this includes businessType, needSignals, interestSignals, spendingSignals, hiringSignals, competitorSignals, recommendedService, matchReason, positioning, customerSegments, counterStrategy, and entitySummary, even when the source web-search context supplied that field in a different language. Never translate a business's own factual identifiers: its exact name, address, phone number, email, Telegram handle, website, or Facebook/TikTok/LinkedIn URL stay exactly as given. Also never translate the exact enum values requested for "opportunityType", "entityKind", "leadLevel", or "matchConfidence" -- copy those exactly as specified in this prompt.
+
 MODE SEPARATION — NEVER MIX THE TWO TOOLS:
 ${isCompetitorScan
   ? '- This is a COMPETITOR scan. Return only competitor intelligence. Set "customerInsights" to empty arrays, set "potentialLeads" to [], and do not create outreach/Inbox messages.'
@@ -1287,7 +1289,9 @@ ${isCompetitorScan
    - Set "opportunityType" to exactly "${scanMode}" and score "fitScore" from 0-100 for fit with the selected scan objective.
    - Fill "interestSignals", "spendingSignals", "hiringSignals", and "competitorSignals" with short evidence-aware observations relevant to this lead. Use an empty array when the supplied public context does not support a category. Spending signals are estimates of commercial fit, never claims about wealth or budget. Hiring signals must never assert an active vacancy without public source support.
    - "recommendedService" MUST name a CONCRETE content format/deliverable fitted to that specific business type, not a generic "digital marketing"/"technology" pitch that could apply to any business. Ground it in what that kind of business actually sells and how customers decide to buy from it -- e.g. a restaurant/cafe: real food/ambiance video tours or menu-highlight reels; a clinic/spa: before/after or real-client testimonial videos; a training/consulting academy: authority-building talking-head or course-preview videos; a fashion/retail shop: lookbook or try-on/product-demo reels; a real estate agency: property walkthrough videos. Vary the wording across leads in the same list even when their business type repeats -- never let every entry converge on the same generic "digital marketing"/"technology" phrase.
-   - Write one concise, polite, personalized Khmer Inbox message. Do not claim we inspected private data. The message MUST start with the exact fixed opening "សួស្តី! " (a plain, standard-spelling greeting) -- never invent a different or embellished opening greeting word, since that is where malformed/garbled Khmer spelling has actually occurred before. Write the rest of the message in simple, correctly-spelled, natural conversational Khmer; re-read it before returning and fix any word that is not a real, standard Khmer word.${userBusinessName ? ` Immediately after the opening greeting, EVERY Inbox message MUST introduce the sender using the exact sentence "ខ្ញុំមកពី ${userBusinessName}។" Never write an anonymous outreach message.` : ''}
+   - Write one concise, polite, personalized Inbox message in ${outputLanguage}. Do not claim we inspected private data. ${isKhmer
+      ? `The message MUST start with the exact fixed opening "សួស្តី! " (a plain, standard-spelling greeting) -- never invent a different or embellished opening greeting word, since that is where malformed/garbled Khmer spelling has actually occurred before. Write the rest of the message in simple, correctly-spelled, natural conversational Khmer; re-read it before returning and fix any word that is not a real, standard Khmer word.${userBusinessName ? ` Immediately after the opening greeting, EVERY Inbox message MUST introduce the sender using the exact sentence "ខ្ញុំមកពី ${userBusinessName}។" Never write an anonymous outreach message.` : ''}`
+      : `The message MUST start with a plain "Hello! " opening.${userBusinessName ? ` Immediately after it, EVERY Inbox message MUST introduce the sender using the exact sentence "I'm reaching out from ${userBusinessName}." Never write an anonymous outreach message.` : ''}`}
    - ${isCompetitorScan ? 'This is competitor research, not customer outreach. Set "inboxMessage" to an empty string and do not write an Inbox or sales message.' : 'This is a customer scan, so follow the Inbox-message requirement above.'}
    - Set "source" to "web_search" for every lead.
    - Copy businessName/address/phone/email/telegram/website/facebookPageName/facebookPageUrl/evidenceSourceUrl (use the Source URL) EXACTLY from the Web Search context. Never fabricate any field left blank in the source context.
@@ -1467,7 +1471,9 @@ Return ONLY a single valid JSON object with this exact structure:
               ? (sourceWebBiz.recentActivities || []).map((activity) => `${activity.date}: ${activity.activity}`)
               : (Array.isArray(lead?.competitorSignals) ? lead.competitorSignals : []).map((value) => String(value).slice(0, 240)).filter(Boolean).slice(0, 4),
             recentActivities: isCompetitorScan || scanMode === 'hiring' ? (sourceWebBiz.recentActivities || []) : [],
-            recommendedService: String(lead?.recommendedService || `Short-form photo and video content tailored to ${sourceWebBiz.businessType || 'this business'}.`).slice(0, 300),
+            recommendedService: String(lead?.recommendedService || (isKhmer
+              ? `មាតិកា Photo/Video ខ្លីៗសមស្របនឹង ${sourceWebBiz.businessType || 'អាជីវកម្មនេះ'}។`
+              : `Short-form photo and video content tailored to ${sourceWebBiz.businessType || 'this business'}.`)).slice(0, 300),
             inboxMessage: isCompetitorScan ? '' : ensureBusinessInInboxMessage(lead?.inboxMessage, userBusinessName).slice(0, 1200),
             source: 'web_search',
             businessName: sourceWebBiz.businessName,
