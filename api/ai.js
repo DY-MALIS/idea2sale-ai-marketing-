@@ -1438,8 +1438,10 @@ Return ONLY a single valid JSON object with this exact structure:
         prompt,
         // Seven-day scans need substantially less than a model's 65k default;
         // scale up for 14-day plans and for a large verified entity count
-        // while keeping the request affordable.
-        maxTokens: Math.min(32000, 8000 + requestedDays * 1000 + scanEntityCount * 450),
+        // while keeping the request affordable. The ceiling covers the actual
+        // worst case (14-day plan, the entity cap's max of 50) so an explicit
+        // large request doesn't hit the same truncation this is fixing.
+        maxTokens: Math.min(46000, 8000 + requestedDays * 1000 + scanEntityCount * 450),
         reasoningEffort: 'medium',
       });
 
