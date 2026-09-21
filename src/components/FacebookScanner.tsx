@@ -1229,7 +1229,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                         )}
                       </div>
                     ) : (
-                      <details className="group mt-4 rounded-2xl border border-brand-100 bg-white/70 dark:border-slate-700 dark:bg-slate-900/60">
+                      <details open className="group mt-4 rounded-2xl border border-brand-100 bg-white/70 dark:border-slate-700 dark:bg-slate-900/60">
                         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-xs font-black uppercase tracking-wider text-brand-500">
                           <span className="flex flex-wrap items-center gap-2"><MessageCircle size={15} />Inbox {businessName && <span className="rounded-full bg-brand-50 px-2 py-1 normal-case tracking-normal text-brand-700 dark:bg-slate-800 dark:text-brand-300">{isKm ? 'ផ្ញើពី' : 'From'} {businessName}</span>}</span>
                           <span className="text-base leading-none text-slate-400 transition group-open:rotate-45">+</span>
