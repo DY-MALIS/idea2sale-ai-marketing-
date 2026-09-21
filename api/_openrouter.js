@@ -264,6 +264,15 @@ export async function generateOpenRouterText({
   }
 
   const content = data?.choices?.[0]?.message?.content || '';
+  // On a reasoning-capable model, hidden reasoning tokens draw from the same
+  // max_tokens budget as the visible answer -- a long structured-JSON task
+  // can silently lose its tail sections (fields later in the schema) to
+  // this even when max_tokens looks generous, with no error, just a
+  // shorter-than-expected response. Surface it in server logs since callers
+  // only see the (possibly truncated) content string, not finish_reason.
+  if (data?.choices?.[0]?.finish_reason === 'length') {
+    console.warn(`OpenRouter response hit the max_tokens limit (${maxTokens ?? 'default'}) for model ${resolveOpenRouterTextModel(model)} and was likely truncated (${content.length} chars returned).`);
+  }
   // A 200 OK response can still contain degenerate output — the model stuck
   // repeating the same short chunk of text indefinitely instead of a real
   // answer. Observed to coincide with the OpenRouter account running low on

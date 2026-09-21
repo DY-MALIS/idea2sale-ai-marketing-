@@ -1440,9 +1440,21 @@ Return ONLY a single valid JSON object with this exact structure:
         // scale up for 14-day plans and for a large verified entity count
         // while keeping the request affordable. The ceiling covers the actual
         // worst case (14-day plan, the entity cap's max of 50) so an explicit
-        // large request doesn't hit the same truncation this is fixing.
-        maxTokens: Math.min(46000, 8000 + requestedDays * 1000 + scanEntityCount * 450),
-        reasoningEffort: 'medium',
+        // large request doesn't hit the same truncation this is fixing. Base
+        // and per-entity amounts padded well above the raw content estimate
+        // because on a reasoning-capable model, invisible reasoning tokens
+        // draw from this same budget before any visible JSON is written --
+        // a tight budget can lose the whole tail of the schema (videoPlan,
+        // summaryReport) to that even when the visible content alone would
+        // have fit.
+        maxTokens: Math.min(60000, 14000 + requestedDays * 1000 + scanEntityCount * 500),
+        // 'medium' reasoning effort was consuming enough of the token budget
+        // on this already-long structured-JSON task to reliably cut off
+        // videoPlan/summaryReport, the last two fields in the schema, even
+        // after the scaling above. This task is grounded synthesis over
+        // already-provided verified context, not open-ended problem solving,
+        // so it does not need deep chain-of-thought to do well.
+        reasoningEffort: 'low',
       });
 
       const parsed = jsonFromText(text, {});
