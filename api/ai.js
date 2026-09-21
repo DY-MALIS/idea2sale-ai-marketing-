@@ -1394,13 +1394,21 @@ Return ONLY a single valid JSON object with this exact structure:
   "summaryReport": "..."
 }`;
 
+      // A wide customer/competitor scan can verify 20+ real businesses, each
+      // needing its own detailed potentialLeads/competitors JSON entry
+      // (including up to a 1200-character Inbox message) -- without scaling
+      // the budget for that, a large entity count alone could exhaust the
+      // token budget before the model reaches "videoPlan" later in the same
+      // JSON response, silently dropping the whole video plan section.
+      const scanEntityCount = isCompetitorScan ? verifiedCompetitors.length : rawWebBusinesses.length;
       const text = await generateOpenRouterText({
         model: process.env.OPEN_ROUTER_CONTENT_PLAN_MODEL || 'google/gemini-3.1-pro-preview',
         system: 'You are an elite Facebook social commerce market research and video creative director. Respond with valid JSON only.',
         prompt,
         // Seven-day scans need substantially less than a model's 65k default;
-        // scale up for 14-day plans while keeping the request affordable.
-        maxTokens: Math.min(22000, 8000 + requestedDays * 1000),
+        // scale up for 14-day plans and for a large verified entity count
+        // while keeping the request affordable.
+        maxTokens: Math.min(32000, 8000 + requestedDays * 1000 + scanEntityCount * 450),
         reasoningEffort: 'medium',
       });
 
