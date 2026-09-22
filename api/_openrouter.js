@@ -314,12 +314,12 @@ export async function generateOpenRouterText({
 // callers needing to verify a specific claim (e.g. a business's URL is real)
 // should independently check it themselves rather than depend on this array
 // being populated -- see _webBusinessSearch.js for that pattern.
-export async function generateOpenRouterWebSearch({ prompt, system = 'You are a careful research assistant. Only state facts you can find in the search results.', model, maxResults = 8 }) {
+export async function generateOpenRouterWebSearch({ prompt, system = 'You are a careful research assistant. Only state facts you can find in the search results.', model, maxResults = 8, maxTokens = 12000, timeoutMs = 90_000 }) {
   const apiKey = getApiKey();
 
   const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
     method: 'POST',
-    signal: AbortSignal.timeout(90_000),
+    signal: AbortSignal.timeout(timeoutMs),
     headers: {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
@@ -335,7 +335,7 @@ export async function generateOpenRouterWebSearch({ prompt, system = 'You are a 
       ],
       // Web results are short structured research, so a bounded allowance is
       // ample and prevents credit checks from pricing the full model maximum.
-      max_tokens: 12000,
+      max_tokens: maxTokens,
       reasoning: { effort: 'medium' },
     }),
   });

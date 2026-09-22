@@ -1161,6 +1161,7 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
         isCompetitorScan ? researchCompetitors({
           query: primaryCompetitorResearchTarget,
           country: searchCountry,
+          countryCode: countries[0],
           targetCount: entityCap,
           activityStartDate: activityWindow.startDate,
           activityEndDate: activityWindow.endDate,
@@ -1169,10 +1170,10 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
           ? researchCompetitors({
               query: userBusinessName,
               country: searchCountry,
+              countryCode: countries[0],
               targetCount: entityCap,
               activityStartDate: activityWindow.startDate,
               activityEndDate: activityWindow.endDate,
-              exhaustive: false,
             })
           : Promise.resolve(null),
         scanMode === 'market_trends'
