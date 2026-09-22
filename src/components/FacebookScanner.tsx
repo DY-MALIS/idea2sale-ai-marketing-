@@ -91,6 +91,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
   const [error, setError] = useState('');
   const [result, setResult] = useState<FacebookScanResult | null>(null);
   const [comparisonBaseline, setComparisonBaseline] = useState<FacebookScanResult | null>(null);
+  const [showActivityReport, setShowActivityReport] = useState(false);
   const [copied, setCopied] = useState(false);
   const [copiedLead, setCopiedLead] = useState<number | null>(null);
   const [businessName, setBusinessName] = useState('');
@@ -317,6 +318,12 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     });
     return () => { cancelled = true; };
   }, [user, isDemoMode]);
+
+  // A source-by-source report can be long. Keep each new/restored scan compact
+  // until the person explicitly asks to inspect the detailed evidence.
+  useEffect(() => {
+    setShowActivityReport(false);
+  }, [result]);
 
   const text = isKm ? {
     recentActivityTitle: 'សកម្មភាពក្នុង ៧ ថ្ងៃចុងក្រោយ',
@@ -1072,54 +1079,76 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                 </div>
               </div>
               <div className="mt-6 border-t border-indigo-100 pt-5 dark:border-indigo-900">
-                <h4 className="flex items-center gap-2 text-sm font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-300">
-                  <CalendarDays size={17} />{text.dailyActivityReport}
-                </h4>
-                {activityReportSections.length ? (
-                  <div className="mt-4 space-y-5">
-                    {activityReportSections.map((section) => (
-                      <article key={section.platform} className="overflow-hidden rounded-2xl border border-indigo-100 bg-white/70 dark:border-indigo-900 dark:bg-slate-900/50">
-                        <div className={`flex items-center justify-between border-b border-indigo-100 px-4 py-3 text-sm font-black dark:border-indigo-900 ${activityPlatformClass(section.platform)}`}>
-                          <span>{section.label}</span>
-                          <span className="rounded-full bg-white/75 px-2.5 py-0.5 text-xs text-slate-800 dark:bg-black/20 dark:text-inherit">{section.entries.length}</span>
-                        </div>
-                        <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-                          {section.entries.map(({ competitorName, activity }, index) => (
-                            <li key={`${competitorName}-${activity.sourceUrl}-${index}`} className="p-5 text-sm leading-6">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className="rounded-md bg-indigo-100 px-2 py-0.5 text-xs font-black text-indigo-700 dark:bg-indigo-900 dark:text-indigo-200">{activity.date}</span>
-                                {activity.contentType && <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300">{activity.contentType}</span>}
-                                <span className="font-black text-slate-800 dark:text-white">{competitorName}</span>
-                              </div>
-                              <h5 className="mt-3 font-black text-slate-800 dark:text-white">{activity.title || activity.activity}</h5>
-                              {activity.title && activity.activity !== activity.title && <p className="mt-1 text-slate-600 dark:text-slate-300">{activity.activity}</p>}
-                              {activity.summary && (
-                                <div className="mt-3 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/70">
-                                  <p className="text-xs font-black uppercase tracking-wider text-slate-400">{text.contentSummary}</p>
-                                  <p className="mt-1 text-slate-700 dark:text-slate-200">{activity.summary}</p>
-                                </div>
-                              )}
-                              {!!activity.keyDetails?.length && (
-                                <div className="mt-3">
-                                  <p className="text-xs font-black uppercase tracking-wider text-slate-400">{text.verifiedDetails}</p>
-                                  <ul className="mt-2 space-y-1.5">
-                                    {activity.keyDetails.map((detail, detailIndex) => (
-                                      <li key={detailIndex} className="flex gap-2 text-slate-600 dark:text-slate-300"><Check className="mt-1 shrink-0 text-emerald-500" size={14} /><span>{detail}</span></li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              )}
-                              <a href={activity.sourceUrl} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-1 font-bold text-blue-600 hover:underline">
-                                <ExternalLink size={12} />{text.viewEvidence}
-                              </a>
-                            </li>
-                          ))}
-                        </ul>
-                      </article>
-                    ))}
+                <button
+                  type="button"
+                  onClick={() => setShowActivityReport((visible) => !visible)}
+                  aria-expanded={showActivityReport}
+                  aria-controls="activity-report-by-source"
+                  className="flex w-full items-center justify-between gap-3 rounded-2xl px-3 py-3 text-left transition hover:bg-indigo-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:hover:bg-indigo-950/40"
+                >
+                  <span className="flex items-center gap-2 text-sm font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-300">
+                    <CalendarDays size={17} />{text.dailyActivityReport}
+                  </span>
+                  <span className="flex shrink-0 items-center gap-2">
+                    <span className="rounded-full bg-indigo-100 px-2.5 py-1 text-xs font-black text-indigo-700 dark:bg-indigo-900 dark:text-indigo-200">
+                      {capturedActivitySummary.totalCount}
+                    </span>
+                    <ChevronDown
+                      size={19}
+                      aria-hidden="true"
+                      className={`text-indigo-600 transition-transform duration-200 dark:text-indigo-300 ${showActivityReport ? 'rotate-180' : ''}`}
+                    />
+                  </span>
+                </button>
+                {showActivityReport && (
+                  <div id="activity-report-by-source">
+                    {activityReportSections.length ? (
+                      <div className="mt-4 space-y-5">
+                        {activityReportSections.map((section) => (
+                          <article key={section.platform} className="overflow-hidden rounded-2xl border border-indigo-100 bg-white/70 dark:border-indigo-900 dark:bg-slate-900/50">
+                            <div className={`flex items-center justify-between border-b border-indigo-100 px-4 py-3 text-sm font-black dark:border-indigo-900 ${activityPlatformClass(section.platform)}`}>
+                              <span>{section.label}</span>
+                              <span className="rounded-full bg-white/75 px-2.5 py-0.5 text-xs text-slate-800 dark:bg-black/20 dark:text-inherit">{section.entries.length}</span>
+                            </div>
+                            <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+                              {section.entries.map(({ competitorName, activity }, index) => (
+                                <li key={`${competitorName}-${activity.sourceUrl}-${index}`} className="p-5 text-sm leading-6">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="rounded-md bg-indigo-100 px-2 py-0.5 text-xs font-black text-indigo-700 dark:bg-indigo-900 dark:text-indigo-200">{activity.date}</span>
+                                    {activity.contentType && <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300">{activity.contentType}</span>}
+                                    <span className="font-black text-slate-800 dark:text-white">{competitorName}</span>
+                                  </div>
+                                  <h5 className="mt-3 font-black text-slate-800 dark:text-white">{activity.title || activity.activity}</h5>
+                                  {activity.title && activity.activity !== activity.title && <p className="mt-1 text-slate-600 dark:text-slate-300">{activity.activity}</p>}
+                                  {activity.summary && (
+                                    <div className="mt-3 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/70">
+                                      <p className="text-xs font-black uppercase tracking-wider text-slate-400">{text.contentSummary}</p>
+                                      <p className="mt-1 text-slate-700 dark:text-slate-200">{activity.summary}</p>
+                                    </div>
+                                  )}
+                                  {!!activity.keyDetails?.length && (
+                                    <div className="mt-3">
+                                      <p className="text-xs font-black uppercase tracking-wider text-slate-400">{text.verifiedDetails}</p>
+                                      <ul className="mt-2 space-y-1.5">
+                                        {activity.keyDetails.map((detail, detailIndex) => (
+                                          <li key={detailIndex} className="flex gap-2 text-slate-600 dark:text-slate-300"><Check className="mt-1 shrink-0 text-emerald-500" size={14} /><span>{detail}</span></li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  )}
+                                  <a href={activity.sourceUrl} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-1 font-bold text-blue-600 hover:underline">
+                                    <ExternalLink size={12} />{text.viewEvidence}
+                                  </a>
+                                </li>
+                              ))}
+                            </ul>
+                          </article>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-3 rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-600 dark:bg-slate-900/60 dark:text-slate-300">{text.noCapturedActivityReport}</p>
+                    )}
                   </div>
-                ) : (
-                  <p className="mt-3 rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-600 dark:bg-slate-900/60 dark:text-slate-300">{text.noCapturedActivityReport}</p>
                 )}
               </div>
             </section>
