@@ -52,6 +52,10 @@ export interface FacebookRecentActivity {
   jobTitle?: string;
   sourceUrl: string;
   platform?: 'Facebook' | 'TikTok' | 'LinkedIn' | 'Web';
+  contentType?: 'Video' | 'Reel' | 'Post' | 'Article' | 'Event' | 'Offer' | 'Ad' | 'Other';
+  title?: string;
+  summary?: string;
+  keyDetails?: string[];
 }
 
 export interface FacebookMarketTrend {

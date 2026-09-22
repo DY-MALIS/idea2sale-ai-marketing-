@@ -229,16 +229,70 @@ it('runs a focused second-stage lookup and builds dated activity for discovered 
   });
 
   expect(mocks.webSearch).toHaveBeenCalledTimes(8);
-  expect(mocks.webSearch.mock.calls[5][0].prompt).toContain('Build a factual day-by-day activity report');
+  expect(mocks.webSearch.mock.calls[5][0].prompt).toContain('Build a detailed factual activity report');
   expect(mocks.webSearch.mock.calls[5][0].prompt).toContain('Rival Cafe');
   expect(mocks.webSearch.mock.calls[5][0].prompt).toContain('FACEBOOK:');
   expect(mocks.webSearch.mock.calls[6][0].prompt).toContain('LINKEDIN:');
   expect(mocks.webSearch.mock.calls[7][0].prompt).toContain('OFFICIAL WEBSITE:');
+  expect(mocks.webSearch.mock.calls[5][0].prompt).toContain('"6h", "1d", "2d"');
   expect(result.competitors[0].recentActivities).toEqual([
     expect.objectContaining({ date: '2026-09-18', platform: 'Facebook' }),
     expect.objectContaining({ date: '2026-09-17', platform: 'LinkedIn' }),
     expect.objectContaining({ date: '2026-09-16', platform: 'Web' }),
   ]);
+});
+
+it('retries an empty batch result by exact competitor name and accepts normalized relative-date evidence', async () => {
+  mocks.webSearch
+    .mockResolvedValueOnce({ content: JSON.stringify({ competitors: [{
+      name: 'DataU Academy',
+      isDirectCompetitor: true,
+      matchConfidence: 'high',
+      matchReason: 'Provides competing professional AI training in Phnom Penh',
+      positioning: '',
+      linkedinUrl: 'https://kh.linkedin.com/company/datauacademy',
+      sourceUrl: 'https://kh.linkedin.com/company/datauacademy',
+      recentActivities: [],
+    }] }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({ competitors: [] }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({ competitors: [] }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({ competitors: [] }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({ competitors: [] }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({ activities: [] }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({ activities: [] }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({ activities: [] }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({ activities: [{
+      competitorName: 'DataU Academy',
+      date: '2026-09-22',
+      contentType: 'Post',
+      title: 'AI at Work toolkit for professionals',
+      activity: 'Promoted a practical AI toolkit course for professionals',
+      summary: 'The post presents reusable AI prompts and workflows for finance, HR, and operations professionals.',
+      keyDetails: ['Self-paced course', 'Targets finance, HR, and operations roles'],
+      sourceUrl: 'https://kh.linkedin.com/company/datauacademy',
+    }] }) });
+  vi.stubGlobal('fetch', vi.fn());
+
+  const result = await researchCompetitors({
+    query: 'AI training academies Phnom Penh',
+    activityStartDate: '2026-09-16',
+    activityEndDate: '2026-09-22',
+  });
+
+  expect(mocks.webSearch).toHaveBeenCalledTimes(9);
+  expect(mocks.webSearch.mock.calls[8][0].prompt).toContain('exact business "DataU Academy"');
+  expect(mocks.webSearch.mock.calls[8][0].prompt).toContain('Relative labels such as "6h"');
+  expect(result.competitors[0].recentActivities).toEqual([
+    expect.objectContaining({
+      date: '2026-09-22',
+      platform: 'LinkedIn',
+      contentType: 'Post',
+      title: 'AI at Work toolkit for professionals',
+      summary: expect.stringContaining('reusable AI prompts'),
+      keyDetails: ['Self-paced course', 'Targets finance, HR, and operations roles'],
+    }),
+  ]);
+  expect(fetch).not.toHaveBeenCalled();
 });
 
 it('searches Facebook, TikTok, and LinkedIn separately and labels social activity sources', async () => {

@@ -329,8 +329,11 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     weeklyCaptureTitle: 'ការចាប់យកសកម្មភាពគូប្រកួតប្រចាំសប្ដាហ៍',
     weeklyCaptureBody: 'លទ្ធផលនេះត្រូវបានរក្សាទុកជា snapshot។ ស្កេនពាក្យដដែលម្ដងទៀតនៅសប្ដាហ៍ក្រោយ ដើម្បីឃើញសកម្មភាពថ្មីរបស់គូប្រកួត។',
     capturedActivities: 'សកម្មភាពដែលបានចាប់យក',
-    dailyActivityReport: 'របាយការណ៍សកម្មភាពតាមថ្ងៃ',
+    dailyActivityReport: 'របាយការណ៍សកម្មភាពតាមប្រភព',
     noCapturedActivityReport: 'រកមិនឃើញ post, offer, ad ឬ campaign ដែលមានកាលបរិច្ឆេទ និងប្រភពច្បាស់ក្នុងរយៈពេល ៧ ថ្ងៃនេះទេ។',
+    contentSummary: 'ខ្លឹមសារសង្ខេប',
+    verifiedDetails: 'ព័ត៌មានលម្អិតពីប្រភព',
+    websiteSource: 'Website',
     newSincePrevious: 'សកម្មភាពថ្មីពីការចាប់យកមុន',
     firstCapture: 'នេះជាការចាប់យកលើកដំបូង',
     exportActivityReport: 'ទាញយករបាយការណ៍សកម្មភាព',
@@ -442,8 +445,11 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     weeklyCaptureTitle: 'Weekly competitor activity capture',
     weeklyCaptureBody: 'This result is saved as a snapshot. Scan the same query again next week to see newly captured competitor activity.',
     capturedActivities: 'Captured activities',
-    dailyActivityReport: 'Day-by-day activity report',
+    dailyActivityReport: 'Activity report by source',
     noCapturedActivityReport: 'No dated post, offer, ad, or campaign with a verifiable source was found in this 7-day period.',
+    contentSummary: 'Content summary',
+    verifiedDetails: 'Source-backed details',
+    websiteSource: 'Website',
     newSincePrevious: 'New since the previous capture',
     firstCapture: 'This is the first capture',
     exportActivityReport: 'Download activity report',
@@ -760,27 +766,33 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
       counts[activityPlatform(activity)] += 1;
       return counts;
     }, { Facebook: 0, TikTok: 0, LinkedIn: 0, Web: 0 });
-  const dailyActivityReport = Object.entries(
-    (result?.competitors || []).reduce<Record<string, Array<{ competitorName: string; activity: FacebookRecentActivity }>>>((days, competitor) => {
-      for (const activity of competitor.recentActivities || []) {
-        if (!days[activity.date]) days[activity.date] = [];
-        days[activity.date].push({ competitorName: competitor.pageName, activity });
-      }
-      return days;
-    }, {}),
-  ).sort(([leftDate], [rightDate]) => rightDate.localeCompare(leftDate));
+  const activityReportSections = (['Facebook', 'LinkedIn', 'Web', 'TikTok'] as const)
+    .map((platform) => ({
+      platform,
+      label: platform === 'Web' ? text.websiteSource : platform,
+      entries: (result?.competitors || []).flatMap((competitor) => (
+        (competitor.recentActivities || [])
+          .filter((activity) => activityPlatform(activity) === platform)
+          .map((activity) => ({ competitorName: competitor.pageName, activity }))
+      )).sort((left, right) => right.activity.date.localeCompare(left.activity.date)),
+    }))
+    .filter((section) => section.entries.length > 0);
 
   const exportCompetitorActivities = () => {
     if (!result || !capturedActivitySummary) return;
     const headers = isKm
-      ? ['គូប្រកួត', 'កាលបរិច្ឆេទ', 'សកម្មភាព', 'Platform', 'ថ្មីពីការចាប់យកមុន', 'ប្រភព', 'ចាប់ពីថ្ងៃ', 'ដល់ថ្ងៃ']
-      : ['Competitor', 'Date', 'Activity', 'Platform', 'New since previous capture', 'Source URL', 'Window start', 'Window end'];
+      ? ['គូប្រកួត', 'កាលបរិច្ឆេទ', 'Platform', 'ប្រភេទ Content', 'ចំណងជើង', 'សកម្មភាព', 'ខ្លឹមសារសង្ខេប', 'ព័ត៌មានលម្អិត', 'ថ្មីពីការចាប់យកមុន', 'ប្រភព', 'ចាប់ពីថ្ងៃ', 'ដល់ថ្ងៃ']
+      : ['Competitor', 'Date', 'Platform', 'Content type', 'Title', 'Activity', 'Content summary', 'Source-backed details', 'New since previous capture', 'Source URL', 'Window start', 'Window end'];
     const rows = result.competitors.flatMap((competitor) => (
       (competitor.recentActivities || []).map((activity) => [
         competitor.pageName,
         activity.date,
-        activity.activity,
         activityPlatform(activity),
+        activity.contentType || '',
+        activity.title || '',
+        activity.activity,
+        activity.summary || '',
+        (activity.keyDetails || []).join(' | '),
         capturedActivitySummary.newActivityKeys.has(competitorActivityKey(competitor.pageName, activity)) ? 'Yes' : 'No',
         activity.sourceUrl,
         result.activityWindow?.startDate || '',
@@ -1053,7 +1065,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                   {(['Facebook', 'TikTok', 'LinkedIn', 'Web'] as const).map((platform) => (
                     <div key={platform} className={`flex items-center justify-between rounded-xl px-3 py-2 text-xs font-black ${activityPlatformClass(platform)}`}>
-                      <span>{platform}</span>
+                      <span>{platform === 'Web' ? text.websiteSource : platform}</span>
                       <span className="rounded-full bg-white/70 px-2 py-0.5 text-sm text-slate-800 dark:bg-black/20 dark:text-inherit">{activityPlatformCounts[platform]}</span>
                     </div>
                   ))}
@@ -1063,20 +1075,41 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                 <h4 className="flex items-center gap-2 text-sm font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-300">
                   <CalendarDays size={17} />{text.dailyActivityReport}
                 </h4>
-                {dailyActivityReport.length ? (
-                  <div className="mt-4 space-y-4">
-                    {dailyActivityReport.map(([date, entries]) => (
-                      <article key={date} className="overflow-hidden rounded-2xl border border-indigo-100 bg-white/70 dark:border-indigo-900 dark:bg-slate-900/50">
-                        <div className="border-b border-indigo-100 bg-indigo-50 px-4 py-2.5 text-sm font-black text-indigo-800 dark:border-indigo-900 dark:bg-indigo-950/50 dark:text-indigo-200">{date}</div>
+                {activityReportSections.length ? (
+                  <div className="mt-4 space-y-5">
+                    {activityReportSections.map((section) => (
+                      <article key={section.platform} className="overflow-hidden rounded-2xl border border-indigo-100 bg-white/70 dark:border-indigo-900 dark:bg-slate-900/50">
+                        <div className={`flex items-center justify-between border-b border-indigo-100 px-4 py-3 text-sm font-black dark:border-indigo-900 ${activityPlatformClass(section.platform)}`}>
+                          <span>{section.label}</span>
+                          <span className="rounded-full bg-white/75 px-2.5 py-0.5 text-xs text-slate-800 dark:bg-black/20 dark:text-inherit">{section.entries.length}</span>
+                        </div>
                         <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-                          {entries.map(({ competitorName, activity }, index) => (
-                            <li key={`${competitorName}-${activity.sourceUrl}-${index}`} className="p-4 text-sm leading-6">
+                          {section.entries.map(({ competitorName, activity }, index) => (
+                            <li key={`${competitorName}-${activity.sourceUrl}-${index}`} className="p-5 text-sm leading-6">
                               <div className="flex flex-wrap items-center gap-2">
+                                <span className="rounded-md bg-indigo-100 px-2 py-0.5 text-xs font-black text-indigo-700 dark:bg-indigo-900 dark:text-indigo-200">{activity.date}</span>
+                                {activity.contentType && <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300">{activity.contentType}</span>}
                                 <span className="font-black text-slate-800 dark:text-white">{competitorName}</span>
-                                <span className={`rounded-md px-2 py-0.5 text-xs font-black ${activityPlatformClass(activityPlatform(activity))}`}>{activityPlatform(activity)}</span>
                               </div>
-                              <p className="mt-2 text-slate-600 dark:text-slate-300">{activity.activity}</p>
-                              <a href={activity.sourceUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1 font-bold text-blue-600 hover:underline">
+                              <h5 className="mt-3 font-black text-slate-800 dark:text-white">{activity.title || activity.activity}</h5>
+                              {activity.title && activity.activity !== activity.title && <p className="mt-1 text-slate-600 dark:text-slate-300">{activity.activity}</p>}
+                              {activity.summary && (
+                                <div className="mt-3 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/70">
+                                  <p className="text-xs font-black uppercase tracking-wider text-slate-400">{text.contentSummary}</p>
+                                  <p className="mt-1 text-slate-700 dark:text-slate-200">{activity.summary}</p>
+                                </div>
+                              )}
+                              {!!activity.keyDetails?.length && (
+                                <div className="mt-3">
+                                  <p className="text-xs font-black uppercase tracking-wider text-slate-400">{text.verifiedDetails}</p>
+                                  <ul className="mt-2 space-y-1.5">
+                                    {activity.keyDetails.map((detail, detailIndex) => (
+                                      <li key={detailIndex} className="flex gap-2 text-slate-600 dark:text-slate-300"><Check className="mt-1 shrink-0 text-emerald-500" size={14} /><span>{detail}</span></li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                              <a href={activity.sourceUrl} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-1 font-bold text-blue-600 hover:underline">
                                 <ExternalLink size={12} />{text.viewEvidence}
                               </a>
                             </li>

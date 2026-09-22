@@ -45,15 +45,29 @@ const jsonFromText = (text) => {
 };
 
 const competitorKey = (value) => String(value || '').trim().toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+const ACTIVITY_CONTENT_TYPES = new Set(['Video', 'Reel', 'Post', 'Article', 'Event', 'Offer', 'Ad', 'Other']);
 
-const normalizeRecentActivities = (value, activityStartDate, activityEndDate) => (
-  (Array.isArray(value) ? value : [])
-    .map((activity) => ({
-      date: String(activity?.date || '').trim(),
-      activity: String(activity?.activity || '').trim().slice(0, 400),
-      sourceUrl: String(activity?.sourceUrl || '').trim().slice(0, 300),
-      platform: socialPlatformFromUrl(activity?.sourceUrl),
-    }))
+const normalizeRecentActivities = (value, activityStartDate, activityEndDate) => {
+  const normalized = (Array.isArray(value) ? value : [])
+    .map((activity) => {
+      const contentType = String(activity?.contentType || '').trim();
+      const title = String(activity?.title || '').trim().slice(0, 240);
+      const summary = String(activity?.summary || '').trim().slice(0, 1200);
+      const keyDetails = (Array.isArray(activity?.keyDetails) ? activity.keyDetails : [])
+        .map((detail) => String(detail || '').trim().slice(0, 300))
+        .filter(Boolean)
+        .slice(0, 6);
+      return {
+        date: String(activity?.date || '').trim(),
+        activity: String(activity?.activity || '').trim().slice(0, 400),
+        sourceUrl: String(activity?.sourceUrl || '').trim().slice(0, 300),
+        platform: socialPlatformFromUrl(activity?.sourceUrl),
+        ...(ACTIVITY_CONTENT_TYPES.has(contentType) ? { contentType } : {}),
+        ...(title ? { title } : {}),
+        ...(summary ? { summary } : {}),
+        ...(keyDetails.length ? { keyDetails } : {}),
+      };
+    })
     .filter((activity) => (
       /^\d{4}-\d{2}-\d{2}$/.test(activity.date)
       && activity.date >= activityStartDate
@@ -61,12 +75,34 @@ const normalizeRecentActivities = (value, activityStartDate, activityEndDate) =>
       && activity.activity
       && /^https?:\/\//i.test(activity.sourceUrl)
     ))
-    .filter((activity, index, all) => all.findIndex((other) => (
-      other.date === activity.date && other.sourceUrl === activity.sourceUrl
-    )) === index)
+  const merged = new Map();
+  normalized.forEach((activity) => {
+    const key = `${activity.date}|${activity.sourceUrl}`;
+    const existing = merged.get(key);
+    if (!existing) {
+      merged.set(key, activity);
+      return;
+    }
+    const longerText = (left, right) => (String(right || '').length > String(left || '').length ? right : left);
+    const contentType = existing.contentType || activity.contentType;
+    const title = longerText(existing.title, activity.title);
+    const summary = longerText(existing.summary, activity.summary);
+    const keyDetails = [...new Set([...(existing.keyDetails || []), ...(activity.keyDetails || [])])].slice(0, 6);
+    merged.set(key, {
+      date: existing.date,
+      activity: longerText(existing.activity, activity.activity),
+      sourceUrl: existing.sourceUrl,
+      platform: existing.platform,
+      ...(contentType ? { contentType } : {}),
+      ...(title ? { title } : {}),
+      ...(summary ? { summary } : {}),
+      ...(keyDetails.length ? { keyDetails } : {}),
+    });
+  });
+  return [...merged.values()]
     .sort((left, right) => right.date.localeCompare(left.date))
-    .slice(0, MAX_ACTIVITIES_PER_COMPETITOR)
-);
+    .slice(0, MAX_ACTIVITIES_PER_COMPETITOR);
+};
 
 export async function researchCompetitors({ query, country = 'Cambodia', activityStartDate = '', activityEndDate = '', exhaustive = true, targetCount = 15 }) {
   const requestedTargetCount = Math.min(50, Math.max(1, Math.round(Number(targetCount) || 15)));
@@ -201,24 +237,39 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
     const activitySearches = await Promise.allSettled(batches.flatMap((batch) => (
       ACTIVITY_SOURCE_FOCUSES.map((sourceFocus) => {
         const exactNames = batch.map((candidate) => candidate.name);
-        const prompt = `Search the live public web for activity posted by ONLY these exact businesses in ${country}:\n${exactNames.map((name) => `- ${name}`).join('\n')}\n\nDATE WINDOW: ${activityStartDate} through ${activityEndDate}, inclusive.\n\nSOURCE-SPECIFIC PASS: ${sourceFocus}\n\nBuild a factual day-by-day activity report. Look across every day in the date window instead of stopping after one result. Include a post, ad, promotion, offer, event, launch, article, or campaign only when a public result explicitly proves both the activity and its publication date. The sourceUrl must be the direct post/news/event URL, not a profile or homepage. Do not infer activity, do not use undated content, and do not add any business outside the exact list.\n\nReturn ONLY valid JSON in this shape:\n{\n  "activities": [\n    { "competitorName": "exact name copied from the supplied list", "date": "YYYY-MM-DD", "activity": "concise factual summary of what was posted or announced", "sourceUrl": "direct public evidence URL" }\n  ]\n}\nReturn {"activities": []} only when no explicitly dated public activity is found in the window.`;
+        const prompt = `Search the live public web for activity posted by ONLY these exact businesses in ${country}:\n${exactNames.map((name) => `- ${name}`).join('\n')}\n\nDATE WINDOW: ${activityStartDate} through ${activityEndDate}, inclusive. Treat ${activityEndDate} as the current local calendar date for this report. A source label such as "6h", "1d", "2d", or "5 days ago" is valid dated evidence: normalize it to YYYY-MM-DD by counting back from ${activityEndDate}.\n\nSOURCE-SPECIFIC PASS: ${sourceFocus}\n\nBuild a detailed factual activity report. Look across every day in the date window instead of stopping after one result. Include a post, video, reel, ad, promotion, offer, event, launch, article, or campaign only when a public result explicitly proves both the activity and its absolute or relative publication date. Prefer the direct content URL. When Facebook or LinkedIn exposes a clearly dated update only inside the exact business's official Page/organization Updates feed, the official Page/organization URL is acceptable evidence; never use a generic profile page unless the rendered search result visibly contains that specific dated activity.\n\nGROUNDING RULES: Describe only facts visible in the public source, search-result extract, caption, title, description, or indexed transcript. For a video/reel, explain what it discusses or demonstrates only when its caption, description, visible text, or transcript supports that explanation. Never invent spoken words, scenes, results, offers, prices, audience reactions, or business actions. If detailed content is unavailable, keep summary and keyDetails empty instead of guessing. Every keyDetails item must be a concrete source-backed fact.\n\nReturn ONLY valid JSON in this shape:\n{\n  "activities": [\n    {\n      "competitorName": "exact name copied from the supplied list",\n      "date": "YYYY-MM-DD",\n      "contentType": "Video, Reel, Post, Article, Event, Offer, Ad, or Other",\n      "title": "exact visible title/headline, or a short factual label grounded in the source",\n      "activity": "one concise sentence stating what the business posted or announced",\n      "summary": "2-4 factual sentences explaining what the content is about, using only details visible in the source; empty string if unavailable",\n      "keyDetails": ["up to 6 concrete facts explicitly supported by the source"],\n      "sourceUrl": "direct public evidence URL or the official organization Updates URL fallback described above"\n    }\n  ]\n}\nReturn {"activities": []} only when no explicitly dated public activity is found in the window.`;
         return generateOpenRouterWebSearch({ prompt, maxResults: 20 });
       })
     )));
 
-    activitySearches.forEach((settled) => {
-      if (settled.status !== 'fulfilled') return;
-      const parsed = jsonFromText(settled.value?.content);
-      (Array.isArray(parsed?.activities) ? parsed.activities : []).forEach((activity) => {
-        const candidate = mergedCandidates.get(competitorKey(activity?.competitorName));
-        if (!candidate) return;
-        candidate.recentActivities = normalizeRecentActivities(
-          [...(candidate.recentActivities || []), activity],
-          activityStartDate,
-          activityEndDate,
-        );
+    const mergeActivitySearches = (settledSearches) => {
+      settledSearches.forEach((settled) => {
+        if (settled.status !== 'fulfilled') return;
+        const parsed = jsonFromText(settled.value?.content);
+        (Array.isArray(parsed?.activities) ? parsed.activities : []).forEach((activity) => {
+          const candidate = mergedCandidates.get(competitorKey(activity?.competitorName));
+          if (!candidate) return;
+          candidate.recentActivities = normalizeRecentActivities(
+            [...(candidate.recentActivities || []), activity],
+            activityStartDate,
+            activityEndDate,
+          );
+        });
       });
-    });
+    };
+    mergeActivitySearches(activitySearches);
+
+    // Batch searches can still spend all their result slots on the first few
+    // names. Retry only the empty competitors one-by-one, across the requested
+    // sources, so a busy official feed such as LinkedIn Updates is not hidden
+    // just because it shared a batch with other companies.
+    const emptyActivityCandidates = activityCandidates.filter((candidate) => !(candidate.recentActivities || []).length);
+    const targetedSearches = await Promise.allSettled(emptyActivityCandidates.map((candidate) => {
+      const knownSources = [candidate.facebookUrl, candidate.linkedinUrl, candidate.sourceUrl].filter(Boolean).join('\n- ');
+      const prompt = `Find the public activity of the exact business "${candidate.name}" in ${country} from ${activityStartDate} through ${activityEndDate}, inclusive. Treat ${activityEndDate} as today's local date.\n\nSearch all three sources carefully:\n1. Facebook official Page posts, reels, videos, offers, promotions, and events.\n2. LinkedIn official company/school/showcase Updates and posts.\n3. The official website's dated news, blog, event, offer, launch, or campaign pages.\n${knownSources ? `\nKnown public URLs to verify first:\n- ${knownSources}\n` : ''}\nRelative labels such as "6h", "10h", "1d", "2d", or "6 days ago" are explicit date evidence. Convert them to YYYY-MM-DD by counting back from ${activityEndDate}; do not discard them merely because the source uses a relative label. Prefer a direct activity URL. If a clearly dated Facebook/LinkedIn update is rendered only within the exact official Page/organization Updates feed, its official Page URL is an acceptable fallback. Never report a generic page without a specific visible activity and date.\n\nDescribe only source-backed facts. For video/reel content, summarize what it discusses or demonstrates only from the visible caption, description, on-page text, or indexed transcript. Never invent dialogue, visuals, claims, offers, prices, outcomes, or business actions. If the source exposes no detail, leave summary and keyDetails empty.\n\nReturn ONLY valid JSON:\n{ "activities": [{ "competitorName": ${JSON.stringify(candidate.name)}, "date": "YYYY-MM-DD", "contentType": "Video, Reel, Post, Article, Event, Offer, Ad, or Other", "title": "source-grounded title or label", "activity": "what the business specifically posted or announced", "summary": "2-4 factual source-grounded sentences, or empty string", "keyDetails": ["up to 6 concrete source-backed facts"], "sourceUrl": "public evidence URL" }] }\nReturn {"activities": []} only after checking Facebook, LinkedIn, and the official website and finding no dated activity in this exact window.`;
+      return generateOpenRouterWebSearch({ prompt, maxResults: 20 });
+    }));
+    mergeActivitySearches(targetedSearches);
   }
 
   // Same real-HTTP-check pattern as _webBusinessSearch.js: a fabricated or
