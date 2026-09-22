@@ -17,6 +17,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { ScheduleHandoffRequest } from '../types';
 import { recordAuditEvent } from '../lib/auditClient';
 
+type Platform = 'TIKTOK' | 'YOUTUBE' | 'INSTAGRAM' | 'TWITTER' | 'TELEGRAM';
+
 const MB = 1024 * 1024;
 const TELEGRAM_MEDIA_LIMIT_MB = 48;
 const DEMO_INLINE_MEDIA_LIMIT_MB = 3;
@@ -61,7 +63,21 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   
   // Form state
   const [content, setContent] = useState('');
-  const [platform, setPlatform] = useState<'TIKTOK' | 'YOUTUBE' | 'INSTAGRAM' | 'TWITTER' | 'TELEGRAM'>('TIKTOK');
+  // An array, not a scalar, so one post can fan out to several destinations at
+  // once (e.g. TikTok + Telegram) -- each selected platform gets its own
+  // scheduled_posts doc (or Telegram's own create call) sharing one groupId,
+  // so the two existing cron runners (api/tiktok/publish.js,
+  // api/telegram/run-scheduled.js) need no changes at all.
+  const [platforms, setPlatforms] = useState<Platform[]>(['TIKTOK']);
+  const togglePlatform = (id: Platform) => {
+    setPlatforms((prev) => {
+      if (prev.includes(id)) {
+        // Always keep at least one platform selected.
+        return prev.length > 1 ? prev.filter((p) => p !== id) : prev;
+      }
+      return [...prev, id];
+    });
+  };
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [telegramMediaFile, setTelegramMediaFile] = useState<File | null>(null);
   const [scheduledTime, setScheduledTime] = useState(() => {
@@ -113,7 +129,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     })();
 
     setContent(handoffRequest.caption);
-    setPlatform(targetPlatform);
+    setPlatforms([targetPlatform]);
     setIsModalOpen(true);
     onHandoffConsumed?.(handoffRequest.id);
   }, [handoffRequest?.id]);
@@ -135,7 +151,13 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     return null;
   };
 
-  const uploadTelegramMedia = async (file: File, idToken: string) => {
+  // Not Telegram-specific despite the endpoint's name -- also used as a
+  // fallback for TikTok/YouTube video uploads when Firebase Storage can't be
+  // reached (confirmed live: a user's network could upload to ImageKit fine
+  // but every Firebase Storage upload stalled at 0 bytes for 60s straight,
+  // meaning the connection to firebasestorage.googleapis.com specifically
+  // was the problem, not file size or general connectivity).
+  const uploadMediaViaImageKit = async (file: File, idToken: string): Promise<{ mediaUrl: string; mediaType: 'photo' | 'video' }> => {
     let signatureResponse: Response;
     try {
       // Unlike doUpload() below (the actual ImageKit upload, already
@@ -252,12 +274,15 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     setScheduledTime(getLocalISOString(nextHour));
   };
 
-  const saveLocalSchedule = async (userId: string, scheduledDate: Date) => {
-    const postId = Date.now().toString();
+  // One call per selected platform (see the fan-out loop in handleCreatePost)
+  // so a combined TikTok + Telegram post shows up as two demo cards sharing
+  // groupId, mirroring how the live path writes two scheduled_posts docs.
+  const saveLocalSchedule = async (userId: string, scheduledDate: Date, platform: Platform, groupId: string) => {
+    const postId = `${Date.now().toString()}-${platform}`;
     // Telegram can carry an image or video; TikTok and YouTube require a
     // video. Preserve the selected media for demo-mode schedule cards as well.
     const mediaFile = platform === 'TELEGRAM'
-      ? telegramMediaFile
+      ? (telegramMediaFile || videoFile)
       : platform === 'TIKTOK' || platform === 'YOUTUBE'
         ? videoFile
         : null;
@@ -276,6 +301,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
 
     const post = {
       id: postId,
+      groupId,
       content: content.trim(),
       platform,
       scheduledTime: scheduledDate.toISOString(),
@@ -306,8 +332,13 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
 
     const userToUse = user || (isDemoMode ? { uid: 'demo-user' } : null);
 
-    const requiresVideo = platform === 'TIKTOK' || platform === 'YOUTUBE';
-    if ((!content.trim() && !(platform === 'TELEGRAM' && telegramMediaFile)) || !scheduledTime || !userToUse || (requiresVideo && !videoFile)) {
+    const requiresVideo = platforms.includes('TIKTOK') || platforms.includes('YOUTUBE');
+    // Telegram can post text-only or media-only, so it's the one case where a
+    // blank caption is fine -- but only when it's the *sole* destination and
+    // has its own media, since a combined post still needs a caption/title
+    // for the other platform(s) it's also going to.
+    const telegramOnlyWithMedia = platforms.length === 1 && platforms[0] === 'TELEGRAM' && !!telegramMediaFile;
+    if ((!content.trim() && !telegramOnlyWithMedia) || !scheduledTime || !userToUse || (requiresVideo && !videoFile)) {
       setFormError(t('fillAllFieldsErr'));
       return;
     }
@@ -321,17 +352,24 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
       return;
     }
 
-    const mediaError = platform === 'TELEGRAM' ? validateTelegramMedia(telegramMediaFile, isDemoMode) : null;
+    // If Telegram is one of several destinations and no separate Telegram
+    // media was chosen, the shared video (required for TikTok/YouTube) is
+    // reused for Telegram too rather than asking the user to upload it twice.
+    const effectiveTelegramMedia = telegramMediaFile || (platforms.includes('TELEGRAM') ? videoFile : null);
+    const mediaError = platforms.includes('TELEGRAM') ? validateTelegramMedia(effectiveTelegramMedia, isDemoMode) : null;
     if (mediaError) {
       setFormError(mediaError);
       return;
     }
 
     setIsSubmitting(true);
+    const groupId = crypto.randomUUID();
 
     if (isDemoMode) {
       try {
-        await saveLocalSchedule('demo-user', scheduledDate);
+        for (const platform of platforms) {
+          await saveLocalSchedule('demo-user', scheduledDate, platform, groupId);
+        }
         resetFormAfterSchedule();
       } catch (err) {
         console.error('Error preparing demo media:', err);
@@ -344,91 +382,123 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     }
 
     try {
+      if (!user) throw new Error('Please sign in first.');
+      const idToken = await user.getIdToken();
+
+      // Uploaded once and reused across every selected platform that needs
+      // it, rather than once per platform.
       let videoUrl = '';
-      let mediaUrl = '';
-      let mediaType: 'photo' | 'video' | null = null;
-      if (platform === 'TELEGRAM') {
-        if (!user) throw new Error('Please sign in first.');
-        const idToken = await user.getIdToken();
-        const uploadedMedia = telegramMediaFile
-          ? await uploadTelegramMedia(telegramMediaFile, idToken)
-          : null;
-        let response: Response;
-        try {
-          response = await withUploadTimeout(fetch('/api/telegram/run-scheduled?action=create', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${idToken}`
-            },
-            body: JSON.stringify({
-              content: content.trim(),
-              scheduledTime: scheduledDate.toISOString(),
-              mediaUrl: uploadedMedia?.mediaUrl || '',
-              mediaName: telegramMediaFile?.name || null,
-              mediaType: uploadedMedia?.mediaType || null
-            })
-          }), UPLOAD_TIMEOUT_MESSAGE);
-        } catch {
-          throw new Error('The media uploaded, but saving the post to the schedule failed (network error). Please try again.');
-        }
-        const responseText = await response.text();
-        let data: any = {};
-        try {
-          data = responseText ? JSON.parse(responseText) : {};
-        } catch {
-          throw new Error(`Scheduling service returned HTTP ${response.status} instead of JSON.`);
-        }
-        if (!response.ok || !data.ok) {
-          throw new Error(data.error || 'Could not schedule this Telegram post.');
-        }
-        resetFormAfterSchedule();
-        return;
-      }
-      if ((platform === 'TIKTOK' || platform === 'YOUTUBE') && videoFile) {
+      if (requiresVideo && videoFile) {
         const safeName = videoFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
         const storageRef = ref(storage, `scheduled-videos/${userToUse.uid}/${Date.now()}-${safeName}`);
         setUploadProgress(0);
         try {
           await uploadVideoWithProgress(storageRef, videoFile, setUploadProgress);
+          videoUrl = await getDownloadURL(storageRef);
+        } catch (storageError) {
+          // Firebase Storage can be unreachable on some networks even when
+          // the same connection uploads to ImageKit fine (confirmed live) --
+          // fall back rather than failing the whole post on a storage-
+          // provider-specific issue.
+          console.error('Firebase Storage upload failed, falling back to ImageKit:', storageError);
+          const uploaded = await uploadMediaViaImageKit(videoFile, idToken);
+          videoUrl = uploaded.mediaUrl;
         } finally {
           setUploadProgress(null);
         }
-        videoUrl = await getDownloadURL(storageRef);
       }
-      await addDoc(collection(db, 'scheduled_posts'), {
-        content: content.trim(),
-        platform,
-        scheduledTime: scheduledDate.toISOString(),
-        status: 'PENDING',
-        userId: userToUse.uid,
-        aiSuggested: false,
-        videoUrl,
-        videoName: videoFile?.name || null,
-        mediaUrl,
-        mediaName: telegramMediaFile?.name || null,
-        mediaType,
-        publishMode: platform === 'TIKTOK'
-          ? 'TIKTOK_DIRECT_POST'
-          : platform === 'YOUTUBE'
-            ? 'YOUTUBE_STUDIO_READY'
-            : 'PLANNED_ONLY',
-        createdAt: serverTimestamp()
-      });
-      void recordAuditEvent('scheduled_post_created', {
-        platform,
-        scheduledTime: scheduledDate.toISOString(),
-        hasMedia: Boolean(videoUrl || mediaUrl),
-      });
-      setIsModalOpen(false);
-      setContent('');
-      setVideoFile(null);
-      setTelegramMediaFile(null);
-      
-      const nextHour = new Date();
-      nextHour.setHours(nextHour.getHours() + 1);
-      nextHour.setMinutes(0);
-      setScheduledTime(getLocalISOString(nextHour));
+
+      let telegramMediaUrl = '';
+      let telegramMediaType: 'photo' | 'video' | null = null;
+      if (platforms.includes('TELEGRAM') && effectiveTelegramMedia) {
+        // Reuse the just-uploaded video URL instead of uploading the same
+        // file to ImageKit a second time when TikTok/YouTube already has it.
+        if (effectiveTelegramMedia === videoFile && videoUrl) {
+          telegramMediaUrl = videoUrl;
+          telegramMediaType = 'video';
+        } else {
+          const uploaded = await uploadMediaViaImageKit(effectiveTelegramMedia, idToken);
+          telegramMediaUrl = uploaded.mediaUrl;
+          telegramMediaType = uploaded.mediaType;
+        }
+      }
+
+      const failures: string[] = [];
+      for (const platform of platforms) {
+        try {
+          if (platform === 'TELEGRAM') {
+            let response: Response;
+            try {
+              response = await withUploadTimeout(fetch('/api/telegram/run-scheduled?action=create', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${idToken}`
+                },
+                body: JSON.stringify({
+                  content: content.trim(),
+                  scheduledTime: scheduledDate.toISOString(),
+                  mediaUrl: telegramMediaUrl,
+                  mediaName: effectiveTelegramMedia?.name || null,
+                  mediaType: telegramMediaType,
+                  groupId,
+                })
+              }), UPLOAD_TIMEOUT_MESSAGE);
+            } catch {
+              throw new Error('network error reaching the scheduling service');
+            }
+            const responseText = await response.text();
+            let data: any = {};
+            try {
+              data = responseText ? JSON.parse(responseText) : {};
+            } catch {
+              throw new Error(`scheduling service returned HTTP ${response.status} instead of JSON`);
+            }
+            if (!response.ok || !data.ok) {
+              throw new Error(data.error || 'could not schedule this Telegram post');
+            }
+            continue;
+          }
+
+          await addDoc(collection(db, 'scheduled_posts'), {
+            content: content.trim(),
+            platform,
+            groupId,
+            scheduledTime: scheduledDate.toISOString(),
+            status: 'PENDING',
+            userId: userToUse.uid,
+            aiSuggested: false,
+            videoUrl: platform === 'TIKTOK' || platform === 'YOUTUBE' ? videoUrl : '',
+            videoName: videoFile?.name || null,
+            mediaUrl: '',
+            mediaName: null,
+            mediaType: null,
+            publishMode: platform === 'TIKTOK'
+              ? 'TIKTOK_DIRECT_POST'
+              : platform === 'YOUTUBE'
+                ? 'YOUTUBE_STUDIO_READY'
+                : 'PLANNED_ONLY',
+            createdAt: serverTimestamp()
+          });
+          void recordAuditEvent('scheduled_post_created', {
+            platform,
+            scheduledTime: scheduledDate.toISOString(),
+            hasMedia: Boolean(videoUrl),
+          });
+        } catch (platformError) {
+          const message = platformError instanceof Error ? platformError.message : 'unknown error';
+          failures.push(`${platform}: ${message}`);
+        }
+      }
+
+      if (failures.length === platforms.length) {
+        throw new Error(failures.join('; '));
+      }
+
+      resetFormAfterSchedule();
+      if (failures.length) {
+        setFormError(`Scheduled for ${platforms.length - failures.length}/${platforms.length} platform(s). Failed: ${failures.join('; ')}`);
+      }
     } catch (err) {
       console.error('Error creating post:', err);
       const message = err instanceof Error ? err.message : t('failedSavePostErr');
@@ -562,7 +632,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-2">{t('platform')}</label>
+                      <label className="block text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-2">{t('platform')} (select one or more)</label>
                       <div className="grid grid-cols-5 gap-2">
                         {[
                           { id: 'TIKTOK', icon: Share2 },
@@ -574,9 +644,9 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                           <button
                             key={p.id}
                             type="button"
-                            onClick={() => setPlatform(p.id as any)}
+                            onClick={() => togglePlatform(p.id as Platform)}
                             className={`p-3 rounded-xl border flex flex-col items-center gap-1 transition-all ${
-                              platform === p.id
+                              platforms.includes(p.id as Platform)
                                 ? 'bg-brand-50 border-brand-500 text-brand-600 dark:bg-slate-800'
                                 : 'bg-white border-brand-100 text-slate-400 hover:border-brand-200 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400'
                             }`}
@@ -600,10 +670,10 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                     </div>
                   </div>
 
-                  {(platform === 'TIKTOK' || platform === 'YOUTUBE') && (
+                  {(platforms.includes('TIKTOK') || platforms.includes('YOUTUBE')) && (
                     <div>
                       <label className="block text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-2">
-                        {platform === 'YOUTUBE' ? 'YouTube landscape video (16:9)' : 'TikTok portrait video (9:16)'}
+                        {platforms.includes('YOUTUBE') && !platforms.includes('TIKTOK') ? 'YouTube landscape video (16:9)' : 'TikTok portrait video (9:16)'}
                       </label>
                       <input
                         required
@@ -613,16 +683,19 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                         className="w-full p-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-700 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-brand-600 file:px-3 file:py-2 file:font-bold file:text-white dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
                       />
                       <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                        {platform === 'YOUTUBE'
+                        {platforms.includes('YOUTUBE') && !platforms.includes('TIKTOK')
                           ? 'Horizontal 16:9 MP4, MOV, or WebM. This prepares the video and metadata for upload in YouTube Studio.'
                           : 'MP4, MOV, or WebM. Auto-post starts only after TikTok approves video.publish.'}
+                        {platforms.includes('TELEGRAM') && !telegramMediaFile && ' This same video is also used for Telegram unless you attach a different file below.'}
                       </p>
                     </div>
                   )}
-                  {platform === 'TELEGRAM' && (
+                  {platforms.includes('TELEGRAM') && (
                     <div className="space-y-3">
                       <div>
-                        <label className="block text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-2">Telegram image or video</label>
+                        <label className="block text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-2">
+                          Telegram image or video{(platforms.includes('TIKTOK') || platforms.includes('YOUTUBE')) ? ' (optional -- reuses the video above if left blank)' : ''}
+                        </label>
                         <input
                           type="file"
                           accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm"
