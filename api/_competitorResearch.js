@@ -13,6 +13,13 @@ export { socialPlatformFromUrl };
 
 const MAX_COMPETITOR_CANDIDATES = 75;
 const URL_VERIFICATION_CONCURRENCY = 8;
+const ACTIVITY_LOOKUP_BATCH_SIZE = 5;
+const MAX_ACTIVITIES_PER_COMPETITOR = 14;
+const ACTIVITY_SOURCE_FOCUSES = [
+  'FACEBOOK: Search site:facebook.com on each official business Page for direct public post, reel, video, offer, event, promotion, or ad URLs. Do not return a Page homepage as activity evidence.',
+  'LINKEDIN: Search site:linkedin.com/posts and public organization updates for direct dated posts by the exact company/school/showcase organization. Never use personal profiles.',
+  'OFFICIAL WEBSITE: Search each business official website for dated news, blog posts, offers, events, launches, campaign pages, or press releases. Return the exact dated article/event URL, not the website homepage.',
+];
 
 const mapWithConcurrency = async (items, limit, mapper) => {
   const results = new Array(items.length);
@@ -37,7 +44,32 @@ const jsonFromText = (text) => {
   }
 };
 
-export async function researchCompetitors({ query, country = 'Cambodia', activityStartDate = '', activityEndDate = '', exhaustive = true }) {
+const competitorKey = (value) => String(value || '').trim().toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+
+const normalizeRecentActivities = (value, activityStartDate, activityEndDate) => (
+  (Array.isArray(value) ? value : [])
+    .map((activity) => ({
+      date: String(activity?.date || '').trim(),
+      activity: String(activity?.activity || '').trim().slice(0, 400),
+      sourceUrl: String(activity?.sourceUrl || '').trim().slice(0, 300),
+      platform: socialPlatformFromUrl(activity?.sourceUrl),
+    }))
+    .filter((activity) => (
+      /^\d{4}-\d{2}-\d{2}$/.test(activity.date)
+      && activity.date >= activityStartDate
+      && activity.date <= activityEndDate
+      && activity.activity
+      && /^https?:\/\//i.test(activity.sourceUrl)
+    ))
+    .filter((activity, index, all) => all.findIndex((other) => (
+      other.date === activity.date && other.sourceUrl === activity.sourceUrl
+    )) === index)
+    .sort((left, right) => right.date.localeCompare(left.date))
+    .slice(0, MAX_ACTIVITIES_PER_COMPETITOR)
+);
+
+export async function researchCompetitors({ query, country = 'Cambodia', activityStartDate = '', activityEndDate = '', exhaustive = true, targetCount = 15 }) {
+  const requestedTargetCount = Math.min(50, Math.max(1, Math.round(Number(targetCount) || 15)));
   const hasActivityWindow = /^\d{4}-\d{2}-\d{2}$/.test(activityStartDate)
     && /^\d{4}-\d{2}-\d{2}$/.test(activityEndDate)
   const activityInstruction = hasActivityWindow
@@ -119,34 +151,26 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
         tiktokUrl: validTikTokUrl(tiktokUrl) ? tiktokUrl : '',
         linkedinUrl: validLinkedInUrl(linkedinUrl) ? linkedinUrl : '',
         sourceUrl: String(item?.sourceUrl || '').trim().slice(0, 300),
-        ...(hasActivityWindow ? { recentActivities: (Array.isArray(item?.recentActivities) ? item.recentActivities : [])
-          .map((activity) => ({
-            date: String(activity?.date || '').trim(),
-            activity: String(activity?.activity || '').trim().slice(0, 400),
-            sourceUrl: String(activity?.sourceUrl || '').trim().slice(0, 300),
-            platform: socialPlatformFromUrl(activity?.sourceUrl),
-          }))
-          .filter((activity) => (
-            /^\d{4}-\d{2}-\d{2}$/.test(activity.date)
-            && activity.date >= activityStartDate
-            && activity.date <= activityEndDate
-            && activity.activity
-            && /^https?:\/\//i.test(activity.sourceUrl)
-          ))
-          .slice(0, 5) } : {}),
+        ...(hasActivityWindow ? { recentActivities: normalizeRecentActivities(
+          item?.recentActivities,
+          activityStartDate,
+          activityEndDate,
+        ) } : {}),
       };
       if (!isDirectCompetitor || matchConfidence !== 'high' || !candidate.matchReason) return;
       if (!candidate.name || !/^https?:\/\//i.test(candidate.sourceUrl)) return;
-      const key = candidate.name.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+      const key = competitorKey(candidate.name);
       if (!key) return;
       const existing = mergedCandidates.get(key);
       if (!existing) {
         mergedCandidates.set(key, candidate);
         return;
       }
-      const activities = [...(existing.recentActivities || []), ...(candidate.recentActivities || [])]
-        .filter((activity, index, all) => all.findIndex((other) => other.date === activity.date && other.sourceUrl === activity.sourceUrl) === index)
-        .slice(0, 5);
+      const activities = normalizeRecentActivities(
+        [...(existing.recentActivities || []), ...(candidate.recentActivities || [])],
+        activityStartDate,
+        activityEndDate,
+      );
       mergedCandidates.set(key, {
         ...existing,
         matchReason: existing.matchReason || candidate.matchReason,
@@ -161,6 +185,41 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
   // Keep broad discovery useful while bounding outbound requests so a large or
   // malformed model response cannot exhaust a serverless invocation.
   const candidates = [...mergedCandidates.values()].slice(0, MAX_COMPETITOR_CANDIDATES);
+
+  // Discovery prompts often find the right competitors but return no dated
+  // posts because they are also doing entity matching. Once the names are
+  // known, run a focused second stage in small batches that searches the exact
+  // seven-day window and maps every post back to an already-verified candidate.
+  // This produces the day-by-day report without letting the activity search
+  // introduce a new or invented competitor.
+  if (hasActivityWindow && candidates.length) {
+    const activityCandidates = candidates.slice(0, requestedTargetCount);
+    const batches = [];
+    for (let index = 0; index < activityCandidates.length; index += ACTIVITY_LOOKUP_BATCH_SIZE) {
+      batches.push(activityCandidates.slice(index, index + ACTIVITY_LOOKUP_BATCH_SIZE));
+    }
+    const activitySearches = await Promise.allSettled(batches.flatMap((batch) => (
+      ACTIVITY_SOURCE_FOCUSES.map((sourceFocus) => {
+        const exactNames = batch.map((candidate) => candidate.name);
+        const prompt = `Search the live public web for activity posted by ONLY these exact businesses in ${country}:\n${exactNames.map((name) => `- ${name}`).join('\n')}\n\nDATE WINDOW: ${activityStartDate} through ${activityEndDate}, inclusive.\n\nSOURCE-SPECIFIC PASS: ${sourceFocus}\n\nBuild a factual day-by-day activity report. Look across every day in the date window instead of stopping after one result. Include a post, ad, promotion, offer, event, launch, article, or campaign only when a public result explicitly proves both the activity and its publication date. The sourceUrl must be the direct post/news/event URL, not a profile or homepage. Do not infer activity, do not use undated content, and do not add any business outside the exact list.\n\nReturn ONLY valid JSON in this shape:\n{\n  "activities": [\n    { "competitorName": "exact name copied from the supplied list", "date": "YYYY-MM-DD", "activity": "concise factual summary of what was posted or announced", "sourceUrl": "direct public evidence URL" }\n  ]\n}\nReturn {"activities": []} only when no explicitly dated public activity is found in the window.`;
+        return generateOpenRouterWebSearch({ prompt, maxResults: 20 });
+      })
+    )));
+
+    activitySearches.forEach((settled) => {
+      if (settled.status !== 'fulfilled') return;
+      const parsed = jsonFromText(settled.value?.content);
+      (Array.isArray(parsed?.activities) ? parsed.activities : []).forEach((activity) => {
+        const candidate = mergedCandidates.get(competitorKey(activity?.competitorName));
+        if (!candidate) return;
+        candidate.recentActivities = normalizeRecentActivities(
+          [...(candidate.recentActivities || []), activity],
+          activityStartDate,
+          activityEndDate,
+        );
+      });
+    });
+  }
 
   // Same real-HTTP-check pattern as _webBusinessSearch.js: a fabricated or
   // dead source URL is the actual failure mode worth guarding against here.

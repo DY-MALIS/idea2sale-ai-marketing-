@@ -37,3 +37,11 @@ it('drops malformed activity metadata while normalizing missing arrays', () => {
   expect(restored?.competitors).toEqual([]);
   expect(restored?.potentialLeads).toEqual([]);
 });
+
+it('migrates the retired competitor-customer mode into the unified competitor scan', () => {
+  const restored = normalizeFacebookScanHistoryResult({
+    scanMode: 'competitor_customers',
+  });
+
+  expect(restored?.scanMode).toBe('competitor_activity');
+});

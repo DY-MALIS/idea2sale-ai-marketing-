@@ -160,7 +160,12 @@ export async function urlIsReachable(url, timeoutMs = 6000) {
   }
 }
 
-export async function searchBusinessesOnWeb({ searchTerms, searchObjective = '', requiredSignal = '', entityScope = 'businesses', country = 'Cambodia', activityStartDate = '', activityEndDate = '' }) {
+export async function searchBusinessesOnWeb({ searchTerms, searchObjective = '', requiredSignal = '', entityScope = 'businesses', country = 'Cambodia', activityStartDate = '', activityEndDate = '', targetCount = 15 }) {
+  // The web-search model commonly stops after the first five matches unless the
+  // requested breadth is explicit. Keep the target bounded, but pass it into
+  // every complementary search so an unspecified count still produces a useful
+  // lead list instead of an arbitrary five-result sample.
+  const requestedTargetCount = Math.min(50, Math.max(1, Math.round(Number(targetCount) || 15)));
   const activityWindow = /^\d{4}-\d{2}-\d{2}$/.test(activityStartDate)
     && /^\d{4}-\d{2}-\d{2}$/.test(activityEndDate)
     ? `\nFor each business, also search for public activity published from ${activityStartDate} through ${activityEndDate}, inclusive. An activity must have an explicit publication date and a direct public source URL. Do not treat undated content, a homepage, general positioning, or an inference as activity in this date window. If none is found, return an empty recentActivities array.`
@@ -184,6 +189,7 @@ ${workerScopeInstruction}
 
 SEARCH PASS FOCUS: ${focus}
 SCAN OBJECTIVE: ${searchObjective || 'Find real public business prospects that match the request.'}
+RESULT TARGET FOR THIS PASS: Return up to ${requestedTargetCount} distinct verified matches. If at least ${requestedTargetCount} matching businesses are findable, do not stop after the first five. Keep searching across relevant result pages until this target is met. Never pad the list with invented, irrelevant, or unverified entries.
 
 Interpret the request flexibly and preserve its intent:
 - A specific company/Page/organization name means find and enrich that exact entity.

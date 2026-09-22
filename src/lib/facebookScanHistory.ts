@@ -12,7 +12,9 @@ export const normalizeFacebookScanHistoryResult = (
   return {
     success: true,
     query: typeof raw.query === 'string' ? raw.query : '',
-    scanMode: raw.scanMode,
+    // Older history entries used a separate competitor-customer mode. It is
+    // now one unified competitor scan with segments and seven-day activity.
+    scanMode: raw.scanMode === 'competitor_customers' ? 'competitor_activity' : raw.scanMode,
     researchTarget: typeof raw.researchTarget === 'string' ? raw.researchTarget : undefined,
     webBusinessesFound: typeof raw.webBusinessesFound === 'number' ? raw.webBusinessesFound : undefined,
     webSearchAvailable: typeof raw.webSearchAvailable === 'boolean' ? raw.webSearchAvailable : undefined,

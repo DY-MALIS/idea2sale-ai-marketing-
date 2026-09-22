@@ -83,7 +83,6 @@ export const FACEBOOK_SCAN_MODES = Object.freeze([
   'construction',
   'workers',
   'competitor_activity',
-  'competitor_customers',
   'hiring',
 ]);
 
@@ -93,8 +92,10 @@ export const FACEBOOK_SCAN_MODES = Object.freeze([
 // customer search) that happens to share a keyword.
 const SCAN_MODE_CLASSIFIER_RULES = [
   ['hiring', /(?:រើសបុគ្គលិក|ជ្រើសរើស(?:បុគ្គលិក|ថ្មី)?|hiring|recruit(?:ing|ment)?|job\s*vacan|vacancy|is\s+hiring|looking\s+for\s+staff)/i],
-  ['competitor_customers', /(?:អតិថិជន(?:របស់)?គូប្រកួត|អតិថិជនគូប្រជែង|customer[s]?\s+of\s+(?:a\s+|my\s+)?competitor|competitor['’]?s\s+customer|competitor\s+audience)/i],
-  ['competitor_activity', /(?:គូប្រកួត|ប្រកួតប្រជែង|ប្រកូដប្រជែង|\bcompetitor(?:s)?\b|\brival(?:s)?\b)/i],
+  // Competitor discovery, aggregate audience analysis, and verified seven-day
+  // activity are one unified result. Do not route "competitor customers" into
+  // a second search that makes the person choose between the same competitors.
+  ['competitor_activity', /(?:អតិថិជន(?:របស់)?គូប្រកួត|អតិថិជនគូប្រជែង|គូប្រកួត|ប្រកួតប្រជែង|ប្រកូដប្រជែង|customer[s]?\s+of\s+(?:a\s+|my\s+)?competitor|competitor['’]?s\s+customer|competitor\s+audience|\bcompetitor(?:s)?\b|\brival(?:s)?\b)/i],
   ['market_trends', /(?:រលកទីផ្សារ|ត្រេន|ពេញនិយមកំពុង|កំពុងកើនឡើង|\btrend(?:s|ing)?\b|\bviral\b|market\s+wave)/i],
   ['ai_interest', /(?:ចាប់អារម្មណ៍\s*AI|\bAI\b|automation|digital\s+transformation|\bchatbot\b)/i],
   ['high_value', /(?:សក្តានុពលចំណាយ|\bpremium\b|\bluxury\b|high[\s-]?value|high[\s-]?end|\bresort\b)/i],
@@ -137,6 +138,9 @@ export const DEFAULT_SCAN_ENTITY_CAP = 15;
 
 export const resolveFacebookScanMode = (value, query = '') => {
   const requested = String(value || '').trim();
+  // Backward compatibility for saved scans and older clients: the former
+  // customer-segment-only competitor mode is now part of the unified scan.
+  if (requested === 'competitor_customers') return 'competitor_activity';
   if (requested && FACEBOOK_SCAN_MODES.includes(requested)) return requested;
   return classifyScanMode(query);
 };
@@ -1092,12 +1096,8 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
           instruction: 'Prioritize construction contractors, property developers, architects, engineering firms, and building-material suppliers that can be verified publicly.',
         },
         competitor_activity: {
-          searchHint: 'competitors dated posts advertisements promotions offers campaigns launches events last 7 days',
-          instruction: 'Find what each competitor publicly did during the exact 7-day window ending today: dated posts, ads, promotions, offers, campaigns, launches, or events. Every reported activity must include its publication date and a direct public evidence URL. Clearly separate verified activity from positioning or inference.',
-        },
-        competitor_customers: {
-          searchHint: 'competitor customer segments reviews audience needs',
-          instruction: 'Describe aggregate customer segments, needs, and buying triggers supported by public business positioning, ads, or reviews. Never identify private individuals or claim access to private followers, messages, or customer lists.',
+          searchHint: 'competitors customer segments reviews audience needs dated posts advertisements promotions offers campaigns launches events last 7 days',
+          instruction: 'Find the real competitors once, then return both their aggregate customer segments and their public activity during the exact 7-day window ending today. Include dated posts, ads, promotions, offers, campaigns, launches, or events with direct evidence URLs. Describe customer needs and buying triggers only from public positioning, ads, or reviews; never identify private individuals or claim access to private followers, messages, or customer lists. Clearly separate verified activity from positioning or inference.',
         },
         hiring: {
           searchHint: 'companies hiring staff job vacancies recruitment careers',
@@ -1110,7 +1110,7 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
       };
       const scanMode = resolveFacebookScanMode(req.body?.scanMode, query);
       const scanModeConfig = scanModeConfigs[scanMode];
-      const isCompetitorScan = ['competitor_activity', 'competitor_customers'].includes(scanMode);
+      const isCompetitorScan = scanMode === 'competitor_activity';
       const today = new Date();
       const countryTimeZones = {
         KH: 'Asia/Phnom_Penh',
@@ -1150,6 +1150,7 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
         !isCompetitorScan ? searchBusinessesOnWeb({
           searchTerms,
           searchObjective: `${scanModeConfig.searchHint}. ${scanModeConfig.instruction}`,
+          targetCount: entityCap,
           requiredSignal: scanMode === 'hiring' ? 'hiring' : '',
           entityScope: scanMode === 'workers' ? 'workers' : 'businesses',
           country: searchCountry,
@@ -1160,6 +1161,7 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
         isCompetitorScan ? researchCompetitors({
           query: primaryCompetitorResearchTarget,
           country: searchCountry,
+          targetCount: entityCap,
           activityStartDate: activityWindow.startDate,
           activityEndDate: activityWindow.endDate,
         }) : Promise.resolve({ competitors: [], entitySummary: '' }),
@@ -1167,6 +1169,7 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
           ? researchCompetitors({
               query: userBusinessName,
               country: searchCountry,
+              targetCount: entityCap,
               activityStartDate: activityWindow.startDate,
               activityEndDate: activityWindow.endDate,
               exhaustive: false,

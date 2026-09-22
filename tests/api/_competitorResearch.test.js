@@ -192,6 +192,55 @@ it('keeps only reachable, explicitly dated activity inside the requested 7-day w
   ]);
 });
 
+it('runs a focused second-stage lookup and builds dated activity for discovered competitors', async () => {
+  mocks.webSearch
+    .mockResolvedValueOnce({ content: JSON.stringify({
+      competitors: [{
+        name: 'Rival Cafe',
+        isDirectCompetitor: true,
+        matchConfidence: 'high',
+        matchReason: 'Serves the same cafe customers in Phnom Penh',
+        positioning: '',
+        sourceUrl: 'https://rival-cafe.example.com',
+        recentActivities: [],
+      }],
+    }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({ competitors: [] }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({ competitors: [] }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({ competitors: [] }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({ competitors: [] }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({
+      activities: [
+        { competitorName: 'Rival Cafe', date: '2026-09-18', activity: 'Posted a weekend coffee offer', sourceUrl: 'https://www.facebook.com/rivalcafe/posts/123' },
+      ],
+    }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({ activities: [
+      { competitorName: 'Rival Cafe', date: '2026-09-17', activity: 'Announced a barista workshop', sourceUrl: 'https://www.linkedin.com/posts/rivalcafe_workshop-activity-789' },
+    ] }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({ activities: [
+      { competitorName: 'Rival Cafe', date: '2026-09-16', activity: 'Published a seasonal menu article', sourceUrl: 'https://rival-cafe.example.com/news/seasonal-menu' },
+    ] }) });
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+
+  const result = await researchCompetitors({
+    query: 'cafes Phnom Penh',
+    activityStartDate: '2026-09-12',
+    activityEndDate: '2026-09-18',
+  });
+
+  expect(mocks.webSearch).toHaveBeenCalledTimes(8);
+  expect(mocks.webSearch.mock.calls[5][0].prompt).toContain('Build a factual day-by-day activity report');
+  expect(mocks.webSearch.mock.calls[5][0].prompt).toContain('Rival Cafe');
+  expect(mocks.webSearch.mock.calls[5][0].prompt).toContain('FACEBOOK:');
+  expect(mocks.webSearch.mock.calls[6][0].prompt).toContain('LINKEDIN:');
+  expect(mocks.webSearch.mock.calls[7][0].prompt).toContain('OFFICIAL WEBSITE:');
+  expect(result.competitors[0].recentActivities).toEqual([
+    expect.objectContaining({ date: '2026-09-18', platform: 'Facebook' }),
+    expect.objectContaining({ date: '2026-09-17', platform: 'LinkedIn' }),
+    expect.objectContaining({ date: '2026-09-16', platform: 'Web' }),
+  ]);
+});
+
 it('searches Facebook, TikTok, and LinkedIn separately and labels social activity sources', async () => {
   mocks.webSearch.mockResolvedValue({
     content: JSON.stringify({

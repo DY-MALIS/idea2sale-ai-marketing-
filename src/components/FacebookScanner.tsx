@@ -329,6 +329,8 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     weeklyCaptureTitle: 'ការចាប់យកសកម្មភាពគូប្រកួតប្រចាំសប្ដាហ៍',
     weeklyCaptureBody: 'លទ្ធផលនេះត្រូវបានរក្សាទុកជា snapshot។ ស្កេនពាក្យដដែលម្ដងទៀតនៅសប្ដាហ៍ក្រោយ ដើម្បីឃើញសកម្មភាពថ្មីរបស់គូប្រកួត។',
     capturedActivities: 'សកម្មភាពដែលបានចាប់យក',
+    dailyActivityReport: 'របាយការណ៍សកម្មភាពតាមថ្ងៃ',
+    noCapturedActivityReport: 'រកមិនឃើញ post, offer, ad ឬ campaign ដែលមានកាលបរិច្ឆេទ និងប្រភពច្បាស់ក្នុងរយៈពេល ៧ ថ្ងៃនេះទេ។',
     newSincePrevious: 'សកម្មភាពថ្មីពីការចាប់យកមុន',
     firstCapture: 'នេះជាការចាប់យកលើកដំបូង',
     exportActivityReport: 'ទាញយករបាយការណ៍សកម្មភាព',
@@ -398,7 +400,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     customerCategory: 'ស្វែងរកអតិថិជន',
     customerCategoryDesc: 'ស្វែងរកតាមឈ្មោះ ប្រភេទអតិថិជន ក្រុមហ៊ុន វិស័យ ទីតាំង ឬតម្រូវការ',
     competitorCategory: 'វិភាគដៃគូប្រកួតប្រជែង',
-    competitorCategoryDesc: 'តាមដានសកម្មភាព និងអតិថិជនរបស់គូប្រជែង',
+    competitorCategoryDesc: 'រកដៃគូប្រកួតប្រជែង ហើយបង្ហាញក្រុមអតិថិជន និងសកម្មភាព ៧ ថ្ងៃរួមគ្នា',
     autoModeHint: 'គ្រាន់តែវាយអ្វីដែលអ្នកកំពុងស្វែងរក — AI នឹងកំណត់ប្រភេទសមស្របដោយខ្លួនឯង (អតិថិជន, គូប្រកួត, និន្នាការទីផ្សារ, ការជ្រើសរើសបុគ្គលិក និងជម្រើសផ្សេងទៀត)។',
     manualModeToggleShow: 'កំណត់ប្រភេទស្វែងរកដោយដៃ (ស្រេចចិត្ត)',
     manualModeToggleHide: 'លាក់ជម្រើសកំណត់ដោយដៃ',
@@ -419,8 +421,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
       { id: 'high_value', label: 'អ្នកមានសក្តានុពលចំណាយ', description: 'វាយតម្លៃពី premium positioning និងសកម្មភាពផ្សាយពាណិជ្ជកម្មសាធារណៈ', suggestions: ['អចលនទ្រព្យ premium', 'គ្លីនិកសម្ផស្ស', 'សណ្ឋាគារ និង resort'] },
       { id: 'construction', label: 'ម៉ៅការសំណង់', description: 'រកម៉ៅការ developer និងអ្នកផ្គត់ផ្គង់សំណង់', suggestions: ['ម៉ៅការសំណង់កម្ពុជា', 'Property developer Phnom Penh', 'អ្នកផ្គត់ផ្គង់សម្ភារៈសំណង់'] },
       { id: 'workers', label: 'ស្វែងរកជាង និងអ្នករកការងារ', description: 'រកអ្នកផ្តល់សេវា ក្រុមជាង freelancer និងអ្នកប្រកាសរកការងារតាមជំនាញ', suggestions: ['ជាងសង់ផ្ទះភ្នំពេញ', 'ជាងលាបថ្នាំកម្ពុជា', 'ជាងភ្លើងកំពុងរកការងារ', 'ជាងទឹកសៀមរាប', 'ក្រុមម៉ៅការសំណង់'] },
-      { id: 'competitor_activity', label: 'សកម្មភាពគូប្រកួត ៧ ថ្ងៃចុងក្រោយ', description: 'ស្វែងរក post, offer, ad, promotion និង campaign ដែលមានកាលបរិច្ឆេទ និងប្រភពច្បាស់', suggestions: ['ឈ្មោះ Page គូប្រកួត', 'គូប្រកួត skincare Cambodia', 'គូប្រកួតអចលនទ្រព្យ'] },
-      { id: 'competitor_customers', label: 'អតិថិជនគូប្រកួត', description: 'រក customer segments និង buying triggers តាមសញ្ញាសាធារណៈ', suggestions: ['អតិថិជនរបស់ Page គូប្រកួត', 'customer reviews competitor', 'audience របស់គូប្រកួត'] },
+      { id: 'competitor_activity', label: 'ដៃគូប្រកួតប្រជែង + សកម្មភាព ៧ ថ្ងៃ', description: 'រកដៃគូប្រកួតប្រជែងម្តង ហើយបង្ហាញក្រុមអតិថិជន buying triggers និងសកម្មភាព ៧ ថ្ងៃដែលមានប្រភពច្បាស់រួមគ្នា', suggestions: ['ឈ្មោះ Page គូប្រកួត', 'គូប្រកួត skincare Cambodia', 'គូប្រកួតអចលនទ្រព្យ'] },
       { id: 'hiring', label: 'ក្រុមហ៊ុនកំពុងរើសបុគ្គលិក', description: 'រកឈ្មោះក្រុមហ៊ុនដែលមានប្រកាសជ្រើសរើសថ្មីៗ និង link ភស្តុតាង', suggestions: ['ក្រុមហ៊ុនកំពុងរើសបុគ្គលិកកម្ពុជា', 'ក្រុមហ៊ុនរើស Sales', 'គ្លីនិករើសបុគ្គលិក', 'ការងារ Digital Marketing Cambodia', 'ក្រុមហ៊ុនរើស Marketing Manager'] },
     ],
     suggestions: [
@@ -441,6 +442,8 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     weeklyCaptureTitle: 'Weekly competitor activity capture',
     weeklyCaptureBody: 'This result is saved as a snapshot. Scan the same query again next week to see newly captured competitor activity.',
     capturedActivities: 'Captured activities',
+    dailyActivityReport: 'Day-by-day activity report',
+    noCapturedActivityReport: 'No dated post, offer, ad, or campaign with a verifiable source was found in this 7-day period.',
     newSincePrevious: 'New since the previous capture',
     firstCapture: 'This is the first capture',
     exportActivityReport: 'Download activity report',
@@ -510,7 +513,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     customerCategory: 'Find customers',
     customerCategoryDesc: 'Search by name, customer type, company, industry, location, or need',
     competitorCategory: 'Research competitors',
-    competitorCategoryDesc: 'Track competitor activity and customer segments',
+    competitorCategoryDesc: 'Find competitors and show their customer segments and verified 7-day activity together',
     autoModeHint: "Just type what you're looking for — AI figures out the right search type automatically (customers, competitors, market trends, hiring, and more).",
     manualModeToggleShow: 'Choose a search type manually (optional)',
     manualModeToggleHide: 'Hide manual options',
@@ -531,8 +534,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
       { id: 'high_value', label: 'High-value prospects', description: 'Estimate potential from premium positioning and public ad activity', suggestions: ['premium real estate', 'aesthetic clinics', 'hotels and resorts'] },
       { id: 'construction', label: 'Construction contractors', description: 'Find contractors, developers and construction suppliers', suggestions: ['Cambodia construction contractors', 'Phnom Penh property developers', 'construction material suppliers'] },
       { id: 'workers', label: 'Find workers & job seekers', description: 'Find public service providers, trade teams, freelancers, and people publicly seeking work by skill', suggestions: ['house builders Phnom Penh', 'painters Cambodia', 'electricians seeking work', 'plumbers Siem Reap', 'construction contractor teams'] },
-      { id: 'competitor_activity', label: 'Competitor activity — last 7 days', description: 'Find dated public posts, offers, ads, promotions and campaigns with evidence links', suggestions: ['competitor Page name', 'skincare competitors Cambodia', 'real estate competitors'] },
-      { id: 'competitor_customers', label: 'Competitor customers', description: 'Infer customer segments and buying triggers from public signals', suggestions: ['competitor Page customers', 'competitor customer reviews', 'competitor audience segments'] },
+      { id: 'competitor_activity', label: 'Competitors + 7-day activity', description: 'Find each competitor once, then show its customer segments, buying triggers, and dated public activity with evidence links together', suggestions: ['competitor Page name', 'skincare competitors Cambodia', 'real estate competitors'] },
       { id: 'hiring', label: 'Companies hiring staff', description: 'Find named employers with recent public job posts and evidence links', suggestions: ['companies hiring staff Cambodia', 'companies hiring sales Cambodia', 'clinics hiring staff', 'digital marketing jobs Cambodia', 'hiring marketing manager'] },
     ],
     suggestions: [
@@ -551,6 +553,8 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     suggestions: string[];
   }>;
   const activeScanMode = scanModes.find((mode) => mode.id === scanMode) || scanModes[0];
+  // Keep the old id only for rendering previously saved history. New searches
+  // expose one competitor mode and the server normalizes the legacy id.
   const competitorModeIds: ScanMode[] = ['competitor_activity', 'competitor_customers'];
   const resultIsCompetitorScan = competitorModeIds.includes(result?.scanMode || scanMode);
   const resultIsActivityScan = (result?.scanMode || scanMode) === 'competitor_activity';
@@ -563,7 +567,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
   const scanCategory = competitorModeIds.includes(scanMode) ? 'competitor' : 'customer';
   const visibleScanModes = scanModes.filter((mode) => (
     scanCategory === 'competitor'
-      ? competitorModeIds.includes(mode.id)
+      ? mode.id === 'competitor_activity'
       : !competitorModeIds.includes(mode.id)
   ));
 
@@ -671,8 +675,9 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
       if (typeof payload.query === 'string') setQuery(payload.query);
       if (typeof payload.country === 'string') setCountry(payload.country);
       if (typeof payload.days === 'number') setDays(payload.days);
-      if (typeof payload.scanMode === 'string' && text.modeOptions.some((option) => option.id === payload.scanMode)) {
-        setScanMode(payload.scanMode as ScanMode);
+      const restoredMode = payload.scanMode === 'competitor_customers' ? 'competitor_activity' : payload.scanMode;
+      if (typeof restoredMode === 'string' && text.modeOptions.some((option) => option.id === restoredMode)) {
+        setScanMode(restoredMode as ScanMode);
         setModeExplicit(true);
       }
       const raw = payload.result as Partial<FacebookScanResult> | undefined;
@@ -755,6 +760,15 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
       counts[activityPlatform(activity)] += 1;
       return counts;
     }, { Facebook: 0, TikTok: 0, LinkedIn: 0, Web: 0 });
+  const dailyActivityReport = Object.entries(
+    (result?.competitors || []).reduce<Record<string, Array<{ competitorName: string; activity: FacebookRecentActivity }>>>((days, competitor) => {
+      for (const activity of competitor.recentActivities || []) {
+        if (!days[activity.date]) days[activity.date] = [];
+        days[activity.date].push({ competitorName: competitor.pageName, activity });
+      }
+      return days;
+    }, {}),
+  ).sort(([leftDate], [rightDate]) => rightDate.localeCompare(leftDate));
 
   const exportCompetitorActivities = () => {
     if (!result || !capturedActivitySummary) return;
@@ -1044,6 +1058,36 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                     </div>
                   ))}
                 </div>
+              </div>
+              <div className="mt-6 border-t border-indigo-100 pt-5 dark:border-indigo-900">
+                <h4 className="flex items-center gap-2 text-sm font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-300">
+                  <CalendarDays size={17} />{text.dailyActivityReport}
+                </h4>
+                {dailyActivityReport.length ? (
+                  <div className="mt-4 space-y-4">
+                    {dailyActivityReport.map(([date, entries]) => (
+                      <article key={date} className="overflow-hidden rounded-2xl border border-indigo-100 bg-white/70 dark:border-indigo-900 dark:bg-slate-900/50">
+                        <div className="border-b border-indigo-100 bg-indigo-50 px-4 py-2.5 text-sm font-black text-indigo-800 dark:border-indigo-900 dark:bg-indigo-950/50 dark:text-indigo-200">{date}</div>
+                        <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+                          {entries.map(({ competitorName, activity }, index) => (
+                            <li key={`${competitorName}-${activity.sourceUrl}-${index}`} className="p-4 text-sm leading-6">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-black text-slate-800 dark:text-white">{competitorName}</span>
+                                <span className={`rounded-md px-2 py-0.5 text-xs font-black ${activityPlatformClass(activityPlatform(activity))}`}>{activityPlatform(activity)}</span>
+                              </div>
+                              <p className="mt-2 text-slate-600 dark:text-slate-300">{activity.activity}</p>
+                              <a href={activity.sourceUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1 font-bold text-blue-600 hover:underline">
+                                <ExternalLink size={12} />{text.viewEvidence}
+                              </a>
+                            </li>
+                          ))}
+                        </ul>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-3 rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-600 dark:bg-slate-900/60 dark:text-slate-300">{text.noCapturedActivityReport}</p>
+                )}
               </div>
             </section>
           )}

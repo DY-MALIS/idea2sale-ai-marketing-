@@ -38,7 +38,7 @@ vi.mock('../../api/_marketTrendResearch.js', () => ({ researchMarketTrends: mock
 vi.mock('../../api/_imagekitUpload.js', () => ({ uploadMediaDataUrl: vi.fn() }));
 vi.mock('../../api/_email.js', () => ({ sendOutreachEmail: vi.fn() }));
 
-import handler from '../../api/ai.js';
+import handler, { DEFAULT_SCAN_ENTITY_CAP } from '../../api/ai.js';
 
 const responseRecorder = () => {
   const response = {
@@ -109,6 +109,7 @@ it('routes the workers scan mode through worker/trade web discovery end to end',
   expect(mocks.searchBusinesses).toHaveBeenCalledWith(expect.objectContaining({
     searchTerms: 'house painters Phnom Penh',
     entityScope: 'workers',
+    targetCount: DEFAULT_SCAN_ENTITY_CAP,
   }));
   expect(res.body).toMatchObject({
     success: true,
@@ -142,7 +143,11 @@ it('returns dated competitor activity and its exact 7-day window', async () => {
   }));
   mocks.text.mockResolvedValue(JSON.stringify({
     customerInsights: { whatTheyBought: [], whatTheyLike: [], contentDesires: [], targetPersonas: [] },
-    competitors: [{ pageName: 'Verified Rival', topAngle: 'Premium service' }],
+    competitors: [{
+      pageName: 'Verified Rival',
+      topAngle: 'Premium service',
+      customerSegments: ['Customers seeking premium local service'],
+    }],
     potentialLeads: [],
     videoPlan: [],
     summaryReport: 'Competitor activity scan.',
@@ -181,6 +186,7 @@ it('returns dated competitor activity and its exact 7-day window', async () => {
       facebookUrl: 'https://www.facebook.com/verified-rival',
       tiktokUrl: 'https://www.tiktok.com/@verifiedrival',
       linkedinUrl: 'https://www.linkedin.com/company/verified-rival/',
+      customerSegments: ['Customers seeking premium local service'],
       recentActivities: [{
         date: res.body.activityWindow.endDate,
         activity: 'Published a seven-day promotional campaign.',

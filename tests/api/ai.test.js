@@ -68,7 +68,6 @@ describe('resolveFacebookScanMode', () => {
       'construction',
       'workers',
       'competitor_activity',
-      'competitor_customers',
       'hiring',
     ];
     expect(FACEBOOK_SCAN_MODES).toEqual(expectedModes);
@@ -99,11 +98,12 @@ describe('classifyScanMode', () => {
     expect(classifyScanMode('companies hiring sales staff')).toBe('hiring');
   });
 
-  it('distinguishes a competitor\'s customers from general competitor activity', () => {
-    expect(classifyScanMode('អតិថិជនរបស់គូប្រកួត Page នេះ')).toBe('competitor_customers');
-    expect(classifyScanMode('who are the customers of my competitor')).toBe('competitor_customers');
+  it('unifies competitor customers and seven-day activity into one competitor scan', () => {
+    expect(classifyScanMode('អតិថិជនរបស់គូប្រកួត Page នេះ')).toBe('competitor_activity');
+    expect(classifyScanMode('who are the customers of my competitor')).toBe('competitor_activity');
     expect(classifyScanMode('គូប្រកួត skincare Cambodia')).toBe('competitor_activity');
     expect(classifyScanMode('what did my competitor post this week')).toBe('competitor_activity');
+    expect(resolveFacebookScanMode('competitor_customers')).toBe('competitor_activity');
   });
 
   it('detects trend, AI-interest, high-value, construction, and worker/freelancer intents', () => {

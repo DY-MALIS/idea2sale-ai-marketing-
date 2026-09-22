@@ -96,6 +96,21 @@ it('keeps the user query and scan objective separate in every search pass', asyn
   }
 });
 
+it('asks every search pass for more than five matches when no smaller limit is supplied', async () => {
+  mocks.webSearch.mockResolvedValue({ content: JSON.stringify({ businesses: [] }) });
+
+  await searchBusinessesOnWeb({
+    searchTerms: 'Phnom Penh restaurants',
+    targetCount: 15,
+  });
+
+  expect(mocks.webSearch).toHaveBeenCalledTimes(4);
+  for (const [request] of mocks.webSearch.mock.calls) {
+    expect(request.prompt).toContain('Return up to 15 distinct verified matches');
+    expect(request.prompt).toContain('do not stop after the first five');
+  }
+});
+
 it('returns only employers with verified dated hiring evidence when hiring is required', async () => {
   mocks.webSearch.mockResolvedValue({
     content: JSON.stringify({
