@@ -9,6 +9,7 @@ import { generateOpenRouterWebSearch } from './_openrouter.js';
 import { urlIsReachable } from './_webBusinessSearch.js';
 import { socialPlatformFromUrl, validFacebookUrl, validTikTokUrl, validLinkedInUrl, isSupportedPublicSocialUrl } from './_socialUrls.js';
 import { fetchMetaAdLibraryActivity, isMetaAdLibraryConfigured } from './_metaAdLibrary.js';
+import { fetchApifySocialActivity, isApifySocialActivityConfigured } from './_apifySocialActivity.js';
 
 export { socialPlatformFromUrl };
 
@@ -300,6 +301,25 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
     });
     mergeActivities(activityParsed?.activities);
 
+    // STAGE 3 -- direct public Facebook/TikTok lookup. Search indexes often
+    // miss recent social posts. When configured, this queries only the exact
+    // official Page/profile URLs discovered in stage 1 and returns direct
+    // post/video evidence. It is optional and always fails open.
+    if (isApifySocialActivityConfigured()) {
+      try {
+        mergeActivities(
+          await fetchApifySocialActivity({
+            candidates: activityLookupCandidates,
+            startDate: activityStartDate,
+            endDate: activityEndDate,
+          }),
+          new Set(['Facebook', 'TikTok']),
+        );
+      } catch {
+        // The web-search fallback below still runs for missing platforms.
+      }
+    }
+
     // A mixed-source pass usually finds LinkedIn first. Previously that made a
     // candidate "non-empty" and incorrectly suppressed its Facebook/TikTok
     // follow-up. Search every candidate that is still missing either social
@@ -324,7 +344,7 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
       }
     }
 
-    // STAGE 3 -- Meta Ad Library. Meta exposes ordinary commercial ads through
+    // STAGE 4 -- Meta Ad Library. Meta exposes ordinary commercial ads through
     // this API only for EU/UK delivery; elsewhere (including Cambodia) it
     // returns political/issue ads only. isMetaAdLibraryConfigured(countryCode)
     // therefore keeps this enrichment out of unsupported market scans.

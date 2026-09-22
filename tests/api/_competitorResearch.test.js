@@ -5,12 +5,18 @@ const mocks = vi.hoisted(() => ({
   lookup: vi.fn(),
   isMetaAdLibraryConfigured: vi.fn(),
   fetchMetaAdLibraryActivity: vi.fn(),
+  isApifySocialActivityConfigured: vi.fn(),
+  fetchApifySocialActivity: vi.fn(),
 }));
 vi.mock('../../api/_openrouter.js', () => ({ generateOpenRouterWebSearch: mocks.webSearch }));
 vi.mock('node:dns/promises', () => ({ lookup: mocks.lookup }));
 vi.mock('../../api/_metaAdLibrary.js', () => ({
   isMetaAdLibraryConfigured: mocks.isMetaAdLibraryConfigured,
   fetchMetaAdLibraryActivity: mocks.fetchMetaAdLibraryActivity,
+}));
+vi.mock('../../api/_apifySocialActivity.js', () => ({
+  isApifySocialActivityConfigured: mocks.isApifySocialActivityConfigured,
+  fetchApifySocialActivity: mocks.fetchApifySocialActivity,
 }));
 
 import { researchCompetitors } from '../../api/_competitorResearch.js';
@@ -21,6 +27,8 @@ beforeEach(() => {
   // that care about the Meta Ad Library stage opt in explicitly.
   mocks.isMetaAdLibraryConfigured.mockReturnValue(false);
   mocks.fetchMetaAdLibraryActivity.mockResolvedValue([]);
+  mocks.isApifySocialActivityConfigured.mockReturnValue(false);
+  mocks.fetchApifySocialActivity.mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -443,6 +451,48 @@ it('searches missing Facebook/TikTok activity even when LinkedIn activity was al
   const beanSociety = result.competitors.find((c) => c.name === 'Bean Society');
   expect(beanSociety.recentActivities).toEqual([
     expect.objectContaining({ date: '2026-09-17', platform: 'Facebook' }),
+  ]);
+});
+
+it('uses direct Facebook/TikTok activity and skips the social-search fallback when both are found', async () => {
+  mocks.isApifySocialActivityConfigured.mockReturnValue(true);
+  mocks.fetchApifySocialActivity.mockResolvedValue([
+    { competitorName: 'Rival Cafe', date: '2026-09-18', contentType: 'Post', activity: 'Published a new menu.', sourceUrl: 'https://www.facebook.com/rivalcafe/posts/111' },
+    { competitorName: 'Rival Cafe', date: '2026-09-17', contentType: 'Video', activity: 'Published a menu video.', sourceUrl: 'https://www.tiktok.com/@rivalcafe/video/222' },
+  ]);
+  mocks.webSearch
+    .mockResolvedValueOnce({ content: JSON.stringify({
+      competitors: [{
+        name: 'Rival Cafe',
+        isDirectCompetitor: true,
+        matchConfidence: 'high',
+        matchReason: 'Serves the same cafe customers in Phnom Penh',
+        positioning: '',
+        facebookUrl: 'https://www.facebook.com/rivalcafe',
+        tiktokUrl: 'https://www.tiktok.com/@rivalcafe',
+        sourceUrl: 'https://rival-cafe.example.com',
+      }],
+    }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({ activities: [
+      { competitorName: 'Rival Cafe', date: '2026-09-16', activity: 'Updated its website.', sourceUrl: 'https://rival-cafe.example.com/news' },
+    ] }) });
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+
+  const result = await researchCompetitors({
+    query: 'cafes Phnom Penh',
+    activityStartDate: '2026-09-12',
+    activityEndDate: '2026-09-18',
+  });
+
+  expect(mocks.fetchApifySocialActivity).toHaveBeenCalledWith(expect.objectContaining({
+    startDate: '2026-09-12',
+    endDate: '2026-09-18',
+  }));
+  expect(mocks.webSearch).toHaveBeenCalledTimes(2);
+  expect(result.competitors[0].recentActivities).toEqual([
+    expect.objectContaining({ date: '2026-09-18', platform: 'Facebook' }),
+    expect.objectContaining({ date: '2026-09-17', platform: 'TikTok' }),
+    expect.objectContaining({ date: '2026-09-16', platform: 'Web' }),
   ]);
 });
 
