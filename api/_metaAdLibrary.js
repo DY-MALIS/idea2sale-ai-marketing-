@@ -1,14 +1,25 @@
-// Facebook blocks unauthenticated scraping of Page/post content, and generic
-// web search does not index it either -- see api/_competitorResearch.js for
-// the live tests that confirmed both. Meta's Ad Library is the one Facebook
-// data source that is intentionally public (ad transparency requirement), so
-// it is the only reliable way to surface real Facebook activity: it covers
-// currently/recently running ads, not organic posts.
-const META_GRAPH_BASE_URL = 'https://graph.facebook.com/v21.0';
+// Meta's Ad Library API is not a worldwide commercial-ad search API. It
+// exposes ads of any type only when they were delivered to the EU or UK; for
+// other countries it returns only social-issue, election, and political ads.
+// Competitor Scan looks for ordinary businesses, so querying it for Cambodia
+// would silently produce misleading empty results. Keep this enrichment to
+// the locations where Meta documents that commercial ads are available.
+const META_GRAPH_BASE_URL = 'https://graph.facebook.com/v26.0';
+const ALL_AD_TYPES_COUNTRY_CODES = new Set([
+  'AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR',
+  'HU', 'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK',
+  'SI', 'ES', 'SE', 'GB',
+]);
 
 const getAccessToken = () => String(process.env.META_AD_LIBRARY_ACCESS_TOKEN || '').trim();
 
-export const isMetaAdLibraryConfigured = () => !!getAccessToken();
+export const isMetaAdLibraryAvailableForCountry = (countryCode) => (
+  ALL_AD_TYPES_COUNTRY_CODES.has(String(countryCode || '').trim().toUpperCase())
+);
+
+export const isMetaAdLibraryConfigured = (countryCode = '') => (
+  !!getAccessToken() && (!countryCode || isMetaAdLibraryAvailableForCountry(countryCode))
+);
 
 const truncate = (value, length) => String(value || '').trim().slice(0, length);
 
@@ -30,7 +41,7 @@ const longestOf = (values) => (Array.isArray(values) ? values : [])
 export async function fetchMetaAdLibraryActivity({ businessName, countryCode = 'KH', startDate = '', endDate = '' }) {
   const accessToken = getAccessToken();
   const name = String(businessName || '').trim();
-  if (!accessToken || !name) return [];
+  if (!accessToken || !name || !isMetaAdLibraryAvailableForCountry(countryCode)) return [];
 
   const params = new URLSearchParams({
     access_token: accessToken,

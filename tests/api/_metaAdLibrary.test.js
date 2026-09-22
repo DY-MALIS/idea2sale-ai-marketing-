@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
-import { fetchMetaAdLibraryActivity, isMetaAdLibraryConfigured } from '../../api/_metaAdLibrary.js';
+import {
+  fetchMetaAdLibraryActivity,
+  isMetaAdLibraryAvailableForCountry,
+  isMetaAdLibraryConfigured,
+} from '../../api/_metaAdLibrary.js';
 
 const ORIGINAL_TOKEN = process.env.META_AD_LIBRARY_ACCESS_TOKEN;
 
@@ -18,6 +22,15 @@ it('reports unconfigured when no access token is set', () => {
 it('reports configured once an access token is set', () => {
   process.env.META_AD_LIBRARY_ACCESS_TOKEN = 'test-token';
   expect(isMetaAdLibraryConfigured()).toBe(true);
+  expect(isMetaAdLibraryConfigured('DE')).toBe(true);
+  expect(isMetaAdLibraryConfigured('KH')).toBe(false);
+});
+
+it('supports commercial-ad enrichment only for EU and UK delivery', () => {
+  expect(isMetaAdLibraryAvailableForCountry('de')).toBe(true);
+  expect(isMetaAdLibraryAvailableForCountry('GB')).toBe(true);
+  expect(isMetaAdLibraryAvailableForCountry('KH')).toBe(false);
+  expect(isMetaAdLibraryAvailableForCountry('US')).toBe(false);
 });
 
 it('returns an empty list without calling the network when unconfigured', async () => {
@@ -42,6 +55,17 @@ it('returns an empty list without calling the network when businessName is blank
   expect(fetchMock).not.toHaveBeenCalled();
 });
 
+it('does not query commercial ads for Cambodia, where Meta only exposes political and issue ads', async () => {
+  process.env.META_AD_LIBRARY_ACCESS_TOKEN = 'test-token';
+  const fetchMock = vi.fn();
+  vi.stubGlobal('fetch', fetchMock);
+
+  const result = await fetchMetaAdLibraryActivity({ businessName: 'Rival Cafe', countryCode: 'KH' });
+
+  expect(result).toEqual([]);
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
 it('queries the ads_archive endpoint with the exact business name, country, and date window', async () => {
   process.env.META_AD_LIBRARY_ACCESS_TOKEN = 'test-token';
   const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ data: [] }) }));
@@ -49,7 +73,7 @@ it('queries the ads_archive endpoint with the exact business name, country, and 
 
   await fetchMetaAdLibraryActivity({
     businessName: 'Rival Cafe',
-    countryCode: 'kh',
+    countryCode: 'de',
     startDate: '2026-09-12',
     endDate: '2026-09-18',
   });
@@ -60,7 +84,8 @@ it('queries the ads_archive endpoint with the exact business name, country, and 
   expect(url).toContain('/ads_archive?');
   expect(url).toContain('access_token=test-token');
   expect(url).toContain('search_terms=Rival+Cafe');
-  expect(url).toContain(encodeURIComponent('["KH"]'));
+  expect(url).toContain(encodeURIComponent('["DE"]'));
+  expect(url).toContain('https://graph.facebook.com/v26.0/ads_archive?');
   expect(url).toContain('ad_delivery_date_min=2026-09-12');
   expect(url).toContain('ad_delivery_date_max=2026-09-18');
 });
@@ -81,7 +106,7 @@ it('maps ads_archive results into the app activity shape', async () => {
     }),
   })));
 
-  const result = await fetchMetaAdLibraryActivity({ businessName: 'Rival Cafe', countryCode: 'KH' });
+  const result = await fetchMetaAdLibraryActivity({ businessName: 'Rival Cafe', countryCode: 'DE' });
 
   expect(result).toEqual([{
     date: '2026-09-15',
