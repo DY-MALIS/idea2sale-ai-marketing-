@@ -33,7 +33,10 @@ const ACTIVITY_MAX_TOKENS = 20000;
 // splitting into per-source or five-at-a-time batches -- far fewer calls than
 // the old design, at the cost of the search budget being shared across more
 // names in a single call. Capping the list keeps that per-name share workable.
-const ACTIVITY_LOOKUP_LIST_CAP = 20;
+// Competitor scans return every verified match requested by the API (currently
+// capped at 50 for request-size safety), so activity research must cover that
+// same full list instead of silently stopping after the first 20 companies.
+const ACTIVITY_LOOKUP_LIST_CAP = 50;
 // One retry only, and only when a call produced no usable structure at all
 // (network/parse failure or a genuinely empty response) -- a call that
 // legitimately found zero real competitors, or zero activity, is a valid
@@ -144,8 +147,8 @@ const searchWithRetry = async (prompt, { maxResults, maxTokens, isUsable, onFail
   return parsed;
 };
 
-export async function researchCompetitors({ query, country = 'Cambodia', countryCode = 'KH', activityStartDate = '', activityEndDate = '', targetCount = 15 }) {
-  const requestedTargetCount = Math.min(50, Math.max(1, Math.round(Number(targetCount) || 15)));
+export async function researchCompetitors({ query, country = 'Cambodia', countryCode = 'KH', activityStartDate = '', activityEndDate = '', targetCount = 50 }) {
+  const requestedTargetCount = Math.min(50, Math.max(1, Math.round(Number(targetCount) || 50)));
   const hasActivityWindow = /^\d{4}-\d{2}-\d{2}$/.test(activityStartDate)
     && /^\d{4}-\d{2}-\d{2}$/.test(activityEndDate)
 

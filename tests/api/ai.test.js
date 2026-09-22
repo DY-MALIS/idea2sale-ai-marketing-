@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   classifyScanMode,
   DEFAULT_SCAN_ENTITY_CAP,
+  DEFAULT_COMPETITOR_ENTITY_CAP,
   ensureBusinessInInboxMessage,
   extractRequestedLeadCount,
   FACEBOOK_SCAN_MODES,
@@ -141,6 +142,7 @@ describe('extractRequestedLeadCount', () => {
   it('keeps a sane default cap for when no count is specified', () => {
     expect(DEFAULT_SCAN_ENTITY_CAP).toBeGreaterThan(0);
     expect(DEFAULT_SCAN_ENTITY_CAP).toBeLessThanOrEqual(25);
+    expect(DEFAULT_COMPETITOR_ENTITY_CAP).toBe(50);
   });
 });
 

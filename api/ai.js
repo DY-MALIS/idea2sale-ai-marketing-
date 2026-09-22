@@ -135,6 +135,11 @@ export const extractRequestedLeadCount = (query) => {
 // response-size-safe list of the most prominent verified matches instead of
 // an unbounded dump of everything the web search happened to turn up.
 export const DEFAULT_SCAN_ENTITY_CAP = 15;
+// Competitor discovery is an inventory rather than a short lead shortlist:
+// show every verified company the bounded search can return. Fifty matches the
+// explicit-query maximum and keeps the downstream prompt/serverless request
+// finite while avoiding the former silent 15-company truncation.
+export const DEFAULT_COMPETITOR_ENTITY_CAP = 50;
 
 export const resolveFacebookScanMode = (value, query = '') => {
   const requested = String(value || '').trim();
@@ -1065,9 +1070,10 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
       const isKhmer = containsKhmerScript(query) || languageCode === 'km';
       const outputLanguage = isKhmer ? 'Khmer' : 'English';
       // A count typed right in the query ("find 10 companies") is honored
-      // exactly; otherwise results stay capped to a curated top set instead
-      // of an unbounded dump of every verified match.
-      const entityCap = extractRequestedLeadCount(query) || DEFAULT_SCAN_ENTITY_CAP;
+      // exactly. Without one, customer scans stay a concise shortlist while
+      // competitor scans return every verified match up to the bounded search
+      // maximum instead of silently truncating the list at 15.
+      const requestedEntityCap = extractRequestedLeadCount(query);
       const countries = (Array.isArray(req.body?.countries) ? req.body.countries : ['KH'])
         .map((code) => String(code).trim().toUpperCase())
         .filter((code) => /^[A-Z]{2}$/.test(code))
@@ -1111,6 +1117,8 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
       const scanMode = resolveFacebookScanMode(req.body?.scanMode, query);
       const scanModeConfig = scanModeConfigs[scanMode];
       const isCompetitorScan = scanMode === 'competitor_activity';
+      const entityCap = requestedEntityCap
+        || (isCompetitorScan ? DEFAULT_COMPETITOR_ENTITY_CAP : DEFAULT_SCAN_ENTITY_CAP);
       const today = new Date();
       const countryTimeZones = {
         KH: 'Asia/Phnom_Penh',

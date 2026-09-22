@@ -38,7 +38,7 @@ vi.mock('../../api/_marketTrendResearch.js', () => ({ researchMarketTrends: mock
 vi.mock('../../api/_imagekitUpload.js', () => ({ uploadMediaDataUrl: vi.fn() }));
 vi.mock('../../api/_email.js', () => ({ sendOutreachEmail: vi.fn() }));
 
-import handler, { DEFAULT_SCAN_ENTITY_CAP } from '../../api/ai.js';
+import handler, { DEFAULT_COMPETITOR_ENTITY_CAP, DEFAULT_SCAN_ENTITY_CAP } from '../../api/ai.js';
 
 const responseRecorder = () => {
   const response = {
@@ -174,6 +174,7 @@ it('returns dated competitor activity and its exact 7-day window', async () => {
   expect(mocks.researchCompetitors).toHaveBeenCalledWith(expect.objectContaining({
     query: 'local service competitors',
     country: 'Cambodia',
+    targetCount: DEFAULT_COMPETITOR_ENTITY_CAP,
     activityStartDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
     activityEndDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
   }));
