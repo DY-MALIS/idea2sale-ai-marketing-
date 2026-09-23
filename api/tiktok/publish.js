@@ -87,11 +87,37 @@ function publicUrlRequest(videoUrl) {
   return /^https:\/\//i.test(String(videoUrl || ''));
 }
 
+// PULL_FROM_URL requires TikTok to independently verify ownership of the
+// video_url's domain (a DNS TXT record or URL-prefix property added in the
+// TikTok Developer Portal -- see developers.tiktok.com/doc/content-posting-
+// api-media-transfer-guide/#pull_from_url). Our scheduled videos are hosted
+// on ImageKit's own shared ik.imagekit.io domain, which we don't control the
+// DNS for and can never verify, so PULL_FROM_URL fails every time with "the
+// user did not authorize the scope"/"review our URL ownership verification
+// rules". Downloading the bytes ourselves and using FILE_UPLOAD instead sidesteps
+// that requirement entirely -- TikTok never fetches our URL, so nothing about
+// it needs to be pre-verified.
+async function videoFromUrl(videoUrl) {
+  const response = await fetch(videoUrl);
+  if (!response.ok) {
+    const error = new Error(`Could not download the video to publish (HTTP ${response.status}).`);
+    error.status = 502;
+    error.code = 'video_download_failed';
+    throw error;
+  }
+  const contentType = String(response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+  const mimeType = ['video/mp4', 'video/quicktime', 'video/webm'].includes(contentType) ? contentType : 'video/mp4';
+  const buffer = Buffer.from(await response.arrayBuffer());
+  return { mimeType, buffer };
+}
+
 // Shared by the manual "Publish to TikTok" button (handlePublishRequest, cookie
 // token) and the cron auto-publisher (runTikTokCron, stored automation token) --
 // a data: URL only ever comes from the manual path (a freshly generated video
 // still sitting in the browser); the cron path always passes an https:// URL
-// (Firebase Storage) since scheduled videos are uploaded ahead of time.
+// (Firebase Storage/ImageKit) since scheduled videos are uploaded ahead of time.
+// Both paths end up FILE_UPLOAD -- see videoFromUrl's comment for why the
+// https:// case can't use PULL_FROM_URL.
 async function publishVideoToTikTok(token, { videoUrl, title: rawTitle }) {
   const title = String(rawTitle || 'AI Generated Content').slice(0, 2200);
   const postMode = String(process.env.TIKTOK_POST_MODE || 'inbox').toLowerCase();
@@ -100,26 +126,21 @@ async function publishVideoToTikTok(token, { videoUrl, title: rawTitle }) {
     ? 'https://open.tiktokapis.com/v2/post/publish/video/init/'
     : 'https://open.tiktokapis.com/v2/post/publish/inbox/video/init/';
 
-  const sourceInfo = publicUrlRequest(videoUrl)
-    ? { source: 'PULL_FROM_URL', video_url: videoUrl }
-    : null;
-  const video = sourceInfo ? null : videoFromDataUrl(videoUrl);
+  const video = publicUrlRequest(videoUrl) ? await videoFromUrl(videoUrl) : videoFromDataUrl(videoUrl);
 
-  if (!sourceInfo && !video) {
+  if (!video) {
     const error = new Error('Generated video is missing or is not a valid MP4/MOV/WebM data URL.');
     error.status = 400;
     error.code = 'invalid_video';
     throw error;
   }
 
-  const fileSourceInfo = video
-    ? {
-        source: 'FILE_UPLOAD',
-        video_size: video.buffer.length,
-        chunk_size: video.buffer.length,
-        total_chunk_count: 1,
-      }
-    : sourceInfo;
+  const fileSourceInfo = {
+    source: 'FILE_UPLOAD',
+    video_size: video.buffer.length,
+    chunk_size: video.buffer.length,
+    total_chunk_count: 1,
+  };
 
   const body = directPost
     ? {
@@ -141,7 +162,7 @@ async function publishVideoToTikTok(token, { videoUrl, title: rawTitle }) {
   const publishId = initData?.data?.publish_id;
   const uploadUrl = initData?.data?.upload_url;
 
-  if (video && uploadUrl) {
+  if (uploadUrl) {
     await uploadVideo(uploadUrl, token, video);
   }
 
