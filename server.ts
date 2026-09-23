@@ -8,7 +8,6 @@ import dotenv from "dotenv";
 import { getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { FieldValue, getFirestore, type Firestore } from "firebase-admin/firestore";
-import { GoogleGenAI } from "@google/genai";
 import runScheduledHandler from "./api/telegram/run-scheduled.js";
 import telegramWebhookHandler from "./api/telegram/webhook.js";
 import telegramDeliverHandler from "./api/telegram/deliver.js";
@@ -25,7 +24,6 @@ import tiktokPublishHandler from "./api/tiktok/publish.js";
 dotenv.config();
 
 let firestoreDb: Firestore | null = null;
-const apiRateLimitStore = new Map<string, { count: number; resetAt: number }>();
 
 const safeError = (res: express.Response, status: number, message: string) => {
   res.status(status).json({ error: message });
@@ -50,32 +48,6 @@ const requireFirebaseSession = async (req: express.Request, res: express.Respons
   } catch (error) {
     return safeError(res, 401, "Invalid or expired session");
   }
-};
-
-const rateLimit = (name: string, maxRequests: number, windowMs: number) => {
-  return (req: express.Request, res: express.Response, next: express.NextFunction) => {
-    const key = `${name}:${req.ip}:${(req as any).user?.uid || "anonymous"}`;
-    const now = Date.now();
-    if (apiRateLimitStore.size > 10_000) {
-      for (const [storedKey, value] of apiRateLimitStore) {
-        if (value.resetAt <= now) apiRateLimitStore.delete(storedKey);
-      }
-    }
-    const current = apiRateLimitStore.get(key);
-
-    if (!current || current.resetAt <= now) {
-      apiRateLimitStore.set(key, { count: 1, resetAt: now + windowMs });
-      return next();
-    }
-
-    if (current.count >= maxRequests) {
-      return safeError(res, 429, "Too many requests. Please try again later.");
-    }
-
-    current.count += 1;
-    apiRateLimitStore.set(key, current);
-    next();
-  };
 };
 
 console.log("Starting server process...");
@@ -178,72 +150,6 @@ async function startServer() {
     await runScheduledHandler(req, res);
   });
   app.all("/api/ai", async (req, res) => { await aiHandler(req, res); });
-
-  app.post("/api/product-research", rateLimit("product-research", 20, 60_000), async (req, res) => {
-    const query = String(req.body?.query || "").trim();
-    const language = String(req.body?.language || "en");
-    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
-
-    if (!query) {
-      return safeError(res, 400, "Please enter a product, niche, or URL to research.");
-    }
-
-    if (!apiKey) {
-      return safeError(res, 500, "Gemini API key is not configured.");
-    }
-
-    try {
-      const prompt = `You are an expert e-commerce product researcher. Analyze the following product, niche, or URL: "${query}".
-
-Provide a concise but useful research report including:
-1. Market Demand: current trend status and why people buy it.
-2. Competitor Analysis: major players, offer style, and positioning.
-3. Pricing Strategy: recommended price range and bundle ideas.
-4. Target Audience: demographics, pain points, and buying triggers.
-5. Winning Creative Angles: TikTok/video ad hooks and content ideas.
-
-Language rules:
-- The current application language is set to: ${language === "km" ? "Khmer" : "English"}.
-- Detect the language of the input: "${query}".
-- If either the input is in Khmer OR the application language is Khmer, provide the entire report in Khmer.
-- Otherwise, provide it in English.
-
-Use clear headings and practical bullet points.`;
-
-      const ai = new GoogleGenAI({ apiKey });
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: prompt,
-      });
-
-      res.json({ analysis: response.text || "" });
-    } catch (error) {
-      console.error("Product research failed:", error);
-      const message = String((error as any)?.message || "");
-      if (message.includes("API key expired") || message.includes("API_KEY_INVALID")) {
-        return safeError(res, 500, "Gemini API key expired. Please renew the API key and update GEMINI_API_KEY.");
-      }
-      return safeError(res, 500, "Error performing research. Please try again.");
-    }
-  });
-
-  app.post("/api/ads-strategy", rateLimit("ads-strategy", 20, 60_000), async (req, res) => {
-    const query = String(req.body?.query || "").trim();
-    const language = req.body?.language === "km" ? "Khmer" : "English";
-    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
-    if (!query) return safeError(res, 400, "Product or category is required.");
-    if (!apiKey) return safeError(res, 503, "Gemini API key is not configured.");
-    try {
-      const ai = new GoogleGenAI({ apiKey });
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: `Create a concise digital advertising strategy for: "${query}". Write entirely in ${language}. Include target audience, three-second hooks, campaign structure, and a practical test budget. Do not invent live ad-account metrics.`,
-      });
-      res.json({ strategy: response.text || "No strategy generated." });
-    } catch (error: any) {
-      safeError(res, /expired|API_KEY_INVALID/i.test(error.message || "") ? 503 : 500, error.message || "Failed to generate strategy.");
-    }
-  });
 
   const getRedirectUri = (req: express.Request) => {
     // Priority 1: Manual override from secrets
@@ -599,125 +505,6 @@ Use clear headings and practical bullet points.`;
         status: error.response?.status,
         handle 
       });
-    }
-  });
-
-  app.get("/api/proxy-video", async (req, res) => {
-    const videoUrl = req.query.url as string;
-    if (!videoUrl) return res.status(400).send("No URL provided");
-    try {
-      const response = await axios({
-        method: 'get',
-        url: videoUrl,
-        responseType: 'stream',
-        headers: {
-          'x-goog-api-key': process.env.API_KEY || process.env.GEMINI_API_KEY || ''
-        }
-      });
-      res.setHeader('Content-Type', 'video/mp4');
-      response.data.pipe(res);
-    } catch (error: any) {
-      res.status(500).send("Failed to proxy video");
-    }
-  });
-
-  // Token Refresh Logic for Automation
-  const refreshTikTokToken = async (openId: string) => {
-    if (!firestoreDb) throw new Error("Firestore not initialized");
-    
-    const doc = await firestoreDb.collection("tiktok_automation_tokens").doc(openId).get();
-    if (!doc.exists) throw new Error("No automation token found for this user");
-    
-    const data = doc.data();
-    const clientKey = process.env.TIKTOK_CLIENT_KEY || process.env.VITE_TIKTOK_CLIENT_KEY;
-    const clientSecret = process.env.TIKTOK_CLIENT_SECRET || process.env.VITE_TIKTOK_CLIENT_SECRET;
-
-    try {
-      const response = await axios.post(
-        "https://open.tiktokapis.com/v2/oauth/token/",
-        new URLSearchParams({
-          client_key: clientKey!,
-          client_secret: clientSecret!,
-          refresh_token: data?.refresh_token,
-          grant_type: "refresh_token",
-        }).toString(),
-        { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
-      );
-
-      const { access_token, refresh_token, expires_in, refresh_expires_in } = response.data;
-
-      await firestoreDb.collection("tiktok_automation_tokens").doc(openId).update({
-        access_token,
-        refresh_token,
-        expires_at: Date.now() + (expires_in * 1000),
-        refresh_expires_at: Date.now() + (refresh_expires_in * 1000),
-        updatedAt: FieldValue.serverTimestamp()
-      });
-
-      return access_token;
-    } catch (error: any) {
-      console.error("Token Refresh Failed:", error.response?.data || error.message);
-      throw error;
-    }
-  };
-
-  app.post("/api/tiktok/publish", async (req, res) => {
-    const { videoUrl, title, openId } = req.body;
-    let token = req.cookies.tiktok_token;
-
-    // If implementing pure automation (background worker), we fetch the valid token from DB
-    if (openId && !token) {
-      try {
-        token = await refreshTikTokToken(openId);
-      } catch (err) {
-        return res.status(401).json({ error: "Automation token expired or invalid" });
-      }
-    }
-
-    if (!token) return res.status(401).json({ error: "Not authenticated with TikTok" });
-
-    try {
-      const host = req.get('x-forwarded-host') || req.get('host') || 'localhost:3000';
-      const protocol = req.get('x-forwarded-proto') || (host.includes('localhost') ? 'http' : 'https');
-      const proxyUrl = `${protocol}://${host}/api/proxy-video?url=${encodeURIComponent(videoUrl)}`;
-      
-      const initResponse = await axios.post(
-        "https://open.tiktokapis.com/v2/post/publish/video/init/",
-        {
-          post_info: { 
-            title: title || "AI Generated Content", 
-            privacy_level: "PUBLIC_TO_EVERYONE",
-            disable_comment: false,
-            disable_duet: false,
-            disable_stitch: false
-          },
-          source_info: { source: "PULL_FROM_URL", video_url: proxyUrl }
-        },
-        { headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" } }
-      );
-
-      const publishId = initResponse.data.data?.publish_id;
-      if (publishId && firestoreDb) {
-        await firestoreDb.collection("tiktok_posts").doc(publishId).set({
-          videoId: publishId,
-          status: "PROCESSING",
-          title: title,
-          videoUrl: videoUrl,
-          openId: openId || "manual_post",
-          createdAt: FieldValue.serverTimestamp()
-        });
-      }
-      res.json({ success: true, publishId });
-    } catch (error: any) {
-      const apiError = error.response?.data?.error || {};
-      console.error("TikTok Publish Error:", apiError);
-      
-      // Handle Rate Limiting
-      if (error.response?.status === 429) {
-        return res.status(429).json({ error: "Rate limit reached. Please wait." });
-      }
-
-      res.status(500).json({ error: apiError.message || "Publishing failed" });
     }
   });
 
