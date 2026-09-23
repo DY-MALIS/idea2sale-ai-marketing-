@@ -9,7 +9,9 @@ const DEFAULT_TIKTOK_ACTOR = 'clockworks/tiktok-scraper';
 const RESULTS_PER_PROFILE = 14;
 const ACTOR_TIMEOUT_SECONDS = 75;
 
-const getToken = () => String(process.env.APIFY_API_TOKEN || '').trim();
+// APIFY_TOKEN is the name used by Apify's own tooling; retain the more
+// explicit APIFY_API_TOKEN used by this app as the preferred alias.
+const getToken = () => String(process.env.APIFY_API_TOKEN || process.env.APIFY_TOKEN || '').trim();
 
 export const isApifySocialActivityConfigured = () => !!getToken();
 

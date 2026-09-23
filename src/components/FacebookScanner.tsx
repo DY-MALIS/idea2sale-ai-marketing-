@@ -773,17 +773,15 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
       counts[activityPlatform(activity)] += 1;
       return counts;
     }, { Facebook: 0, TikTok: 0, LinkedIn: 0, Web: 0 });
-  const activityReportSections = (['Facebook', 'LinkedIn', 'Web', 'TikTok'] as const)
-    .map((platform) => ({
-      platform,
-      label: platform === 'Web' ? text.websiteSource : platform,
-      entries: (result?.competitors || []).flatMap((competitor) => (
-        (competitor.recentActivities || [])
-          .filter((activity) => activityPlatform(activity) === platform)
-          .map((activity) => ({ competitorName: competitor.pageName, activity }))
-      )).sort((left, right) => right.activity.date.localeCompare(left.activity.date)),
+  // Keep every source in one chronological activity stream. Platform is a
+  // badge on each item, not a separate report or storage destination, so
+  // Facebook and TikTok appear in exactly the same place as LinkedIn.
+  const activityReportEntries = (result?.competitors || []).flatMap((competitor) => (
+    (competitor.recentActivities || []).map((activity) => ({
+      competitorName: competitor.pageName,
+      activity,
     }))
-    .filter((section) => section.entries.length > 0);
+  )).sort((left, right) => right.activity.date.localeCompare(left.activity.date));
 
   const exportCompetitorActivities = () => {
     if (!result || !capturedActivitySummary) return;
@@ -1083,7 +1081,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                   type="button"
                   onClick={() => setShowActivityReport((visible) => !visible)}
                   aria-expanded={showActivityReport}
-                  aria-controls="activity-report-by-source"
+                  aria-controls="activity-report"
                   className="flex w-full items-center justify-between gap-3 rounded-2xl px-3 py-3 text-left transition hover:bg-indigo-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:hover:bg-indigo-950/40"
                 >
                   <span className="flex items-center gap-2 text-sm font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-300">
@@ -1101,50 +1099,48 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                   </span>
                 </button>
                 {showActivityReport && (
-                  <div id="activity-report-by-source">
-                    {activityReportSections.length ? (
-                      <div className="mt-4 space-y-5">
-                        {activityReportSections.map((section) => (
-                          <article key={section.platform} className="overflow-hidden rounded-2xl border border-indigo-100 bg-white/70 dark:border-indigo-900 dark:bg-slate-900/50">
-                            <div className={`flex items-center justify-between border-b border-indigo-100 px-4 py-3 text-sm font-black dark:border-indigo-900 ${activityPlatformClass(section.platform)}`}>
-                              <span>{section.label}</span>
-                              <span className="rounded-full bg-white/75 px-2.5 py-0.5 text-xs text-slate-800 dark:bg-black/20 dark:text-inherit">{section.entries.length}</span>
-                            </div>
-                            <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-                              {section.entries.map(({ competitorName, activity }, index) => (
-                                <li key={`${competitorName}-${activity.sourceUrl}-${index}`} className="p-5 text-sm leading-6">
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <span className="rounded-md bg-indigo-100 px-2 py-0.5 text-xs font-black text-indigo-700 dark:bg-indigo-900 dark:text-indigo-200">{activity.date}</span>
-                                    {activity.contentType && <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300">{activity.contentType}</span>}
-                                    <span className="font-black text-slate-800 dark:text-white">{competitorName}</span>
+                  <div id="activity-report">
+                    {activityReportEntries.length ? (
+                      <article className="mt-4 overflow-hidden rounded-2xl border border-indigo-100 bg-white/70 dark:border-indigo-900 dark:bg-slate-900/50">
+                        <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+                          {activityReportEntries.map(({ competitorName, activity }, index) => {
+                            const platform = activityPlatform(activity);
+                            return (
+                              <li key={`${competitorName}-${activity.sourceUrl}-${index}`} className="p-5 text-sm leading-6">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className={`rounded-md px-2 py-0.5 text-xs font-black ${activityPlatformClass(platform)}`}>
+                                    {platform === 'Web' ? text.websiteSource : platform}
+                                  </span>
+                                  <span className="rounded-md bg-indigo-100 px-2 py-0.5 text-xs font-black text-indigo-700 dark:bg-indigo-900 dark:text-indigo-200">{activity.date}</span>
+                                  {activity.contentType && <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300">{activity.contentType}</span>}
+                                  <span className="font-black text-slate-800 dark:text-white">{competitorName}</span>
+                                </div>
+                                <h5 className="mt-3 font-black text-slate-800 dark:text-white">{activity.title || activity.activity}</h5>
+                                {activity.title && activity.activity !== activity.title && <p className="mt-1 text-slate-600 dark:text-slate-300">{activity.activity}</p>}
+                                {activity.summary && (
+                                  <div className="mt-3 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/70">
+                                    <p className="text-xs font-black uppercase tracking-wider text-slate-400">{text.contentSummary}</p>
+                                    <p className="mt-1 text-slate-700 dark:text-slate-200">{activity.summary}</p>
                                   </div>
-                                  <h5 className="mt-3 font-black text-slate-800 dark:text-white">{activity.title || activity.activity}</h5>
-                                  {activity.title && activity.activity !== activity.title && <p className="mt-1 text-slate-600 dark:text-slate-300">{activity.activity}</p>}
-                                  {activity.summary && (
-                                    <div className="mt-3 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/70">
-                                      <p className="text-xs font-black uppercase tracking-wider text-slate-400">{text.contentSummary}</p>
-                                      <p className="mt-1 text-slate-700 dark:text-slate-200">{activity.summary}</p>
-                                    </div>
-                                  )}
-                                  {!!activity.keyDetails?.length && (
-                                    <div className="mt-3">
-                                      <p className="text-xs font-black uppercase tracking-wider text-slate-400">{text.verifiedDetails}</p>
-                                      <ul className="mt-2 space-y-1.5">
-                                        {activity.keyDetails.map((detail, detailIndex) => (
-                                          <li key={detailIndex} className="flex gap-2 text-slate-600 dark:text-slate-300"><Check className="mt-1 shrink-0 text-emerald-500" size={14} /><span>{detail}</span></li>
-                                        ))}
-                                      </ul>
-                                    </div>
-                                  )}
-                                  <a href={activity.sourceUrl} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-1 font-bold text-blue-600 hover:underline">
-                                    <ExternalLink size={12} />{text.viewEvidence}
-                                  </a>
-                                </li>
-                              ))}
-                            </ul>
-                          </article>
-                        ))}
-                      </div>
+                                )}
+                                {!!activity.keyDetails?.length && (
+                                  <div className="mt-3">
+                                    <p className="text-xs font-black uppercase tracking-wider text-slate-400">{text.verifiedDetails}</p>
+                                    <ul className="mt-2 space-y-1.5">
+                                      {activity.keyDetails.map((detail, detailIndex) => (
+                                        <li key={detailIndex} className="flex gap-2 text-slate-600 dark:text-slate-300"><Check className="mt-1 shrink-0 text-emerald-500" size={14} /><span>{detail}</span></li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                                <a href={activity.sourceUrl} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-1 font-bold text-blue-600 hover:underline">
+                                  <ExternalLink size={12} />{text.viewEvidence}
+                                </a>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </article>
                     ) : (
                       <p className="mt-3 rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-600 dark:bg-slate-900/60 dark:text-slate-300">{text.noCapturedActivityReport}</p>
                     )}

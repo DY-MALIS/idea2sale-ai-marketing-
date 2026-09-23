@@ -3,9 +3,11 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { fetchApifySocialActivity, isApifySocialActivityConfigured } from '../../api/_apifySocialActivity.js';
 
 const originalToken = process.env.APIFY_API_TOKEN;
+const originalStandardToken = process.env.APIFY_TOKEN;
 
 beforeEach(() => {
   delete process.env.APIFY_API_TOKEN;
+  delete process.env.APIFY_TOKEN;
   delete process.env.APIFY_FACEBOOK_POSTS_ACTOR;
   delete process.env.APIFY_TIKTOK_ACTOR;
 });
@@ -14,6 +16,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
   if (originalToken === undefined) delete process.env.APIFY_API_TOKEN;
   else process.env.APIFY_API_TOKEN = originalToken;
+  if (originalStandardToken === undefined) delete process.env.APIFY_TOKEN;
+  else process.env.APIFY_TOKEN = originalStandardToken;
 });
 
 it('does not make paid actor requests when no Apify token is configured', async () => {
@@ -27,6 +31,11 @@ it('does not make paid actor requests when no Apify token is configured', async 
     endDate: '2026-09-22',
   })).resolves.toEqual([]);
   expect(fetchMock).not.toHaveBeenCalled();
+});
+
+it('accepts the standard APIFY_TOKEN environment variable', () => {
+  process.env.APIFY_TOKEN = 'standard-token';
+  expect(isApifySocialActivityConfigured()).toBe(true);
 });
 
 it('batches exact public profiles and normalizes direct Facebook and TikTok evidence', async () => {

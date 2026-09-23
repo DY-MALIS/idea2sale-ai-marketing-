@@ -252,28 +252,35 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
   // what makes per-company search actually work, instead of the search budget
   // going to generic category terms.
   if (hasActivityWindow && candidates.length) {
-    const buildActivityPrompt = (lookupCandidates, { socialOnly = false } = {}) => {
+    const buildActivityPrompt = (lookupCandidates, { platformOnly = '' } = {}) => {
       const businessList = lookupCandidates.map((candidate) => {
-        const knownSources = socialOnly
-          ? [candidate.facebookUrl, candidate.tiktokUrl].filter(Boolean)
+        const knownSources = platformOnly === 'Facebook'
+          ? [candidate.facebookUrl].filter(Boolean)
+          : platformOnly === 'TikTok'
+            ? [candidate.tiktokUrl].filter(Boolean)
           : [candidate.facebookUrl, candidate.tiktokUrl, candidate.linkedinUrl, candidate.sourceUrl].filter(Boolean);
-        const foundPlatforms = new Set((candidate.recentActivities || []).map((activity) => activity.platform));
-        const missingSocialPlatforms = ['Facebook', 'TikTok'].filter((platform) => !foundPlatforms.has(platform));
-        return `- ${candidate.name}${knownSources.length ? ` (known public URLs: ${knownSources.join(', ')})` : ''}${socialOnly ? ` (still missing: ${missingSocialPlatforms.join(' and ')})` : ''}`;
+        return `- ${candidate.name}${knownSources.length ? ` (known official ${platformOnly || 'public'} URLs: ${knownSources.join(', ')})` : ''}`;
       }).join('\n');
-      const searchScope = socialOnly
-        ? 'Search ONLY the official Facebook Page and TikTok profile for each business, using site:facebook.com and site:tiktok.com queries plus every supplied Page/profile URL. Do not search or return LinkedIn, the official website, directories, or other web sources. A result is valid only when sourceUrl is a direct facebook.com, fb.com, or tiktok.com URL.'
+      const searchScope = platformOnly === 'Facebook'
+        ? 'Search ONLY Facebook for each business. First locate its exact official public business Page with a site:facebook.com query, then inspect that Page for dated posts, reels, videos, offers, events, or announcements. Do not search or return TikTok, LinkedIn, websites, directories, or personal Facebook profiles. A result is valid only when its URL is on facebook.com or fb.com.'
+        : platformOnly === 'TikTok'
+          ? 'Search ONLY TikTok for each business. First locate its exact official public @profile with a site:tiktok.com query, then inspect that profile for dated videos in the requested window. Do not search or return Facebook, LinkedIn, websites, directories, or unrelated creators. A result is valid only when its URL is on tiktok.com.'
         : 'For EACH business listed above, individually search its official Facebook Page, TikTok profile, LinkedIn company/organization Updates, and official website for a dated post, reel, video, offer, event, launch, article, or campaign.';
-      const emptyResultRule = socialOnly
-        ? 'Return {"activities": []} only after separately checking both Facebook and TikTok for every listed business and finding no dated, directly linked activity in this exact window.'
+      const emptyResultRule = platformOnly
+        ? `Return an empty activities array only after checking ${platformOnly} separately for every listed business. Still return an official profile in profiles when one is found, even when it has no dated activity in this exact window.`
         : 'Return {"activities": []} only after checking Facebook, TikTok, LinkedIn, and the official website for every listed business and finding no dated activity in this exact window.';
-      const fallbackEvidenceRule = socialOnly
-        ? 'Prefer the direct post/video URL. Use an official Page/profile URL only when its visible search result contains that specific dated activity; never use a generic profile as evidence by itself.'
+      const fallbackEvidenceRule = platformOnly
+        ? 'Prefer the direct post/video URL. Use an official Page/profile URL as activity evidence only when its visible search result contains that specific dated activity; a profile URL may always be returned separately in profiles but never counts as an activity by itself.'
         : "Prefer the direct content URL. When Facebook or LinkedIn exposes a clearly dated update only inside the exact business's official Page/organization Updates feed, that official Page/organization URL is acceptable fallback evidence; never use a generic profile page unless the rendered search result visibly contains that specific dated activity.";
-      const sourceUrlDescription = socialOnly
-        ? 'direct facebook.com, fb.com, or tiktok.com evidence URL'
+      const sourceUrlDescription = platformOnly === 'Facebook'
+        ? 'direct facebook.com or fb.com evidence URL'
+        : platformOnly === 'TikTok'
+          ? 'direct tiktok.com evidence URL'
         : 'direct public evidence URL or the official Page/organization Updates URL fallback described above';
-      return `Search the live public web for activity posted by ONLY these exact businesses in ${country}:\n${businessList}\n\nDATE WINDOW: ${activityStartDate} through ${activityEndDate}, inclusive. Treat ${activityEndDate} as the current local calendar date. A source label such as "6h", "1d", "2d", or "5 days ago" is valid dated evidence: normalize it to YYYY-MM-DD by counting back from ${activityEndDate}.\n\n${searchScope} Check every requested source for every single business before moving on -- do not stop early after finding activity for only the first few names. ${fallbackEvidenceRule}\n\nGROUNDING RULES: describe only facts visible in the public source, search-result extract, caption, title, description, or indexed transcript. For a video/reel, explain what it discusses or demonstrates only when its caption, description, visible text, or transcript supports that explanation. Never invent spoken words, scenes, results, offers, prices, audience reactions, or business actions. If detailed content is unavailable, keep summary and keyDetails empty instead of guessing.\n\nReturn ONLY valid JSON in this shape:\n{\n  "activities": [\n    {\n      "competitorName": "exact name copied from the supplied list",\n      "date": "YYYY-MM-DD",\n      "contentType": "Video, Reel, Post, Article, Event, Offer, Ad, or Other",\n      "title": "exact visible title/headline, or a short factual label grounded in the source",\n      "activity": "one concise sentence stating what the business posted or announced",\n      "summary": "2-4 factual sentences explaining what the content is about, using only details visible in the source; empty string if unavailable",\n      "keyDetails": ["up to 6 concrete facts explicitly supported by the source"],\n      "sourceUrl": "${sourceUrlDescription}"\n    }\n  ]\n}\n${emptyResultRule}`;
+      const profilesShape = platformOnly
+        ? `  "profiles": [{ "competitorName": "exact name copied from the supplied list", "profileUrl": "official ${platformOnly} Page/profile URL" }],\n`
+        : '';
+      return `Search the live public web for activity posted by ONLY these exact businesses in ${country}:\n${businessList}\n\nDATE WINDOW: ${activityStartDate} through ${activityEndDate}, inclusive. Treat ${activityEndDate} as the current local calendar date. A source label such as "6h", "1d", "2d", or "5 days ago" is valid dated evidence: normalize it to YYYY-MM-DD by counting back from ${activityEndDate}.\n\n${searchScope} Check every requested source for every single business before moving on -- do not stop early after finding activity for only the first few names. ${fallbackEvidenceRule}\n\nGROUNDING RULES: describe only facts visible in the public source, search-result extract, caption, title, description, or indexed transcript. For a video/reel, explain what it discusses or demonstrates only when its caption, description, visible text, or transcript supports that explanation. Never invent spoken words, scenes, results, offers, prices, audience reactions, or business actions. If detailed content is unavailable, keep summary and keyDetails empty instead of guessing.\n\nReturn ONLY valid JSON in this shape:\n{\n${profilesShape}  "activities": [\n    {\n      "competitorName": "exact name copied from the supplied list",\n      "date": "YYYY-MM-DD",\n      "contentType": "Video, Reel, Post, Article, Event, Offer, Ad, or Other",\n      "title": "exact visible title/headline, or a short factual label grounded in the source",\n      "activity": "one concise sentence stating what the business posted or announced",\n      "summary": "2-4 factual sentences explaining what the content is about, using only details visible in the source; empty string if unavailable",\n      "keyDetails": ["up to 6 concrete facts explicitly supported by the source"],\n      "sourceUrl": "${sourceUrlDescription}"\n    }\n  ]\n}\n${emptyResultRule}`;
     };
 
     const activityLookupCandidates = candidates.slice(0, ACTIVITY_LOOKUP_LIST_CAP);
@@ -287,6 +294,16 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
           activityStartDate,
           activityEndDate,
         );
+      });
+    };
+    const mergeSocialProfiles = (profiles, platform) => {
+      const urlField = platform === 'Facebook' ? 'facebookUrl' : 'tiktokUrl';
+      const validUrl = platform === 'Facebook' ? validFacebookUrl : validTikTokUrl;
+      (Array.isArray(profiles) ? profiles : []).forEach((profile) => {
+        const candidate = mergedCandidates.get(competitorKey(profile?.competitorName));
+        const profileUrl = String(profile?.profileUrl || '').trim().slice(0, 300);
+        if (!candidate || candidate[urlField] || !validUrl(profileUrl)) return;
+        candidate[urlField] = profileUrl;
       });
     };
 
@@ -320,27 +337,58 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
       }
     }
 
-    // A mixed-source pass usually finds LinkedIn first. Previously that made a
-    // candidate "non-empty" and incorrectly suppressed its Facebook/TikTok
-    // follow-up. Search every candidate that is still missing either social
-    // platform, even when LinkedIn or website activity was already found.
-    const missingSocial = activityLookupCandidates.filter((candidate) => {
-      const platforms = new Set((candidate.recentActivities || []).map((activity) => activity.platform));
-      return !platforms.has('Facebook') || !platforms.has('TikTok');
+    // A mixed-source call tends to spend its search budget on LinkedIn because
+    // it indexes more readily. Give Facebook and TikTok one independent pass
+    // each so finding LinkedIn never suppresses either source. These passes
+    // also retain an official Page/profile URL even when no dated post was
+    // indexed; direct enrichment can then inspect that feed instead of being
+    // skipped merely because discovery did not return the social URL.
+    const initialSocialUrls = new Map(activityLookupCandidates.map((candidate) => [
+      competitorKey(candidate.name),
+      { facebookUrl: candidate.facebookUrl, tiktokUrl: candidate.tiktokUrl },
+    ]));
+    const socialSearches = await Promise.allSettled(['Facebook', 'TikTok'].map(async (platform) => {
+      const missingPlatform = activityLookupCandidates.filter((candidate) => (
+        !(candidate.recentActivities || []).some((activity) => activity.platform === platform)
+      ));
+      if (!missingPlatform.length) return { platform, parsed: null };
+      const response = await generateOpenRouterWebSearch({
+        prompt: buildActivityPrompt(missingPlatform, { platformOnly: platform }),
+        maxResults: ACTIVITY_MAX_RESULTS,
+        maxTokens: ACTIVITY_MAX_TOKENS,
+      });
+      return { platform, parsed: jsonFromText(response?.content) };
+    }));
+    socialSearches.forEach((settled) => {
+      if (settled.status !== 'fulfilled' || !settled.value?.parsed) return;
+      const { platform, parsed } = settled.value;
+      mergeSocialProfiles(parsed.profiles, platform);
+      mergeActivities(parsed.activities, new Set([platform]));
     });
-    if (missingSocial.length) {
-      try {
-        const response = await generateOpenRouterWebSearch({
-          prompt: buildActivityPrompt(missingSocial, { socialOnly: true }),
-          maxResults: ACTIVITY_MAX_RESULTS,
-          maxTokens: ACTIVITY_MAX_TOKENS,
-        });
-        mergeActivities(
-          jsonFromText(response.content)?.activities,
-          new Set(['Facebook', 'TikTok']),
-        );
-      } catch {
-        // Best-effort follow-up -- leave those competitors with no activity.
+
+    // The first direct pass can only use URLs known during discovery. If a
+    // platform-only search just found a missing official URL, immediately use
+    // it for one direct pass so indexed LinkedIn results are no longer the end
+    // of the pipeline.
+    if (isApifySocialActivityConfigured()) {
+      const newlyAddressable = activityLookupCandidates.filter((candidate) => {
+        const initial = initialSocialUrls.get(competitorKey(candidate.name)) || {};
+        return (!initial.facebookUrl && candidate.facebookUrl)
+          || (!initial.tiktokUrl && candidate.tiktokUrl);
+      });
+      if (newlyAddressable.length) {
+        try {
+          mergeActivities(
+            await fetchApifySocialActivity({
+              candidates: newlyAddressable,
+              startDate: activityStartDate,
+              endDate: activityEndDate,
+            }),
+            new Set(['Facebook', 'TikTok']),
+          );
+        } catch {
+          // Best-effort enrichment; keep the grounded web-search results.
+        }
       }
     }
 
