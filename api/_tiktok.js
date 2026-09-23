@@ -217,10 +217,13 @@ export async function recordTikTokPostSync(db, { publishId, title, videoUrl, use
 // ever picked up by the periodic cron/GitHub Action poller -- which, observed
 // live, can lag its configured 10-minute schedule by two hours or more, so a
 // post due at 10:19 might not even be attempted until early afternoon. QStash
-// re-invokes api/tiktok/deliver.js at the exact scheduled instant instead,
-// mirroring api/telegram/run-scheduled.js's scheduleQStashDelivery; the
-// poller remains as a fallback for whenever this enqueue itself fails or
-// QSTASH_TOKEN isn't configured.
+// re-invokes api/tiktok/publish.js's ?action=deliver at the exact scheduled
+// instant instead (a sibling api/tiktok/deliver.js file was tried first, but
+// the Hobby plan caps a deployment at 12 serverless functions and that 13th
+// file failed the entire deployment outright), mirroring
+// api/telegram/run-scheduled.js's scheduleQStashDelivery; the poller remains
+// as a fallback for whenever this enqueue itself fails or QSTASH_TOKEN isn't
+// configured.
 export async function scheduleTikTokQStashDelivery(req, postId, scheduledDate) {
   const token = (process.env.QSTASH_TOKEN || '').trim();
   if (!token) return;
@@ -229,7 +232,7 @@ export async function scheduleTikTokQStashDelivery(req, postId, scheduledDate) {
     const client = new QStashClient({ token, baseUrl: process.env.QSTASH_URL });
     const host = req.headers['x-forwarded-host'] || req.headers.host;
     await client.publishJSON({
-      url: `https://${host}/api/tiktok/deliver`,
+      url: `https://${host}/api/tiktok/publish?action=deliver`,
       body: { postId },
       notBefore: Math.floor(scheduledDate.getTime() / 1000),
     });

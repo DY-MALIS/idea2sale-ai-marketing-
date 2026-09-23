@@ -20,7 +20,6 @@ import tiktokCallbackHandler from "./api/tiktok/callback.js";
 import tiktokMeHandler from "./api/tiktok/me.js";
 import tiktokStatsHandler from "./api/tiktok/stats.js";
 import tiktokPublishHandler from "./api/tiktok/publish.js";
-import tiktokDeliverHandler from "./api/tiktok/deliver.js";
 
 dotenv.config();
 
@@ -123,7 +122,6 @@ async function startServer() {
   app.all("/api/tiktok/me", async (req, res) => { await tiktokMeHandler(req, res); });
   app.all("/api/tiktok/stats", async (req, res) => { await tiktokStatsHandler(req, res); });
   app.all("/api/tiktok/publish", async (req, res) => { await tiktokPublishHandler(req, res); });
-  app.all("/api/tiktok/deliver", async (req, res) => { await tiktokDeliverHandler(req, res); });
   app.all("/api/telegram/webhook", async (req, res) => { await telegramWebhookHandler(req, res); });
   app.all("/api/telegram/deliver", async (req, res) => { await telegramDeliverHandler(req, res); });
 

@@ -1,24 +1,46 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { mockGetCookie, mockRecordTikTokPostSync, mockVerifyIdToken, mockLogAudit, mockScheduleQstash, mockInitFirebaseAdmin } = vi.hoisted(() => ({
+const {
+  mockGetCookie, mockRecordTikTokPostSync, mockVerifyIdToken, mockLogAudit, mockScheduleQstash,
+  mockInitFirebaseAdmin, mockGetAutomationAccessToken, mockClaimPendingPost, mockFindRecentDuplicate,
+  mockNotifyAdmins, mockVerify,
+} = vi.hoisted(() => ({
   mockGetCookie: vi.fn(),
   mockRecordTikTokPostSync: vi.fn(),
   mockVerifyIdToken: vi.fn(),
   mockLogAudit: vi.fn(),
   mockScheduleQstash: vi.fn(),
   mockInitFirebaseAdmin: vi.fn(),
+  mockGetAutomationAccessToken: vi.fn(),
+  mockClaimPendingPost: vi.fn(),
+  mockFindRecentDuplicate: vi.fn(),
+  mockNotifyAdmins: vi.fn(),
+  mockVerify: vi.fn(),
+}));
+vi.mock('@upstash/qstash', () => ({
+  // Vitest requires a constructible function here (arrow functions can't be
+  // `new`-ed, which the real code does: `new Receiver({...})`).
+  Receiver: vi.fn().mockImplementation(function Receiver() { this.verify = mockVerify; }),
 }));
 vi.mock('../../../api/_tiktok.js', () => ({
   getCookie: mockGetCookie,
-  getAutomationAccessToken: vi.fn(),
+  getAutomationAccessToken: mockGetAutomationAccessToken,
   recordTikTokPostSync: mockRecordTikTokPostSync,
   scheduleTikTokQStashDelivery: mockScheduleQstash,
 }));
 vi.mock('../../../api/_firebaseAdmin.js', () => ({
-  default: { auth: () => ({ verifyIdToken: mockVerifyIdToken }) },
+  default: {
+    auth: () => ({ verifyIdToken: mockVerifyIdToken }),
+    firestore: { FieldValue: { serverTimestamp: () => 'SERVER_TIMESTAMP' } },
+  },
   initFirebaseAdmin: mockInitFirebaseAdmin,
 }));
 vi.mock('../../../api/_audit.js', () => ({ logAudit: mockLogAudit }));
+vi.mock('../../../api/_telegramClaim.js', () => ({
+  claimPendingPost: mockClaimPendingPost,
+  findRecentDuplicateTikTokPost: mockFindRecentDuplicate,
+}));
+vi.mock('../../../api/_alert.js', () => ({ notifyAdmins: mockNotifyAdmins }));
 
 const handler = (await import('../../../api/tiktok/publish.js')).default;
 
@@ -37,7 +59,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  vi.resetAllMocks();
+  // resetAllMocks would also wipe Receiver's constructor mockImplementation
+  // (set once above, outside any test) instead of just clearing call history,
+  // breaking every later test's "new Receiver()" with a silent throw -> 401
+  // no matter what mockVerify is configured to return.
+  vi.clearAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -201,5 +227,98 @@ describe('POST /api/tiktok/publish?action=scheduleQstash', () => {
     await handler(req({ postId: 'post-1', scheduledTime: '2026-09-24T00:00:00.000Z' }), res);
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({ ok: true });
+  });
+});
+
+describe('POST /api/tiktok/publish?action=deliver (QStash callback)', () => {
+  const req = (body, headerOverrides = {}) => ({
+    method: 'POST',
+    query: { action: 'deliver' },
+    headers: { 'upstash-signature': 'sig', ...headerOverrides },
+    rawBody: JSON.stringify(body),
+    body,
+  });
+
+  beforeEach(() => {
+    process.env.QSTASH_CURRENT_SIGNING_KEY = 'current';
+    process.env.QSTASH_NEXT_SIGNING_KEY = 'next';
+    mockInitFirebaseAdmin.mockReturnValue({
+      collection: () => ({ doc: () => ({ update: async () => {} }) }),
+    });
+  });
+
+  afterEach(() => {
+    delete process.env.QSTASH_CURRENT_SIGNING_KEY;
+    delete process.env.QSTASH_NEXT_SIGNING_KEY;
+  });
+
+  it('rejects a request with no QStash signature', async () => {
+    const res = response();
+    await handler(req({ postId: 'post-1' }, { 'upstash-signature': undefined }), res);
+    expect(res.statusCode).toBe(401);
+    expect(mockClaimPendingPost).not.toHaveBeenCalled();
+  });
+
+  it('rejects an invalid QStash signature', async () => {
+    mockVerify.mockResolvedValue(false);
+    const res = response();
+    await handler(req({ postId: 'post-1' }), res);
+    expect(res.statusCode).toBe(401);
+    expect(mockClaimPendingPost).not.toHaveBeenCalled();
+  });
+
+  it('requires a postId', async () => {
+    mockVerify.mockResolvedValue(true);
+    const res = response();
+    await handler(req({}), res);
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('skips without publishing when TikTok automation was never connected', async () => {
+    mockVerify.mockResolvedValue(true);
+    mockGetAutomationAccessToken.mockResolvedValue(null);
+    const res = response();
+    await handler(req({ postId: 'post-1' }), res);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({ ok: true, skipped: 'not_connected' });
+    expect(mockClaimPendingPost).not.toHaveBeenCalled();
+  });
+
+  it('delivers the due post via FILE_UPLOAD and marks it PUBLISHED', async () => {
+    mockVerify.mockResolvedValue(true);
+    mockGetAutomationAccessToken.mockResolvedValue('token-1');
+    mockClaimPendingPost.mockResolvedValue({ post: { videoUrl: 'https://cdn.example.com/video.mp4', content: 'A video', userId: 'user-1' } });
+    mockFindRecentDuplicate.mockResolvedValue(null);
+    const videoBytes = new Uint8Array([1, 2, 3, 4]);
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      const target = String(url);
+      if (target === 'https://cdn.example.com/video.mp4') {
+        return { ok: true, headers: { get: () => 'video/mp4' }, arrayBuffer: async () => videoBytes.buffer };
+      }
+      if (target.includes('publish/inbox/video/init')) {
+        return { ok: true, json: async () => ({ data: { publish_id: 'pub-1', upload_url: 'https://upload.example.com/put' } }) };
+      }
+      if (target === 'https://upload.example.com/put') {
+        return { ok: true };
+      }
+      throw new Error(`Unexpected fetch to ${target}`);
+    }));
+    const res = response();
+    await handler(req({ postId: 'post-1' }), res);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({ ok: true, publishId: 'pub-1' });
+  });
+
+  it('notifies admins and reports the failure when the TikTok API call fails', async () => {
+    mockVerify.mockResolvedValue(true);
+    mockGetAutomationAccessToken.mockResolvedValue('token-1');
+    mockClaimPendingPost.mockResolvedValue({ post: { videoUrl: 'https://cdn.example.com/video.mp4', content: 'A video', userId: 'user-1' } });
+    mockFindRecentDuplicate.mockResolvedValue(null);
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404 })));
+    const res = response();
+    await handler(req({ postId: 'post-1' }), res);
+    expect(res.statusCode).toBe(200);
+    expect(res.body.ok).toBe(false);
+    expect(mockNotifyAdmins).toHaveBeenCalledWith(expect.stringContaining('post-1'));
   });
 });
