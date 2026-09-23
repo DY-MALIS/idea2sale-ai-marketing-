@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { FieldValue } from 'firebase-admin/firestore';
+import { Client as QStashClient } from '@upstash/qstash';
 
 const OAUTH_STATE_COOKIE = 'tiktok_oauth_state';
 const AUTOMATION_TOKEN_COLLECTION = 'tiktok_automation_tokens';
@@ -210,4 +211,29 @@ export async function recordTikTokPostSync(db, { publishId, title, videoUrl, use
     ...(mediaType ? { mediaType } : {}),
     createdAt: FieldValue.serverTimestamp(),
   });
+}
+
+// Unlike Telegram scheduling, a TikTok scheduled_posts doc up to now was only
+// ever picked up by the periodic cron/GitHub Action poller -- which, observed
+// live, can lag its configured 10-minute schedule by two hours or more, so a
+// post due at 10:19 might not even be attempted until early afternoon. QStash
+// re-invokes api/tiktok/deliver.js at the exact scheduled instant instead,
+// mirroring api/telegram/run-scheduled.js's scheduleQStashDelivery; the
+// poller remains as a fallback for whenever this enqueue itself fails or
+// QSTASH_TOKEN isn't configured.
+export async function scheduleTikTokQStashDelivery(req, postId, scheduledDate) {
+  const token = (process.env.QSTASH_TOKEN || '').trim();
+  if (!token) return;
+
+  try {
+    const client = new QStashClient({ token, baseUrl: process.env.QSTASH_URL });
+    const host = req.headers['x-forwarded-host'] || req.headers.host;
+    await client.publishJSON({
+      url: `https://${host}/api/tiktok/deliver`,
+      body: { postId },
+      notBefore: Math.floor(scheduledDate.getTime() / 1000),
+    });
+  } catch (error) {
+    console.error('QStash TikTok scheduling failed:', error?.message || error);
+  }
 }

@@ -460,7 +460,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
             continue;
           }
 
-          await addDoc(collection(db, 'scheduled_posts'), {
+          const scheduledDocRef = await addDoc(collection(db, 'scheduled_posts'), {
             content: content.trim(),
             platform,
             groupId,
@@ -485,6 +485,21 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
             scheduledTime: scheduledDate.toISOString(),
             hasMedia: Boolean(videoUrl),
           });
+          if (platform === 'TIKTOK') {
+            // Best-effort: this only enqueues a precise QStash callback so the
+            // post publishes at the exact scheduled instant instead of waiting
+            // on the periodic poller (observed live lagging its configured
+            // 10-minute schedule by two hours or more). The post above is
+            // already safely scheduled either way, so a failure here must
+            // never surface as a scheduling error to the user.
+            fetch('/api/tiktok/publish?action=scheduleQstash', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+              body: JSON.stringify({ postId: scheduledDocRef.id, scheduledTime: scheduledDate.toISOString() }),
+            }).catch((qstashError) => {
+              console.error('Failed to enqueue precise TikTok delivery:', qstashError);
+            });
+          }
         } catch (platformError) {
           const message = platformError instanceof Error ? platformError.message : 'unknown error';
           failures.push(`${platform}: ${message}`);

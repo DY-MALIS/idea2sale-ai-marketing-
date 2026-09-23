@@ -1,19 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { mockGetCookie, mockRecordTikTokPostSync, mockVerifyIdToken, mockLogAudit } = vi.hoisted(() => ({
+const { mockGetCookie, mockRecordTikTokPostSync, mockVerifyIdToken, mockLogAudit, mockScheduleQstash, mockInitFirebaseAdmin } = vi.hoisted(() => ({
   mockGetCookie: vi.fn(),
   mockRecordTikTokPostSync: vi.fn(),
   mockVerifyIdToken: vi.fn(),
   mockLogAudit: vi.fn(),
+  mockScheduleQstash: vi.fn(),
+  mockInitFirebaseAdmin: vi.fn(),
 }));
 vi.mock('../../../api/_tiktok.js', () => ({
   getCookie: mockGetCookie,
   getAutomationAccessToken: vi.fn(),
   recordTikTokPostSync: mockRecordTikTokPostSync,
+  scheduleTikTokQStashDelivery: mockScheduleQstash,
 }));
 vi.mock('../../../api/_firebaseAdmin.js', () => ({
   default: { auth: () => ({ verifyIdToken: mockVerifyIdToken }) },
-  initFirebaseAdmin: vi.fn(() => ({})),
+  initFirebaseAdmin: mockInitFirebaseAdmin,
 }));
 vi.mock('../../../api/_audit.js', () => ({ logAudit: mockLogAudit }));
 
@@ -30,6 +33,7 @@ const response = () => ({
 beforeEach(() => {
   mockGetCookie.mockReturnValue('cookie-token');
   mockVerifyIdToken.mockRejectedValue(new Error('no bearer token in these tests'));
+  mockInitFirebaseAdmin.mockReturnValue({});
 });
 
 afterEach(() => {
@@ -127,5 +131,75 @@ describe('POST /api/tiktok/publish', () => {
     expect(res.statusCode).toBe(200);
     expect(res.body).toMatchObject({ success: true, publishId: 'pub-2' });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('POST /api/tiktok/publish?action=scheduleQstash', () => {
+  const req = (body, authorization = 'Bearer good-token') => ({
+    method: 'POST',
+    query: { action: 'scheduleQstash' },
+    headers: authorization ? { authorization } : {},
+    body,
+  });
+
+  it('rejects a request with no Authorization header', async () => {
+    const res = response();
+    await handler(req({ postId: 'post-1', scheduledTime: '2026-09-24T00:00:00.000Z' }, ''), res);
+    expect(res.statusCode).toBe(401);
+    expect(mockScheduleQstash).not.toHaveBeenCalled();
+  });
+
+  it('rejects an invalid Firebase ID token', async () => {
+    mockVerifyIdToken.mockRejectedValue(new Error('invalid token'));
+    const res = response();
+    await handler(req({ postId: 'post-1', scheduledTime: '2026-09-24T00:00:00.000Z' }), res);
+    expect(res.statusCode).toBe(401);
+    expect(mockScheduleQstash).not.toHaveBeenCalled();
+  });
+
+  it('requires a postId and a valid scheduledTime', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'user-1' });
+    const res = response();
+    await handler(req({ postId: '', scheduledTime: 'not-a-date' }), res);
+    expect(res.statusCode).toBe(400);
+    expect(mockScheduleQstash).not.toHaveBeenCalled();
+  });
+
+  it("rejects scheduling a post that is not the caller's own", async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'user-1' });
+    mockInitFirebaseAdmin.mockReturnValue({
+      collection: () => ({ doc: () => ({ get: async () => ({ exists: true, data: () => ({ userId: 'someone-else' }) }) }) }),
+    });
+    const res = response();
+    await handler(req({ postId: 'post-1', scheduledTime: '2026-09-24T00:00:00.000Z' }), res);
+    expect(res.statusCode).toBe(404);
+    expect(mockScheduleQstash).not.toHaveBeenCalled();
+  });
+
+  it("enqueues QStash delivery for the caller's own pending post", async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'user-1' });
+    mockInitFirebaseAdmin.mockReturnValue({
+      collection: () => ({ doc: () => ({ get: async () => ({ exists: true, data: () => ({ userId: 'user-1' }) }) }) }),
+    });
+    const res = response();
+    await handler(req({ postId: 'post-1', scheduledTime: '2026-09-24T00:00:00.000Z' }), res);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({ ok: true });
+    expect(mockScheduleQstash).toHaveBeenCalledWith(expect.anything(), 'post-1', new Date('2026-09-24T00:00:00.000Z'));
+  });
+
+  it('still confirms success to the client even if QStash enqueueing itself throws', async () => {
+    // The post is already safely scheduled via the plain Firestore write the
+    // client made just before calling this -- a QStash hiccup here must never
+    // surface as a scheduling failure; the periodic poller still covers it.
+    mockVerifyIdToken.mockResolvedValue({ uid: 'user-1' });
+    mockInitFirebaseAdmin.mockReturnValue({
+      collection: () => ({ doc: () => ({ get: async () => ({ exists: true, data: () => ({ userId: 'user-1' }) }) }) }),
+    });
+    mockScheduleQstash.mockRejectedValue(new Error('QStash is down'));
+    const res = response();
+    await handler(req({ postId: 'post-1', scheduledTime: '2026-09-24T00:00:00.000Z' }), res);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({ ok: true });
   });
 });

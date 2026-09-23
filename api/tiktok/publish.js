@@ -1,6 +1,6 @@
 import admin, { initFirebaseAdmin } from '../_firebaseAdmin.js';
 import { logAudit } from '../_audit.js';
-import { getCookie, getAutomationAccessToken, recordTikTokPostSync } from '../_tiktok.js';
+import { getCookie, getAutomationAccessToken, recordTikTokPostSync, scheduleTikTokQStashDelivery } from '../_tiktok.js';
 import { claimPendingPost, findRecentDuplicateTikTokPost } from '../_telegramClaim.js';
 import { notifyAdmins } from '../_alert.js';
 
@@ -118,7 +118,7 @@ async function videoFromUrl(videoUrl) {
 // (Firebase Storage/ImageKit) since scheduled videos are uploaded ahead of time.
 // Both paths end up FILE_UPLOAD -- see videoFromUrl's comment for why the
 // https:// case can't use PULL_FROM_URL.
-async function publishVideoToTikTok(token, { videoUrl, title: rawTitle }) {
+export async function publishVideoToTikTok(token, { videoUrl, title: rawTitle }) {
   const title = String(rawTitle || 'AI Generated Content').slice(0, 2200);
   const postMode = String(process.env.TIKTOK_POST_MODE || 'inbox').toLowerCase();
   const directPost = postMode === 'direct';
@@ -229,6 +229,56 @@ async function handlePublishRequest(req, res) {
   }
 }
 
+// Claims and publishes exactly one due TikTok scheduled_posts doc. Shared by
+// the cron poller's batch loop below and api/tiktok/deliver.js (QStash's
+// precise per-post callback) so both paths can never drift apart.
+export async function deliverOneScheduledTikTokPost(db, docRef, token) {
+  const claim = await claimPendingPost(db, docRef);
+  if (!claim.post) return { ok: true, skipped: true };
+  const post = claim.post;
+
+  const duplicateId = await findRecentDuplicateTikTokPost(db, post);
+  if (duplicateId) {
+    await docRef.update({
+      status: 'PUBLISHED',
+      tiktokPublishId: null,
+      publishedAt: admin.firestore.FieldValue.serverTimestamp(),
+      duplicateSkipped: true,
+      errorMessage: `Skipped -- duplicate of already-published post ${duplicateId}`,
+    });
+    return { ok: true, skippedDuplicate: duplicateId };
+  }
+
+  try {
+    const { publishId, directPost } = await publishVideoToTikTok(token, {
+      videoUrl: post.videoUrl,
+      title: post.content,
+    });
+    await docRef.update({
+      status: 'PUBLISHED',
+      tiktokPublishId: publishId || null,
+      publishedAt: admin.firestore.FieldValue.serverTimestamp(),
+      errorMessage: null,
+    });
+    await recordTikTokPostSync(db, {
+      publishId,
+      title: post.content,
+      videoUrl: post.videoUrl,
+      userId: post.userId,
+      mode: directPost ? 'direct' : 'inbox',
+    });
+    return { ok: true, publishId };
+  } catch (error) {
+    const message = error?.message || 'TikTok publish failed.';
+    await docRef.update({
+      status: 'FAILED',
+      errorMessage: message,
+      failedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    return { ok: false, error: message };
+  }
+}
+
 // A scheduled_posts doc that stays claimed (PROCESSING) longer than this got
 // interrupted mid-upload by a prior cron invocation timing out/crashing -- once
 // claimed it's no longer PENDING, so nothing would ever retry it without this.
@@ -323,55 +373,9 @@ async function runTikTokCron(req, res) {
 
     const results = [];
     for (const doc of dueDocs) {
-      const claim = await claimPendingPost(db, doc.ref);
-      if (!claim.post) {
-        results.push({ id: doc.id, ok: true, skipped: true });
-        continue;
-      }
-      const post = claim.post;
-
-      const duplicateId = await findRecentDuplicateTikTokPost(db, post);
-      if (duplicateId) {
-        await doc.ref.update({
-          status: 'PUBLISHED',
-          tiktokPublishId: null,
-          publishedAt: admin.firestore.FieldValue.serverTimestamp(),
-          duplicateSkipped: true,
-          errorMessage: `Skipped -- duplicate of already-published post ${duplicateId}`,
-        });
-        results.push({ id: doc.id, ok: true, skippedDuplicate: duplicateId });
-        continue;
-      }
-
-      try {
-        const { publishId, directPost } = await publishVideoToTikTok(token, {
-          videoUrl: post.videoUrl,
-          title: post.content,
-        });
-        await doc.ref.update({
-          status: 'PUBLISHED',
-          tiktokPublishId: publishId || null,
-          publishedAt: admin.firestore.FieldValue.serverTimestamp(),
-          errorMessage: null,
-        });
-        await recordTikTokPostSync(db, {
-          publishId,
-          title: post.content,
-          videoUrl: post.videoUrl,
-          userId: post.userId,
-          mode: directPost ? 'direct' : 'inbox',
-        });
-        results.push({ id: doc.id, ok: true, publishId });
-      } catch (error) {
-        const message = error?.message || 'TikTok publish failed.';
-        await doc.ref.update({
-          status: 'FAILED',
-          errorMessage: message,
-          failedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-        results.push({ id: doc.id, ok: false, error: message });
-        await notifyAdmins(`TikTok scheduled post ${doc.id} failed (cron): ${message}`);
-      }
+      const result = await deliverOneScheduledTikTokPost(db, doc.ref, token);
+      results.push({ id: doc.id, ...result });
+      if (!result.ok) await notifyAdmins(`TikTok scheduled post ${doc.id} failed (cron): ${result.error}`);
     }
 
     return res.status(200).json({ ok: true, checkedAt: nowIso, processed: results.length, results });
@@ -382,9 +386,50 @@ async function runTikTokCron(req, res) {
   }
 }
 
+// Called by SchedulerHub.tsx right after it writes a TIKTOK scheduled_posts
+// doc directly to Firestore (unlike Telegram scheduling, TikTok's create path
+// is a plain client-side addDoc, not a server endpoint, so nothing else here
+// would ever get a chance to enqueue precise delivery). Best-effort: the
+// periodic cron/GitHub Action poller still covers this post if QStash
+// scheduling itself fails, so a failure here must never surface as an error
+// to the user -- their post is already scheduled either way.
+async function handleScheduleQstash(req, res) {
+  const authHeader = req.headers.authorization || '';
+  const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  if (!idToken) return res.status(401).json({ error: 'Authentication required.' });
+  let uid;
+  try {
+    uid = (await admin.auth().verifyIdToken(idToken, true)).uid;
+  } catch {
+    return res.status(401).json({ error: 'Invalid or expired session.' });
+  }
+
+  const postId = String(req.body?.postId || '').trim();
+  const scheduledDate = new Date(String(req.body?.scheduledTime || ''));
+  if (!postId || Number.isNaN(scheduledDate.getTime())) {
+    return res.status(400).json({ error: 'postId and a valid scheduledTime are required.' });
+  }
+
+  try {
+    const db = initFirebaseAdmin();
+    const snap = await db.collection('scheduled_posts').doc(postId).get();
+    if (!snap.exists || snap.data()?.userId !== uid) {
+      return res.status(404).json({ error: 'Scheduled post not found.' });
+    }
+    await scheduleTikTokQStashDelivery(req, postId, scheduledDate);
+  } catch (error) {
+    console.error('Failed to schedule TikTok QStash delivery:', error?.message || error);
+  }
+  return res.status(200).json({ ok: true });
+}
+
 export default async function handler(req, res) {
   if (req.query?.action === 'cron') {
     return runTikTokCron(req, res);
+  }
+
+  if (req.query?.action === 'scheduleQstash') {
+    return handleScheduleQstash(req, res);
   }
 
   if (req.method !== 'POST') {
