@@ -464,19 +464,29 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
       && (isSupportedPublicSocialUrl(item.lastKnownActivity.sourceUrl) || await urlIsReachable(item.lastKnownActivity.sourceUrl))) {
       lastKnownActivity = item.lastKnownActivity;
     }
-    // Unlike sourceUrl/activity evidence above, the three profile links shown
-    // on a competitor card (Facebook/TikTok/LinkedIn) ARE live-HTTP-checked
-    // here on request, so every link a user clicks actually opens -- accepting
-    // that an anti-bot block on a real page occasionally clears a genuine
-    // link, the same risk urlIsReachable already tolerates elsewhere. A page
-    // that fails the check is blanked, not treated as grounds to drop the
-    // whole competitor.
+    // Unlike sourceUrl/activity evidence above, the TikTok/LinkedIn profile
+    // links shown on a competitor card ARE live-HTTP-checked here on request,
+    // so a link a user clicks actually opens -- accepting that an anti-bot
+    // block on a real page occasionally clears a genuine link, the same risk
+    // urlIsReachable already tolerates elsewhere. A page that fails the check
+    // is blanked, not treated as grounds to drop the whole competitor.
+    //
+    // Facebook is excluded from this: verified directly against facebook.com/
+    // facebook, /nike, and /cocacola (huge, definitely-real, definitely-live
+    // pages) from this server, and Facebook's edge returned a bare 400 Bad
+    // Request for every single one, before ever reaching page content. That
+    // means a live check here cannot distinguish a real Facebook Page from a
+    // dead one -- it would blank every genuine link, which is worse than the
+    // occasional anti-bot false negative this pattern is elsewhere built to
+    // tolerate. Trust the format-validated URL from grounded search instead,
+    // same as sourceUrl/activity evidence already does via
+    // isSupportedPublicSocialUrl.
     const verifiedSocialUrl = async (url) => (url && await urlIsReachable(url)) ? url : '';
-    const [facebookUrl, tiktokUrl, linkedinUrl] = await Promise.all([
-      verifiedSocialUrl(item.facebookUrl),
+    const [tiktokUrl, linkedinUrl] = await Promise.all([
       verifiedSocialUrl(item.tiktokUrl),
       verifiedSocialUrl(item.linkedinUrl),
     ]);
+    const facebookUrl = item.facebookUrl || '';
     return hasActivityWindow ? { ...item, facebookUrl, tiktokUrl, linkedinUrl, recentActivities: activityChecks.filter(Boolean), lastKnownActivity } : { name: item.name, matchReason: item.matchReason, positioning: item.positioning, facebookUrl, tiktokUrl, linkedinUrl, sourceUrl: item.sourceUrl };
   })).filter(Boolean);
 

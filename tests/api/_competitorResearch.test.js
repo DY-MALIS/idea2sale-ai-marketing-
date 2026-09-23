@@ -712,3 +712,33 @@ it('never reports a last-known post when real in-window activity was already fou
   expect(result.competitors[0].recentActivities).toHaveLength(1);
   expect(result.competitors[0].lastKnownActivity).toBeNull();
 });
+
+it('keeps a format-valid Facebook profile link even when it fails a live HTTP check, unlike TikTok/LinkedIn', async () => {
+  // Facebook's edge returns a bare 400 for automated requests to real pages too
+  // (verified live against facebook.com/facebook, /nike, /cocacola), so a live
+  // check there can't tell a real Page from a dead one -- it would blank every
+  // genuine Facebook link. TikTok/LinkedIn checks stay live because those do
+  // distinguish real from dead in practice.
+  mocks.webSearch.mockResolvedValue({ content: JSON.stringify({
+    competitors: [{
+      name: 'Rival Cafe',
+      isDirectCompetitor: true,
+      matchConfidence: 'high',
+      matchReason: 'Serves the same cafe customers in Phnom Penh',
+      positioning: '',
+      facebookUrl: 'https://www.facebook.com/rivalcafe',
+      tiktokUrl: 'https://www.tiktok.com/@rivalcafe',
+      linkedinUrl: 'https://www.linkedin.com/company/rival-cafe/',
+      sourceUrl: 'https://rival-cafe.example.com',
+    }],
+  }) });
+  vi.stubGlobal('fetch', vi.fn(async (url) => (
+    String(url).includes('rival-cafe.example.com') ? { ok: true, status: 200 } : { ok: false, status: 400 }
+  )));
+
+  const result = await researchCompetitors({ query: 'cafes Phnom Penh' });
+
+  expect(result.competitors[0].facebookUrl).toBe('https://www.facebook.com/rivalcafe');
+  expect(result.competitors[0].tiktokUrl).toBe('');
+  expect(result.competitors[0].linkedinUrl).toBe('');
+});
