@@ -248,8 +248,8 @@ it('looks up Facebook/TikTok/LinkedIn activity by exact name only once competito
       ],
     }) });
   vi.stubGlobal('fetch', vi.fn(async (url) => ({
-    ok: String(url).includes('socialacademy.example.com'),
-    status: String(url).includes('socialacademy.example.com') ? 200 : 403,
+    ok: String(url).includes('socialacademy'),
+    status: String(url).includes('socialacademy') ? 200 : 403,
   })));
 
   const result = await researchCompetitors({
@@ -360,7 +360,10 @@ it('retries the activity search once when it returns unparseable data, then find
       }],
     }) })
     .mockResolvedValueOnce({ content: JSON.stringify({ activities: [] }) });
-  vi.stubGlobal('fetch', vi.fn());
+  // The discovered linkedinUrl is now live-checked before being shown as a
+  // clickable competitor link, unlike the sourceUrl/activity evidence above
+  // (which stay exempt from HTTP checks -- see isSupportedPublicSocialUrl).
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
 
   const result = await researchCompetitors({
     query: 'AI training academies Phnom Penh',
@@ -379,7 +382,7 @@ it('retries the activity search once when it returns unparseable data, then find
       keyDetails: ['Self-paced course', 'Targets finance, HR, and operations roles'],
     }),
   ]);
-  expect(fetch).not.toHaveBeenCalled();
+  expect(result.competitors[0].linkedinUrl).toBe('https://kh.linkedin.com/company/datauacademy');
 });
 
 it('keeps the verified competitor list even if the activity search fails every attempt, including the Facebook/TikTok follow-up', async () => {
@@ -637,4 +640,75 @@ it('skips Meta Ad Library entirely when not configured', async () => {
   expect(mocks.fetchMetaAdLibraryActivity).not.toHaveBeenCalled();
   expect(mocks.isMetaAdLibraryConfigured).toHaveBeenCalledWith('KH');
   expect(result.competitors[0].recentActivities).toEqual([]);
+});
+
+it('reports the most recent verified post when nothing falls inside the activity window', async () => {
+  mocks.webSearch
+    .mockResolvedValueOnce({ content: JSON.stringify({
+      competitors: [{
+        name: 'Rival Cafe',
+        isDirectCompetitor: true,
+        matchConfidence: 'high',
+        matchReason: 'Serves the same cafe customers in Phnom Penh',
+        positioning: '',
+        sourceUrl: 'https://rival-cafe.example.com',
+      }],
+    }) })
+    .mockRejectedValueOnce(new Error('search failed'))
+    .mockRejectedValueOnce(new Error('search failed again'))
+    .mockResolvedValueOnce({ content: JSON.stringify({
+      activities: [],
+      lastActivity: [
+        { competitorName: 'Rival Cafe', date: '2026-07-02', activity: 'Posted a grand opening announcement.', sourceUrl: 'https://www.facebook.com/rivalcafe/posts/1' },
+      ],
+    }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({ activities: [] }) });
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+
+  const result = await researchCompetitors({
+    query: 'cafes Phnom Penh',
+    activityStartDate: '2026-09-12',
+    activityEndDate: '2026-09-18',
+  });
+
+  expect(mocks.webSearch).toHaveBeenCalledTimes(5);
+  expect(result.competitors[0].recentActivities).toEqual([]);
+  expect(result.competitors[0].lastKnownActivity).toEqual({
+    date: '2026-07-02',
+    activity: 'Posted a grand opening announcement.',
+    sourceUrl: 'https://www.facebook.com/rivalcafe/posts/1',
+    platform: 'Facebook',
+  });
+});
+
+it('never reports a last-known post when real in-window activity was already found', async () => {
+  mocks.webSearch
+    .mockResolvedValueOnce({ content: JSON.stringify({
+      competitors: [{
+        name: 'Rival Cafe',
+        isDirectCompetitor: true,
+        matchConfidence: 'high',
+        matchReason: 'Serves the same cafe customers in Phnom Penh',
+        positioning: '',
+        sourceUrl: 'https://rival-cafe.example.com',
+      }],
+    }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({
+      activities: [
+        { competitorName: 'Rival Cafe', date: '2026-09-16', activity: 'Posted a weekend offer', sourceUrl: 'https://www.facebook.com/rivalcafe/posts/2' },
+      ],
+      lastActivity: [
+        { competitorName: 'Rival Cafe', date: '2026-07-02', activity: 'Old post that should be ignored.', sourceUrl: 'https://www.facebook.com/rivalcafe/posts/1' },
+      ],
+    }) });
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+
+  const result = await researchCompetitors({
+    query: 'cafes Phnom Penh',
+    activityStartDate: '2026-09-12',
+    activityEndDate: '2026-09-18',
+  });
+
+  expect(result.competitors[0].recentActivities).toHaveLength(1);
+  expect(result.competitors[0].lastKnownActivity).toBeNull();
 });

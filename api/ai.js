@@ -1596,6 +1596,7 @@ Return ONLY a single valid JSON object with this exact structure:
             ? (verified.recentActivities || []).map((activity) => `${activity.date}: ${activity.activity}`)
             : asList(match.publicActivitySignals),
           recentActivities: isCompetitorScan ? (verified.recentActivities || []) : [],
+          lastKnownActivity: isCompetitorScan ? (verified.lastKnownActivity || undefined) : undefined,
           customerSegments: asList(match.customerSegments),
           facebookUrl: verified.facebookUrl || '',
           tiktokUrl: verified.tiktokUrl || '',

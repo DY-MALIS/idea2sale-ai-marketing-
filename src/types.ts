@@ -79,6 +79,7 @@ export interface FacebookCompetitorInsight {
   linkedinUrl?: string;
   publicActivitySignals?: string[];
   recentActivities?: FacebookRecentActivity[];
+  lastKnownActivity?: FacebookRecentActivity;
   customerSegments?: string[];
 }
 

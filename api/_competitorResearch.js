@@ -221,6 +221,7 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
       linkedinUrl: validLinkedInUrl(linkedinUrl) ? linkedinUrl : '',
       sourceUrl: String(item?.sourceUrl || '').trim().slice(0, 300),
       recentActivities: [],
+      lastKnownActivity: null,
     };
     if (!isDirectCompetitor || matchConfidence !== 'high' || !candidate.matchReason) return;
     if (!candidate.name || !/^https?:\/\//i.test(candidate.sourceUrl)) return;
@@ -280,7 +281,14 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
       const profilesShape = platformOnly
         ? `  "profiles": [{ "competitorName": "exact name copied from the supplied list", "profileUrl": "official ${platformOnly} Page/profile URL" }],\n`
         : '';
-      return `Search the live public web for activity posted by ONLY these exact businesses in ${country}:\n${businessList}\n\nDATE WINDOW: ${activityStartDate} through ${activityEndDate}, inclusive. Treat ${activityEndDate} as the current local calendar date. A source label such as "6h", "1d", "2d", or "5 days ago" is valid dated evidence: normalize it to YYYY-MM-DD by counting back from ${activityEndDate}.\n\n${searchScope} Check every requested source for every single business before moving on -- do not stop early after finding activity for only the first few names. ${fallbackEvidenceRule}\n\nGROUNDING RULES: describe only facts visible in the public source, search-result extract, caption, title, description, or indexed transcript. For a video/reel, explain what it discusses or demonstrates only when its caption, description, visible text, or transcript supports that explanation. Never invent spoken words, scenes, results, offers, prices, audience reactions, or business actions. If detailed content is unavailable, keep summary and keyDetails empty instead of guessing.\n\nReturn ONLY valid JSON in this shape:\n{\n${profilesShape}  "activities": [\n    {\n      "competitorName": "exact name copied from the supplied list",\n      "date": "YYYY-MM-DD",\n      "contentType": "Video, Reel, Post, Article, Event, Offer, Ad, or Other",\n      "title": "exact visible title/headline, or a short factual label grounded in the source",\n      "activity": "one concise sentence stating what the business posted or announced",\n      "summary": "2-4 factual sentences explaining what the content is about, using only details visible in the source; empty string if unavailable",\n      "keyDetails": ["up to 6 concrete facts explicitly supported by the source"],\n      "sourceUrl": "${sourceUrlDescription}"\n    }\n  ]\n}\n${emptyResultRule}`;
+      // A blanket "no activity in this 7-day window" line reads the same
+      // whether a business posted yesterday or hasn't posted in months --
+      // asking separately for the single most recent verifiable post (of any
+      // age) for exactly the businesses missing in-window activity lets the UI
+      // say "last posted on <date>" instead, without spending search budget
+      // chasing a full history for businesses that already have in-window hits.
+      const lastActivityRule = `For every listed business that has NO dated activity inside the window above, ALSO search the same source(s) for that business's single most recent dated post/video/update of any age (it will normally fall before ${activityStartDate}) and report it in "lastActivity" so we can state exactly when they last posted. Include at most one "lastActivity" entry per business -- the most recent one you can verify -- grounded in a real dated source. Omit a business from "lastActivity" entirely if it already has an entry in "activities", or if no dated post can be verified at all.`;
+      return `Search the live public web for activity posted by ONLY these exact businesses in ${country}:\n${businessList}\n\nDATE WINDOW: ${activityStartDate} through ${activityEndDate}, inclusive. Treat ${activityEndDate} as the current local calendar date. A source label such as "6h", "1d", "2d", or "5 days ago" is valid dated evidence: normalize it to YYYY-MM-DD by counting back from ${activityEndDate}.\n\n${searchScope} Check every requested source for every single business before moving on -- do not stop early after finding activity for only the first few names. ${fallbackEvidenceRule}\n\n${lastActivityRule}\n\nGROUNDING RULES: describe only facts visible in the public source, search-result extract, caption, title, description, or indexed transcript. For a video/reel, explain what it discusses or demonstrates only when its caption, description, visible text, or transcript supports that explanation. Never invent spoken words, scenes, results, offers, prices, audience reactions, or business actions. If detailed content is unavailable, keep summary and keyDetails empty instead of guessing.\n\nReturn ONLY valid JSON in this shape:\n{\n${profilesShape}  "activities": [\n    {\n      "competitorName": "exact name copied from the supplied list",\n      "date": "YYYY-MM-DD",\n      "contentType": "Video, Reel, Post, Article, Event, Offer, Ad, or Other",\n      "title": "exact visible title/headline, or a short factual label grounded in the source",\n      "activity": "one concise sentence stating what the business posted or announced",\n      "summary": "2-4 factual sentences explaining what the content is about, using only details visible in the source; empty string if unavailable",\n      "keyDetails": ["up to 6 concrete facts explicitly supported by the source"],\n      "sourceUrl": "${sourceUrlDescription}"\n    }\n  ],\n  "lastActivity": [\n    {\n      "competitorName": "exact name copied from the supplied list",\n      "date": "YYYY-MM-DD",\n      "activity": "one concise sentence stating what the business posted or announced",\n      "sourceUrl": "${sourceUrlDescription}"\n    }\n  ]\n}\n${emptyResultRule}`;
     };
 
     const activityLookupCandidates = candidates.slice(0, ACTIVITY_LOOKUP_LIST_CAP);
@@ -294,6 +302,27 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
           activityStartDate,
           activityEndDate,
         );
+      });
+    };
+    // Only fills in a fallback "last known" date -- never overwrites a
+    // business that already has real in-window activity, and keeps whichever
+    // candidate entry (mixed-source vs. platform-only pass) is more recent.
+    const mergeLastActivity = (entries, allowedPlatforms = null) => {
+      (Array.isArray(entries) ? entries : []).forEach((entry) => {
+        const date = String(entry?.date || '').trim();
+        const sourceUrl = String(entry?.sourceUrl || '').trim().slice(0, 300);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^https?:\/\//i.test(sourceUrl)) return;
+        const platform = socialPlatformFromUrl(sourceUrl);
+        if (allowedPlatforms && !allowedPlatforms.has(platform)) return;
+        const candidate = mergedCandidates.get(competitorKey(entry?.competitorName));
+        if (!candidate || candidate.recentActivities?.length) return;
+        if (candidate.lastKnownActivity && candidate.lastKnownActivity.date >= date) return;
+        candidate.lastKnownActivity = {
+          date,
+          activity: String(entry?.activity || '').trim().slice(0, 400) || 'Most recent verified public post found.',
+          sourceUrl,
+          platform,
+        };
       });
     };
     const mergeSocialProfiles = (profiles, platform) => {
@@ -317,6 +346,7 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
       onFailure: () => ({ activities: [] }),
     });
     mergeActivities(activityParsed?.activities);
+    mergeLastActivity(activityParsed?.lastActivity);
 
     // STAGE 3 -- direct public Facebook/TikTok lookup. Search indexes often
     // miss recent social posts. When configured, this queries only the exact
@@ -364,6 +394,7 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
       const { platform, parsed } = settled.value;
       mergeSocialProfiles(parsed.profiles, platform);
       mergeActivities(parsed.activities, new Set([platform]));
+      mergeLastActivity(parsed.lastActivity, new Set([platform]));
     });
 
     // The first direct pass can only use URLs known during discovery. If a
@@ -428,7 +459,25 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
     for (const activity of item.recentActivities || []) {
       if (isSupportedPublicSocialUrl(activity.sourceUrl) || await urlIsReachable(activity.sourceUrl)) activityChecks.push(activity);
     }
-    return hasActivityWindow ? { ...item, recentActivities: activityChecks.filter(Boolean) } : { name: item.name, matchReason: item.matchReason, positioning: item.positioning, facebookUrl: item.facebookUrl, tiktokUrl: item.tiktokUrl, linkedinUrl: item.linkedinUrl, sourceUrl: item.sourceUrl };
+    let lastKnownActivity = null;
+    if (item.lastKnownActivity
+      && (isSupportedPublicSocialUrl(item.lastKnownActivity.sourceUrl) || await urlIsReachable(item.lastKnownActivity.sourceUrl))) {
+      lastKnownActivity = item.lastKnownActivity;
+    }
+    // Unlike sourceUrl/activity evidence above, the three profile links shown
+    // on a competitor card (Facebook/TikTok/LinkedIn) ARE live-HTTP-checked
+    // here on request, so every link a user clicks actually opens -- accepting
+    // that an anti-bot block on a real page occasionally clears a genuine
+    // link, the same risk urlIsReachable already tolerates elsewhere. A page
+    // that fails the check is blanked, not treated as grounds to drop the
+    // whole competitor.
+    const verifiedSocialUrl = async (url) => (url && await urlIsReachable(url)) ? url : '';
+    const [facebookUrl, tiktokUrl, linkedinUrl] = await Promise.all([
+      verifiedSocialUrl(item.facebookUrl),
+      verifiedSocialUrl(item.tiktokUrl),
+      verifiedSocialUrl(item.linkedinUrl),
+    ]);
+    return hasActivityWindow ? { ...item, facebookUrl, tiktokUrl, linkedinUrl, recentActivities: activityChecks.filter(Boolean), lastKnownActivity } : { name: item.name, matchReason: item.matchReason, positioning: item.positioning, facebookUrl, tiktokUrl, linkedinUrl, sourceUrl: item.sourceUrl };
   })).filter(Boolean);
 
   return {

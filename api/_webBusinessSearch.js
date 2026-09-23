@@ -118,6 +118,18 @@ export async function isPublicHttpUrl(value) {
   }
 }
 
+// Node's fetch sends no User-Agent/Accept headers by default, which several
+// platforms (Facebook, TikTok, LinkedIn) treat as an automatic signal to
+// reject the request outright -- independent of whether the page is real.
+// A plain desktop-browser header set is enough to pass that first check for
+// an ordinary page-exists probe like this one, without requesting or reading
+// anything a normal visitor's browser wouldn't also receive.
+const REACHABILITY_CHECK_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9',
+};
+
 const fetchValidatedUrl = async (initialUrl, method, signal) => {
   let currentUrl;
   try {
@@ -127,7 +139,7 @@ const fetchValidatedUrl = async (initialUrl, method, signal) => {
   }
   for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
     if (!(await isPublicHttpUrl(currentUrl.href))) return null;
-    const response = await fetch(currentUrl, { method, redirect: 'manual', signal });
+    const response = await fetch(currentUrl, { method, redirect: 'manual', signal, headers: REACHABILITY_CHECK_HEADERS });
     if (response.status < 300 || response.status >= 400) return response;
     const location = response.headers?.get?.('location');
     if (!location || redirects === MAX_REDIRECTS) return null;

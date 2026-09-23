@@ -329,6 +329,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     recentActivityTitle: 'សកម្មភាពក្នុង ៧ ថ្ងៃចុងក្រោយ',
     recentActivityThroughToday: 'រហូតដល់ថ្ងៃនេះ',
     noRecentActivity: 'មិនមានសកម្មភាពសាធារណៈដែលបានផ្ទៀងផ្ទាត់ក្នុងរយៈពេល ៧ ថ្ងៃនេះទេ។',
+    noRecentActivityLastSeen: 'មិនមានសកម្មភាពក្នុង ៧ ថ្ងៃនេះទេ។ សកម្មភាពផ្សព្វផ្សាយជាសាធារណៈចុងក្រោយគេ៖',
     marketTrendsTitle: 'រលកទីផ្សារ និង Content ក្នុង ៧ ថ្ងៃចុងក្រោយ',
     noMarketTrends: 'មិនមាន trend ដែលមានកាលបរិច្ឆេទ និងប្រភពអាចផ្ទៀងផ្ទាត់បានក្នុងរយៈពេលនេះទេ។',
     trendEvidence: 'ភស្តុតាងសាធារណៈ',
@@ -445,6 +446,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     recentActivityTitle: 'Activity in the last 7 days',
     recentActivityThroughToday: 'through today',
     noRecentActivity: 'No verified public activity was found in this 7-day period.',
+    noRecentActivityLastSeen: 'No activity in the last 7 days. Last verified public activity:',
     marketTrendsTitle: 'Market and content waves in the last 7 days',
     noMarketTrends: 'No dated, source-verifiable trend was found in this period.',
     trendEvidence: 'Public evidence',
@@ -1189,6 +1191,16 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                                 </li>
                               ))}
                             </ul>
+                          ) : competitor.lastKnownActivity ? (
+                            <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">
+                              {text.noRecentActivityLastSeen}{' '}
+                              <span className={`mr-2 rounded-md px-2 py-1 text-xs font-black ${activityPlatformClass(activityPlatform(competitor.lastKnownActivity))}`}>{activityPlatform(competitor.lastKnownActivity)}</span>
+                              <span className="mr-2 rounded-md bg-indigo-100 px-2 py-1 text-xs font-bold text-indigo-700 dark:bg-indigo-900 dark:text-indigo-200">{competitor.lastKnownActivity.date}</span>
+                              {competitor.lastKnownActivity.activity}{' '}
+                              <a href={competitor.lastKnownActivity.sourceUrl} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center gap-1 font-bold text-blue-600 hover:underline">
+                                <ExternalLink size={12} />{text.viewEvidence}
+                              </a>
+                            </p>
                           ) : (
                             <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">{text.noRecentActivity}</p>
                           )}
