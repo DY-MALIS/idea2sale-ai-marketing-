@@ -742,3 +742,64 @@ it('keeps a format-valid Facebook profile link even when it fails a live HTTP ch
   expect(result.competitors[0].tiktokUrl).toBe('');
   expect(result.competitors[0].linkedinUrl).toBe('');
 });
+
+it('derives the Facebook Page link from a found post URL when discovery never returned one', async () => {
+  // Real-world case: the model found rich, real dated Facebook posts (with a
+  // Page-slug in each post URL) but left the separate "profiles" field empty,
+  // so facebookUrl stayed blank even though we clearly have evidence of a
+  // real, active Page.
+  mocks.webSearch
+    .mockResolvedValueOnce({ content: JSON.stringify({
+      competitors: [{
+        name: 'Rival Cafe',
+        isDirectCompetitor: true,
+        matchConfidence: 'high',
+        matchReason: 'Serves the same cafe customers in Phnom Penh',
+        positioning: '',
+        sourceUrl: 'https://rival-cafe.example.com',
+      }],
+    }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({
+      activities: [
+        { competitorName: 'Rival Cafe', date: '2026-09-20', activity: 'Posted a weekend offer', sourceUrl: 'https://www.facebook.com/rivalcafe.kh/posts/123' },
+        { competitorName: 'Rival Cafe', date: '2026-09-19', activity: 'Posted a reel', sourceUrl: 'https://www.facebook.com/reel/999/' },
+      ],
+    }) });
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+
+  const result = await researchCompetitors({
+    query: 'cafes Phnom Penh',
+    activityStartDate: '2026-09-12',
+    activityEndDate: '2026-09-23',
+  });
+
+  expect(result.competitors[0].facebookUrl).toBe('https://www.facebook.com/rivalcafe.kh');
+});
+
+it('never derives a Facebook Page link from a reel-only URL (no Page slug in the path)', async () => {
+  mocks.webSearch
+    .mockResolvedValueOnce({ content: JSON.stringify({
+      competitors: [{
+        name: 'Rival Cafe',
+        isDirectCompetitor: true,
+        matchConfidence: 'high',
+        matchReason: 'Serves the same cafe customers in Phnom Penh',
+        positioning: '',
+        sourceUrl: 'https://rival-cafe.example.com',
+      }],
+    }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({
+      activities: [
+        { competitorName: 'Rival Cafe', date: '2026-09-19', activity: 'Posted a reel', sourceUrl: 'https://www.facebook.com/reel/999/' },
+      ],
+    }) });
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+
+  const result = await researchCompetitors({
+    query: 'cafes Phnom Penh',
+    activityStartDate: '2026-09-12',
+    activityEndDate: '2026-09-23',
+  });
+
+  expect(result.competitors[0].facebookUrl).toBe('');
+});

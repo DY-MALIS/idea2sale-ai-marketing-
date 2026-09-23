@@ -68,6 +68,25 @@ const jsonFromText = (text) => {
 };
 
 const competitorKey = (value) => String(value || '').trim().toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+
+// A dated post/video's own URL commonly encodes its Page's slug
+// (facebook.com/<slug>/posts/... or /videos/...), but a reel URL
+// (facebook.com/reel/<id>/) does not -- the model's search grounding often
+// returns strong evidence for the former without a matching entry in
+// discovery's separate "profiles" field, leaving the Page-link button empty
+// even though we clearly know the business has a real, active Page. Recover
+// that link from post evidence rather than showing nothing.
+const FACEBOOK_PAGE_FROM_POST_URL = /^https:\/\/(?:www\.)?facebook\.com\/([^/?#]+)\/(?:posts|videos)\//i;
+const NON_PAGE_FACEBOOK_PATH_SEGMENTS = new Set(['reel', 'watch', 'photo.php', 'permalink.php', 'groups', 'events', 'profile.php', 'story.php']);
+const derivedFacebookPageUrl = (activities) => {
+  for (const activity of activities) {
+    const slug = String(activity?.sourceUrl || '').match(FACEBOOK_PAGE_FROM_POST_URL)?.[1];
+    if (!slug || NON_PAGE_FACEBOOK_PATH_SEGMENTS.has(slug.toLowerCase())) continue;
+    const candidateUrl = `https://www.facebook.com/${slug}`;
+    if (validFacebookUrl(candidateUrl)) return candidateUrl;
+  }
+  return '';
+};
 const ACTIVITY_CONTENT_TYPES = new Set(['Video', 'Reel', 'Post', 'Article', 'Event', 'Offer', 'Ad', 'Other']);
 
 const normalizeRecentActivities = (value, activityStartDate, activityEndDate) => {
@@ -486,7 +505,7 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
       verifiedSocialUrl(item.tiktokUrl),
       verifiedSocialUrl(item.linkedinUrl),
     ]);
-    const facebookUrl = item.facebookUrl || '';
+    const facebookUrl = item.facebookUrl || derivedFacebookPageUrl(activityChecks) || '';
     return hasActivityWindow ? { ...item, facebookUrl, tiktokUrl, linkedinUrl, recentActivities: activityChecks.filter(Boolean), lastKnownActivity } : { name: item.name, matchReason: item.matchReason, positioning: item.positioning, facebookUrl, tiktokUrl, linkedinUrl, sourceUrl: item.sourceUrl };
   })).filter(Boolean);
 
