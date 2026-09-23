@@ -347,9 +347,8 @@ const createScheduledTelegramPost = async (req, res) => {
     };
   } else {
     uploaded = await uploadMediaDataUrl({
-      userId: decoded.uid,
       mediaDataUrl,
-      mediaName,
+      fileName: mediaName,
       mediaType: requestedMediaType
     });
   }
