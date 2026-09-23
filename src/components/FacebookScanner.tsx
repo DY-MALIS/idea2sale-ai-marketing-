@@ -73,6 +73,12 @@ const activityPlatformClass = (platform: NonNullable<FacebookRecentActivity['pla
   Web: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-200',
 }[platform]);
 
+// Always render one row per platform, even when a competitor has zero
+// activity there -- a merged single-list view silently hides that a
+// platform was checked at all, which read as "the scan skipped TikTok"
+// even though the backend already searches all three for every competitor.
+const ACTIVITY_PLATFORM_ORDER: NonNullable<FacebookRecentActivity['platform']>[] = ['Facebook', 'TikTok', 'LinkedIn'];
+
 const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation }) => {
   const { language } = useLanguage();
   const { user, isDemoMode } = useAuth();
@@ -330,6 +336,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     recentActivityThroughToday: 'រហូតដល់ថ្ងៃនេះ',
     noRecentActivity: 'មិនមានសកម្មភាពសាធារណៈដែលបានផ្ទៀងផ្ទាត់ក្នុងរយៈពេល ៧ ថ្ងៃនេះទេ។',
     noRecentActivityLastSeen: 'មិនមានសកម្មភាពក្នុង ៧ ថ្ងៃនេះទេ។ សកម្មភាពផ្សព្វផ្សាយជាសាធារណៈចុងក្រោយគេ៖',
+    noRecentActivityForPlatform: 'មិនមានសកម្មភាពដែលបានផ្ទៀងផ្ទាត់នៅលើនេះក្នុងរយៈពេលនេះទេ។',
     marketTrendsTitle: 'រលកទីផ្សារ និង Content ក្នុង ៧ ថ្ងៃចុងក្រោយ',
     noMarketTrends: 'មិនមាន trend ដែលមានកាលបរិច្ឆេទ និងប្រភពអាចផ្ទៀងផ្ទាត់បានក្នុងរយៈពេលនេះទេ។',
     trendEvidence: 'ភស្តុតាងសាធារណៈ',
@@ -446,6 +453,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     recentActivityTitle: 'Activity in the last 7 days',
     recentActivityThroughToday: 'through today',
     noRecentActivity: 'No verified public activity was found in this 7-day period.',
+    noRecentActivityForPlatform: 'No verified activity found here in this period.',
     noRecentActivityLastSeen: 'No activity in the last 7 days. Last verified public activity:',
     marketTrendsTitle: 'Market and content waves in the last 7 days',
     noMarketTrends: 'No dated, source-verifiable trend was found in this period.',
@@ -1174,36 +1182,79 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                             {result.activityWindow?.startDate || ''}{result.activityWindow ? ' – ' : ''}{result.activityWindow?.endDate || text.recentActivityThroughToday}
                           </span>
                         </div>
-                        <dd>
-                          {competitor.recentActivities?.length ? (
-                            <ul className="mt-3 space-y-3">
-                              {competitor.recentActivities.map((activity, activityIndex) => (
-                                <li key={`${activity.date}-${activity.sourceUrl}-${activityIndex}`} className="text-sm leading-6 text-slate-700 dark:text-slate-200">
-                                  <span className={`mr-2 rounded-md px-2 py-1 text-xs font-black ${activityPlatformClass(activityPlatform(activity))}`}>{activityPlatform(activity)}</span>
-                                  <span className="mr-2 rounded-md bg-indigo-100 px-2 py-1 text-xs font-bold text-indigo-700 dark:bg-indigo-900 dark:text-indigo-200">{activity.date}</span>
-                                  {capturedActivitySummary?.hasPreviousCapture && capturedActivitySummary.newActivityKeys.has(competitorActivityKey(competitor.pageName, activity)) && (
-                                    <span className="mr-2 rounded-md bg-emerald-100 px-2 py-1 text-xs font-black uppercase text-emerald-700 dark:bg-emerald-900 dark:text-emerald-200">{text.newActivity}</span>
-                                  )}
-                                  {activity.activity}
-                                  <a href={activity.sourceUrl} target="_blank" rel="noopener noreferrer" className="ml-2 inline-flex items-center gap-1 font-bold text-blue-600 hover:underline">
-                                    <ExternalLink size={12} />{text.viewEvidence}
-                                  </a>
-                                </li>
-                              ))}
-                            </ul>
-                          ) : competitor.lastKnownActivity ? (
-                            <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">
-                              {text.noRecentActivityLastSeen}{' '}
-                              <span className={`mr-2 rounded-md px-2 py-1 text-xs font-black ${activityPlatformClass(activityPlatform(competitor.lastKnownActivity))}`}>{activityPlatform(competitor.lastKnownActivity)}</span>
-                              <span className="mr-2 rounded-md bg-indigo-100 px-2 py-1 text-xs font-bold text-indigo-700 dark:bg-indigo-900 dark:text-indigo-200">{competitor.lastKnownActivity.date}</span>
-                              {competitor.lastKnownActivity.activity}{' '}
-                              <a href={competitor.lastKnownActivity.sourceUrl} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center gap-1 font-bold text-blue-600 hover:underline">
-                                <ExternalLink size={12} />{text.viewEvidence}
-                              </a>
-                            </p>
-                          ) : (
-                            <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">{text.noRecentActivity}</p>
-                          )}
+                        <dd className="mt-3 space-y-4">
+                          {ACTIVITY_PLATFORM_ORDER.map((platform) => {
+                            const platformActivities = (competitor.recentActivities || []).filter((activity) => activityPlatform(activity) === platform);
+                            const platformLastKnown = !platformActivities.length && competitor.lastKnownActivity && activityPlatform(competitor.lastKnownActivity) === platform
+                              ? competitor.lastKnownActivity
+                              : null;
+                            return (
+                              <div key={platform}>
+                                <span className={`mr-2 rounded-md px-2 py-1 text-xs font-black ${activityPlatformClass(platform)}`}>{platform}</span>
+                                {platformActivities.length ? (
+                                  <ul className="mt-2 space-y-3">
+                                    {platformActivities.map((activity, activityIndex) => (
+                                      <li key={`${activity.date}-${activity.sourceUrl}-${activityIndex}`} className="text-sm leading-6 text-slate-700 dark:text-slate-200">
+                                        <span className="mr-2 rounded-md bg-indigo-100 px-2 py-1 text-xs font-bold text-indigo-700 dark:bg-indigo-900 dark:text-indigo-200">{activity.date}</span>
+                                        {capturedActivitySummary?.hasPreviousCapture && capturedActivitySummary.newActivityKeys.has(competitorActivityKey(competitor.pageName, activity)) && (
+                                          <span className="mr-2 rounded-md bg-emerald-100 px-2 py-1 text-xs font-black uppercase text-emerald-700 dark:bg-emerald-900 dark:text-emerald-200">{text.newActivity}</span>
+                                        )}
+                                        {activity.activity}
+                                        <a href={activity.sourceUrl} target="_blank" rel="noopener noreferrer" className="ml-2 inline-flex items-center gap-1 font-bold text-blue-600 hover:underline">
+                                          <ExternalLink size={12} />{text.viewEvidence}
+                                        </a>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                ) : platformLastKnown ? (
+                                  <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">
+                                    {text.noRecentActivityLastSeen}{' '}
+                                    <span className="mr-2 rounded-md bg-indigo-100 px-2 py-1 text-xs font-bold text-indigo-700 dark:bg-indigo-900 dark:text-indigo-200">{platformLastKnown.date}</span>
+                                    {platformLastKnown.activity}{' '}
+                                    <a href={platformLastKnown.sourceUrl} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center gap-1 font-bold text-blue-600 hover:underline">
+                                      <ExternalLink size={12} />{text.viewEvidence}
+                                    </a>
+                                  </p>
+                                ) : (
+                                  <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">{text.noRecentActivityForPlatform}</p>
+                                )}
+                              </div>
+                            );
+                          })}
+                          {(() => {
+                            const otherActivities = (competitor.recentActivities || []).filter((activity) => !ACTIVITY_PLATFORM_ORDER.includes(activityPlatform(activity)));
+                            const otherLastKnown = !otherActivities.length && competitor.lastKnownActivity && !ACTIVITY_PLATFORM_ORDER.includes(activityPlatform(competitor.lastKnownActivity))
+                              ? competitor.lastKnownActivity
+                              : null;
+                            if (!otherActivities.length && !otherLastKnown) return null;
+                            return (
+                              <div>
+                                <span className={`mr-2 rounded-md px-2 py-1 text-xs font-black ${activityPlatformClass('Web')}`}>Web</span>
+                                {otherActivities.length ? (
+                                  <ul className="mt-2 space-y-3">
+                                    {otherActivities.map((activity, activityIndex) => (
+                                      <li key={`${activity.date}-${activity.sourceUrl}-${activityIndex}`} className="text-sm leading-6 text-slate-700 dark:text-slate-200">
+                                        <span className="mr-2 rounded-md bg-indigo-100 px-2 py-1 text-xs font-bold text-indigo-700 dark:bg-indigo-900 dark:text-indigo-200">{activity.date}</span>
+                                        {activity.activity}
+                                        <a href={activity.sourceUrl} target="_blank" rel="noopener noreferrer" className="ml-2 inline-flex items-center gap-1 font-bold text-blue-600 hover:underline">
+                                          <ExternalLink size={12} />{text.viewEvidence}
+                                        </a>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                ) : otherLastKnown ? (
+                                  <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">
+                                    {text.noRecentActivityLastSeen}{' '}
+                                    <span className="mr-2 rounded-md bg-indigo-100 px-2 py-1 text-xs font-bold text-indigo-700 dark:bg-indigo-900 dark:text-indigo-200">{otherLastKnown.date}</span>
+                                    {otherLastKnown.activity}{' '}
+                                    <a href={otherLastKnown.sourceUrl} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center gap-1 font-bold text-blue-600 hover:underline">
+                                      <ExternalLink size={12} />{text.viewEvidence}
+                                    </a>
+                                  </p>
+                                ) : null}
+                              </div>
+                            );
+                          })()}
                         </dd>
                       </div>
                       {!competitor.recentActivities?.length && !!competitor.publicActivitySignals?.length && <div><dt className="font-bold text-slate-400">{text.publicActivity}</dt><dd className="mt-1 text-slate-700 dark:text-slate-200">{competitor.publicActivitySignals.join(' • ')}</dd></div>}
