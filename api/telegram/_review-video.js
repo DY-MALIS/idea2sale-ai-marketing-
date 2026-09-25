@@ -15,6 +15,14 @@ export default async function reviewVideoHandler(req, res) {
     return res.status(400).json({ error: 'Invalid video review request.' });
   }
   try {
+    if (action === 'approve') {
+      const profile = (await db.collection('business_profiles').doc(user.uid).get()).data() || {};
+      const hasDestination = Boolean(
+        ((profile.telegramBotToken || '').trim() && (profile.telegramChatId || '').trim())
+        || ((process.env.TELEGRAM_BOT_TOKEN || '').trim() && (process.env.TELEGRAM_CHAT_ID || '').trim())
+      );
+      if (!hasDestination) return res.status(409).json({ error: 'Connect a Telegram chat in Business Profile before sending this video.' });
+    }
     await db.runTransaction(async transaction => {
       const ref = db.collection('content_plan_items').doc(itemId);
       const snap = await transaction.get(ref);
@@ -37,7 +45,7 @@ export default async function reviewVideoHandler(req, res) {
       const verificationAllowsManualReview = item.speechVerification?.passed === true
         || item.speechVerification?.unavailable === true
         || legacyExtractionReview;
-      if ((item.status !== 'REVIEW' && !legacyExtractionReview) || item.type !== 'video' || !verificationAllowsManualReview || !mediaUrl || mediaUrl !== item.resultMediaUrl) {
+      if (!(['REVIEW', 'READY'].includes(item.status) || legacyExtractionReview) || item.type !== 'video' || !verificationAllowsManualReview || !mediaUrl || mediaUrl !== item.resultMediaUrl) {
         throw new Error('This video is not ready for approval. Refresh and review the current video.');
       }
       const post = db.collection('scheduled_posts').doc(`review-${itemId}`);

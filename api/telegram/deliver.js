@@ -143,7 +143,12 @@ export const processContentPlanVideo = async (db, itemId, req) => {
     }
     const { token, chatId } = await resolveTelegramDestination(db, item.userId);
     if (!token || !chatId) {
-      throw new Error('No Telegram bot/channel is connected to deliver this to. Connect one in Business Profile.');
+      await ref.update({
+        status: 'READY',
+        errorMessage: 'Video ready. Connect a Telegram chat in Business Profile to send it.',
+        deliveryClaimedAt: null,
+      });
+      return { ok: true, videoReady: true, deliveryPending: 'telegram_chat_not_connected' };
     }
 
     const caption = formatTelegramHtml(truncateForTelegram(item.topic || '', TELEGRAM_CAPTION_LIMIT));

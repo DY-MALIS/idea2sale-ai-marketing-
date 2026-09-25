@@ -54,7 +54,7 @@ interface SavedPlanItem {
   scheduledDate: string;
   type: 'image' | 'video';
   topic: string;
-  status: 'PENDING' | 'PROCESSING' | 'DONE' | 'FAILED' | 'REVIEW';
+  status: 'PENDING' | 'PROCESSING' | 'DONE' | 'FAILED' | 'REVIEW' | 'READY';
   errorMessage?: string;
   resultMediaUrl?: string;
   speechVerification?: { passed: boolean; similarity?: number; transcript?: string; expected?: string; unavailable?: boolean };
@@ -1265,6 +1265,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                           PROCESSING: 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300',
                           DONE: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
                           REVIEW: 'bg-amber-100 text-amber-800',
+                          READY: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
                           FAILED: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',
                         };
                         const statusLabel: Record<SavedPlanItem['status'], string> = {
@@ -1272,6 +1273,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                           PROCESSING: language === 'km' ? 'កំពុងបង្កើត' : 'Generating',
                           DONE: language === 'km' ? 'រួចរាល់' : 'Done',
                           REVIEW: language === 'km' ? 'រង់ចាំពិនិត្យ' : 'Needs review',
+                          READY: language === 'km' ? 'វីដេអូរួចរាល់' : 'Video ready',
                           FAILED: language === 'km' ? 'បរាជ័យ' : 'Failed',
                         };
                         return (
@@ -1290,10 +1292,10 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                                 </span>
                               </div>
                               <p className="mt-1 truncate text-sm font-bold text-brand-700 dark:text-brand-300">{item.topic}</p>
-                              {item.status === 'FAILED' && item.errorMessage && (
-                                <p className="mt-1 break-words text-xs text-rose-500">{item.errorMessage}</p>
+                              {['FAILED', 'READY'].includes(item.status) && item.errorMessage && (
+                                <p className={`mt-1 break-words text-xs ${item.status === 'READY' ? 'text-amber-700 dark:text-amber-300' : 'text-rose-500'}`}>{item.errorMessage}</p>
                               )}
-                              {['FAILED', 'REVIEW'].includes(item.status) && item.resultMediaUrl && (
+                              {['FAILED', 'REVIEW', 'READY'].includes(item.status) && item.resultMediaUrl && (
                                 <div className="mt-2 space-y-1">
                                   {item.type === 'video' ? (
                                     <video src={item.resultMediaUrl} controls className="w-full max-w-xs rounded-lg" />
@@ -1307,7 +1309,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                                   </a>
                                 </div>
                               )}
-                              {['FAILED', 'REVIEW'].includes(item.status) && item.speechVerification && (
+                              {['FAILED', 'REVIEW', 'READY'].includes(item.status) && item.speechVerification && (
                                 <div className="mt-1 space-y-0.5 text-[10px] text-slate-500 dark:text-slate-400">
                                   {item.speechVerification.unavailable && (
                                     <p className="font-bold text-amber-600 dark:text-amber-300">
@@ -1332,9 +1334,11 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                                     : 'The video was retained, but audio verification did not finish. Watch and listen before approving.'}
                                 </p>
                               )}
-                              {(item.status === 'REVIEW' || isLegacyAudioReview) && (
+                              {(item.status === 'REVIEW' || item.status === 'READY' || isLegacyAudioReview) && (
                                 <button type="button" onClick={() => handleReviewPlanItem(item.id, 'approve', item.resultMediaUrl)} className="mt-2 rounded-lg bg-brand-600 p-2 text-xs text-white">
-                                  {language === 'km' ? 'បានមើល និងស្តាប់៖ ពាក្យ ល្បឿន មាត់ និងកាយវិការត្រឹមត្រូវ — ដាក់ក្នុងជួរបញ្ជូន Telegram' : 'Reviewed pronunciation, pace, lips and gestures — queue for Telegram'}
+                                  {item.status === 'READY'
+                                    ? (language === 'km' ? 'បញ្ជូនវីដេអូទៅ Telegram' : 'Send video to Telegram')
+                                    : (language === 'km' ? 'បានមើល និងស្តាប់៖ ពាក្យ ល្បឿន មាត់ និងកាយវិការត្រឹមត្រូវ — ដាក់ក្នុងជួរបញ្ជូន Telegram' : 'Reviewed pronunciation, pace, lips and gestures — queue for Telegram')}
                                 </button>
                               )}
                               {['FAILED', 'REVIEW'].includes(item.status) && (

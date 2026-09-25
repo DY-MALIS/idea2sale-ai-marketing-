@@ -67,6 +67,21 @@ describe('QStash raw request body', () => {
 });
 
 describe('processContentPlanVideo', () => {
+  it('retains a verified video as ready when no Telegram chat is connected', async () => {
+    mockPollOpenRouterVideo.mockResolvedValue({ videoUrl: 'raw' });
+    mockUploadMediaDataUrl.mockResolvedValue({ mediaUrl: 'uploaded' });
+    mockResolveTelegramDestination.mockResolvedValue({ token: 'token', chatId: '' });
+    global.fetch = vi.fn();
+    const updates = [];
+    const result = await processContentPlanVideo(fakeDb({
+      status: 'PROCESSING', videoJobId: 'job', voiceOverMode: 'edge-seedance',
+      prompt: 'Presenter', voiceOverText: 'សួស្តី',
+      narrationAudio: { filePath: '/voice.mp3', mediaUrl: 'original-audio', duration: 5 },
+    }, patch => updates.push(patch)), 'item', {});
+    expect(result).toMatchObject({ ok: true, videoReady: true });
+    expect(updates).toContainEqual(expect.objectContaining({ status: 'READY', deliveryClaimedAt: null }));
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
   it('never sends the generated voice if narration assembly fails', async () => {
     mockPollOpenRouterVideo.mockResolvedValue({ videoUrl: 'raw' });
     mockUploadMediaDataUrl.mockResolvedValue({ mediaUrl: 'uploaded' });
@@ -258,7 +273,7 @@ describe('processContentPlanVideo', () => {
     expect(updates.at(-1)).toMatchObject({ status: 'DONE', resultMediaUrl: 'https://ik.imagekit.io/demo/telegram-media/foo.mp4' });
   });
 
-  it('fails the item if no Telegram destination is connected', async () => {
+  it('keeps the finished item ready if no Telegram destination is connected', async () => {
     mockPollOpenRouterVideo.mockResolvedValue({ videoUrl: 'data:video/mp4;base64,AAAA' });
     mockUploadMediaDataUrl.mockResolvedValue({ mediaUrl: 'https://ik.imagekit.io/demo/telegram-media/foo.mp4' });
     mockResolveTelegramDestination.mockResolvedValue({ token: '', chatId: '' });
@@ -267,7 +282,7 @@ describe('processContentPlanVideo', () => {
 
     const result = await processContentPlanVideo(db, 'item-1', {});
 
-    expect(result.ok).toBe(false);
-    expect(updates.at(-1).status).toBe('FAILED');
+    expect(result).toMatchObject({ ok: true, videoReady: true });
+    expect(updates.at(-1).status).toBe('READY');
   });
 });
