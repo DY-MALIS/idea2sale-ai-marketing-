@@ -10,7 +10,9 @@ import {
   Settings2,
   X,
   Share2,
-  Send
+  Send,
+  Video,
+  BadgeCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { collection, query, where, orderBy, limit, onSnapshot, Timestamp } from 'firebase/firestore';
@@ -46,6 +48,35 @@ const TikTokAnalytics: React.FC = () => {
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [statsError, setStatsError] = useState<string | null>(null);
   const [statsErrorCode, setStatsErrorCode] = useState<string | null>(null);
+  const [videos, setVideos] = useState<any[]>([]);
+  const [videosLoading, setVideosLoading] = useState(true);
+  const [videosMessage, setVideosMessage] = useState<string | null>(null);
+
+  const fetchVideos = async () => {
+    setVideosLoading(true);
+    const videosController = new AbortController();
+    const videosTimeoutId = window.setTimeout(() => videosController.abort(), 15000);
+    try {
+      if (!user) throw new Error('Sign in to view TikTok videos.');
+      const idToken = await user.getIdToken();
+      const response = await fetch('/api/tiktok/stats?action=videos', {
+        credentials: 'include',
+        signal: videosController.signal,
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || `Server returned ${response.status}`);
+      setVideos(data.videos || []);
+      setVideosMessage(data.canReadVideos ? null : data.message || null);
+    } catch (err: any) {
+      console.error('Fetch TikTok videos error:', err);
+      setVideos([]);
+      setVideosMessage(err.message || 'Unable to load TikTok videos.');
+    } finally {
+      window.clearTimeout(videosTimeoutId);
+      setVideosLoading(false);
+    }
+  };
 
   const fetchPublicStats = async () => {
     setSyncing(true);
@@ -139,13 +170,15 @@ const TikTokAnalytics: React.FC = () => {
 
   useEffect(() => {
     fetchPublicStats();
-    
+    fetchVideos();
+
     // Auto-refresh stats every 1 minute
     const intervalId = setInterval(fetchPublicStats, 60000);
 
     const handleAuthSuccess = (event: MessageEvent) => {
       if (event.data?.type === 'TIKTOK_AUTH_SUCCESS') {
         fetchPublicStats();
+        fetchVideos();
       }
     };
     window.addEventListener('message', handleAuthSuccess);
@@ -293,15 +326,23 @@ const TikTokAnalytics: React.FC = () => {
                 )}
               </AnimatePresence>
             </div>
-            <a 
-              href={`https://www.tiktok.com/@${handle}`} 
-              target="_blank" 
+            <a
+              href={publicStats?.profileDeepLink || `https://www.tiktok.com/@${handle}`}
+              target="_blank"
               rel="no-referrer"
               className="text-xs text-brand-400 hover:text-brand-600 underline font-medium"
             >
               {t('viewOnTikTok')}
             </a>
+            {publicStats?.isVerified && (
+              <span className="flex items-center gap-1 text-xs font-bold text-sky-500" title="TikTok verified account">
+                <BadgeCheck size={14} />
+              </span>
+            )}
           </div>
+          {publicStats?.bio && (
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 max-w-md line-clamp-2">{publicStats.bio}</p>
+          )}
         </div>
         <div className="flex items-center gap-4">
           <div className="text-right hidden md:block">
@@ -448,6 +489,46 @@ const TikTokAnalytics: React.FC = () => {
             </div>
           ))}
         </div>
+      </div>
+
+      <div className="glass p-8 rounded-[2.5rem] border border-white/50 shadow-sm">
+        <h3 className="text-xl font-bold text-brand-700 dark:text-brand-400 mb-6 flex items-center gap-2">
+          <Video className="text-brand-500" size={24} />
+          {t('recentTikTokVideos')}
+        </h3>
+
+        {videosLoading ? (
+          <div className="flex justify-center p-10"><RefreshCw className="animate-spin text-brand-300" /></div>
+        ) : videos.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-2 p-10 text-slate-400">
+            <AlertCircle size={24} className="text-slate-300 dark:text-slate-500" />
+            {videosMessage || t('noVideosFound')}
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+            {videos.map((video) => (
+              <a
+                key={video.id}
+                href={video.shareUrl || undefined}
+                target="_blank"
+                rel="no-referrer"
+                className="block rounded-2xl overflow-hidden border border-brand-100 dark:border-slate-700 bg-brand-50/50 dark:bg-slate-800/50 group"
+              >
+                <div className="aspect-[9/16] bg-black/5 dark:bg-black/30 overflow-hidden">
+                  {video.coverImageUrl && (
+                    <img src={video.coverImageUrl} alt={video.title || 'TikTok video'} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                  )}
+                </div>
+                <div className="p-3">
+                  <p className="text-xs text-brand-700 dark:text-brand-400 font-medium line-clamp-2">{video.title || 'Untitled video'}</p>
+                  {typeof video.viewCount === 'number' && (
+                    <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-1"><Eye size={10} /> {video.viewCount.toLocaleString()}</p>
+                  )}
+                </div>
+              </a>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="glass p-8 rounded-[2.5rem] border border-white/50 shadow-sm">

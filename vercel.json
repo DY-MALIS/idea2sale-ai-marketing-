@@ -21,6 +21,10 @@
       "destination": "/api/config/check?action=health"
     },
     {
+      "source": "/api/tiktok/webhook",
+      "destination": "/api/tiktok/publish?action=webhook"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

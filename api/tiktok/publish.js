@@ -1,7 +1,8 @@
+import crypto from 'crypto';
 import { Receiver } from '@upstash/qstash';
 import admin, { initFirebaseAdmin } from '../_firebaseAdmin.js';
 import { logAudit } from '../_audit.js';
-import { getCookie, getAutomationAccessToken, recordTikTokPostSync, scheduleTikTokQStashDelivery } from '../_tiktok.js';
+import { getCookie, getAutomationAccessToken, recordTikTokPostSync, scheduleTikTokQStashDelivery, markAutomationTokenRevoked } from '../_tiktok.js';
 import { claimPendingPost, findRecentDuplicateTikTokPost } from '../_telegramClaim.js';
 import { notifyAdmins } from '../_alert.js';
 
@@ -515,6 +516,90 @@ async function handleDeliverAction(req, res) {
   }
 }
 
+// Human-readable mapping for authorization.removed's numeric `reason` code --
+// see https://developers.tiktok.com/doc/webhooks-events.
+const WEBHOOK_REVOKE_REASONS = {
+  0: 'an unknown reason',
+  1: 'the user disconnecting the app',
+  2: 'the account being deleted',
+  3: 'the account holder\'s age changing',
+  4: 'the account being banned',
+  5: 'the developer revoking access',
+};
+
+// TikTok's Webhooks product (see vercel.json's rewrite of /api/tiktok/webhook
+// to here -- a dedicated api/tiktok/webhook.js file would be the deployment's
+// 13th serverless function, which the Hobby plan rejects outright, the same
+// constraint that put ?action=deliver here instead of its own file). Reacts to
+// authorization.removed so a disconnected/banned/revoked automation account is
+// caught the instant TikTok tells us, instead of only surfacing as a string of
+// failed scheduled posts once someone notices.
+async function handleWebhookAction(req, res) {
+  const rawBody = await getRawBody(req);
+
+  const clientSecret = (process.env.TIKTOK_CLIENT_SECRET || process.env.VITE_TIKTOK_CLIENT_SECRET || '').trim();
+  if (!clientSecret) {
+    console.error('TIKTOK_CLIENT_SECRET is not configured; refusing an unverifiable TikTok webhook.');
+    return res.status(500).json({ error: 'TIKTOK_CLIENT_SECRET is not configured.' });
+  }
+
+  // Header shape per TikTok's docs: "t=<unix_seconds>,s=<hex hmac-sha256>".
+  const signatureHeader = String(req.headers['tiktok-signature'] || '');
+  const parts = Object.fromEntries(
+    signatureHeader.split(',').map((pair) => pair.split('=').map((v) => v.trim()))
+  );
+  const timestamp = parts.t;
+  const signature = parts.s;
+  if (!timestamp || !signature) {
+    return res.status(401).json({ error: 'Missing or malformed Tiktok-Signature header.' });
+  }
+
+  // Rejects both stale retries and a captured signature being replayed later.
+  const WEBHOOK_MAX_AGE_MS = 5 * 60 * 1000;
+  if (!Number.isFinite(Number(timestamp)) || Math.abs(Date.now() - Number(timestamp) * 1000) > WEBHOOK_MAX_AGE_MS) {
+    return res.status(401).json({ error: 'Stale webhook signature.' });
+  }
+
+  const expected = crypto.createHmac('sha256', clientSecret).update(`${timestamp}.${rawBody}`).digest('hex');
+  const signatureBuffer = Buffer.from(signature, 'hex');
+  const expectedBuffer = Buffer.from(expected, 'hex');
+  const isValid = signatureBuffer.length === expectedBuffer.length && crypto.timingSafeEqual(signatureBuffer, expectedBuffer);
+  if (!isValid) {
+    return res.status(401).json({ error: 'Invalid webhook signature.' });
+  }
+
+  let payload;
+  try {
+    payload = rawBody ? JSON.parse(rawBody) : {};
+  } catch {
+    return res.status(400).json({ error: 'Invalid JSON payload.' });
+  }
+
+  // TikTok requires an immediate 200 to acknowledge receipt and retries on
+  // anything else -- do the (fast, non-blocking) work first, but never let a
+  // downstream hiccup (Firestore, the alert) turn into a TikTok retry storm.
+  try {
+    if (payload?.event === 'authorization.removed') {
+      let reasonCode;
+      try {
+        reasonCode = JSON.parse(payload?.content || '{}')?.reason;
+      } catch {
+        reasonCode = undefined;
+      }
+      const reasonLabel = WEBHOOK_REVOKE_REASONS[reasonCode] || `reason code ${reasonCode}`;
+      const db = initFirebaseAdmin();
+      const revoked = await markAutomationTokenRevoked(db, { openId: payload?.user_openid, reason: reasonLabel });
+      if (revoked) {
+        await notifyAdmins(`TikTok disconnected the automation account (${reasonLabel}). Scheduled TikTok posts are paused until someone reconnects TikTok.`);
+      }
+    }
+  } catch (error) {
+    console.error('TikTok webhook processing failed:', error?.message || error);
+  }
+
+  return res.status(200).json({ ok: true });
+}
+
 export default async function handler(req, res) {
   if (req.query?.action === 'cron') {
     return runTikTokCron(req, res);
@@ -522,6 +607,10 @@ export default async function handler(req, res) {
 
   if (req.query?.action === 'deliver') {
     return handleDeliverAction(req, res);
+  }
+
+  if (req.query?.action === 'webhook') {
+    return handleWebhookAction(req, res);
   }
 
   if (req.query?.action === 'scheduleQstash') {

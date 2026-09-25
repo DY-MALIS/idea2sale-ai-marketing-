@@ -279,8 +279,13 @@ const scheduleQStashDelivery = async (req, postId, scheduledDate) => {
     });
   } catch (error) {
     // Falls back to the periodic cron/GitHub Action poller, so a QStash
-    // hiccup should never block scheduling the post itself.
-    console.error('QStash scheduling failed:', error?.message || error);
+    // hiccup should never block scheduling the post itself -- but that poller
+    // has been observed lagging its configured 10-minute schedule by two hours
+    // or more, so an admin needs to know right away rather than discover it
+    // from a late post.
+    const message = error?.message || String(error);
+    console.error('QStash scheduling failed:', message);
+    await notifyAdmins(`Telegram QStash scheduling failed for post ${postId}, falling back to the periodic poller (can lag hours): ${message}`);
   }
 };
 

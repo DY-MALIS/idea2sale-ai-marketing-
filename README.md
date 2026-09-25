@@ -71,9 +71,10 @@ npm run dev
 
 1. Create a TikTok developer app and add the Content Posting API product.
 2. Set `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`, `TIKTOK_REDIRECT_URI`.
-3. Set `TIKTOK_SCOPES` to include `video.upload` and `video.publish` — the default `user.info.basic` alone only
-   allows read-only profile lookups, not publishing. Anyone who connected TikTok before this scope was added must
-   reconnect for the new permission to apply.
+3. Set `TIKTOK_SCOPES` to include `video.upload`, `video.publish`, `user.info.profile`, and `video.list` — the
+   default `user.info.basic` alone only allows read-only basic profile lookups, not publishing, a bio/verified
+   badge, or reading the connected account's own video list. Anyone who connected TikTok before a scope was added
+   must reconnect for the new permission to apply.
 4. Leave `TIKTOK_POST_MODE=inbox` (default) until your TikTok app has been audited by TikTok — unaudited apps are
    restricted to private viewing regardless, and `direct` mode requires a `privacy_level` that matches what
    `/creator_info/query/` returns for the connected account.
@@ -84,6 +85,12 @@ npm run dev
    that first connect happens, scheduled TikTok posts stay `PENDING` (not `FAILED`) and publish automatically as
    soon as someone connects. The cron runs via `vercel.json` (once daily) and the GitHub Action fallback poller
    (`telegram-scheduler.yml`, every 10 minutes) — same `CRON_SECRET` as the Telegram poller.
+6. **Webhooks**: in the Content Posting API product's Webhooks section, set the callback URL to
+   `https://<your-domain>/api/tiktok/webhook` (a `vercel.json` rewrite maps this to
+   `api/tiktok/publish.js?action=webhook` — a dedicated file would be the deployment's 13th serverless function,
+   which the Hobby plan rejects). Subscribe to `authorization.removed`: the app verifies the `Tiktok-Signature`
+   header with `TIKTOK_CLIENT_SECRET` and, on that event, marks the stored automation token revoked and alerts
+   admins immediately instead of only discovering the disconnect from a string of failed scheduled posts.
 
 ## ImageKit Setup
 

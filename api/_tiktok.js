@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { FieldValue } from 'firebase-admin/firestore';
 import { Client as QStashClient } from '@upstash/qstash';
+import { notifyAdmins } from './_alert.js';
 
 const OAUTH_STATE_COOKIE = 'tiktok_oauth_state';
 const AUTOMATION_TOKEN_COLLECTION = 'tiktok_automation_tokens';
@@ -111,7 +112,37 @@ export async function saveAutomationTokens(db, { accessToken, refreshToken, expi
     openId: openId || null,
     refreshingAt: null,
     updatedAt: FieldValue.serverTimestamp(),
+    // A fresh connect always supersedes any earlier revocation -- without
+    // resetting these, a reconnect after a disconnect/re-authorize would leave
+    // getAutomationAccessToken treating the brand-new, valid token as revoked
+    // forever (the `set(..., {merge:true})` above only touches listed fields).
+    revoked: false,
+    revokedAt: null,
+    revokedReason: null,
   }, { merge: true });
+}
+
+// TikTok's authorization.removed webhook (see handleWebhookAction in
+// api/tiktok/publish.js) fires the instant the automation connection is cut --
+// disconnected, banned, age-gated, or revoked by the developer -- so the app
+// can stop silently retrying a dead token and alert immediately instead of
+// only discovering the outage from a string of failed scheduled posts.
+export async function markAutomationTokenRevoked(db, { openId, reason }) {
+  const ref = db.collection(AUTOMATION_TOKEN_COLLECTION).doc(AUTOMATION_TOKEN_DOC);
+  const snap = await ref.get();
+  if (!snap.exists) return false;
+  // Guards against a webhook for a *different* openId clearing this one --
+  // there's only ever one automation connection today, but a stored openId
+  // should still be honored if present rather than trusted blindly.
+  const storedOpenId = snap.data()?.openId;
+  if (storedOpenId && openId && storedOpenId !== openId) return false;
+
+  await ref.update({
+    revoked: true,
+    revokedAt: FieldValue.serverTimestamp(),
+    revokedReason: reason || 'unknown reason',
+  });
+  return true;
 }
 
 // Returns a valid access token for the shared automation connection, refreshing
@@ -124,6 +155,11 @@ export async function getAutomationAccessToken(db) {
   if (!snap.exists) return null;
 
   const data = snap.data();
+  // TikTok told us (via webhook) this connection is dead -- surface it the
+  // same way as "never connected" rather than trying to refresh a token TikTok
+  // will just reject, so the cron/QStash callers' existing not-connected
+  // handling (leave PENDING, alert after an hour) takes over automatically.
+  if (data.revoked) return null;
   const REFRESH_MARGIN_MS = 5 * 60 * 1000;
   if (data.accessToken && data.expiresAt && data.expiresAt - Date.now() > REFRESH_MARGIN_MS) {
     return data.accessToken;
@@ -237,6 +273,12 @@ export async function scheduleTikTokQStashDelivery(req, postId, scheduledDate) {
       notBefore: Math.floor(scheduledDate.getTime() / 1000),
     });
   } catch (error) {
-    console.error('QStash TikTok scheduling failed:', error?.message || error);
+    const message = error?.message || String(error);
+    console.error('QStash TikTok scheduling failed:', message);
+    // Without this, the failure is invisible and the post silently drops to the
+    // GitHub Action fallback poller, which has been observed lagging its
+    // configured 10-minute schedule by two hours or more (see the comment
+    // above) -- an admin needs to know right away, not discover it from a late post.
+    await notifyAdmins(`TikTok QStash scheduling failed for post ${postId}, falling back to the periodic poller (can lag hours): ${message}`);
   }
 }
