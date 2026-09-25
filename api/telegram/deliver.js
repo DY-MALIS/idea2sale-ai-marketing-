@@ -18,6 +18,7 @@ import { createKhmerNarration, generateKhmerSpeech } from '../_khmerNarration.js
 import { verifyUploadedVideoSpeech } from '../_videoSpeech.js';
 import { applyImageKitMuteTransform } from '../_imagekitUpload.js';
 import { wantsSilentVideo } from '../../shared/videoSpeech.js';
+import { replaceVideoNarration } from '../_videoNarrationMux.js';
 
 // A stuck/broken video job should not poll forever: 40 attempts at the
 // default ~20s spacing is roughly 13 minutes, comfortably past how long a
@@ -79,7 +80,7 @@ export const processContentPlanVideo = async (db, itemId, req) => {
       }
     }
 
-    const uploaded = await uploadMediaDataUrl({ mediaDataUrl: result.videoUrl, mediaType: 'video' });
+    let uploaded = await uploadMediaDataUrl({ mediaDataUrl: result.videoUrl, mediaType: 'video' });
     if (item.voiceOverMode === 'silent' || item.voiceOverWanted === false || wantsSilentVideo(item.prompt || '')) {
       uploaded.mediaUrl = applyImageKitMuteTransform(uploaded.mediaUrl);
     }
@@ -104,13 +105,14 @@ export const processContentPlanVideo = async (db, itemId, req) => {
       }
       if (!Number.isFinite(narration.duration) || narration.duration <= 0) throw new Error('Could not verify Khmer narration duration.');
       if (narration.duration > duration) throw new Error(`Khmer narration exceeds ${duration} seconds. Shorten the dialogue and retry.`);
-      // New presenter jobs are generated from this exact reference track, so
-      // the returned video already contains the synchronized narration. Unlike
-      // ImageKit does not replace a video's audio track via URL;
-      // retaining the generated track avoids a second lossy transcode.
+      // Audio references guide the lips but do not guarantee the output voice.
+      // Replace the track explicitly before verification and delivery.
       if (item.voiceOverMode !== 'edge-seedance') {
         throw new Error('This legacy narrated video must be regenerated with ImageKit-backed reference audio.');
       }
+      if (!narration.mediaUrl) throw new Error('Missing original Khmer narration URL. Regenerate this video.');
+      const assembledVideo = await replaceVideoNarration(uploaded.mediaUrl, narration.mediaUrl);
+      uploaded = await uploadMediaDataUrl({ mediaDataUrl: assembledVideo, mediaType: 'video' });
     }
     // Scheduled videos do not pass through the browser-side ffmpeg watermark.
     // Apply the same saved logo here through ImageKit so every delivery path

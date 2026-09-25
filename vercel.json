@@ -3,6 +3,10 @@
   "functions": {
     "api/ai.js": {
       "maxDuration": 300
+    },
+    "api/telegram/deliver.js": {
+      "maxDuration": 300,
+      "includeFiles": "node_modules/ffmpeg-static/ffmpeg"
     }
   },
   "crons": [

@@ -254,6 +254,7 @@ const startPlanVideoJob = (item, speech) => {
   const duration = [4, 6, 8].includes(requestedDuration) ? requestedDuration : 8;
   return startKhmerVideoJob(item, speech, uploadMediaDataUrl, {
     duration,
+    generateAudio: false,
     aspectRatio: item.aspectRatio || '9:16',
   });
 };

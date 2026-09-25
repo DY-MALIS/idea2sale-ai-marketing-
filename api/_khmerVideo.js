@@ -10,6 +10,9 @@ import { getOriginalImageKitUrl } from '../shared/imageKitUrl.js';
 
 const MIN_KHMER_CLIP_DURATION = 4;
 const MAX_KHMER_CLIP_DURATION = 8;
+// Generated lettering is not a reliable way to render Khmer. This path is
+// shared by scheduled and interactive clips and bypasses ai.js's visual prompt.
+const visualPrompt = (prompt = '') => `${prompt}\nVISUAL TEXT RULE: Do not generate readable text, invented letters, subtitles or captions anywhere. Show computer and phone screens as clean icon-based interfaces, charts and colored blocks without text; show documents, labels and signs as blank surfaces. Never paint the spoken transcript into the scene. Preserve an existing supplied logo without inventing or changing its lettering. Exact text must be added separately with a real font renderer.`;
 
 export const fitKhmerClipDurationToNarration = (narrationDuration, requestedDuration) => {
   const requested = [4, 6, 8].includes(Number(requestedDuration)) ? Number(requestedDuration) : 8;
@@ -36,7 +39,7 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
     model: hasKhmerSpeech ? KHMER_VIDEO_MODEL : STANDARD_VIDEO_MODEL,
   });
   if (speech.mode === 'silent') {
-    return { job: await startOpenRouterVideo({ prompt: speech.prompt, duration, aspectRatio }), avatarImage: null };
+    return { job: await startOpenRouterVideo({ prompt: visualPrompt(speech.prompt), duration, aspectRatio }), avatarImage: null };
   }
   const speechOptions = {
     input: speech.script,
@@ -77,7 +80,7 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
   assertVideoGenerationWithinBudget({ duration: fittedDuration, khmerSpeech: true, model: KHMER_VIDEO_MODEL });
   const image = images.length
     ? { imageUrl: `data:${images[0].mimeType};base64,${images[0].base64}` }
-    : await generateOpenRouterImage({ prompt: speech.avatarPrompt, aspectRatio, model: BUDGET_AVATAR_IMAGE_MODEL });
+    : await generateOpenRouterImage({ prompt: visualPrompt(speech.avatarPrompt), aspectRatio, model: BUDGET_AVATAR_IMAGE_MODEL });
   const avatarImage = await uploadMediaDataUrl({ mediaDataUrl: image.imageUrl, mediaType: 'photo' });
   const avatarReferenceUrl = getOriginalImageKitUrl(avatarImage.mediaUrl, process.env.IMAGEKIT_URL_ENDPOINT || '');
   const exactKhmerTranscript = String(narrationAudio.spokenText || speech.script || '').trim();
@@ -86,7 +89,7 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
     // Khmer presenter video (including avatar + narration reserve) under $0.80.
     model: KHMER_VIDEO_MODEL,
     khmerSpeech: true,
-    prompt: `${speech.prompt}\n${speech.motionPrompt}\nLANGUAGE LOCK: The English wording in these production directions describes visuals only. Never infer, invent, speak, or visibly articulate any English word. The only speech and mouth movement is Cambodian Khmer from the supplied audio waveform. KHMER PHONEME TRANSCRIPT (exact, never translate or paraphrase): ${JSON.stringify(exactKhmerTranscript)}. AUDIO MASTER CLOCK: ${narrationAudio.duration.toFixed(2)} seconds inside a ${fittedDuration}-second clip. The supplied waveform is authoritative: start the matching visible mouth shape on every Khmer phoneme and stop precisely on the last phoneme. Speech, lips, jaw, tongue and cheeks remain synchronized frame by frame at natural 1x. Do not use generic talking-mouth animation. Keep the lips closed before the first phoneme and after the final phoneme. Keep the head mostly forward and stable. Body and hand reactions use crisp fast-natural 1.1x energy without motion blur. Complete each gesture in 0.35 to 0.55 seconds. After speech, continue one compact task action without pausing. Never freeze, stretch, ease or slow any movement.`,
+    prompt: `${visualPrompt(speech.prompt)}\n${speech.motionPrompt}\nLANGUAGE LOCK: The English wording in these production directions describes visuals only. Never infer, invent, speak, or visibly articulate any English word. The only speech and mouth movement is Cambodian Khmer from the supplied audio waveform. KHMER PHONEME TRANSCRIPT (exact, never translate or paraphrase): ${JSON.stringify(exactKhmerTranscript)}. AUDIO MASTER CLOCK: ${narrationAudio.duration.toFixed(2)} seconds inside a ${fittedDuration}-second clip. The supplied waveform is authoritative: start the matching visible mouth shape on every Khmer phoneme and stop precisely on the last phoneme. Speech, lips, jaw, tongue and cheeks remain synchronized frame by frame at natural 1x. Do not use generic talking-mouth animation. Keep the lips closed before the first phoneme and after the final phoneme. Keep the head mostly forward and stable. Body and hand reactions use crisp fast-natural 1.1x energy without motion blur. Complete each gesture in 0.35 to 0.55 seconds. After speech, continue one compact task action without pausing. Never freeze, stretch, ease or slow any movement.`,
     duration: fittedDuration,
     aspectRatio,
     referenceUrls: [avatarReferenceUrl],

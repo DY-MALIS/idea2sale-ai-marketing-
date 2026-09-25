@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ edge: vi.fn(), gemini: vi.fn(), translate: vi.fn(), text: vi.fn() }));
 vi.mock('../../api/_edgeSpeech.js', () => ({ synthesizeKhmerSpeechViaEdge: mocks.edge }));
 vi.mock('../../api/_geminiSpeech.js', () => ({ generateGeminiSpeech: mocks.gemini }));
@@ -10,6 +10,21 @@ vi.mock('../../api/_openrouter.js', () => ({
 import { createKhmerNarration, generateKhmerSpeech } from '../../api/_khmerNarration.js';
 afterEach(() => { vi.unstubAllEnvs(); vi.resetAllMocks(); });
 describe('Khmer narration', () => {
+  beforeEach(() => { vi.stubEnv('KHMER_TTS_PROVIDER', 'gemini'); });
+  it.each(['', 'edge', 'unknown'])('uses Khmer-specific speech without Gemini opt-in (%s)', async (provider) => {
+    vi.stubEnv('KHMER_TTS_PROVIDER', provider);
+    mocks.edge.mockResolvedValue({ audioUrl: 'khmer', provider: 'edge' });
+    const result = await generateKhmerSpeech({ input: 'សួស្តី', voice: 'Female' });
+    expect(result).toMatchObject({ audioUrl: 'khmer', spokenText: 'សួស្តី', fallbackReason: '' });
+    expect(mocks.edge).toHaveBeenCalledWith({ input: 'សួស្តី', voice: 'km-KH-SreymomNeural', rate: '+6%' });
+    expect(mocks.gemini).not.toHaveBeenCalled();
+  });
+  it('does not replace a failed Khmer voice with unchecked generative speech', async () => {
+    vi.stubEnv('KHMER_TTS_PROVIDER', '');
+    mocks.edge.mockRejectedValue(new Error('voice unavailable'));
+    await expect(generateKhmerSpeech({ input: 'សួស្តី' })).rejects.toThrow('voice unavailable');
+    expect(mocks.gemini).not.toHaveBeenCalled();
+  });
   it('uses expressive Gemini speech first and preserves delivery direction', async () => {
     mocks.gemini.mockResolvedValue({ audioUrl: 'natural-khmer', provider: 'gemini' });
     expect(await generateKhmerSpeech({ input: 'សួស្តី', voice: 'onyx', performanceStyle: 'warm', context: 'training' }))

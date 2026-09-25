@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const { mockPollOpenRouterVideo } = vi.hoisted(() => ({ mockPollOpenRouterVideo: vi.fn() }));
 const { mockVerifySpeech } = vi.hoisted(() => ({ mockVerifySpeech: vi.fn().mockResolvedValue({ passed: true }) }));
+const { mockMux } = vi.hoisted(() => ({ mockMux: vi.fn().mockResolvedValue('data:video/mp4;base64,bXV4ZWQ=') }));
+vi.mock('../../../api/_videoNarrationMux.js', () => ({ replaceVideoNarration: mockMux }));
 vi.mock('../../../api/_videoSpeech.js', () => ({ verifyUploadedVideoSpeech: mockVerifySpeech }));
 vi.mock('../../../api/_openrouter.js', () => ({ pollOpenRouterVideo: mockPollOpenRouterVideo }));
 const narrationMocks = vi.hoisted(() => ({ script: vi.fn(), speech: vi.fn() }));
@@ -65,6 +67,20 @@ describe('QStash raw request body', () => {
 });
 
 describe('processContentPlanVideo', () => {
+  it('never sends the generated voice if narration assembly fails', async () => {
+    mockPollOpenRouterVideo.mockResolvedValue({ videoUrl: 'raw' });
+    mockUploadMediaDataUrl.mockResolvedValue({ mediaUrl: 'uploaded' });
+    mockMux.mockRejectedValueOnce(new Error('Narration assembly failed'));
+    global.fetch = vi.fn();
+    const result = await processContentPlanVideo(fakeDb({
+      status: 'PROCESSING', videoJobId: 'job', voiceOverMode: 'edge-seedance',
+      prompt: 'Presenter', voiceOverText: 'សួស្តី',
+      narrationAudio: { filePath: '/voice.mp3', mediaUrl: 'original-audio', duration: 5 },
+    }), 'item', {});
+    expect(result.ok).toBe(false);
+    expect(mockVerifySpeech).not.toHaveBeenCalled();
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
   it('auto-posts the exact Edge reference track used for lip sync', async () => {
     mockPollOpenRouterVideo.mockResolvedValue({ videoUrl: 'raw' });
     mockUploadMediaDataUrl.mockResolvedValue({ mediaUrl: 'uploaded' });
@@ -73,10 +89,12 @@ describe('processContentPlanVideo', () => {
     const result = await processContentPlanVideo(fakeDb({
       status: 'PROCESSING', videoJobId: 'job', voiceOverMode: 'edge-seedance',
       prompt: 'Presenter', voiceOverText: 'សួស្តី',
-      narrationAudio: { filePath: '/telegram-media/original-reference.mp3', duration: 5.2 },
+      narrationAudio: { filePath: '/telegram-media/original-reference.mp3', mediaUrl: 'original-audio', duration: 5.2 },
     }), 'item', {});
     expect(result.ok).toBe(true);
     expect(narrationMocks.speech).not.toHaveBeenCalled();
+    expect(mockMux).toHaveBeenCalledWith('uploaded', 'original-audio');
+    expect(mockUploadMediaDataUrl).toHaveBeenLastCalledWith({ mediaDataUrl: 'data:video/mp4;base64,bXV4ZWQ=', mediaType: 'video' });
     expect(mockVerifySpeech).toHaveBeenCalledWith('uploaded', 'សួស្តី');
     expect(result).toEqual({ ok: true });
     expect(global.fetch).toHaveBeenCalledTimes(1);

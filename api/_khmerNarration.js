@@ -25,7 +25,9 @@ export async function generateKhmerSpeech({
     ? ` Complete the exact script within ${Math.max(3.5, targetSeconds - 0.15).toFixed(2)} seconds using a naturally brisk conversational pace and minimal pauses. Do not omit, abbreviate or cut off any word.`
     : '';
   const clearKhmerStyle = `Native Cambodian Khmer with crisp initial and final consonants, complete syllables, correct vowel length and clearly separated words. Fully pronounce every word ending without merging adjacent words. Speak at a natural everyday social-video pace, never faster than clear articulation allows. Use at most one brief pause at a natural clause boundary; never use a measured announcer cadence, pause after each word, mumble, swallow endings, stretch vowels or use a foreign accent.${timingDirection} ${String(performanceStyle || '').trim()}`.trim();
-  const useEdgeOnly = forceEdge || String(process.env.KHMER_TTS_PROVIDER || '').trim().toLowerCase() === 'edge';
+  // A successful generative TTS response does not guarantee Khmer speech.
+  // Use language-specific voices by default; Gemini requires explicit opt-in.
+  const useEdgeOnly = forceEdge || String(process.env.KHMER_TTS_PROVIDER || '').trim().toLowerCase() !== 'gemini';
   if (!useEdgeOnly) {
     try {
       return {
@@ -53,7 +55,7 @@ export async function generateKhmerSpeech({
     fallbackReason: forceEdge
       ? 'The expressive read exceeded the clip duration; a brisk Khmer neural voice preserved the full script.'
       : useEdgeOnly
-        ? 'Edge Khmer voice was explicitly selected.'
+        ? ''
       : 'Expressive Khmer voice was unavailable; standard Khmer neural voice was used.',
   };
 }
