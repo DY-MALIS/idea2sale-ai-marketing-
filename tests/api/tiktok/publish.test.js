@@ -42,7 +42,7 @@ vi.mock('../../../api/_telegramClaim.js', () => ({
 }));
 vi.mock('../../../api/_alert.js', () => ({ notifyAdmins: mockNotifyAdmins }));
 
-const handler = (await import('../../../api/tiktok/publish.js')).default;
+const { default: handler, publishVideoToTikTok, deliverOneScheduledTikTokPost } = await import('../../../api/tiktok/publish.js');
 
 const response = () => ({
   statusCode: 200,
@@ -65,6 +65,41 @@ afterEach(() => {
   // no matter what mockVerify is configured to return.
   vi.clearAllMocks();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
+
+it('sends an explicitly selected inbox upload even when the server default is direct', async () => {
+  vi.stubEnv('TIKTOK_POST_MODE', 'direct');
+  const fetchMock = vi.fn(async (url) => {
+    if (String(url).includes('/inbox/video/init/')) {
+      return { ok: true, json: async () => ({ data: { publish_id: 'inbox-1', upload_url: 'https://upload.example.com/put' } }) };
+    }
+    if (String(url) === 'https://upload.example.com/put') return { ok: true };
+    throw new Error(`Unexpected fetch to ${url}`);
+  });
+  vi.stubGlobal('fetch', fetchMock);
+
+  const result = await publishVideoToTikTok('token', {
+    videoUrl: `data:video/mp4;base64,${Buffer.from([1, 2, 3]).toString('base64')}`,
+    title: 'Test video', mode: 'inbox',
+  });
+  expect(result).toMatchObject({ publishId: 'inbox-1', directPost: false });
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+});
+
+it('records an inbox transfer as awaiting the creator instead of already published', async () => {
+  mockClaimPendingPost.mockResolvedValue({ post: {
+    videoUrl: `data:video/mp4;base64,${Buffer.from([1, 2, 3]).toString('base64')}`,
+    content: 'Test video', userId: 'owner', publishMode: 'TIKTOK_UPLOAD_DRAFT',
+  } });
+  mockFindRecentDuplicate.mockResolvedValue(null);
+  vi.stubGlobal('fetch', vi.fn(async (url) => String(url).includes('/inbox/video/init/')
+    ? { ok: true, json: async () => ({ data: { publish_id: 'inbox-2', upload_url: 'https://upload.example.com/put' } }) }
+    : { ok: true }));
+  const update = vi.fn();
+  const result = await deliverOneScheduledTikTokPost({}, { update }, 'token');
+  expect(result).toMatchObject({ ok: true, publishId: 'inbox-2' });
+  expect(update).toHaveBeenCalledWith(expect.objectContaining({ status: 'UPLOADED', tiktokDeliveryMode: 'inbox' }));
 });
 
 describe('POST /api/tiktok/publish', () => {

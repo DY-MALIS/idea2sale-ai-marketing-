@@ -675,6 +675,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   const [captionLanguage, setCaptionLanguage] = useState<'Khmer' | 'English'>('Khmer');
   const [isGeneratingCaption, setIsGeneratingCaption] = useState(false);
   const [isPostingTikTok, setIsPostingTikTok] = useState(false);
+  const [tiktokPostMode, setTikTokPostMode] = useState<'inbox' | 'direct'>('inbox');
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [tiktokUser, setTiktokUser] = useState<any>(null);
 
@@ -868,7 +869,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
           'Content-Type': 'application/json',
           ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
         },
-        body: JSON.stringify({ videoUrl, title: aiCaption })
+        body: JSON.stringify({ videoUrl, title: aiCaption, mode: tiktokPostMode })
       });
       const data = await res.json();
       if (res.ok) {
@@ -877,7 +878,10 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         throw new Error(data.error?.message || "Publishing failed");
       }
     } catch (error: any) {
-      notify(`${t('postFailed')}: ${error.message}\n\nMake sure Vercel has TIKTOK_SCOPES with video.upload/video.publish, then reconnect TikTok so the new permission is included in the access token.`, 'error');
+      const auditHint = tiktokPostMode === 'direct' && /integration guidelines|unaudited|private account/i.test(error.message || '')
+        ? '\n\nTikTok has not approved public Direct Post yet. Select Upload to TikTok and finish posting in the TikTok app.'
+        : '';
+      notify(`${t('postFailed')}: ${error.message}${auditHint}`, 'error');
     } finally {
       setIsPostingTikTok(false);
     }
@@ -1941,6 +1945,20 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                         </span>
                       </span>
                     </label>
+                  )}
+                  {tiktokUser && (
+                    <div className="mb-3">
+                      <label htmlFor="video-tiktok-post-mode" className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">TikTok delivery</label>
+                      <select
+                        id="video-tiktok-post-mode"
+                        value={tiktokPostMode}
+                        onChange={(event) => setTikTokPostMode(event.target.value as 'inbox' | 'direct')}
+                        className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                      >
+                        <option value="inbox">Upload to TikTok — finish posting in TikTok</option>
+                        <option value="direct">Public Direct Post — requires TikTok audit approval</option>
+                      </select>
+                    </div>
                   )}
                   <div className="flex flex-col gap-4 sm:flex-row">
                     {tiktokUser ? (

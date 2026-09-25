@@ -439,6 +439,29 @@ const Scheduler: React.FC = () => {
     }
   };
 
+  const uploadFailedTikTokPostToInbox = async (post: SchedulePost) => {
+    if (!user || isDemoMode || post.localOnly || post.platform !== 'TIKTOK' || post.status !== 'FAILED') return;
+    try {
+      const scheduledTime = new Date().toISOString();
+      const idToken = await user.getIdToken();
+      await updateDoc(doc(db, 'scheduled_posts', post.id), {
+        status: 'PENDING',
+        publishMode: 'TIKTOK_UPLOAD_DRAFT',
+        scheduledTime,
+      });
+      void recordAuditEvent('scheduled_post_retried', { postId: post.id, platform: 'TIKTOK', mode: 'inbox' });
+      await fetch('/api/tiktok/publish?action=scheduleQstash', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ postId: post.id, scheduledTime }),
+      });
+      // If QStash is unavailable, the periodic TikTok poller still picks up
+      // this due PENDING post. No new video generation or media upload is needed.
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Could not queue the TikTok inbox upload.');
+    }
+  };
+
   const handleDelete = async (id: string) => {
     try {
       const postToDelete = posts.find(p => p.id === id);
@@ -461,7 +484,9 @@ const Scheduler: React.FC = () => {
   };
 
   const toggleStatus = async (post: SchedulePost) => {
-    const newStatus: SchedulePost['status'] = post.status === 'PENDING' ? 'PUBLISHED' : 'PENDING';
+    const newStatus: SchedulePost['status'] = post.status === 'PENDING' || post.status === 'UPLOADED'
+      ? 'PUBLISHED'
+      : 'PENDING';
     try {
       if (isDemoMode || post.localOnly) {
         setPosts(prev => {
@@ -578,14 +603,20 @@ const Scheduler: React.FC = () => {
                       {post.status === 'FAILED' && post.errorMessage && (
                         <p className="mt-2 text-xs text-red-500">{post.errorMessage}</p>
                       )}
+                      {post.platform === 'TIKTOK' && post.status === 'UPLOADED' && (
+                        <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                          TikTok accepted the upload. Open its inbox notification to review and publish the video.
+                        </p>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-2 transition-opacity">
-                      {post.platform !== 'TELEGRAM' && (
+                      {post.platform !== 'TELEGRAM' && (post.platform !== 'TIKTOK' || post.status === 'UPLOADED') && (
                         <motion.button
                           whileHover={{ scale: 1.1 }}
                           whileTap={{ scale: 0.9 }}
                           onClick={() => toggleStatus(post)}
+                          title={post.platform === 'TIKTOK' ? 'Mark as posted after finishing in TikTok' : 'Change status'}
                           className={`p-2 rounded-md transition-colors ${
                             post.status === 'PUBLISHED' ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30' : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 dark:text-slate-400'
                           }`}
@@ -613,6 +644,19 @@ const Scheduler: React.FC = () => {
                           title="Retry sending to Telegram"
                         >
                           <RotateCcw size={18} />
+                        </motion.button>
+                      )}
+                      {post.platform === 'TIKTOK' && post.status === 'FAILED' && !post.localOnly && (
+                        <motion.button
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.9 }}
+                          onClick={() => uploadFailedTikTokPostToInbox(post)}
+                          className="flex items-center gap-1 rounded-md p-2 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30 transition-colors"
+                          title="Upload video to TikTok inbox — finish posting in TikTok"
+                          aria-label="Upload failed video to TikTok inbox"
+                        >
+                          <RotateCcw size={16} />
+                          <span className="text-xs font-semibold">Upload to TikTok</span>
                         </motion.button>
                       )}
                       <motion.button

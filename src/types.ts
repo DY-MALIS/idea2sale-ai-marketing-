@@ -176,7 +176,7 @@ export interface SchedulePost {
   content: string;
   platform: 'TIKTOK' | 'YOUTUBE' | 'INSTAGRAM' | 'TWITTER' | 'TELEGRAM';
   scheduledTime: string;
-  status: 'PENDING' | 'PROCESSING' | 'PUBLISHED' | 'FAILED';
+  status: 'PENDING' | 'PROCESSING' | 'PUBLISHED' | 'UPLOADED' | 'FAILED';
   userId: string;
   aiSuggested: boolean;
   publishMode?: string;

@@ -69,6 +69,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   // so the two existing cron runners (api/tiktok/publish.js,
   // api/telegram/run-scheduled.js) need no changes at all.
   const [platforms, setPlatforms] = useState<Platform[]>(['TIKTOK']);
+  const [tiktokDeliveryMode, setTikTokDeliveryMode] = useState<'inbox' | 'direct'>('inbox');
   const togglePlatform = (id: Platform) => {
     setPlatforms((prev) => {
       if (prev.includes(id)) {
@@ -294,7 +295,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     const publishMode = platform === 'TELEGRAM'
       ? 'TELEGRAM_AUTO_POST_LOCAL'
       : platform === 'TIKTOK'
-      ? 'TIKTOK_DIRECT_POST_LOCAL'
+      ? (tiktokDeliveryMode === 'inbox' ? 'TIKTOK_UPLOAD_DRAFT_LOCAL' : 'TIKTOK_DIRECT_POST_LOCAL')
       : platform === 'YOUTUBE'
       ? 'YOUTUBE_STUDIO_READY_LOCAL'
       : 'PLANNED_ONLY';
@@ -474,7 +475,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
             mediaName: null,
             mediaType: null,
             publishMode: platform === 'TIKTOK'
-              ? 'TIKTOK_DIRECT_POST'
+              ? (tiktokDeliveryMode === 'inbox' ? 'TIKTOK_UPLOAD_DRAFT' : 'TIKTOK_DIRECT_POST')
               : platform === 'YOUTUBE'
                 ? 'YOUTUBE_STUDIO_READY'
                 : 'PLANNED_ONLY',
@@ -700,8 +701,27 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                       <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                         {platforms.includes('YOUTUBE') && !platforms.includes('TIKTOK')
                           ? 'Horizontal 16:9 MP4, MOV, or WebM. This prepares the video and metadata for upload in YouTube Studio.'
-                          : 'MP4, MOV, or WebM. Auto-post starts only after TikTok approves video.publish.'}
+                          : 'MP4, MOV, or WebM.'}
                         {platforms.includes('TELEGRAM') && !telegramMediaFile && ' This same video is also used for Telegram unless you attach a different file below.'}
+                      </p>
+                    </div>
+                  )}
+                  {platforms.includes('TIKTOK') && (
+                    <div>
+                      <label htmlFor="tiktok-delivery-mode" className="block text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-2">TikTok delivery</label>
+                      <select
+                        id="tiktok-delivery-mode"
+                        value={tiktokDeliveryMode}
+                        onChange={(event) => setTikTokDeliveryMode(event.target.value as 'inbox' | 'direct')}
+                        className="w-full rounded-xl border border-brand-100 bg-brand-50 p-3 text-sm text-brand-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                      >
+                        <option value="inbox">Upload to TikTok — finish posting in TikTok</option>
+                        <option value="direct">Public Direct Post — requires TikTok audit approval</option>
+                      </select>
+                      <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                        {tiktokDeliveryMode === 'inbox'
+                          ? 'At the scheduled time, the video goes to your TikTok inbox. Open the notification in TikTok to review and publish it; the caption must be added there.'
+                          : 'TikTok may reject public Direct Post while the app audit is under review. Choose Upload to TikTok until approval.'}
                       </p>
                     </div>
                   )}

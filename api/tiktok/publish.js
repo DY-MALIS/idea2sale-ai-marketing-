@@ -142,9 +142,15 @@ async function videoFromUrl(videoUrl) {
 // (Firebase Storage/ImageKit) since scheduled videos are uploaded ahead of time.
 // Both paths end up FILE_UPLOAD -- see videoFromUrl's comment for why the
 // https:// case can't use PULL_FROM_URL.
-export async function publishVideoToTikTok(token, { videoUrl, title: rawTitle }) {
+export async function publishVideoToTikTok(token, { videoUrl, title: rawTitle, mode }) {
   const title = String(rawTitle || 'AI Generated Content').slice(0, 2200);
-  const postMode = String(process.env.TIKTOK_POST_MODE || 'inbox').toLowerCase();
+  const postMode = String(mode || process.env.TIKTOK_POST_MODE || 'inbox').toLowerCase();
+  if (!['direct', 'inbox'].includes(postMode)) {
+    const error = new Error('Invalid TikTok delivery mode.');
+    error.status = 400;
+    error.code = 'invalid_post_mode';
+    throw error;
+  }
   const directPost = postMode === 'direct';
   const endpoint = directPost
     ? 'https://open.tiktokapis.com/v2/post/publish/video/init/'
@@ -209,6 +215,7 @@ async function handlePublishRequest(req, res) {
     const { publishId, directPost, title } = await publishVideoToTikTok(token, {
       videoUrl,
       title: req.body?.title,
+      mode: req.body?.mode,
     });
 
     try {
@@ -274,15 +281,28 @@ export async function deliverOneScheduledTikTokPost(db, docRef, token) {
   }
 
   try {
+    const requestedMode = post.publishMode === 'TIKTOK_UPLOAD_DRAFT'
+      ? 'inbox'
+      : post.publishMode === 'TIKTOK_DIRECT_POST'
+        ? 'direct'
+        : undefined;
     const { publishId, directPost } = await publishVideoToTikTok(token, {
       videoUrl: post.videoUrl,
       title: post.content,
+      mode: requestedMode,
     });
     await docRef.update({
-      status: 'PUBLISHED',
+      // Inbox upload only transfers a draft. The creator must open TikTok and
+      // finish the post; reporting it as PUBLISHED made failed expectations
+      // impossible to diagnose from the Scheduler.
+      status: directPost ? 'PUBLISHED' : 'UPLOADED',
       tiktokPublishId: publishId || null,
-      publishedAt: admin.firestore.FieldValue.serverTimestamp(),
+      tiktokDeliveryMode: directPost ? 'direct' : 'inbox',
+      ...(directPost
+        ? { publishedAt: admin.firestore.FieldValue.serverTimestamp() }
+        : { uploadedAt: admin.firestore.FieldValue.serverTimestamp() }),
       errorMessage: null,
+      tiktokErrorCode: null,
     });
     await recordTikTokPostSync(db, {
       publishId,
@@ -293,10 +313,14 @@ export async function deliverOneScheduledTikTokPost(db, docRef, token) {
     });
     return { ok: true, publishId };
   } catch (error) {
-    const message = error?.message || 'TikTok publish failed.';
+    const code = error?.code || null;
+    const message = code === 'unaudited_client_can_only_post_to_private_accounts'
+      ? 'Public Direct Post needs TikTok audit approval. Use Upload to TikTok and finish posting in the TikTok app.'
+      : error?.message || 'TikTok publish failed.';
     await docRef.update({
       status: 'FAILED',
       errorMessage: message,
+      tiktokErrorCode: code,
       failedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
     return { ok: false, error: message };
