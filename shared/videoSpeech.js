@@ -85,7 +85,14 @@ export function nativeSpeechPrompt(visual, script, gender = 'Female', performanc
 }
 
 export function compareKhmerTranscript(expected, actual) {
-  const clean = s => String(s || '').normalize('NFC').replace(/[\p{P}\p{Z}\s\u200b]/gu, '');
+  // Khmer STT often writes spoken English abbreviations and brand names in
+  // Latin letters. Treat only these known spoken equivalents as the same words;
+  // keep the surrounding Khmer comparison strict.
+  const clean = s => String(s || '').normalize('NFC')
+    .replace(/អេ\s*អាយ/gu, 'AI')
+    .replace(/ឌីជី\s*អាកាដេមី/gu, 'DG Academy')
+    .toLowerCase()
+    .replace(/[\p{P}\p{Z}\s\u200b]/gu, '');
   const a = [...clean(expected)], b = [...clean(actual)];
   if (!a.length || !b.length || !/[\u1780-\u17ff]/u.test(actual)) return { passed: false, similarity: 0 };
   let row = Array.from({length: b.length + 1}, (_, i) => i);

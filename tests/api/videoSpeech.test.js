@@ -64,6 +64,10 @@ describe('native Khmer video speech', () => {
   });
   it('compares actual words, rejects missing, wrong-language and repeated speech', () => {
     expect(compareKhmerTranscript('សួស្តី។','សួស្តី').passed).toBe(true);
+    expect(compareKhmerTranscript(
+      'បង្កើនប្រសិទ្ធភាពការងាររបស់អ្នកជាមួយ អេ អាយ, ហើយរៀនអនុវត្តផ្ទាល់នៅ ឌីជី អាកាដេមី។',
+      'បង្កើន ប្រសិទ្ធភាព ការងារ របស់ អ្នក ជាមួយ AI ហើយ រៀន អនុវត្ត ផ្ទាល់ នៅ DG Academy.',
+    ).passed).toBe(true);
     for (const actual of ['', 'hello', 'សួស្តីសួស្តី', 'អរគុណ']) expect(compareKhmerTranscript('សួស្តី',actual).passed).toBe(false);
   });
   it('prepares an Edge-audio Seedance avatar and meaning-based motion', async () => {
