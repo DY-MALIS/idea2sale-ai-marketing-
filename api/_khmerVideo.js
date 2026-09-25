@@ -1,5 +1,6 @@
 import { generateOpenRouterImage, startOpenRouterVideo } from './_openrouter.js';
 import { generateKhmerSpeech } from './_khmerNarration.js';
+import { trimVideoNarrationSilence } from './_videoNarrationTiming.js';
 import {
   assertVideoGenerationWithinBudget,
   BUDGET_AVATAR_IMAGE_MODEL,
@@ -22,7 +23,7 @@ export const fitKhmerClipDurationToNarration = (narrationDuration, requestedDura
   // stretching a short read across an unnecessarily long requested clip.
   const measured = Number(narrationDuration);
   if (!Number.isFinite(measured) || measured <= 0) return requested;
-  const fitted = Math.max(MIN_KHMER_CLIP_DURATION, Math.ceil(measured + 0.15));
+  const fitted = Math.max(MIN_KHMER_CLIP_DURATION, Math.ceil(measured + 0.05));
   return Math.min(MAX_KHMER_CLIP_DURATION, fitted);
 };
 
@@ -49,7 +50,7 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
     targetDuration: duration,
   };
 
-  let audio = await generateKhmerSpeech(speechOptions);
+  let audio = await trimVideoNarrationSilence(await generateKhmerSpeech(speechOptions));
   let uploadedNarration;
   let measuredDuration = Number(audio.duration);
   if (!(measuredDuration > 0) || measuredDuration <= MAX_KHMER_CLIP_DURATION) {
@@ -65,11 +66,11 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
     const currentRateFactor = /edge-/i.test(String(audio.provider || audio.model || '')) ? 1.12 : 1;
     const requiredRatePercent = Math.min(35, Math.max(14,
       Math.ceil(((currentRateFactor * measuredDuration) / (MAX_KHMER_CLIP_DURATION - 0.15) - 1) * 100) + 2));
-    audio = await generateKhmerSpeech({
+    audio = await trimVideoNarrationSilence(await generateKhmerSpeech({
       ...speechOptions,
       forceEdge: true,
       edgeRate: `+${requiredRatePercent}%`,
-    });
+    }));
     uploadedNarration = await uploadMediaDataUrl({ mediaDataUrl: audio.audioUrl, mediaType: 'audio' });
     measuredDuration = Number(audio.duration || uploadedNarration.duration);
   }

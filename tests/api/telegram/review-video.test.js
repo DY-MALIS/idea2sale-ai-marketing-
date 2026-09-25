@@ -8,7 +8,12 @@ const response = () => ({ statusCode: 200, status(n) { this.statusCode = n; retu
 function setup(item) {
   const tx = { get: vi.fn(async () => ({ data: () => item })), set: vi.fn(), update: vi.fn() };
   mocks.verify.mockResolvedValue({ uid: 'owner' });
-  mocks.init.mockReturnValue({ collection: name => ({ doc: id => ({ name, id }) }), runTransaction: fn => fn(tx) });
+  mocks.init.mockReturnValue({
+    collection: name => ({ doc: id => name === 'business_profiles'
+      ? { name, id, get: vi.fn(async () => ({ data: () => ({ telegramBotToken: 'test-token', telegramChatId: '@test-channel' }) })) }
+      : { name, id } }),
+    runTransaction: fn => fn(tx),
+  });
   return tx;
 }
 const request = (body = {}) => ({ method: 'POST', headers: { authorization: 'Bearer token' }, body: { itemId: 'abcdefghijk', action: 'approve', mediaUrl: 'https://video', ...body } });

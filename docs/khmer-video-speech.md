@@ -23,13 +23,16 @@ to `km-KH-SreymomNeural`. The portrait and audio are both sent through
 `input_references`; mixing `frame_images` with `input_references` would switch
 OpenRouter to image-to-video mode and can prevent the audio from driving lips.
 
-The fallback Khmer neural speech rate is +6%. The video prompt specifies the measured
-audio duration and normal-speed, phrase-timed gestures, so short speech should
-not be stretched across the full eight-second clip. Delivery attaches the exact
-original reference audio to the generated video; missing reference audio or
-audio longer than eight seconds fails instead of generating a different track.
-These are generation controls, not proof of clear pronunciation or accurate
-lip sync. Review a newly generated clip with sound to confirm both.
+For presenter videos, the generated narration is trimmed only at its silent
+beginning and end before it is uploaded as the video model's audio reference.
+The identical trimmed file is muxed into the delivered video. Clip length is
+then fitted to that measured narration, with a small safety margin, to reduce
+mouth motion before speech and after it ends. The Edge presenter rate is +12%
+by default (+6% for standalone speech); an overlong read may be retried faster.
+Missing reference audio or audio longer than eight seconds fails instead of
+generating a different track. These controls reduce timing drift but cannot
+guarantee frame-accurate lip shapes from the generative video model. Review a
+newly generated clip with sound to confirm pronunciation and lip sync.
 
 No live generation should run without explicit approval because the portrait,
 Seedance video and transcription can each incur provider charges.

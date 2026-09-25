@@ -101,6 +101,7 @@ it('fits the generated clip to the measured narration instead of stretching moti
   expect(fitKhmerClipDurationToNarration(2.5, 8)).toBe(4);
   expect(fitKhmerClipDurationToNarration(4.8, 8)).toBe(5);
   expect(fitKhmerClipDurationToNarration(6.8, 8)).toBe(7);
+  expect(fitKhmerClipDurationToNarration(5.928, 8)).toBe(6);
 
   mocks.speech.mockResolvedValue({ audioUrl: 'audio-data', duration: 2.5, provider: 'gemini' });
   mocks.video.mockResolvedValue({ jobId: 'job' });
