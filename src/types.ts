@@ -69,6 +69,7 @@ export interface FacebookMarketTrend {
 export interface FacebookCompetitorInsight {
   pageName: string;
   matchReason?: string;
+  marketPresence?: 'stronger' | 'similar' | 'weaker' | '';
   topAngle: string;
   offerStrategy: string;
   weakness: string;

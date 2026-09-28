@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useLanguage } from '../contexts/LanguageContext';
+import { cn } from '../lib/utils';
 import { CreativeAutomationRequest, FacebookCompetitorInsight, FacebookPotentialLead, FacebookRecentActivity, FacebookScanResult, FacebookVideoPlanItem } from '../types';
 import { deleteGenerationHistory, GenerationHistoryEntry, saveGenerationHistory, useGenerationHistory } from '../lib/generationHistory';
 import HistoryPanel from './HistoryPanel';
@@ -1166,7 +1167,22 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
               <div className="grid gap-4 lg:grid-cols-2">
                 {result.competitors.map((competitor, index) => (
                   <article key={`${competitor.pageName}-${index}`} className="glass rounded-3xl p-6">
-                    <div className="mb-4 flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 font-black text-white">{index + 1}</span><h4 className="text-lg font-black text-slate-800 dark:text-white">{competitor.pageName}</h4></div>
+                    <div className="mb-4 flex flex-wrap items-center gap-3">
+                      <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 font-black text-white">{index + 1}</span>
+                      <h4 className="text-lg font-black text-slate-800 dark:text-white">{competitor.pageName}</h4>
+                      {!!competitor.marketPresence && (
+                        <span className={cn(
+                          'rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-wide',
+                          competitor.marketPresence === 'stronger' && 'bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300',
+                          competitor.marketPresence === 'similar' && 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300',
+                          competitor.marketPresence === 'weaker' && 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300',
+                        )}>
+                          {isKm
+                            ? (competitor.marketPresence === 'stronger' ? 'វត្តមានខ្លាំងជាង' : competitor.marketPresence === 'similar' ? 'វត្តមានស្មើគ្នា' : 'វត្តមានខ្សោយជាង')
+                            : (competitor.marketPresence === 'stronger' ? 'Stronger presence' : competitor.marketPresence === 'similar' ? 'Similar presence' : 'Weaker presence')}
+                        </span>
+                      )}
+                    </div>
                     <dl className="grid gap-3 text-sm">
                       {competitor.matchReason && <div><dt className="font-bold text-indigo-500">{isKm ? 'ហេតុអ្វីជាគូប្រកួត' : 'Why this is a competitor'}</dt><dd className="mt-1 text-slate-700 dark:text-slate-200">{competitor.matchReason}</dd></div>}
                       <div><dt className="font-bold text-slate-400">{text.angle}</dt><dd className="mt-1 text-slate-700 dark:text-slate-200">{competitor.topAngle}</dd></div>

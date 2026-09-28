@@ -57,7 +57,7 @@ it('returns only competitors whose source URL is real and reachable', async () =
   expect(result.isSpecificEntity).toBe(true);
   expect(result.entitySummary).toContain('DGACADEMY');
   expect(result.competitors).toEqual([
-    { name: 'Real School A', matchReason: 'Same English courses and city', positioning: 'Premium pricing', facebookUrl: '', tiktokUrl: '', linkedinUrl: 'https://www.linkedin.com/school/real-school-a/', sourceUrl: 'https://real-school-a.example.com' },
+    { name: 'Real School A', matchReason: 'Same English courses and city', marketPresence: '', positioning: 'Premium pricing', facebookUrl: '', tiktokUrl: '', linkedinUrl: 'https://www.linkedin.com/school/real-school-a/', sourceUrl: 'https://real-school-a.example.com' },
   ]);
 });
 

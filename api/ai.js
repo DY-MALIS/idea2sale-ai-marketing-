@@ -1588,6 +1588,7 @@ Return ONLY a single valid JSON object with this exact structure:
         return {
           pageName: verified.name,
           matchReason: verified.matchReason || '',
+          marketPresence: verified.marketPresence || '',
           topAngle: String(match.topAngle || verified.positioning || '').slice(0, 400),
           offerStrategy: String(match.offerStrategy || '').slice(0, 400),
           weakness: String(match.weakness || '').slice(0, 400),

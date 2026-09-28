@@ -190,11 +190,10 @@ A business only counts as a competitor if it meets ALL of these:
   (a) Same core industry/category -- it sells the same or a directly substitutable product/service as the target (from Step 1) or the stated niche.
   (b) Overlapping customers -- it targets a similar customer segment in the same geographic market (${country}, and the same city/region when the target is a local business).
   (c) Currently active and real -- found via an actual, live search result (its own website, a business directory listing, a comparison article, a news mention, a real Facebook Page, or an official LinkedIn company/school page), not a defunct business or an unrelated mention of the same words.
-  (d) Equal or stronger market presence -- prioritize businesses that are at least as established as the target, or more so: a more visible public footprint, more active marketing/content, more locations, more followers/engagement, or broader brand recognition. The point of this scan is to learn from competitors who are ahead, so do not fill the list with smaller or clearly weaker businesses that trail behind the target just because they are easy to find. Only exclude a business here if it is an unrelated large multinational conglomerate outside the target's real category/market -- a strong, well-known player that genuinely competes in the same category and market always counts.
-Every competitor you list MUST satisfy all four and come with a real source URL backing it. Explicitly exclude suppliers, distributors that do not sell a substitute, agencies serving the target, partners, customers, parent/sister companies, businesses that merely share a broad industry, and companies outside the real geographic/customer market. Rank the strongest, most prominent direct competitors first based on visible public market presence and relevance to the same customers, not on guessed revenue or private data -- put the biggest real threats at the top, not the smallest. Return up to ${requestedTargetCount} strong matches actually found; never target a quota and never pad the list. Search alternate spellings and local-language names so legitimate local businesses are not missed. Never invent a competitor name and never list one you cannot support with a real source URL.
-Every entry you return already met all four criteria above, so always set "isDirectCompetitor": true and "matchConfidence": "high" for it -- these are not separate judgment calls. If you are not fully confident a business satisfies all four, omit it entirely rather than listing it with a lower confidence; there is no "medium" or "low" tier, only include or exclude.
+Every competitor you list MUST satisfy all three and come with a real source URL backing it. Explicitly exclude suppliers, distributors that do not sell a substitute, agencies serving the target, partners, customers, parent/sister companies, businesses that merely share a broad industry, and companies outside the real geographic/customer market. Include competitors at every size, not only ones as big as or bigger than the target -- a smaller or newer real competitor is still a valid entry, just labeled accordingly (see "marketPresence" below). Return up to ${requestedTargetCount} matches actually found; never target a quota and never pad the list. Search alternate spellings and local-language names so legitimate local businesses are not missed. Never invent a competitor name and never list one you cannot support with a real source URL.
+Every entry you return already met all three criteria above, so always set "isDirectCompetitor": true and "matchConfidence": "high" for it -- these are not separate judgment calls. If you are not fully confident a business satisfies all three, omit it entirely rather than listing it with a lower confidence; there is no "medium" or "low" tier, only include or exclude.
 
-For each verified competitor, provide a short factual "matchReason" stating the exact overlapping product/service, customer group, and location supported by the search evidence. Search for its official Facebook Page, TikTok @profile, and LinkedIn organization page. Only return URLs explicitly found in live results; never return a personal profile and never construct a URL from the company name. Only fill in "positioning" if the source actually supports it; otherwise leave it as an empty string rather than inferring.
+For each verified competitor, provide a short factual "matchReason" stating the exact overlapping product/service, customer group, and location supported by the search evidence. Also classify "marketPresence" relative to the target -- "stronger" (clearly bigger public footprint: more followers/engagement, more locations, more active marketing), "similar" (comparable scale and visibility), or "weaker" (smaller or less visible, but still a real, active, verifiable competitor) -- based only on what the search evidence actually shows, never a guess. Rank the list strongest presence first, but never drop a "weaker" entry just for being weaker. Search for its official Facebook Page, TikTok @profile, and LinkedIn organization page. Only return URLs explicitly found in live results; never return a personal profile and never construct a URL from the company name. Only fill in "positioning" if the source actually supports it; otherwise leave it as an empty string rather than inferring.
 
 Return ONLY a single valid JSON object, no markdown:
 {
@@ -206,6 +205,7 @@ Return ONLY a single valid JSON object, no markdown:
       "isDirectCompetitor": true,
       "matchConfidence": "high",
       "matchReason": "factual reason this is a direct competitor, grounded in the source",
+      "marketPresence": "stronger, similar, or weaker, relative to the target",
       "positioning": "only if directly supported by the source, else empty string",
       "facebookUrl": "official public Facebook business Page URL if found, else empty string",
       "tiktokUrl": "official public TikTok @profile URL if found, else empty string",
@@ -231,9 +231,11 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
     const linkedinUrl = String(item?.linkedinUrl || '').trim().slice(0, 300);
     const isDirectCompetitor = item?.isDirectCompetitor === true;
     const matchConfidence = String(item?.matchConfidence || '').trim().toLowerCase();
+    const marketPresence = String(item?.marketPresence || '').trim().toLowerCase();
     const candidate = {
       name: String(item?.name || '').trim().slice(0, 200),
       matchReason: String(item?.matchReason || '').trim().slice(0, 500),
+      marketPresence: ['stronger', 'similar', 'weaker'].includes(marketPresence) ? marketPresence : '',
       positioning: String(item?.positioning || '').trim().slice(0, 300),
       facebookUrl: validFacebookUrl(facebookUrl) ? facebookUrl : '',
       tiktokUrl: validTikTokUrl(tiktokUrl) ? tiktokUrl : '',
@@ -254,6 +256,7 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
     mergedCandidates.set(key, {
       ...existing,
       matchReason: existing.matchReason || candidate.matchReason,
+      marketPresence: existing.marketPresence || candidate.marketPresence,
       positioning: existing.positioning || candidate.positioning,
       facebookUrl: existing.facebookUrl || candidate.facebookUrl,
       tiktokUrl: existing.tiktokUrl || candidate.tiktokUrl,
@@ -506,7 +509,7 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
       verifiedSocialUrl(item.linkedinUrl),
     ]);
     const facebookUrl = item.facebookUrl || derivedFacebookPageUrl(activityChecks) || '';
-    return hasActivityWindow ? { ...item, facebookUrl, tiktokUrl, linkedinUrl, recentActivities: activityChecks.filter(Boolean), lastKnownActivity } : { name: item.name, matchReason: item.matchReason, positioning: item.positioning, facebookUrl, tiktokUrl, linkedinUrl, sourceUrl: item.sourceUrl };
+    return hasActivityWindow ? { ...item, facebookUrl, tiktokUrl, linkedinUrl, recentActivities: activityChecks.filter(Boolean), lastKnownActivity } : { name: item.name, matchReason: item.matchReason, marketPresence: item.marketPresence, positioning: item.positioning, facebookUrl, tiktokUrl, linkedinUrl, sourceUrl: item.sourceUrl };
   })).filter(Boolean);
 
   return {
