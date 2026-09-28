@@ -1,5 +1,13 @@
 export const wantsSilentVideo = (prompt = '') => /\b(?:silent|no (?:speech|voice(?![- ]over| replacement)|narration(?! replacement)|talking|dialogue))\b|គ្មានសំឡេង|មិនបាច់និយាយ/i.test(prompt);
 
+// Shared verbatim by every prompt that asks an LLM to write a Khmer narration
+// script (the daily content calendar, the Facebook-scan outreach video plan,
+// the chat-driven video assistant, and createKhmerNarration's own retry) so a
+// future edit to one can't silently leave the others un-hardened again -- that
+// exact drift is what let two of these keep leaving English loanwords unspelled
+// after the first one was fixed.
+export const KHMER_SCRIPT_ONLY_INSTRUCTION = 'Write every word in Khmer script only -- spell out any English word, abbreviation or number phonetically in Khmer letters (for example AI as "អេ អាយ") instead of leaving Latin letters, because the Khmer-only text-to-speech voice cannot read Latin script and will switch languages mid-sentence on any word left unspelled.';
+
 // Quoted dialogue supports mixed languages, numbers and punctuation. Legacy
 // unquoted dialogue ends at a sentence boundary, newline or stage direction.
 export function extractVideoDialogue(prompt = '') {
