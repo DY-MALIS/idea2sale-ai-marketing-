@@ -1,10 +1,74 @@
 import { getRedirectUri, sessionCookieAttributes, verifyAndClearOAuthState, saveAutomationTokens } from '../_tiktok.js';
+import { getYouTubeRedirectUri, exchangeYouTubeCode, saveYouTubeAutomationTokens } from '../_youtube.js';
 import { initFirebaseAdmin } from '../_firebaseAdmin.js';
+
+// Also handles YouTube's OAuth callback (?provider=youtube, matching the
+// redirect_uri getYouTubeRedirectUri registers) -- folded into this file
+// instead of a new api/youtube/callback.js for the same Vercel Hobby
+// 12-function-cap reason documented in api/tiktok/publish.js.
+async function handleYouTubeCallback(req, res, code) {
+  if (!verifyAndClearOAuthState(req, res)) {
+    return res.status(400).send('Invalid or expired YouTube login attempt. Please try connecting again.');
+  }
+  try {
+    const data = await exchangeYouTubeCode(req, String(code));
+    let channelId = null;
+    let channelTitle = null;
+    try {
+      const channelResponse = await fetch('https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true', {
+        headers: { Authorization: `Bearer ${data.access_token}` },
+      });
+      const channelData = await channelResponse.json().catch(() => ({}));
+      const channel = channelData?.items?.[0];
+      channelId = channel?.id || null;
+      channelTitle = channel?.snippet?.title || null;
+    } catch (channelError) {
+      console.error('Failed to fetch YouTube channel info:', channelError?.message || channelError);
+    }
+
+    try {
+      const db = initFirebaseAdmin();
+      await saveYouTubeAutomationTokens(db, {
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token,
+        expiresIn: data.expires_in,
+        channelId,
+        channelTitle,
+      });
+    } catch (persistError) {
+      console.error('Failed to persist YouTube automation tokens:', persistError?.message || persistError);
+    }
+
+    const openerOrigin = new URL(getYouTubeRedirectUri(req)).origin;
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.status(200).send(`
+      <!doctype html>
+      <html>
+        <body>
+          <h1>YouTube connected${channelTitle ? ` (${channelTitle})` : ''}</h1>
+          <p>You can close this window and return to aime.angkorgate.</p>
+          <script>
+            if (window.opener) {
+              window.opener.postMessage({ type: 'YOUTUBE_AUTH_SUCCESS' }, ${JSON.stringify(openerOrigin)});
+              window.close();
+            }
+          </script>
+        </body>
+      </html>
+    `);
+  } catch (error) {
+    return res.status(500).send(error.message || 'Failed to exchange YouTube code');
+  }
+}
 
 export default async function handler(req, res) {
   const code = req.query?.code;
   if (!code) {
     return res.status(400).send('No code provided');
+  }
+
+  if (String(req.query?.provider || '').toLowerCase() === 'youtube') {
+    return handleYouTubeCallback(req, res, code);
   }
 
   // Anti-CSRF check: without this, anyone who obtains a `code` from their own

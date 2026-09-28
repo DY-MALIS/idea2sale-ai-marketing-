@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Calendar, Bot, Zap, Plus, Sparkles, Clock, X, Send, Instagram, Share2, Loader2, AlertCircle, Upload, Youtube, Facebook } from 'lucide-react';
 import { formatImageKitUploadError } from '../../shared/imageKitError.js';
@@ -82,6 +82,10 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   };
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [telegramMediaFile, setTelegramMediaFile] = useState<File | null>(null);
+  const [showTelegramFileInput, setShowTelegramFileInput] = useState(false);
+  // Every platform whose auto-post reuses the one shared "video above" field
+  // (Telegram also reuses it, but through its own optional field below).
+  const hasSharedVideoField = platforms.includes('TIKTOK') || platforms.includes('YOUTUBE') || platforms.includes('FACEBOOK') || platforms.includes('INSTAGRAM');
   const [scheduledTime, setScheduledTime] = useState(() => {
     const nextHour = new Date();
     nextHour.setHours(nextHour.getHours() + 1);
@@ -93,6 +97,19 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   // attached yet, so submitting during this window would silently post with no
   // media attached even though the user sees the generated content on screen.
   const [isAttachingHandoffMedia, setIsAttachingHandoffMedia] = useState(false);
+  const [youtubeJustConnected, setYoutubeJustConnected] = useState(false);
+
+  // The "Connect YouTube" button opens api/auth/tiktok/redirect?provider=youtube
+  // (reusing that OAuth-start route -- see its comment for why YouTube's own
+  // redirect lives there instead of a new file) in a popup; its callback posts
+  // this message back before closing itself.
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'YOUTUBE_AUTH_SUCCESS') setYoutubeJustConnected(true);
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, []);
 
   // Consumes a "schedule this" handoff from PosterGen/VideoVoice: prefills the
   // create-post form with the generated media + caption and opens the modal,
@@ -269,6 +286,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     setContent(DEFAULT_HASHTAGS);
     setVideoFile(null);
     setTelegramMediaFile(null);
+    setShowTelegramFileInput(false);
 
     const nextHour = new Date();
     nextHour.setHours(nextHour.getHours() + 1);
@@ -334,7 +352,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
 
     const userToUse = user || (isDemoMode ? { uid: 'demo-user' } : null);
 
-    const requiresVideo = platforms.includes('TIKTOK') || platforms.includes('YOUTUBE');
+    const requiresVideo = platforms.includes('TIKTOK') || platforms.includes('YOUTUBE') || platforms.includes('INSTAGRAM');
     // Telegram can post text-only or media-only, so it's the one case where a
     // blank caption is fine -- but only when it's the *sole* destination and
     // has its own media, since a combined post still needs a caption/title
@@ -470,7 +488,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
             status: 'PENDING',
             userId: userToUse.uid,
             aiSuggested: false,
-            videoUrl: platform === 'TIKTOK' || platform === 'YOUTUBE' || platform === 'FACEBOOK' ? videoUrl : '',
+            videoUrl: ['TIKTOK', 'YOUTUBE', 'FACEBOOK', 'INSTAGRAM'].includes(platform) ? videoUrl : '',
             videoName: videoFile?.name || null,
             mediaUrl: '',
             mediaName: null,
@@ -478,10 +496,12 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
             publishMode: platform === 'TIKTOK'
               ? (tiktokDeliveryMode === 'inbox' ? 'TIKTOK_UPLOAD_DRAFT' : 'TIKTOK_DIRECT_POST')
               : platform === 'YOUTUBE'
-                ? 'YOUTUBE_STUDIO_READY'
+                ? 'YOUTUBE_AUTO_POST'
                 : platform === 'FACEBOOK'
                   ? 'FACEBOOK_AUTO_POST'
-                  : 'PLANNED_ONLY',
+                  : platform === 'INSTAGRAM'
+                    ? 'INSTAGRAM_AUTO_POST'
+                    : 'PLANNED_ONLY',
             createdAt: serverTimestamp()
           });
           void recordAuditEvent('scheduled_post_created', {
@@ -689,13 +709,17 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                     </div>
                   </div>
 
-                  {(platforms.includes('TIKTOK') || platforms.includes('YOUTUBE')) && (
+                  {hasSharedVideoField && (
                     <div>
                       <label className="block text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-2">
-                        {platforms.includes('YOUTUBE') && !platforms.includes('TIKTOK') ? 'YouTube landscape video (16:9)' : 'TikTok portrait video (9:16)'}
+                        {platforms.includes('YOUTUBE') && !platforms.includes('TIKTOK')
+                          ? 'YouTube landscape video (16:9)'
+                          : platforms.includes('TIKTOK')
+                            ? 'TikTok portrait video (9:16)'
+                            : 'Video'}
                       </label>
                       <input
-                        required
+                        required={platforms.includes('TIKTOK') || platforms.includes('YOUTUBE') || platforms.includes('INSTAGRAM')}
                         type="file"
                         accept="video/mp4,video/quicktime,video/webm"
                         onChange={(e) => setVideoFile(e.target.files?.[0] || null)}
@@ -703,7 +727,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                       />
                       <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                         {platforms.includes('YOUTUBE') && !platforms.includes('TIKTOK')
-                          ? 'Horizontal 16:9 MP4, MOV, or WebM. This prepares the video and metadata for upload in YouTube Studio.'
+                          ? 'Horizontal 16:9 MP4, MOV, or WebM. Uploads automatically to your connected YouTube channel at the scheduled time.'
                           : 'MP4, MOV, or WebM.'}
                         {platforms.includes('TELEGRAM') && !telegramMediaFile && ' This same video is also used for Telegram unless you attach a different file below.'}
                       </p>
@@ -734,24 +758,55 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                       <p>Facebook posts automatically at the scheduled time to the connected Page, using the video above and this text as the caption -- no manual step needed.</p>
                     </div>
                   )}
+                  {platforms.includes('YOUTUBE') && (
+                    <div className="p-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800/60 rounded-xl flex items-start justify-between gap-2 text-red-600 dark:text-red-300 text-xs">
+                      <div className="flex items-start gap-2">
+                        <Youtube size={14} className="mt-0.5 shrink-0" />
+                        <p>{youtubeJustConnected ? 'YouTube connected! ' : ''}Uploads automatically to your connected YouTube channel at the scheduled time -- no manual step needed.</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => window.open('/api/auth/tiktok/redirect?provider=youtube', '_blank')}
+                        className="shrink-0 rounded-lg bg-red-600 px-2 py-1 text-[10px] font-bold text-white hover:bg-red-700"
+                      >
+                        Connect YouTube
+                      </button>
+                    </div>
+                  )}
+                  {platforms.includes('INSTAGRAM') && (
+                    <div className="p-3 bg-fuchsia-50 dark:bg-fuchsia-900/30 border border-fuchsia-200 dark:border-fuchsia-800/60 rounded-xl flex items-start gap-2 text-fuchsia-600 dark:text-fuchsia-300 text-xs">
+                      <Instagram size={14} className="mt-0.5 shrink-0" />
+                      <p>Instagram posts automatically as a Reel at the scheduled time via your linked Business account, using the video above and this text as the caption -- no manual step needed.</p>
+                    </div>
+                  )}
                   {platforms.includes('TELEGRAM') && (
                     <div className="space-y-3">
-                      <div>
-                        <label className="block text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-2">
-                          Telegram image or video{(platforms.includes('TIKTOK') || platforms.includes('YOUTUBE')) ? ' (optional -- reuses the video above if left blank)' : ''}
-                        </label>
-                        <input
-                          type="file"
-                          accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm"
-                          onChange={(e) => setTelegramMediaFile(e.target.files?.[0] || null)}
-                          className="w-full p-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-700 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-sky-500 file:px-3 file:py-2 file:font-bold file:text-white dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
-                        />
-                        {telegramMediaFile && (
-                          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                            Selected: {telegramMediaFile.name} ({formatFileSize(telegramMediaFile.size)})
-                          </p>
-                        )}
-                      </div>
+                      {hasSharedVideoField && !showTelegramFileInput ? (
+                        <button
+                          type="button"
+                          onClick={() => setShowTelegramFileInput(true)}
+                          className="text-xs font-bold text-sky-600 hover:underline dark:text-sky-400"
+                        >
+                          + Use a different file for Telegram (reuses the video above by default)
+                        </button>
+                      ) : (
+                        <div>
+                          <label className="block text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-2">
+                            Telegram image or video{hasSharedVideoField ? ' (optional -- reuses the video above if left blank)' : ''}
+                          </label>
+                          <input
+                            type="file"
+                            accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm"
+                            onChange={(e) => setTelegramMediaFile(e.target.files?.[0] || null)}
+                            className="w-full p-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-700 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-sky-500 file:px-3 file:py-2 file:font-bold file:text-white dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
+                          />
+                          {telegramMediaFile && (
+                            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                              Selected: {telegramMediaFile.name} ({formatFileSize(telegramMediaFile.size)})
+                            </p>
+                          )}
+                        </div>
+                      )}
                       <div className="p-3 bg-sky-50 dark:bg-sky-900/30 border border-sky-200 dark:border-sky-800/60 rounded-xl flex items-start gap-2 text-sky-600 dark:text-sky-300 text-xs">
                         <Upload size={14} className="mt-0.5 shrink-0" />
                         <p>Telegram can post text, image, or video. If you add media, the text will be used as the caption.</p>

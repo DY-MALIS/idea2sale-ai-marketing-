@@ -42,9 +42,21 @@ export async function findRecentDuplicateTikTokPost(db, post) {
 }
 
 // Same cross-document safety net, for Facebook's scheduled_posts docs (see
-// runFacebookCron in api/facebook/publish.js).
+// runFacebookCron in api/tiktok/publish.js).
 export async function findRecentDuplicateFacebookPost(db, post) {
   return findRecentDuplicatePost(db, 'FACEBOOK', post.id, 'videoUrl', post?.videoUrl);
+}
+
+// Same cross-document safety net, for YouTube's scheduled_posts docs (see
+// runYouTubeCron in api/tiktok/publish.js).
+export async function findRecentDuplicateYouTubePost(db, post) {
+  return findRecentDuplicatePost(db, 'YOUTUBE', post.id, 'videoUrl', post?.videoUrl);
+}
+
+// Same cross-document safety net, for Instagram's scheduled_posts docs (see
+// runInstagramCron in api/tiktok/publish.js).
+export async function findRecentDuplicateInstagramPost(db, post) {
+  return findRecentDuplicatePost(db, 'INSTAGRAM', post.id, 'videoUrl', post?.videoUrl);
 }
 
 async function findRecentDuplicatePost(db, platform, postId, urlField, url) {
