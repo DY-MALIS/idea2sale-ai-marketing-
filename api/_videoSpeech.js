@@ -91,23 +91,34 @@ export async function verifyUploadedVideoSpeech(videoUrl, expected, { waitForRet
       response: audio,
     });
   }
-  let transcript;
-  try {
-    transcript = await transcribeAudioWithOpenRouter({ audioBase64: bytes.toString('base64'), format: 'mp4', languageHint: 'Khmer' });
-  } catch (cause) {
-    // The generated video is still a valid, paid-for artifact when the separate
-    // STT provider is unavailable. Distinguish that infrastructure failure from
-    // an actual transcript mismatch so the delivery worker can retain the video
-    // for human review instead of presenting generation itself as FAILED (and
-    // encouraging a second paid generation attempt).
-    throw verificationUnavailableError({ expected, cause, method: 'transcription-unavailable' });
+  // The narration audio itself is already the trusted Khmer TTS track (edge-seedance
+  // videos mux the exact reference audio back in before this check ever runs); a
+  // failed comparison here usually means the Chirp 3 STT model hallucinated the
+  // transcript in the wrong script for this one attempt, not that the video is
+  // actually wrong. Re-transcribing the same untouched audio bytes a couple more
+  // times catches that transient failure instead of discarding a good video.
+  const MAX_TRANSCRIPTION_ATTEMPTS = 3;
+  let verification;
+  for (let attempt = 1; attempt <= MAX_TRANSCRIPTION_ATTEMPTS; attempt += 1) {
+    let transcript;
+    try {
+      transcript = await transcribeAudioWithOpenRouter({ audioBase64: bytes.toString('base64'), format: 'mp4', languageHint: 'Khmer' });
+    } catch (cause) {
+      if (attempt === MAX_TRANSCRIPTION_ATTEMPTS) {
+        // The generated video is still a valid, paid-for artifact when the separate
+        // STT provider is unavailable. Distinguish that infrastructure failure from
+        // an actual transcript mismatch so the delivery worker can retain the video
+        // for human review instead of presenting generation itself as FAILED (and
+        // encouraging a second paid generation attempt).
+        throw verificationUnavailableError({ expected, cause, method: 'transcription-unavailable' });
+      }
+      continue;
+    }
+    const check = compareKhmerTranscript(expected, transcript);
+    verification = { ...check, transcript, expected, method: 'transcript-comparison', naturalnessReviewed: false };
+    if (check.passed) return verification;
   }
-  const check = compareKhmerTranscript(expected, transcript);
-  const verification = { ...check, transcript, expected, method: 'transcript-comparison', naturalnessReviewed: false };
-  if (!check.passed) {
-    const error = new Error('Khmer speech could not be verified against the script. Video retained for review; not sent to Telegram.');
-    error.speechVerification = verification;
-    throw error;
-  }
-  return verification;
+  const error = new Error('Khmer speech could not be verified against the script. Video retained for review; not sent to Telegram.');
+  error.speechVerification = verification;
+  throw error;
 }

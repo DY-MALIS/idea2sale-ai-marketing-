@@ -126,6 +126,26 @@ describe('native Khmer video speech', () => {
     expect(global.fetch.mock.calls[0][1]).toMatchObject({ redirect: 'manual' });
     await expect(verifyUploadedVideoSpeech('https://example.com/test.mp4','សួស្តី')).rejects.toThrow('Invalid');
   });
+  it('re-transcribes the same audio when Chirp 3 hallucinates a wrong-script transcript, and accepts a later attempt that matches', async () => {
+    vi.stubEnv('IMAGEKIT_PUBLIC_KEY', 'public_test');
+    vi.stubEnv('IMAGEKIT_PRIVATE_KEY', 'private_test');
+    vi.stubEnv('IMAGEKIT_URL_ENDPOINT', 'https://ik.imagekit.io/test');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, arrayBuffer: async () => new Uint8Array([1, 2]).buffer }));
+    mocks.transcribe.mockResolvedValueOnce('হদিজি একাডেমি').mockResolvedValueOnce('សួស្តី');
+    const deliveredUrl = 'https://ik.imagekit.io/test/telegram-media/test.mp4';
+    await expect(verifyUploadedVideoSpeech(deliveredUrl, 'សួស្តី')).resolves.toMatchObject({ passed: true, transcript: 'សួស្តី' });
+    expect(mocks.transcribe).toHaveBeenCalledTimes(2);
+  });
+  it('still fails after exhausting every transcription attempt on a persistent mismatch', async () => {
+    vi.stubEnv('IMAGEKIT_PUBLIC_KEY', 'public_test');
+    vi.stubEnv('IMAGEKIT_PRIVATE_KEY', 'private_test');
+    vi.stubEnv('IMAGEKIT_URL_ENDPOINT', 'https://ik.imagekit.io/test');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, arrayBuffer: async () => new Uint8Array([1, 2]).buffer }));
+    mocks.transcribe.mockResolvedValue('hello');
+    const deliveredUrl = 'https://ik.imagekit.io/test/telegram-media/test.mp4';
+    await expect(verifyUploadedVideoSpeech(deliveredUrl, 'សួស្តី')).rejects.toMatchObject({ speechVerification: { passed: false, transcript: 'hello' } });
+    expect(mocks.transcribe).toHaveBeenCalledTimes(3);
+  });
   it('retries ImageKit extraction and routes persistent failures to manual review', async () => {
     vi.stubEnv('IMAGEKIT_PUBLIC_KEY', 'public_test');
     vi.stubEnv('IMAGEKIT_PRIVATE_KEY', 'private_test');
