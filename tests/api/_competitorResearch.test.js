@@ -865,3 +865,18 @@ it('batches the Facebook/TikTok profile lookup instead of listing every missing-
   expect(result.competitors.find((c) => c.name === 'Academy 1').facebookUrl).toBe('https://www.facebook.com/academy1');
   expect(result.competitors.find((c) => c.name === 'Academy 8').facebookUrl).toBe('https://www.facebook.com/academy8');
 });
+
+it('excludes weaker-presence competitors from the results while keeping stronger and similar ones', async () => {
+  mocks.webSearch.mockResolvedValue({ content: JSON.stringify({
+    competitors: [
+      { name: 'Big Rival', isDirectCompetitor: true, matchConfidence: 'high', matchReason: 'Same category, customers, and market', marketPresence: 'stronger', positioning: '', sourceUrl: 'https://big-rival.example.com' },
+      { name: 'Peer Rival', isDirectCompetitor: true, matchConfidence: 'high', matchReason: 'Same category, customers, and market', marketPresence: 'similar', positioning: '', sourceUrl: 'https://peer-rival.example.com' },
+      { name: 'Small Rival', isDirectCompetitor: true, matchConfidence: 'high', matchReason: 'Same category, customers, and market', marketPresence: 'weaker', positioning: '', sourceUrl: 'https://small-rival.example.com' },
+    ],
+  }) });
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+
+  const result = await researchCompetitors({ query: 'cafes Phnom Penh' });
+
+  expect(result.competitors.map((c) => c.name)).toEqual(['Big Rival', 'Peer Rival']);
+});

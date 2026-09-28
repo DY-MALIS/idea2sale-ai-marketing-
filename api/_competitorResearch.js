@@ -543,7 +543,11 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
     ]);
     const facebookUrl = item.facebookUrl || derivedFacebookPageUrl(activityChecks) || '';
     return hasActivityWindow ? { ...item, facebookUrl, tiktokUrl, linkedinUrl, recentActivities: activityChecks.filter(Boolean), lastKnownActivity } : { name: item.name, matchReason: item.matchReason, marketPresence: item.marketPresence, positioning: item.positioning, facebookUrl, tiktokUrl, linkedinUrl, sourceUrl: item.sourceUrl };
-  })).filter(Boolean);
+  }))
+    // Requested: only surface competitors at least as established as the
+    // target -- a "weaker" one is still real and still gets found/verified
+    // above (marketPresence is genuinely useful signal), just not shown.
+    .filter((item) => item && item.marketPresence !== 'weaker');
 
   return {
     isSpecificEntity: !!discoveryParsed?.isSpecificEntity,
