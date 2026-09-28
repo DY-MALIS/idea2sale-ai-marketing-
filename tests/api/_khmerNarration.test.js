@@ -78,6 +78,14 @@ describe('Khmer narration', () => {
     mocks.text.mockResolvedValue('Hello');
     await expect(createKhmerNarration('product')).rejects.toThrow('Khmer narration');
   });
+  it('retries once when a script leaves an English loanword unspelled, pointing the retry at that exact word', async () => {
+    mocks.text.mockResolvedValueOnce('សួស្តី automation។').mockResolvedValueOnce('សួស្តី អូតូម៉ាស្យូង។');
+    const result = await createKhmerNarration('automation tips');
+    expect(result).toBe('សួស្តី អូតូម៉ាស្យូង។');
+    expect(mocks.text).toHaveBeenCalledTimes(2);
+    expect(mocks.text.mock.calls[1][0].prompt).toContain('automation');
+    expect(mocks.text.mock.calls[1][0].prompt).toContain('Latin letters');
+  });
   it('requests a fuller 8-second narration instead of a short hook', async () => {
     mocks.text.mockResolvedValue('\u1780');
     await createKhmerNarration('competitor research', 8, 'DGACADEMY');
