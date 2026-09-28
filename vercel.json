@@ -28,10 +28,6 @@
     {
       "path": "/api/tiktok/publish?action=youtubeCron",
       "schedule": "0 6 * * *"
-    },
-    {
-      "path": "/api/tiktok/publish?action=instagramCron",
-      "schedule": "0 7 * * *"
     }
   ],
   "rewrites": [

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Calendar, Bot, Zap, Plus, Sparkles, Clock, X, Send, Instagram, Share2, Loader2, AlertCircle, Upload, Youtube, Facebook } from 'lucide-react';
+import { Calendar, Bot, Zap, Plus, Sparkles, Clock, X, Send, Share2, Loader2, AlertCircle, Upload, Youtube, Facebook } from 'lucide-react';
 import { formatImageKitUploadError } from '../../shared/imageKitError.js';
 import AITrainer from './AITrainer';
 import Suggestions from './Suggestions';
@@ -85,7 +85,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   const [showTelegramFileInput, setShowTelegramFileInput] = useState(false);
   // Every platform whose auto-post reuses the one shared "video above" field
   // (Telegram also reuses it, but through its own optional field below).
-  const hasSharedVideoField = platforms.includes('TIKTOK') || platforms.includes('YOUTUBE') || platforms.includes('FACEBOOK') || platforms.includes('INSTAGRAM');
+  const hasSharedVideoField = platforms.includes('TIKTOK') || platforms.includes('YOUTUBE') || platforms.includes('FACEBOOK');
   const [scheduledTime, setScheduledTime] = useState(() => {
     const nextHour = new Date();
     nextHour.setHours(nextHour.getHours() + 1);
@@ -352,7 +352,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
 
     const userToUse = user || (isDemoMode ? { uid: 'demo-user' } : null);
 
-    const requiresVideo = platforms.includes('TIKTOK') || platforms.includes('YOUTUBE') || platforms.includes('INSTAGRAM');
+    const requiresVideo = platforms.includes('TIKTOK') || platforms.includes('YOUTUBE');
     // Telegram can post text-only or media-only, so it's the one case where a
     // blank caption is fine -- but only when it's the *sole* destination and
     // has its own media, since a combined post still needs a caption/title
@@ -488,7 +488,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
             status: 'PENDING',
             userId: userToUse.uid,
             aiSuggested: false,
-            videoUrl: ['TIKTOK', 'YOUTUBE', 'FACEBOOK', 'INSTAGRAM'].includes(platform) ? videoUrl : '',
+            videoUrl: ['TIKTOK', 'YOUTUBE', 'FACEBOOK'].includes(platform) ? videoUrl : '',
             videoName: videoFile?.name || null,
             mediaUrl: '',
             mediaName: null,
@@ -499,9 +499,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                 ? 'YOUTUBE_AUTO_POST'
                 : platform === 'FACEBOOK'
                   ? 'FACEBOOK_AUTO_POST'
-                  : platform === 'INSTAGRAM'
-                    ? 'INSTAGRAM_AUTO_POST'
-                    : 'PLANNED_ONLY',
+                  : 'PLANNED_ONLY',
             createdAt: serverTimestamp()
           });
           void recordAuditEvent('scheduled_post_created', {
@@ -676,7 +674,6 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                         {[
                           { id: 'TIKTOK', icon: Share2 },
                           { id: 'YOUTUBE', icon: Youtube },
-                          { id: 'INSTAGRAM', icon: Instagram },
                           { id: 'FACEBOOK', icon: Facebook },
                           { id: 'TELEGRAM', icon: Send }
                         ].map((p) => (
@@ -719,7 +716,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                             : 'Video'}
                       </label>
                       <input
-                        required={platforms.includes('TIKTOK') || platforms.includes('YOUTUBE') || platforms.includes('INSTAGRAM')}
+                        required={platforms.includes('TIKTOK') || platforms.includes('YOUTUBE')}
                         type="file"
                         accept="video/mp4,video/quicktime,video/webm"
                         onChange={(e) => setVideoFile(e.target.files?.[0] || null)}
@@ -771,12 +768,6 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                       >
                         Connect YouTube
                       </button>
-                    </div>
-                  )}
-                  {platforms.includes('INSTAGRAM') && (
-                    <div className="p-3 bg-fuchsia-50 dark:bg-fuchsia-900/30 border border-fuchsia-200 dark:border-fuchsia-800/60 rounded-xl flex items-start gap-2 text-fuchsia-600 dark:text-fuchsia-300 text-xs">
-                      <Instagram size={14} className="mt-0.5 shrink-0" />
-                      <p>Instagram posts automatically as a Reel at the scheduled time via your linked Business account, using the video above and this text as the caption -- no manual step needed.</p>
                     </div>
                   )}
                   {platforms.includes('TELEGRAM') && (

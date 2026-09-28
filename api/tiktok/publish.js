@@ -3,9 +3,8 @@ import { Receiver } from '@upstash/qstash';
 import admin, { initFirebaseAdmin } from '../_firebaseAdmin.js';
 import { logAudit } from '../_audit.js';
 import { getCookie, getAutomationAccessToken, recordTikTokPostSync, scheduleTikTokQStashDelivery, markAutomationTokenRevoked } from '../_tiktok.js';
-import { claimPendingPost, findRecentDuplicateTikTokPost, findRecentDuplicateFacebookPost, findRecentDuplicateYouTubePost, findRecentDuplicateInstagramPost } from '../_telegramClaim.js';
+import { claimPendingPost, findRecentDuplicateTikTokPost, findRecentDuplicateFacebookPost, findRecentDuplicateYouTubePost } from '../_telegramClaim.js';
 import { getYouTubeAutomationAccessToken, publishVideoToYouTube } from '../_youtube.js';
-import { publishToInstagram } from '../_instagram.js';
 import { notifyAdmins } from '../_alert.js';
 
 // Vercel's Hobby plan caps a deployment at 12 serverless functions; this file
@@ -897,116 +896,6 @@ async function runYouTubeCron(req, res) {
   }
 }
 
-// Claims and publishes exactly one due INSTAGRAM scheduled_posts doc -- mirrors
-// deliverOneScheduledFacebookPost above. Reuses the same FACEBOOK_PAGE_ACCESS_TOKEN
-// as Facebook: an Instagram Business account linked to that Page is managed
-// through the Page's own token (with instagram_basic/instagram_content_publish
-// granted), not a separate Instagram-specific token.
-async function deliverOneScheduledInstagramPost(db, docRef) {
-  const claim = await claimPendingPost(db, docRef);
-  if (!claim.post) return { ok: true, skipped: true };
-  const post = claim.post;
-
-  const duplicateId = await findRecentDuplicateInstagramPost(db, post);
-  if (duplicateId) {
-    await docRef.update({
-      status: 'PUBLISHED',
-      instagramMediaId: null,
-      publishedAt: admin.firestore.FieldValue.serverTimestamp(),
-      duplicateSkipped: true,
-      errorMessage: `Skipped -- duplicate of already-published post ${duplicateId}`,
-    });
-    return { ok: true, skippedDuplicate: duplicateId };
-  }
-
-  try {
-    const { mediaId } = await publishToInstagram({
-      igUserId: process.env.INSTAGRAM_BUSINESS_ACCOUNT_ID,
-      accessToken: process.env.FACEBOOK_PAGE_ACCESS_TOKEN,
-      caption: post.content,
-      mediaUrl: post.videoUrl || post.mediaUrl,
-    });
-    await docRef.update({
-      status: 'PUBLISHED',
-      instagramMediaId: mediaId,
-      publishedAt: admin.firestore.FieldValue.serverTimestamp(),
-      errorMessage: null,
-      instagramErrorCode: null,
-    });
-    return { ok: true, mediaId };
-  } catch (error) {
-    await docRef.update({
-      status: 'FAILED',
-      errorMessage: error?.message || 'Instagram publish failed.',
-      instagramErrorCode: error?.code || null,
-      failedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-    return { ok: false, error: error?.message || 'Instagram publish failed.' };
-  }
-}
-
-// Auto-publishes due Instagram posts created via Smart Scheduler
-// (SchedulerHub.tsx, platform INSTAGRAM). Invoked by vercel.json's cron, same
-// shared-secret check as runTikTokCron above.
-async function runInstagramCron(req, res) {
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) {
-    console.error('CRON_SECRET is not configured; refusing to run the scheduled Instagram poller.');
-    return res.status(500).json({ error: 'CRON_SECRET is not configured on the server.' });
-  }
-  const auth = req.headers.authorization || '';
-  const querySecret = req.query?.secret;
-  if (auth !== `Bearer ${cronSecret}` && querySecret !== cronSecret) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-
-  const db = initFirebaseAdmin();
-  const nowIso = new Date().toISOString();
-
-  try {
-    const staleCutoff = Date.now() - STALE_PROCESSING_MS;
-    const stuckSnapshot = await db.collection('scheduled_posts')
-      .where('platform', '==', 'INSTAGRAM')
-      .where('status', '==', 'PROCESSING')
-      .get();
-    await Promise.all(stuckSnapshot.docs.map(async (stuckDoc) => {
-      const processingAtMs = stuckDoc.data()?.processingAt?.toMillis?.();
-      if (typeof processingAtMs !== 'number' || processingAtMs >= staleCutoff) return;
-      await db.runTransaction(async (tx) => {
-        const freshSnap = await tx.get(stuckDoc.ref);
-        const freshData = freshSnap.data();
-        const freshProcessingAtMs = freshData?.processingAt?.toMillis?.();
-        if (freshData?.status === 'PROCESSING' && freshProcessingAtMs === processingAtMs) {
-          tx.update(stuckDoc.ref, { status: 'PENDING' });
-        }
-      });
-    }));
-
-    const snapshot = await db.collection('scheduled_posts')
-      .where('platform', '==', 'INSTAGRAM')
-      .where('status', '==', 'PENDING')
-      .limit(10)
-      .get();
-
-    const dueDocs = snapshot.docs
-      .filter((doc) => String(doc.data()?.scheduledTime || '') <= nowIso)
-      .sort((a, b) => String(a.data()?.scheduledTime || '').localeCompare(String(b.data()?.scheduledTime || '')))
-      .slice(0, 3); // video container processing can take a while -- keep each tick small
-
-    const results = [];
-    for (const doc of dueDocs) {
-      results.push(await deliverOneScheduledInstagramPost(db, doc.ref));
-    }
-
-    return res.status(200).json({ ok: true, checkedAt: nowIso, processed: results.length, results });
-  } catch (error) {
-    const message = error?.message || 'Instagram cron failed.';
-    console.error('Instagram cron failed:', message);
-    await notifyAdmins(`Instagram auto-publish cron crashed: ${message}`);
-    return res.status(500).json({ error: message });
-  }
-}
-
 export default async function handler(req, res) {
   if (req.query?.action === 'cron') {
     return runTikTokCron(req, res);
@@ -1018,10 +907,6 @@ export default async function handler(req, res) {
 
   if (req.query?.action === 'youtubeCron') {
     return runYouTubeCron(req, res);
-  }
-
-  if (req.query?.action === 'instagramCron') {
-    return runInstagramCron(req, res);
   }
 
   if (req.query?.action === 'deliver') {
