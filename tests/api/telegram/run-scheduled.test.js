@@ -276,6 +276,8 @@ describe('postTelegramMessage (the "send now"/live-polling immediate-send path)'
     process.env.TELEGRAM_BOT_TOKEN = 'shared-token';
     process.env.TELEGRAM_CHAT_ID = 'shared-chat';
     process.env.FIREBASE_PROJECT_ID = 'test-project';
+    process.env.FIREBASE_CLIENT_EMAIL = 'test@example.com';
+    process.env.FIREBASE_PRIVATE_KEY = 'test-key';
     mockVerifyIdToken.mockResolvedValueOnce({ uid: 'u1' });
     mockGetFirestore.mockReturnValue(fakeDbWithProfile({ telegramBotToken: 'own-token', telegramChatId: 'own-chat' }));
     global.fetch = vi.fn().mockResolvedValue({ ok: true, text: async () => JSON.stringify({ ok: true, result: { message_id: 42 } }) });

@@ -1,6 +1,7 @@
 import { startKhmerVideoJob } from '../_khmerVideo.js';
 import admin from 'firebase-admin';
-import { FieldValue, getFirestore } from 'firebase-admin/firestore';
+import { FieldValue } from 'firebase-admin/firestore';
+import { initFirebaseAdmin } from '../_firebaseAdmin.js';
 import { createHash } from 'crypto';
 import { Client as QStashClient } from '@upstash/qstash';
 import sharp from 'sharp';
@@ -21,7 +22,7 @@ import {
   uploadMediaDataUrl as uploadImageKitMediaDataUrl,
 } from '../_imagekitUpload.js';
 
-export { applyImageKitDeliveryTransform, applyImageKitLogoOverlay };
+export { applyImageKitDeliveryTransform, applyImageKitLogoOverlay, initFirebaseAdmin };
 
 export const GENERATED_VIDEO_STATUSES = Object.freeze(['DONE', 'PROCESSING', 'REVIEW']);
 
@@ -107,34 +108,6 @@ export const telegramTextFor = (text, limit) => {
     else hi = mid - 1;
   }
   return `${formatTelegramHtml(raw.slice(0, lo))}…`;
-};
-
-export const initFirebaseAdmin = () => {
-  const projectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID;
-  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
-  const databaseId = process.env.FIREBASE_FIRESTORE_DATABASE_ID || process.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID;
-
-  if (!projectId) {
-    throw new Error('FIREBASE_PROJECT_ID is not configured.');
-  }
-
-  if (admin.apps.length) {
-    const app = admin.app();
-    return databaseId ? getFirestore(app, databaseId) : getFirestore(app);
-  }
-
-  let app;
-  if (clientEmail && privateKey) {
-    app = admin.initializeApp({
-      credential: admin.credential.cert({ projectId, clientEmail, privateKey }),
-      projectId
-    });
-  } else {
-    app = admin.initializeApp({ projectId });
-  }
-
-  return databaseId ? getFirestore(app, databaseId) : getFirestore(app);
 };
 
 const verifyUser = async (req) => {

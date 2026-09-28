@@ -5,9 +5,9 @@ import axios from "axios";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import dotenv from "dotenv";
-import { getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
-import { FieldValue, getFirestore, type Firestore } from "firebase-admin/firestore";
+import { FieldValue, type Firestore } from "firebase-admin/firestore";
+import { initFirebaseAdmin } from "./api/_firebaseAdmin.js";
 import runScheduledHandler from "./api/telegram/run-scheduled.js";
 import telegramWebhookHandler from "./api/telegram/webhook.js";
 import telegramDeliverHandler from "./api/telegram/deliver.js";
@@ -57,24 +57,16 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  // Load Firebase Config
+  // Load Firebase Config. Delegates to the same initFirebaseAdmin used by
+  // every api/*.js handler -- this used to call initializeApp({ projectId })
+  // directly with no service-account credential, which left every Firestore
+  // call in this dev server resolving auth via Application Default
+  // Credentials (never available locally or on Vercel) instead of the
+  // configured FIREBASE_CLIENT_EMAIL/FIREBASE_PRIVATE_KEY, failing with a
+  // generic "Could not load the default credentials" error.
   try {
-    const firebaseProjectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID;
-    const firestoreDatabaseId = process.env.FIREBASE_FIRESTORE_DATABASE_ID || process.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID;
-    if (firebaseProjectId) {
-      if (getApps().length === 0) {
-        initializeApp({
-          projectId: firebaseProjectId,
-        });
-      }
-      firestoreDb = getFirestore();
-      if (firestoreDatabaseId) {
-        firestoreDb.settings({ databaseId: firestoreDatabaseId });
-      }
-      console.log("✅ Firebase Admin synchronized.");
-    } else {
-      console.warn("Firebase Admin skipped: FIREBASE_PROJECT_ID is not configured.");
-    }
+    firestoreDb = initFirebaseAdmin();
+    console.log("✅ Firebase Admin synchronized.");
   } catch (err) {
     console.error("❌ Firebase setup failed:", err);
   }

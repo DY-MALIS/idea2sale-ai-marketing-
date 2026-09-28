@@ -16,15 +16,19 @@ export const initFirebaseAdmin = () => {
     return databaseId ? getFirestore(app, databaseId) : getFirestore(app);
   }
 
-  let app;
-  if (clientEmail && privateKey) {
-    app = admin.initializeApp({
-      credential: admin.credential.cert({ projectId, clientEmail, privateKey }),
-      projectId,
-    });
-  } else {
-    app = admin.initializeApp({ projectId });
+  if (!clientEmail || !privateKey) {
+    // Silently falling back to admin.initializeApp({ projectId }) here used to
+    // leave Firestore/Auth calls resolving credentials via Application Default
+    // Credentials, which Vercel's serverless environment never has -- every
+    // call then failed with a generic, hard-to-trace "Could not load the
+    // default credentials" instead of naming the actual missing env vars.
+    throw new Error('Firebase service account credentials are not configured: set FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY.');
   }
+
+  const app = admin.initializeApp({
+    credential: admin.credential.cert({ projectId, clientEmail, privateKey }),
+    projectId,
+  });
 
   return databaseId ? getFirestore(app, databaseId) : getFirestore(app);
 };
