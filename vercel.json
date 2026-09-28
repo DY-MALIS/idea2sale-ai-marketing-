@@ -22,10 +22,6 @@
       "schedule": "0 4 * * *"
     },
     {
-      "path": "/api/tiktok/publish?action=facebookCron",
-      "schedule": "0 5 * * *"
-    },
-    {
       "path": "/api/tiktok/publish?action=youtubeCron",
       "schedule": "0 6 * * *"
     }

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Calendar, Bot, Zap, Plus, Sparkles, Clock, X, Send, Share2, Loader2, AlertCircle, Upload, Youtube, Facebook } from 'lucide-react';
+import { Calendar, Bot, Zap, Plus, Sparkles, Clock, X, Send, Share2, Loader2, AlertCircle, Upload, Youtube } from 'lucide-react';
 import { formatImageKitUploadError } from '../../shared/imageKitError.js';
 import AITrainer from './AITrainer';
 import Suggestions from './Suggestions';
@@ -85,7 +85,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   const [showTelegramFileInput, setShowTelegramFileInput] = useState(false);
   // Every platform whose auto-post reuses the one shared "video above" field
   // (Telegram also reuses it, but through its own optional field below).
-  const hasSharedVideoField = platforms.includes('TIKTOK') || platforms.includes('YOUTUBE') || platforms.includes('FACEBOOK');
+  const hasSharedVideoField = platforms.includes('TIKTOK') || platforms.includes('YOUTUBE');
   const [scheduledTime, setScheduledTime] = useState(() => {
     const nextHour = new Date();
     nextHour.setHours(nextHour.getHours() + 1);
@@ -488,7 +488,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
             status: 'PENDING',
             userId: userToUse.uid,
             aiSuggested: false,
-            videoUrl: ['TIKTOK', 'YOUTUBE', 'FACEBOOK'].includes(platform) ? videoUrl : '',
+            videoUrl: ['TIKTOK', 'YOUTUBE'].includes(platform) ? videoUrl : '',
             videoName: videoFile?.name || null,
             mediaUrl: '',
             mediaName: null,
@@ -497,9 +497,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
               ? (tiktokDeliveryMode === 'inbox' ? 'TIKTOK_UPLOAD_DRAFT' : 'TIKTOK_DIRECT_POST')
               : platform === 'YOUTUBE'
                 ? 'YOUTUBE_AUTO_POST'
-                : platform === 'FACEBOOK'
-                  ? 'FACEBOOK_AUTO_POST'
-                  : 'PLANNED_ONLY',
+                : 'PLANNED_ONLY',
             createdAt: serverTimestamp()
           });
           void recordAuditEvent('scheduled_post_created', {
@@ -674,7 +672,6 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                         {[
                           { id: 'TIKTOK', icon: Share2 },
                           { id: 'YOUTUBE', icon: Youtube },
-                          { id: 'FACEBOOK', icon: Facebook },
                           { id: 'TELEGRAM', icon: Send }
                         ].map((p) => (
                           <button
@@ -747,12 +744,6 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                           ? 'At the scheduled time, the video goes to your TikTok inbox. Open the notification in TikTok to review and publish it; the caption must be added there.'
                           : 'TikTok may reject public Direct Post while the app audit is under review. Choose Upload to TikTok until approval.'}
                       </p>
-                    </div>
-                  )}
-                  {platforms.includes('FACEBOOK') && (
-                    <div className="p-3 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800/60 rounded-xl flex items-start gap-2 text-blue-600 dark:text-blue-300 text-xs">
-                      <Facebook size={14} className="mt-0.5 shrink-0" />
-                      <p>Facebook posts automatically at the scheduled time to the connected Page, using the video above and this text as the caption -- no manual step needed.</p>
                     </div>
                   )}
                   {platforms.includes('YOUTUBE') && (
