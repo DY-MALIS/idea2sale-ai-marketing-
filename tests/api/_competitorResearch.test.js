@@ -813,3 +813,55 @@ it('never derives a Facebook Page link from a reel-only URL (no Page slug in the
 
   expect(result.competitors[0].facebookUrl).toBe('');
 });
+
+it('batches the Facebook/TikTok profile lookup instead of listing every missing-platform competitor in one call', async () => {
+  const names = Array.from({ length: 8 }, (_, index) => `Academy ${index + 1}`);
+  queueDiscoveryTimes({ content: JSON.stringify({
+    competitors: names.map((name) => ({
+      name,
+      isDirectCompetitor: true,
+      matchConfidence: 'high',
+      matchReason: 'Same category, customers, and market',
+      positioning: '',
+      sourceUrl: `https://${name.toLowerCase().replace(' ', '-')}.example.com`,
+    })),
+  }) });
+  // Non-empty but unrelated to any candidate, so the main activity search
+  // counts as "usable" in one attempt instead of retrying into emptiness.
+  mocks.webSearch.mockResolvedValueOnce({ content: JSON.stringify({ activities: [
+    { competitorName: 'Some Other Business', date: '2026-09-16', activity: 'Unrelated post', sourceUrl: 'https://example.com/post' },
+  ] }) });
+  // 8 candidates missing both platforms, batch size 6 -> 2 batches each for
+  // Facebook and TikTok (6 + 2), in that order (Facebook's batches first).
+  mocks.webSearch
+    .mockResolvedValueOnce({ content: JSON.stringify({
+      profiles: [{ competitorName: 'Academy 1', profileUrl: 'https://www.facebook.com/academy1' }],
+      activities: [],
+    }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({
+      profiles: [{ competitorName: 'Academy 8', profileUrl: 'https://www.facebook.com/academy8' }],
+      activities: [],
+    }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({ profiles: [], activities: [] }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({ profiles: [], activities: [] }) });
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+
+  const result = await researchCompetitors({
+    query: 'business training academies',
+    activityStartDate: '2026-09-12',
+    activityEndDate: '2026-09-18',
+  });
+
+  // 3 discovery + 1 main activity + 2 Facebook batches + 2 TikTok batches.
+  expect(mocks.webSearch).toHaveBeenCalledTimes(8);
+  const facebookBatch1 = mocks.webSearch.mock.calls[4][0].prompt;
+  const facebookBatch2 = mocks.webSearch.mock.calls[5][0].prompt;
+  expect(facebookBatch1).toContain('Academy 1');
+  expect(facebookBatch1).not.toContain('Academy 8');
+  expect(facebookBatch2).toContain('Academy 8');
+  expect(facebookBatch2).not.toContain('Academy 1');
+  // Both the batch-1 and batch-2 discovered profiles survive, proving results
+  // from separate batches merge back into the same candidate pool correctly.
+  expect(result.competitors.find((c) => c.name === 'Academy 1').facebookUrl).toBe('https://www.facebook.com/academy1');
+  expect(result.competitors.find((c) => c.name === 'Academy 8').facebookUrl).toBe('https://www.facebook.com/academy8');
+});

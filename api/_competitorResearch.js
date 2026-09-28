@@ -16,6 +16,14 @@ export { socialPlatformFromUrl };
 const MAX_COMPETITOR_CANDIDATES = 75;
 const URL_VERIFICATION_CONCURRENCY = 8;
 const MAX_ACTIVITIES_PER_COMPETITOR = 14;
+// The Facebook-only/TikTok-only profile+activity pass used to list every
+// missing-platform competitor (up to 50) in one search call -- the same
+// budget-dilution symptom the discovery stage had (see discoveryFocuses):
+// with many businesses sharing one call, the search plugin's budget spreads
+// too thin per business, and a real official Page/profile URL a business
+// does have can go unfound. Batching into small groups run concurrently
+// gives each business closer to its own dedicated search budget.
+const SOCIAL_LOOKUP_BATCH_SIZE = 6;
 const DISCOVERY_MAX_RESULTS = 30;
 const DISCOVERY_MAX_TOKENS = 12000;
 // A single non-agentic web-search call resolves its search queries once, from
@@ -418,13 +426,19 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
       competitorKey(candidate.name),
       { facebookUrl: candidate.facebookUrl, tiktokUrl: candidate.tiktokUrl },
     ]));
-    const socialSearches = await Promise.allSettled(['Facebook', 'TikTok'].map(async (platform) => {
+    const socialSearchTasks = ['Facebook', 'TikTok'].flatMap((platform) => {
       const missingPlatform = activityLookupCandidates.filter((candidate) => (
         !(candidate.recentActivities || []).some((activity) => activity.platform === platform)
       ));
-      if (!missingPlatform.length) return { platform, parsed: null };
+      const batches = [];
+      for (let i = 0; i < missingPlatform.length; i += SOCIAL_LOOKUP_BATCH_SIZE) {
+        batches.push(missingPlatform.slice(i, i + SOCIAL_LOOKUP_BATCH_SIZE));
+      }
+      return batches.map((batch) => ({ platform, batch }));
+    });
+    const socialSearches = await Promise.allSettled(socialSearchTasks.map(async ({ platform, batch }) => {
       const response = await generateOpenRouterWebSearch({
-        prompt: buildActivityPrompt(missingPlatform, { platformOnly: platform }),
+        prompt: buildActivityPrompt(batch, { platformOnly: platform }),
         maxResults: ACTIVITY_MAX_RESULTS,
         maxTokens: ACTIVITY_MAX_TOKENS,
       });
