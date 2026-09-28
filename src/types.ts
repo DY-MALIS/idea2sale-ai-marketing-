@@ -93,6 +93,7 @@ export interface FacebookPotentialLead {
   businessType: string;
   needSignals: string[];
   facebookUrl: string;
+  tiktokUrl?: string;
   linkedinUrl?: string;
   facebookPageName?: string;
   address?: string;

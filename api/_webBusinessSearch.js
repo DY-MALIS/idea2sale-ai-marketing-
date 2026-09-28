@@ -16,7 +16,7 @@
 import { generateOpenRouterWebSearch } from './_openrouter.js';
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
-import { isSupportedPublicSocialUrl } from './_socialUrls.js';
+import { isSupportedPublicSocialUrl, validTikTokUrl } from './_socialUrls.js';
 
 const MAX_BUSINESS_CANDIDATES = 75;
 const URL_VERIFICATION_CONCURRENCY = 8;
@@ -191,7 +191,7 @@ export async function searchBusinessesOnWeb({ searchTerms, searchObjective = '',
   const searchFocuses = [
     'Prioritize Google/Apple map listings and local business directories. Search city, district, province, and nearby-area variations.',
     'Prioritize official websites and contact pages. Search English, Khmer/local-language spellings, abbreviations, and transliterations.',
-    'Prioritize real Facebook business Pages, Instagram business profiles, LinkedIn organization pages, and other public business social profiles. Never use personal profiles.',
+    'Prioritize real Facebook business Pages, Instagram business profiles, official TikTok @profiles (site:tiktok.com), LinkedIn organization pages, and other public business social profiles. Never use personal profiles.',
     'Prioritize industry associations, marketplaces, review sites, category lists, event/vendor directories, and credible local news that may reveal businesses missed by map and official-site searches.',
   ];
   const buildPrompt = (focus) => `Search the live web for REAL businesses and organizations in ${country} matching the user's exact request: "${searchTerms}".
@@ -218,7 +218,7 @@ When the search request provides a list of exact company, Facebook Page, or Link
 
 Only include a business if you found it in an actual search result. Never invent a business, address, phone number, or website. If a field genuinely was not in the search result, leave it as an empty string rather than guessing.
 
-Also include, whenever you actually find them in a search result: the business's public contact email, its Telegram channel/contact name plus username or t.me link, its Facebook Page/channel name and URL, and its official LinkedIn company/school page URL. Search LinkedIn organization pages as an additional competitor source, but never collect personal LinkedIn profiles. Never guess or construct these -- leave any of them blank if not explicitly present in a search result.
+Also include, whenever you actually find them in a search result: the business's public contact email, its Telegram channel/contact name plus username or t.me link, its Facebook Page/channel name and URL, its official TikTok @profile URL, and its official LinkedIn company/school page URL. Search LinkedIn organization pages and official TikTok @profiles as additional sources, but never collect personal LinkedIn profiles or an unrelated creator's TikTok account. Never guess or construct these -- leave any of them blank if not explicitly present in a search result.
 
 Return ONLY a single valid JSON object, no markdown, in this exact shape:
 {
@@ -235,6 +235,7 @@ Return ONLY a single valid JSON object, no markdown, in this exact shape:
       "website": "website URL if found, else empty string",
       "facebookPageName": "exact Facebook Page/channel name if found, else empty string",
       "facebookPageUrl": "Facebook Page URL if found, else empty string",
+      "tiktokUrl": "official TikTok @profile URL if found, else empty string",
       "linkedinUrl": "official LinkedIn company/school page URL if found, else empty string",
       "recentActivities": [
         { "date": "YYYY-MM-DD", "activity": "specific public post, ad, offer, event, campaign, or hiring announcement", "jobTitle": "exact advertised job title when this is a hiring result, else empty string", "sourceUrl": "direct public URL proving this activity and date" }
@@ -274,6 +275,7 @@ If you find no real businesses, return {"businesses": []}.`;
         && !/^https?:\/\//i.test(telegram)
         && !/[\u0000-\u001F\u007F<>]/u.test(telegram);
       const facebookPageUrl = String(item?.facebookPageUrl || '').trim().slice(0, 300);
+      const tiktokUrl = String(item?.tiktokUrl || '').trim().slice(0, 300);
       const linkedinUrl = String(item?.linkedinUrl || '').trim().slice(0, 300);
       const recentActivities = (Array.isArray(item?.recentActivities) ? item.recentActivities : [])
         .map((activity) => ({
@@ -304,6 +306,7 @@ If you find no real businesses, return {"businesses": []}.`;
         website: String(item?.website || '').trim().slice(0, 300),
         facebookPageName: String(item?.facebookPageName || '').trim().slice(0, 200),
         facebookPageUrl: /^https:\/\/(?:(?:www|m)\.)?(?:facebook\.com|fb\.com)\//i.test(facebookPageUrl) ? facebookPageUrl : '',
+        tiktokUrl: validTikTokUrl(tiktokUrl) ? tiktokUrl : '',
         linkedinUrl: /^https:\/\/(?:[a-z0-9-]+\.)?linkedin\.com\/(?:company|school|showcase)\//i.test(linkedinUrl) ? linkedinUrl : '',
         ...(activityWindow ? { recentActivities } : {}),
         sourceUrl: String(item?.sourceUrl || '').trim().slice(0, 300),
@@ -333,6 +336,7 @@ If you find no real businesses, return {"businesses": []}.`;
         website: existing.website || item.website,
         facebookPageName: existing.facebookPageName || item.facebookPageName,
         facebookPageUrl: existing.facebookPageUrl || item.facebookPageUrl,
+        tiktokUrl: existing.tiktokUrl || item.tiktokUrl,
         linkedinUrl: existing.linkedinUrl || item.linkedinUrl,
         sourceUrl: existing.sourceUrl || item.sourceUrl,
         ...(activityWindow ? { recentActivities } : {}),

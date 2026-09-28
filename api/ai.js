@@ -1561,6 +1561,7 @@ Return ONLY a single valid JSON object with this exact structure:
             serviceOrJobType: sourceWebBiz.serviceOrJobType || sourceWebBiz.businessType || '',
             pageName: '',
             facebookUrl: sourceWebBiz.facebookPageUrl || '',
+            tiktokUrl: sourceWebBiz.tiktokUrl || '',
             linkedinUrl: sourceWebBiz.linkedinUrl || '',
             facebookPageName: sourceWebBiz.facebookPageName || '',
             email: sourceWebBiz.email || '',
