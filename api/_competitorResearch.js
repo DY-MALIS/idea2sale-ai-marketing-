@@ -172,19 +172,26 @@ export async function researchCompetitors({ query, country = 'Cambodia', country
   const hasActivityWindow = /^\d{4}-\d{2}-\d{2}$/.test(activityStartDate)
     && /^\d{4}-\d{2}-\d{2}$/.test(activityEndDate)
 
-  // STAGE 1 -- discovery. One combined search across every source group finds
-  // the real competitor names; it deliberately does not ask for activity yet
-  // (see the note on searchWithRetry below for why that has to wait).
-  const discoveryPrompt = `Search the live web about "${query}" in ${country}.
+  // STAGE 1 -- discovery. A single combined search across every source group
+  // was tried first and measured live: it reliably spends most of its search
+  // budget on whichever category is easiest to find (usually official sites/
+  // directories) and comes back thin on the others, undercounting real
+  // competitors for smaller/local businesses. Splitting into complementary
+  // focused passes -- run concurrently, then merged by name below -- is the
+  // same fix searchBusinessesOnWeb in _webBusinessSearch.js already uses for
+  // the identical symptom on the customer-lead search. It deliberately does
+  // not ask for activity yet (see the note on searchWithRetry below for why
+  // that has to wait).
+  const discoveryFocuses = [
+    'Official company websites, Google/Apple map results, and local business directories: search the exact category plus the target city, province, and country.',
+    'FACEBOOK: site:facebook.com for real public business Pages (never personal profiles or private content). TIKTOK: site:tiktok.com for official public business profiles (never guess a handle or use an unrelated creator). LINKEDIN: site:linkedin.com/company, site:linkedin.com/school, and public organization pages (never personal profiles).',
+    'Customer review platforms, industry associations, credible local news, comparison lists, event exhibitor lists, marketplaces, and professional directories, to find direct competitors the other source groups miss.',
+  ];
+  const buildDiscoveryPrompt = (focus) => `Search the live web about "${query}" in ${country}.
 
 Step 1 -- Identify the target: determine whether "${query}" is the name of one specific real business/brand/organization, or a general product niche/category (e.g. "skincare", "women's fashion shop"). Base this only on what real search results show -- never guess.
 
-Step 2 -- Find real competitors by searching ALL of these source groups in this same search, not just one of them:
-  - Official company websites, Google/Apple map results, and local business directories: search the exact category plus the target city, province, and country.
-  - FACEBOOK: site:facebook.com for real public business Pages. Return the exact Page URL. Never use personal profiles or private content.
-  - TIKTOK: site:tiktok.com for official public business profiles. Return the exact @profile URL. Never guess a handle and never use an unrelated creator.
-  - LINKEDIN: site:linkedin.com/company, site:linkedin.com/school, and public organization pages. Return the exact organization URL. Never use personal profiles.
-  - Customer review platforms, industry associations, credible local news, comparison lists, event exhibitor lists, marketplaces, and professional directories, to find direct competitors the other groups missed.
+Step 2 -- Find real competitors. SEARCH PASS FOCUS: ${focus}
 
 A business only counts as a competitor if it meets ALL of these:
   (a) Same core industry/category -- it sells the same or a directly substitutable product/service as the target (from Step 1) or the stated niche.
@@ -216,16 +223,28 @@ Return ONLY a single valid JSON object, no markdown:
 }
 If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary": "", "competitors": []}.`;
 
-  const discoveryParsed = await searchWithRetry(discoveryPrompt, {
+  const discoverySettled = await Promise.allSettled(discoveryFocuses.map((focus) => searchWithRetry(buildDiscoveryPrompt(focus), {
     maxResults: DISCOVERY_MAX_RESULTS,
     maxTokens: DISCOVERY_MAX_TOKENS,
     isUsable: (parsed) => parsed?.isSpecificEntity !== undefined
       || (Array.isArray(parsed?.competitors) && parsed.competitors.length > 0),
     onFailure: (lastError) => { throw lastError || new Error('Competitor search failed.'); },
-  });
+  })));
+  const discoveryResults = discoverySettled
+    .filter((settled) => settled.status === 'fulfilled')
+    .map((settled) => settled.value);
+  if (!discoveryResults.length) {
+    const firstFailure = discoverySettled.find((settled) => settled.status === 'rejected');
+    throw firstFailure?.reason || new Error('Competitor search failed.');
+  }
+  // Step 1 (identify the target) is redundant work repeated in every focused
+  // pass -- any pass that actually found something is an equally valid source
+  // for it, so just take the first one with real content instead of
+  // reconciling three separate judgments of the same question.
+  const discoveryParsed = discoveryResults.find((parsed) => parsed?.entitySummary) || discoveryResults[0];
 
   const mergedCandidates = new Map();
-  (Array.isArray(discoveryParsed?.competitors) ? discoveryParsed.competitors : []).forEach((item) => {
+  discoveryResults.flatMap((parsed) => (Array.isArray(parsed?.competitors) ? parsed.competitors : [])).forEach((item) => {
     const facebookUrl = String(item?.facebookUrl || '').trim().slice(0, 300);
     const tiktokUrl = String(item?.tiktokUrl || '').trim().slice(0, 300);
     const linkedinUrl = String(item?.linkedinUrl || '').trim().slice(0, 300);

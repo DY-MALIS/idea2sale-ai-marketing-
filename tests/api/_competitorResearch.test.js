@@ -21,6 +21,15 @@ vi.mock('../../api/_apifySocialActivity.js', () => ({
 
 import { researchCompetitors } from '../../api/_competitorResearch.js';
 
+// Discovery now runs as three concurrent focused search passes (see the
+// comment on discoveryFocuses in _competitorResearch.js) instead of one
+// combined search, so every test below queues three discovery responses
+// instead of one. This helper queues the same payload for all three passes
+// when a test doesn't care about per-pass differences.
+const queueDiscoveryTimes = (payload, times = 3) => {
+  for (let i = 0; i < times; i += 1) mocks.webSearch.mockResolvedValueOnce(payload);
+};
+
 beforeEach(() => {
   mocks.lookup.mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
   // Off by default so existing web-search-only tests are unaffected; tests
@@ -53,7 +62,7 @@ it('returns only competitors whose source URL is real and reachable', async () =
 
   const result = await researchCompetitors({ query: 'DGACADEMY' });
 
-  expect(mocks.webSearch).toHaveBeenCalledTimes(1);
+  expect(mocks.webSearch).toHaveBeenCalledTimes(3);
   expect(result.isSpecificEntity).toBe(true);
   expect(result.entitySummary).toContain('DGACADEMY');
   expect(result.competitors).toEqual([
@@ -82,33 +91,37 @@ it('rejects personal LinkedIn profiles while keeping verified competitors', asyn
   expect(result.competitors[0].linkedinUrl).toBe('');
 });
 
-it('sends one combined discovery search covering every source group and dedupes repeated entries', async () => {
-  mocks.webSearch.mockResolvedValueOnce({
-    content: JSON.stringify({
+it('splits discovery into focused search passes and dedupes entries found across them', async () => {
+  mocks.webSearch
+    .mockResolvedValueOnce({ content: JSON.stringify({
       competitors: [
-        { name: 'Academy A', isDirectCompetitor: true, matchConfidence: 'high', matchReason: 'Same courses and city', positioning: '', sourceUrl: 'https://academy-a.example.com' },
-        { name: 'Academy A', isDirectCompetitor: true, matchConfidence: 'high', matchReason: 'Same courses and city', positioning: 'Professional training', linkedinUrl: 'https://www.linkedin.com/company/academy-a/', sourceUrl: 'https://directory.example.com/academy-a' },
+        { name: 'Academy A', isDirectCompetitor: true, matchConfidence: 'high', matchReason: 'Same courses and city', positioning: '', sourceUrl: 'https://directory.example.com/academy-a' },
+      ],
+    }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({
+      competitors: [
+        { name: 'Academy A', isDirectCompetitor: true, matchConfidence: 'high', matchReason: 'Same courses and city', positioning: 'Professional training', linkedinUrl: 'https://www.linkedin.com/company/academy-a/', sourceUrl: 'https://www.linkedin.com/company/academy-a/' },
+      ],
+    }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({
+      competitors: [
         { name: 'Academy B', isDirectCompetitor: true, matchConfidence: 'high', matchReason: 'Same audience and training category', positioning: '', sourceUrl: 'https://academy-b.example.com' },
       ],
-    }),
-  });
+    }) });
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
 
   const result = await researchCompetitors({ query: 'business training' });
 
-  expect(mocks.webSearch).toHaveBeenCalledTimes(1);
-  const [request] = mocks.webSearch.mock.calls[0];
-  expect(request.prompt).toContain('FACEBOOK:');
-  expect(request.prompt).toContain('TIKTOK:');
-  expect(request.prompt).toContain('LINKEDIN:');
+  expect(mocks.webSearch).toHaveBeenCalledTimes(3);
+  const prompts = mocks.webSearch.mock.calls.map(([request]) => request.prompt);
+  expect(prompts.some((prompt) => prompt.includes('FACEBOOK:') && prompt.includes('TIKTOK:') && prompt.includes('LINKEDIN:'))).toBe(true);
   expect(result.competitors).toHaveLength(2);
-  expect(result.competitors[0]).toMatchObject({
-    name: 'Academy A',
+  expect(result.competitors.find((c) => c.name === 'Academy A')).toMatchObject({
     matchReason: 'Same courses and city',
     positioning: 'Professional training',
     linkedinUrl: 'https://www.linkedin.com/company/academy-a/',
   });
-  expect(result.competitors[1].name).toBe('Academy B');
+  expect(result.competitors.find((c) => c.name === 'Academy B')).toBeTruthy();
 });
 
 it('keeps more than twelve verified competitors when broad discovery finds them', async () => {
@@ -163,7 +176,7 @@ it('never fabricates a competitor -- returns an empty list when the model finds 
 
   const result = await researchCompetitors({ query: 'a totally obscure niche business' });
 
-  expect(mocks.webSearch).toHaveBeenCalledTimes(1);
+  expect(mocks.webSearch).toHaveBeenCalledTimes(3);
   expect(result.competitors).toEqual([]);
   expect(result.isSpecificEntity).toBe(false);
   expect(fetch).not.toHaveBeenCalled();
@@ -186,19 +199,19 @@ it('drops a competitor entry missing a source URL instead of keeping it unverifi
 });
 
 it('keeps only reachable, explicitly dated activity inside the requested 7-day window', async () => {
+  queueDiscoveryTimes({ content: JSON.stringify({
+    isSpecificEntity: true,
+    entitySummary: '',
+    competitors: [{
+      name: 'Competitor A',
+      isDirectCompetitor: true,
+      matchConfidence: 'high',
+      matchReason: 'Same category, customers, and market',
+      positioning: '',
+      sourceUrl: 'https://competitor.example.com',
+    }],
+  }) });
   mocks.webSearch
-    .mockResolvedValueOnce({ content: JSON.stringify({
-      isSpecificEntity: true,
-      entitySummary: '',
-      competitors: [{
-        name: 'Competitor A',
-        isDirectCompetitor: true,
-        matchConfidence: 'high',
-        matchReason: 'Same category, customers, and market',
-        positioning: '',
-        sourceUrl: 'https://competitor.example.com',
-      }],
-    }) })
     .mockResolvedValueOnce({ content: JSON.stringify({
       activities: [
         { competitorName: 'Competitor A', date: '2026-09-14', activity: 'Published a new course offer', sourceUrl: 'https://competitor.example.com/current' },
@@ -219,34 +232,33 @@ it('keeps only reachable, explicitly dated activity inside the requested 7-day w
     activityEndDate: '2026-09-14',
   });
 
-  expect(mocks.webSearch).toHaveBeenCalledTimes(4);
+  expect(mocks.webSearch).toHaveBeenCalledTimes(6);
   expect(result.competitors[0].recentActivities).toEqual([
     { date: '2026-09-14', activity: 'Published a new course offer', sourceUrl: 'https://competitor.example.com/current', platform: 'Web' },
   ]);
 });
 
 it('looks up Facebook/TikTok/LinkedIn activity by exact name only once competitors are known', async () => {
-  mocks.webSearch
-    .mockResolvedValueOnce({ content: JSON.stringify({
-      competitors: [{
-        name: 'Social Academy',
-        isDirectCompetitor: true,
-        matchConfidence: 'high',
-        matchReason: 'Offers the same business training in Cambodia',
-        positioning: 'Practical training',
-        facebookUrl: 'https://www.facebook.com/socialacademy',
-        tiktokUrl: 'https://www.tiktok.com/@socialacademy',
-        linkedinUrl: 'https://www.linkedin.com/company/socialacademy/',
-        sourceUrl: 'https://socialacademy.example.com',
-      }],
-    }) })
-    .mockResolvedValueOnce({ content: JSON.stringify({
-      activities: [
-        { competitorName: 'Social Academy', date: '2026-09-18', activity: 'Posted a course promotion', sourceUrl: 'https://www.facebook.com/socialacademy/posts/123' },
-        { competitorName: 'Social Academy', date: '2026-09-17', activity: 'Published a short training video', sourceUrl: 'https://www.tiktok.com/@socialacademy/video/456' },
-        { competitorName: 'Social Academy', date: '2026-09-16', activity: 'Announced a workshop', sourceUrl: 'https://www.linkedin.com/posts/socialacademy_workshop-activity-789' },
-      ],
-    }) });
+  queueDiscoveryTimes({ content: JSON.stringify({
+    competitors: [{
+      name: 'Social Academy',
+      isDirectCompetitor: true,
+      matchConfidence: 'high',
+      matchReason: 'Offers the same business training in Cambodia',
+      positioning: 'Practical training',
+      facebookUrl: 'https://www.facebook.com/socialacademy',
+      tiktokUrl: 'https://www.tiktok.com/@socialacademy',
+      linkedinUrl: 'https://www.linkedin.com/company/socialacademy/',
+      sourceUrl: 'https://socialacademy.example.com',
+    }],
+  }) });
+  mocks.webSearch.mockResolvedValueOnce({ content: JSON.stringify({
+    activities: [
+      { competitorName: 'Social Academy', date: '2026-09-18', activity: 'Posted a course promotion', sourceUrl: 'https://www.facebook.com/socialacademy/posts/123' },
+      { competitorName: 'Social Academy', date: '2026-09-17', activity: 'Published a short training video', sourceUrl: 'https://www.tiktok.com/@socialacademy/video/456' },
+      { competitorName: 'Social Academy', date: '2026-09-16', activity: 'Announced a workshop', sourceUrl: 'https://www.linkedin.com/posts/socialacademy_workshop-activity-789' },
+    ],
+  }) });
   vi.stubGlobal('fetch', vi.fn(async (url) => ({
     ok: String(url).includes('socialacademy'),
     status: String(url).includes('socialacademy') ? 200 : 403,
@@ -258,12 +270,10 @@ it('looks up Facebook/TikTok/LinkedIn activity by exact name only once competito
     activityEndDate: '2026-09-18',
   });
 
-  expect(mocks.webSearch).toHaveBeenCalledTimes(2);
+  expect(mocks.webSearch).toHaveBeenCalledTimes(4);
   const [discoveryRequest] = mocks.webSearch.mock.calls[0];
-  const [activityRequest] = mocks.webSearch.mock.calls[1];
-  expect(discoveryRequest.prompt).toContain('FACEBOOK:');
-  expect(discoveryRequest.prompt).toContain('TIKTOK:');
-  expect(discoveryRequest.prompt).toContain('LINKEDIN:');
+  const [activityRequest] = mocks.webSearch.mock.calls[3];
+  expect(discoveryRequest.prompt).toContain('Step 1');
   expect(activityRequest.prompt).toContain('Social Academy');
   expect(activityRequest.prompt).toContain('2026-09-12');
   expect(activityRequest.prompt).toContain('2026-09-18');
@@ -280,48 +290,51 @@ it('looks up Facebook/TikTok/LinkedIn activity by exact name only once competito
 });
 
 it('retries the discovery search once when it returns unparseable content, then succeeds', async () => {
-  mocks.webSearch
-    .mockResolvedValueOnce({ content: 'the model returned no usable output' })
-    .mockResolvedValueOnce({ content: JSON.stringify({
-      isSpecificEntity: true,
-      entitySummary: 'Rival Cafe is a coffee shop in Phnom Penh.',
-      competitors: [{
-        name: 'Rival Cafe',
-        isDirectCompetitor: true,
-        matchConfidence: 'high',
-        matchReason: 'Serves the same cafe customers in Phnom Penh',
-        positioning: '',
-        sourceUrl: 'https://rival-cafe.example.com',
-      }],
-    }) });
+  const goodResponse = { content: JSON.stringify({
+    isSpecificEntity: true,
+    entitySummary: 'Rival Cafe is a coffee shop in Phnom Penh.',
+    competitors: [{
+      name: 'Rival Cafe',
+      isDirectCompetitor: true,
+      matchConfidence: 'high',
+      matchReason: 'Serves the same cafe customers in Phnom Penh',
+      positioning: '',
+      sourceUrl: 'https://rival-cafe.example.com',
+    }],
+  }) };
+  queueDiscoveryTimes({ content: 'the model returned no usable output' });
+  queueDiscoveryTimes(goodResponse);
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
 
   const result = await researchCompetitors({ query: 'cafes Phnom Penh' });
 
-  expect(mocks.webSearch).toHaveBeenCalledTimes(2);
+  expect(mocks.webSearch).toHaveBeenCalledTimes(6);
   expect(result.competitors[0].name).toBe('Rival Cafe');
 });
 
 it('retries the discovery search once when it rejects, then succeeds', async () => {
+  const goodResponse = { content: JSON.stringify({
+    isSpecificEntity: true,
+    entitySummary: '',
+    competitors: [{
+      name: 'DataU Academy',
+      isDirectCompetitor: true,
+      matchConfidence: 'high',
+      matchReason: 'Provides competing professional AI training in Phnom Penh',
+      positioning: '',
+      sourceUrl: 'https://datau.example.com',
+    }],
+  }) };
   mocks.webSearch
     .mockRejectedValueOnce(new Error('OpenRouter web search request failed.'))
-    .mockResolvedValueOnce({ content: JSON.stringify({
-      isSpecificEntity: true,
-      entitySummary: '',
-      competitors: [{
-        name: 'DataU Academy',
-        isDirectCompetitor: true,
-        matchConfidence: 'high',
-        matchReason: 'Provides competing professional AI training in Phnom Penh',
-        positioning: '',
-        sourceUrl: 'https://datau.example.com',
-      }],
-    }) });
+    .mockRejectedValueOnce(new Error('OpenRouter web search request failed.'))
+    .mockRejectedValueOnce(new Error('OpenRouter web search request failed.'));
+  queueDiscoveryTimes(goodResponse);
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
 
   const result = await researchCompetitors({ query: 'AI training academies Phnom Penh' });
 
-  expect(mocks.webSearch).toHaveBeenCalledTimes(2);
+  expect(mocks.webSearch).toHaveBeenCalledTimes(6);
   expect(result.competitors[0].name).toBe('DataU Academy');
 });
 
@@ -330,22 +343,23 @@ it('gives up discovery after a single retry instead of calling OpenRouter repeat
 
   await expect(researchCompetitors({ query: 'unreachable niche' })).rejects.toThrow('OpenRouter web search request failed.');
 
-  expect(mocks.webSearch).toHaveBeenCalledTimes(2);
+  // 3 concurrent focused passes, each retrying once = 6 attempts total.
+  expect(mocks.webSearch).toHaveBeenCalledTimes(6);
 });
 
 it('retries the activity search once when it returns unparseable data, then finds activity', async () => {
+  queueDiscoveryTimes({ content: JSON.stringify({
+    competitors: [{
+      name: 'DataU Academy',
+      isDirectCompetitor: true,
+      matchConfidence: 'high',
+      matchReason: 'Provides competing professional AI training in Phnom Penh',
+      positioning: '',
+      linkedinUrl: 'https://kh.linkedin.com/company/datauacademy',
+      sourceUrl: 'https://kh.linkedin.com/company/datauacademy',
+    }],
+  }) });
   mocks.webSearch
-    .mockResolvedValueOnce({ content: JSON.stringify({
-      competitors: [{
-        name: 'DataU Academy',
-        isDirectCompetitor: true,
-        matchConfidence: 'high',
-        matchReason: 'Provides competing professional AI training in Phnom Penh',
-        positioning: '',
-        linkedinUrl: 'https://kh.linkedin.com/company/datauacademy',
-        sourceUrl: 'https://kh.linkedin.com/company/datauacademy',
-      }],
-    }) })
     .mockResolvedValueOnce({ content: 'no usable output' })
     .mockResolvedValueOnce({ content: JSON.stringify({
       activities: [{
@@ -371,7 +385,7 @@ it('retries the activity search once when it returns unparseable data, then find
     activityEndDate: '2026-09-22',
   });
 
-  expect(mocks.webSearch).toHaveBeenCalledTimes(5);
+  expect(mocks.webSearch).toHaveBeenCalledTimes(7);
   expect(result.competitors[0].recentActivities).toEqual([
     expect.objectContaining({
       date: '2026-09-22',
@@ -386,17 +400,17 @@ it('retries the activity search once when it returns unparseable data, then find
 });
 
 it('keeps the verified competitor list even if the activity search fails every attempt, including the Facebook/TikTok follow-up', async () => {
+  queueDiscoveryTimes({ content: JSON.stringify({
+    competitors: [{
+      name: 'Rival Cafe',
+      isDirectCompetitor: true,
+      matchConfidence: 'high',
+      matchReason: 'Serves the same cafe customers in Phnom Penh',
+      positioning: '',
+      sourceUrl: 'https://rival-cafe.example.com',
+    }],
+  }) });
   mocks.webSearch
-    .mockResolvedValueOnce({ content: JSON.stringify({
-      competitors: [{
-        name: 'Rival Cafe',
-        isDirectCompetitor: true,
-        matchConfidence: 'high',
-        matchReason: 'Serves the same cafe customers in Phnom Penh',
-        positioning: '',
-        sourceUrl: 'https://rival-cafe.example.com',
-      }],
-    }) })
     .mockRejectedValueOnce(new Error('search failed'))
     .mockRejectedValueOnce(new Error('search failed again'))
     .mockResolvedValueOnce({ content: JSON.stringify({ activities: [] }) });
@@ -408,22 +422,22 @@ it('keeps the verified competitor list even if the activity search fails every a
     activityEndDate: '2026-09-18',
   });
 
-  // 1 discovery + 2 activity attempts (both failed) + one focused pass per platform.
-  expect(mocks.webSearch).toHaveBeenCalledTimes(5);
-  expect(mocks.webSearch.mock.calls[3][0].prompt).toContain('Search ONLY Facebook');
-  expect(mocks.webSearch.mock.calls[4][0].prompt).toContain('Search ONLY TikTok');
+  // 3 discovery passes + 2 activity attempts (both failed) + one focused pass per platform.
+  expect(mocks.webSearch).toHaveBeenCalledTimes(7);
+  expect(mocks.webSearch.mock.calls[5][0].prompt).toContain('Search ONLY Facebook');
+  expect(mocks.webSearch.mock.calls[6][0].prompt).toContain('Search ONLY TikTok');
   expect(result.competitors).toHaveLength(1);
   expect(result.competitors[0].recentActivities).toEqual([]);
 });
 
 it('searches Facebook and TikTok independently even when LinkedIn activity was already found', async () => {
+  queueDiscoveryTimes({ content: JSON.stringify({
+    competitors: [
+      { name: 'Rival Cafe', isDirectCompetitor: true, matchConfidence: 'high', matchReason: 'Serves the same cafe customers in Phnom Penh', positioning: '', sourceUrl: 'https://rival-cafe.example.com' },
+      { name: 'Bean Society', isDirectCompetitor: true, matchConfidence: 'high', matchReason: 'Serves the same cafe customers in Phnom Penh', positioning: '', sourceUrl: 'https://bean-society.example.com' },
+    ],
+  }) });
   mocks.webSearch
-    .mockResolvedValueOnce({ content: JSON.stringify({
-      competitors: [
-        { name: 'Rival Cafe', isDirectCompetitor: true, matchConfidence: 'high', matchReason: 'Serves the same cafe customers in Phnom Penh', positioning: '', sourceUrl: 'https://rival-cafe.example.com' },
-        { name: 'Bean Society', isDirectCompetitor: true, matchConfidence: 'high', matchReason: 'Serves the same cafe customers in Phnom Penh', positioning: '', sourceUrl: 'https://bean-society.example.com' },
-      ],
-    }) })
     .mockResolvedValueOnce({ content: JSON.stringify({
       activities: [
         { competitorName: 'Rival Cafe', date: '2026-09-16', activity: 'Posted a weekend offer', sourceUrl: 'https://www.linkedin.com/posts/rival-cafe_offer-123' },
@@ -447,9 +461,9 @@ it('searches Facebook and TikTok independently even when LinkedIn activity was a
     activityEndDate: '2026-09-18',
   });
 
-  expect(mocks.webSearch).toHaveBeenCalledTimes(4);
-  const facebookPrompt = mocks.webSearch.mock.calls[2][0].prompt;
-  const tiktokPrompt = mocks.webSearch.mock.calls[3][0].prompt;
+  expect(mocks.webSearch).toHaveBeenCalledTimes(6);
+  const facebookPrompt = mocks.webSearch.mock.calls[4][0].prompt;
+  const tiktokPrompt = mocks.webSearch.mock.calls[5][0].prompt;
   expect(facebookPrompt).toContain('Bean Society');
   expect(facebookPrompt).toContain('Rival Cafe');
   expect(facebookPrompt).toContain('Search ONLY Facebook');
@@ -474,18 +488,18 @@ it('keeps newly discovered social profiles and directly enriches them', async ()
       { competitorName: 'Rival Cafe', date: '2026-09-18', activity: 'Published a Facebook offer.', sourceUrl: 'https://www.facebook.com/rivalcafe/posts/111' },
       { competitorName: 'Rival Cafe', date: '2026-09-17', activity: 'Published a TikTok video.', sourceUrl: 'https://www.tiktok.com/@rivalcafe/video/222' },
     ]);
+  queueDiscoveryTimes({ content: JSON.stringify({
+    competitors: [{
+      name: 'Rival Cafe',
+      isDirectCompetitor: true,
+      matchConfidence: 'high',
+      matchReason: 'Serves the same cafe customers in Phnom Penh',
+      positioning: '',
+      linkedinUrl: 'https://www.linkedin.com/company/rival-cafe/',
+      sourceUrl: 'https://rival-cafe.example.com',
+    }],
+  }) });
   mocks.webSearch
-    .mockResolvedValueOnce({ content: JSON.stringify({
-      competitors: [{
-        name: 'Rival Cafe',
-        isDirectCompetitor: true,
-        matchConfidence: 'high',
-        matchReason: 'Serves the same cafe customers in Phnom Penh',
-        positioning: '',
-        linkedinUrl: 'https://www.linkedin.com/company/rival-cafe/',
-        sourceUrl: 'https://rival-cafe.example.com',
-      }],
-    }) })
     .mockResolvedValueOnce({ content: JSON.stringify({ activities: [
       { competitorName: 'Rival Cafe', date: '2026-09-16', activity: 'Announced a class.', sourceUrl: 'https://www.linkedin.com/posts/rival-cafe_class-123' },
     ] }) })
@@ -527,22 +541,21 @@ it('uses direct Facebook/TikTok activity and skips the social-search fallback wh
     { competitorName: 'Rival Cafe', date: '2026-09-18', contentType: 'Post', activity: 'Published a new menu.', sourceUrl: 'https://www.facebook.com/rivalcafe/posts/111' },
     { competitorName: 'Rival Cafe', date: '2026-09-17', contentType: 'Video', activity: 'Published a menu video.', sourceUrl: 'https://www.tiktok.com/@rivalcafe/video/222' },
   ]);
-  mocks.webSearch
-    .mockResolvedValueOnce({ content: JSON.stringify({
-      competitors: [{
-        name: 'Rival Cafe',
-        isDirectCompetitor: true,
-        matchConfidence: 'high',
-        matchReason: 'Serves the same cafe customers in Phnom Penh',
-        positioning: '',
-        facebookUrl: 'https://www.facebook.com/rivalcafe',
-        tiktokUrl: 'https://www.tiktok.com/@rivalcafe',
-        sourceUrl: 'https://rival-cafe.example.com',
-      }],
-    }) })
-    .mockResolvedValueOnce({ content: JSON.stringify({ activities: [
-      { competitorName: 'Rival Cafe', date: '2026-09-16', activity: 'Updated its website.', sourceUrl: 'https://rival-cafe.example.com/news' },
-    ] }) });
+  queueDiscoveryTimes({ content: JSON.stringify({
+    competitors: [{
+      name: 'Rival Cafe',
+      isDirectCompetitor: true,
+      matchConfidence: 'high',
+      matchReason: 'Serves the same cafe customers in Phnom Penh',
+      positioning: '',
+      facebookUrl: 'https://www.facebook.com/rivalcafe',
+      tiktokUrl: 'https://www.tiktok.com/@rivalcafe',
+      sourceUrl: 'https://rival-cafe.example.com',
+    }],
+  }) });
+  mocks.webSearch.mockResolvedValueOnce({ content: JSON.stringify({ activities: [
+    { competitorName: 'Rival Cafe', date: '2026-09-16', activity: 'Updated its website.', sourceUrl: 'https://rival-cafe.example.com/news' },
+  ] }) });
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
 
   const result = await researchCompetitors({
@@ -555,7 +568,7 @@ it('uses direct Facebook/TikTok activity and skips the social-search fallback wh
     startDate: '2026-09-12',
     endDate: '2026-09-18',
   }));
-  expect(mocks.webSearch).toHaveBeenCalledTimes(2);
+  expect(mocks.webSearch).toHaveBeenCalledTimes(4);
   expect(result.competitors[0].recentActivities).toEqual([
     expect.objectContaining({ date: '2026-09-18', platform: 'Facebook' }),
     expect.objectContaining({ date: '2026-09-17', platform: 'TikTok' }),
@@ -570,17 +583,17 @@ it('merges Meta Ad Library results without spending an extra OpenRouter call, wh
       ? [{ date: '2026-09-15', contentType: 'Ad', title: 'Weekend Combo Promo', activity: 'Weekend Combo Promo', summary: '', sourceUrl: 'https://www.facebook.com/ads/library/?id=123' }]
       : []
   ));
+  queueDiscoveryTimes({ content: JSON.stringify({
+    competitors: [{
+      name: 'Rival Cafe',
+      isDirectCompetitor: true,
+      matchConfidence: 'high',
+      matchReason: 'Serves the same cafe customers in Phnom Penh',
+      positioning: '',
+      sourceUrl: 'https://rival-cafe.example.com',
+    }],
+  }) });
   mocks.webSearch
-    .mockResolvedValueOnce({ content: JSON.stringify({
-      competitors: [{
-        name: 'Rival Cafe',
-        isDirectCompetitor: true,
-        matchConfidence: 'high',
-        matchReason: 'Serves the same cafe customers in Phnom Penh',
-        positioning: '',
-        sourceUrl: 'https://rival-cafe.example.com',
-      }],
-    }) })
     // A non-empty (but non-matching) activities array is "usable" so this
     // resolves stage 2 in a single attempt; Rival Cafe still ends up empty
     // and falls through to the Facebook/TikTok follow-up call below.
@@ -597,10 +610,10 @@ it('merges Meta Ad Library results without spending an extra OpenRouter call, wh
     activityEndDate: '2026-09-18',
   });
 
-  // 1 discovery + 1 activity attempt + one focused pass per platform (still
+  // 3 discovery passes + 1 activity attempt + one focused pass per platform (still
   // empty after the activity attempt) -- Meta Ad Library is a plain HTTP call, not
   // an OpenRouter call, so it adds none of these.
-  expect(mocks.webSearch).toHaveBeenCalledTimes(4);
+  expect(mocks.webSearch).toHaveBeenCalledTimes(6);
   expect(mocks.fetchMetaAdLibraryActivity).toHaveBeenCalledWith(expect.objectContaining({
     businessName: 'Rival Cafe',
     countryCode: 'DE',
@@ -614,17 +627,17 @@ it('merges Meta Ad Library results without spending an extra OpenRouter call, wh
 
 it('skips Meta Ad Library entirely when not configured', async () => {
   mocks.isMetaAdLibraryConfigured.mockReturnValue(false);
+  queueDiscoveryTimes({ content: JSON.stringify({
+    competitors: [{
+      name: 'Rival Cafe',
+      isDirectCompetitor: true,
+      matchConfidence: 'high',
+      matchReason: 'Serves the same cafe customers in Phnom Penh',
+      positioning: '',
+      sourceUrl: 'https://rival-cafe.example.com',
+    }],
+  }) });
   mocks.webSearch
-    .mockResolvedValueOnce({ content: JSON.stringify({
-      competitors: [{
-        name: 'Rival Cafe',
-        isDirectCompetitor: true,
-        matchConfidence: 'high',
-        matchReason: 'Serves the same cafe customers in Phnom Penh',
-        positioning: '',
-        sourceUrl: 'https://rival-cafe.example.com',
-      }],
-    }) })
     .mockResolvedValueOnce({ content: JSON.stringify({ activities: [
       { competitorName: 'Some Other Business', date: '2026-09-16', activity: 'Unrelated post', sourceUrl: 'https://example.com/post' },
     ] }) })
@@ -643,17 +656,17 @@ it('skips Meta Ad Library entirely when not configured', async () => {
 });
 
 it('reports the most recent verified post when nothing falls inside the activity window', async () => {
+  queueDiscoveryTimes({ content: JSON.stringify({
+    competitors: [{
+      name: 'Rival Cafe',
+      isDirectCompetitor: true,
+      matchConfidence: 'high',
+      matchReason: 'Serves the same cafe customers in Phnom Penh',
+      positioning: '',
+      sourceUrl: 'https://rival-cafe.example.com',
+    }],
+  }) });
   mocks.webSearch
-    .mockResolvedValueOnce({ content: JSON.stringify({
-      competitors: [{
-        name: 'Rival Cafe',
-        isDirectCompetitor: true,
-        matchConfidence: 'high',
-        matchReason: 'Serves the same cafe customers in Phnom Penh',
-        positioning: '',
-        sourceUrl: 'https://rival-cafe.example.com',
-      }],
-    }) })
     .mockRejectedValueOnce(new Error('search failed'))
     .mockRejectedValueOnce(new Error('search failed again'))
     .mockResolvedValueOnce({ content: JSON.stringify({
@@ -671,7 +684,7 @@ it('reports the most recent verified post when nothing falls inside the activity
     activityEndDate: '2026-09-18',
   });
 
-  expect(mocks.webSearch).toHaveBeenCalledTimes(5);
+  expect(mocks.webSearch).toHaveBeenCalledTimes(7);
   expect(result.competitors[0].recentActivities).toEqual([]);
   expect(result.competitors[0].lastKnownActivity).toEqual({
     date: '2026-07-02',
@@ -682,25 +695,24 @@ it('reports the most recent verified post when nothing falls inside the activity
 });
 
 it('never reports a last-known post when real in-window activity was already found', async () => {
-  mocks.webSearch
-    .mockResolvedValueOnce({ content: JSON.stringify({
-      competitors: [{
-        name: 'Rival Cafe',
-        isDirectCompetitor: true,
-        matchConfidence: 'high',
-        matchReason: 'Serves the same cafe customers in Phnom Penh',
-        positioning: '',
-        sourceUrl: 'https://rival-cafe.example.com',
-      }],
-    }) })
-    .mockResolvedValueOnce({ content: JSON.stringify({
-      activities: [
-        { competitorName: 'Rival Cafe', date: '2026-09-16', activity: 'Posted a weekend offer', sourceUrl: 'https://www.facebook.com/rivalcafe/posts/2' },
-      ],
-      lastActivity: [
-        { competitorName: 'Rival Cafe', date: '2026-07-02', activity: 'Old post that should be ignored.', sourceUrl: 'https://www.facebook.com/rivalcafe/posts/1' },
-      ],
-    }) });
+  queueDiscoveryTimes({ content: JSON.stringify({
+    competitors: [{
+      name: 'Rival Cafe',
+      isDirectCompetitor: true,
+      matchConfidence: 'high',
+      matchReason: 'Serves the same cafe customers in Phnom Penh',
+      positioning: '',
+      sourceUrl: 'https://rival-cafe.example.com',
+    }],
+  }) });
+  mocks.webSearch.mockResolvedValueOnce({ content: JSON.stringify({
+    activities: [
+      { competitorName: 'Rival Cafe', date: '2026-09-16', activity: 'Posted a weekend offer', sourceUrl: 'https://www.facebook.com/rivalcafe/posts/2' },
+    ],
+    lastActivity: [
+      { competitorName: 'Rival Cafe', date: '2026-07-02', activity: 'Old post that should be ignored.', sourceUrl: 'https://www.facebook.com/rivalcafe/posts/1' },
+    ],
+  }) });
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
 
   const result = await researchCompetitors({
@@ -748,23 +760,22 @@ it('derives the Facebook Page link from a found post URL when discovery never re
   // Page-slug in each post URL) but left the separate "profiles" field empty,
   // so facebookUrl stayed blank even though we clearly have evidence of a
   // real, active Page.
-  mocks.webSearch
-    .mockResolvedValueOnce({ content: JSON.stringify({
-      competitors: [{
-        name: 'Rival Cafe',
-        isDirectCompetitor: true,
-        matchConfidence: 'high',
-        matchReason: 'Serves the same cafe customers in Phnom Penh',
-        positioning: '',
-        sourceUrl: 'https://rival-cafe.example.com',
-      }],
-    }) })
-    .mockResolvedValueOnce({ content: JSON.stringify({
-      activities: [
-        { competitorName: 'Rival Cafe', date: '2026-09-20', activity: 'Posted a weekend offer', sourceUrl: 'https://www.facebook.com/rivalcafe.kh/posts/123' },
-        { competitorName: 'Rival Cafe', date: '2026-09-19', activity: 'Posted a reel', sourceUrl: 'https://www.facebook.com/reel/999/' },
-      ],
-    }) });
+  queueDiscoveryTimes({ content: JSON.stringify({
+    competitors: [{
+      name: 'Rival Cafe',
+      isDirectCompetitor: true,
+      matchConfidence: 'high',
+      matchReason: 'Serves the same cafe customers in Phnom Penh',
+      positioning: '',
+      sourceUrl: 'https://rival-cafe.example.com',
+    }],
+  }) });
+  mocks.webSearch.mockResolvedValueOnce({ content: JSON.stringify({
+    activities: [
+      { competitorName: 'Rival Cafe', date: '2026-09-20', activity: 'Posted a weekend offer', sourceUrl: 'https://www.facebook.com/rivalcafe.kh/posts/123' },
+      { competitorName: 'Rival Cafe', date: '2026-09-19', activity: 'Posted a reel', sourceUrl: 'https://www.facebook.com/reel/999/' },
+    ],
+  }) });
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
 
   const result = await researchCompetitors({
@@ -777,22 +788,21 @@ it('derives the Facebook Page link from a found post URL when discovery never re
 });
 
 it('never derives a Facebook Page link from a reel-only URL (no Page slug in the path)', async () => {
-  mocks.webSearch
-    .mockResolvedValueOnce({ content: JSON.stringify({
-      competitors: [{
-        name: 'Rival Cafe',
-        isDirectCompetitor: true,
-        matchConfidence: 'high',
-        matchReason: 'Serves the same cafe customers in Phnom Penh',
-        positioning: '',
-        sourceUrl: 'https://rival-cafe.example.com',
-      }],
-    }) })
-    .mockResolvedValueOnce({ content: JSON.stringify({
-      activities: [
-        { competitorName: 'Rival Cafe', date: '2026-09-19', activity: 'Posted a reel', sourceUrl: 'https://www.facebook.com/reel/999/' },
-      ],
-    }) });
+  queueDiscoveryTimes({ content: JSON.stringify({
+    competitors: [{
+      name: 'Rival Cafe',
+      isDirectCompetitor: true,
+      matchConfidence: 'high',
+      matchReason: 'Serves the same cafe customers in Phnom Penh',
+      positioning: '',
+      sourceUrl: 'https://rival-cafe.example.com',
+    }],
+  }) });
+  mocks.webSearch.mockResolvedValueOnce({ content: JSON.stringify({
+    activities: [
+      { competitorName: 'Rival Cafe', date: '2026-09-19', activity: 'Posted a reel', sourceUrl: 'https://www.facebook.com/reel/999/' },
+    ],
+  }) });
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
 
   const result = await researchCompetitors({
