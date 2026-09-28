@@ -93,7 +93,6 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
   // flips true once the person actually touches a category/mode control, so
   // their explicit choice is respected instead of being silently overridden.
   const [modeExplicit, setModeExplicit] = useState(false);
-  const [showModeOptions, setShowModeOptions] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<FacebookScanResult | null>(null);
@@ -591,27 +590,6 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
   // customer scan. Competitor scans still hide those actions as requested.
   const isCompetitorLead = (_lead: FacebookPotentialLead) => resultIsCompetitorScan;
   const scanCategory = competitorModeIds.includes(scanMode) ? 'competitor' : 'customer';
-  const visibleScanModes = scanModes.filter((mode) => (
-    scanCategory === 'competitor'
-      ? mode.id === 'competitor_activity'
-      : !competitorModeIds.includes(mode.id)
-  ));
-
-  const selectScanCategory = (category: 'customer' | 'competitor') => {
-    setScanMode(category === 'competitor' ? 'competitor_activity' : 'customer');
-    setModeExplicit(true);
-    setResult(null);
-    setComparisonBaseline(null);
-    setError('');
-  };
-
-  const selectScanMode = (mode: ScanMode) => {
-    setScanMode(mode);
-    setModeExplicit(true);
-    setResult(null);
-    setComparisonBaseline(null);
-    setError('');
-  };
 
   const scanHistory = useGenerationHistory(user, isDemoMode, 'facebook_scan');
 
@@ -852,67 +830,10 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
             <h3 className="text-sm font-black uppercase tracking-wider text-brand-700 dark:text-brand-300">{text.scanType}</h3>
             <span className="max-w-2xl text-xs leading-5 text-slate-500 dark:text-slate-400">{text.privacyScope}</span>
           </div>
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-brand-100 bg-white/55 px-4 py-3 dark:border-slate-700 dark:bg-slate-900/40">
-            <div className="flex items-center gap-2">
-              <Sparkles className="shrink-0 text-brand-500" size={18} />
-              <p className="text-xs leading-5 text-slate-600 dark:text-slate-300">
-                {modeExplicit ? activeScanMode.description : text.autoModeHint}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowModeOptions((prev) => !prev)}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-brand-700 transition hover:bg-brand-50 dark:text-brand-300 dark:hover:bg-slate-800"
-            >
-              {showModeOptions ? text.manualModeToggleHide : text.manualModeToggleShow}
-              <ChevronDown size={14} className={`transition-transform ${showModeOptions ? 'rotate-180' : ''}`} />
-            </button>
+          <div className="mb-3 flex items-center gap-2 rounded-2xl border border-brand-100 bg-white/55 px-4 py-3 dark:border-slate-700 dark:bg-slate-900/40">
+            <Sparkles className="shrink-0 text-brand-500" size={18} />
+            <p className="text-xs leading-5 text-slate-600 dark:text-slate-300">{text.autoModeHint}</p>
           </div>
-          {showModeOptions && (
-          <>
-          <div className="mb-4 grid gap-3 sm:grid-cols-2">
-            <button
-              type="button"
-              onClick={() => selectScanCategory('customer')}
-              className={`flex items-center gap-4 rounded-2xl border p-4 text-left transition ${scanCategory === 'customer'
-                ? 'border-emerald-500 bg-emerald-50 ring-2 ring-emerald-500/20 dark:bg-emerald-950/40'
-                : 'border-brand-100 bg-white/60 hover:border-emerald-300 dark:border-slate-700 dark:bg-slate-900/50'}`}
-            >
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300"><Users size={22} /></span>
-              <span><span className="block font-black text-slate-800 dark:text-white">{text.customerCategory}</span><span className="mt-1 block text-xs leading-5 text-slate-500 dark:text-slate-400">{text.customerCategoryDesc}</span></span>
-            </button>
-            <button
-              type="button"
-              onClick={() => selectScanCategory('competitor')}
-              className={`flex items-center gap-4 rounded-2xl border p-4 text-left transition ${scanCategory === 'competitor'
-                ? 'border-indigo-500 bg-indigo-50 ring-2 ring-indigo-500/20 dark:bg-indigo-950/40'
-                : 'border-brand-100 bg-white/60 hover:border-indigo-300 dark:border-slate-700 dark:bg-slate-900/50'}`}
-            >
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300"><Building2 size={22} /></span>
-              <span><span className="block font-black text-slate-800 dark:text-white">{text.competitorCategory}</span><span className="mt-1 block text-xs leading-5 text-slate-500 dark:text-slate-400">{text.competitorCategoryDesc}</span></span>
-            </button>
-          </div>
-          <div className="rounded-2xl border border-brand-100 bg-white/55 p-3 dark:border-slate-700 dark:bg-slate-900/40">
-            <div className="flex gap-2 overflow-x-auto pb-1">
-              {visibleScanModes.map((mode) => (
-                <button
-                  key={mode.id}
-                  type="button"
-                  onClick={() => selectScanMode(mode.id)}
-                  className={`shrink-0 rounded-xl px-3 py-2 text-xs font-bold transition ${scanMode === mode.id
-                    ? scanCategory === 'competitor'
-                      ? 'bg-indigo-600 text-white shadow-sm'
-                      : 'bg-emerald-600 text-white shadow-sm'
-                    : 'bg-white text-slate-600 hover:bg-brand-50 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'}`}
-                >
-                  {mode.label}
-                </button>
-              ))}
-            </div>
-            <p className="mt-2 px-1 text-xs leading-5 text-slate-500 dark:text-slate-400">{activeScanMode.description}</p>
-          </div>
-          </>
-          )}
         </div>
         <div className="grid gap-5 lg:grid-cols-[1fr_190px_150px]">
           <label className="space-y-2">
