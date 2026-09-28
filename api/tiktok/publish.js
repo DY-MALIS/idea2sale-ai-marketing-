@@ -3,7 +3,7 @@ import { Receiver } from '@upstash/qstash';
 import admin, { initFirebaseAdmin } from '../_firebaseAdmin.js';
 import { logAudit } from '../_audit.js';
 import { getCookie, getAutomationAccessToken, recordTikTokPostSync, scheduleTikTokQStashDelivery, markAutomationTokenRevoked } from '../_tiktok.js';
-import { claimPendingPost, findRecentDuplicateTikTokPost } from '../_telegramClaim.js';
+import { claimPendingPost, findRecentDuplicateTikTokPost, findRecentDuplicateFacebookPost } from '../_telegramClaim.js';
 import { notifyAdmins } from '../_alert.js';
 
 // Vercel's Hobby plan caps a deployment at 12 serverless functions; this file
@@ -624,9 +624,165 @@ async function handleWebhookAction(req, res) {
   return res.status(200).json({ ok: true });
 }
 
+const FACEBOOK_GRAPH_API_VERSION = 'v19.0';
+const isVideoUrl = (url) => /\.(mp4|mov|webm)(\?|$)/i.test(String(url || ''));
+
+// Posts text, a photo, or a video to the configured Facebook Page via the
+// Graph API. Photos/videos are attached by URL (ImageKit/Firebase Storage
+// link) rather than uploaded as bytes -- Graph API accepts a `url`/`file_url`
+// field directly, so there's no chunked-upload dance like TikTok needs.
+//
+// This lives here, alongside TikTok's publish logic, instead of its own
+// api/facebook/publish.js for the same reason ?action=deliver/webhook do (see
+// the top-of-file comment): the deployment was already at Vercel Hobby's
+// 12-serverless-function cap, and a 13th file fails the whole deployment.
+export async function publishToFacebookPage({ pageId, accessToken, message, mediaUrl }) {
+  if (!pageId || !accessToken) {
+    const error = new Error('Facebook Page is not connected. Set FACEBOOK_PAGE_ID and FACEBOOK_PAGE_ACCESS_TOKEN.');
+    error.status = 401;
+    error.code = 'not_configured';
+    throw error;
+  }
+
+  const useVideo = mediaUrl && isVideoUrl(mediaUrl);
+  const endpoint = mediaUrl
+    ? `https://graph.facebook.com/${FACEBOOK_GRAPH_API_VERSION}/${pageId}/${useVideo ? 'videos' : 'photos'}`
+    : `https://graph.facebook.com/${FACEBOOK_GRAPH_API_VERSION}/${pageId}/feed`;
+
+  const body = new URLSearchParams({ access_token: accessToken });
+  if (mediaUrl) {
+    body.set(useVideo ? 'file_url' : 'url', mediaUrl);
+    if (message) body.set(useVideo ? 'description' : 'caption', message);
+  } else {
+    body.set('message', message || '');
+  }
+
+  const response = await fetch(endpoint, { method: 'POST', body });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data?.error) {
+    const error = new Error(data?.error?.message || `Facebook API returned ${response.status}`);
+    error.status = response.status >= 400 ? response.status : 500;
+    error.code = data?.error?.code || 'facebook_publish_failed';
+    throw error;
+  }
+
+  return { postId: data.post_id || data.id || null };
+}
+
+// Claims and publishes exactly one due FACEBOOK scheduled_posts doc -- mirrors
+// deliverOneScheduledTikTokPost above (atomic claim + cross-document
+// duplicate guard).
+async function deliverOneScheduledFacebookPost(db, docRef) {
+  const claim = await claimPendingPost(db, docRef);
+  if (!claim.post) return { ok: true, skipped: true };
+  const post = claim.post;
+
+  const duplicateId = await findRecentDuplicateFacebookPost(db, post);
+  if (duplicateId) {
+    await docRef.update({
+      status: 'PUBLISHED',
+      facebookPostId: null,
+      publishedAt: admin.firestore.FieldValue.serverTimestamp(),
+      duplicateSkipped: true,
+      errorMessage: `Skipped -- duplicate of already-published post ${duplicateId}`,
+    });
+    return { ok: true, skippedDuplicate: duplicateId };
+  }
+
+  try {
+    const { postId } = await publishToFacebookPage({
+      pageId: process.env.FACEBOOK_PAGE_ID,
+      accessToken: process.env.FACEBOOK_PAGE_ACCESS_TOKEN,
+      message: post.content,
+      mediaUrl: post.videoUrl || post.mediaUrl,
+    });
+    await docRef.update({
+      status: 'PUBLISHED',
+      facebookPostId: postId,
+      publishedAt: admin.firestore.FieldValue.serverTimestamp(),
+      errorMessage: null,
+      facebookErrorCode: null,
+    });
+    return { ok: true, postId };
+  } catch (error) {
+    await docRef.update({
+      status: 'FAILED',
+      errorMessage: error?.message || 'Facebook publish failed.',
+      facebookErrorCode: error?.code || null,
+      failedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    return { ok: false, error: error?.message || 'Facebook publish failed.' };
+  }
+}
+
+// Auto-publishes due Facebook posts created via Smart Scheduler
+// (SchedulerHub.tsx, platform FACEBOOK). Invoked by vercel.json's cron, same
+// shared-secret check as runTikTokCron above.
+async function runFacebookCron(req, res) {
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret) {
+    console.error('CRON_SECRET is not configured; refusing to run the scheduled Facebook poller.');
+    return res.status(500).json({ error: 'CRON_SECRET is not configured on the server.' });
+  }
+  const auth = req.headers.authorization || '';
+  const querySecret = req.query?.secret;
+  if (auth !== `Bearer ${cronSecret}` && querySecret !== cronSecret) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const db = initFirebaseAdmin();
+  const nowIso = new Date().toISOString();
+
+  try {
+    const staleCutoff = Date.now() - STALE_PROCESSING_MS;
+    const stuckSnapshot = await db.collection('scheduled_posts')
+      .where('platform', '==', 'FACEBOOK')
+      .where('status', '==', 'PROCESSING')
+      .get();
+    await Promise.all(stuckSnapshot.docs.map(async (stuckDoc) => {
+      const processingAtMs = stuckDoc.data()?.processingAt?.toMillis?.();
+      if (typeof processingAtMs !== 'number' || processingAtMs >= staleCutoff) return;
+      await db.runTransaction(async (tx) => {
+        const freshSnap = await tx.get(stuckDoc.ref);
+        const freshData = freshSnap.data();
+        const freshProcessingAtMs = freshData?.processingAt?.toMillis?.();
+        if (freshData?.status === 'PROCESSING' && freshProcessingAtMs === processingAtMs) {
+          tx.update(stuckDoc.ref, { status: 'PENDING' });
+        }
+      });
+    }));
+
+    const snapshot = await db.collection('scheduled_posts')
+      .where('platform', '==', 'FACEBOOK')
+      .where('status', '==', 'PENDING')
+      .limit(25)
+      .get();
+
+    const dueDocs = snapshot.docs
+      .filter((doc) => String(doc.data()?.scheduledTime || '') <= nowIso)
+      .sort((a, b) => String(a.data()?.scheduledTime || '').localeCompare(String(b.data()?.scheduledTime || '')));
+
+    const results = [];
+    for (const doc of dueDocs) {
+      results.push(await deliverOneScheduledFacebookPost(db, doc.ref));
+    }
+
+    return res.status(200).json({ ok: true, checkedAt: nowIso, processed: results.length, results });
+  } catch (error) {
+    const message = error?.message || 'Facebook cron failed.';
+    console.error('Facebook cron failed:', message);
+    await notifyAdmins(`Facebook auto-publish cron crashed: ${message}`);
+    return res.status(500).json({ error: message });
+  }
+}
+
 export default async function handler(req, res) {
   if (req.query?.action === 'cron') {
     return runTikTokCron(req, res);
+  }
+
+  if (req.query?.action === 'facebookCron') {
+    return runFacebookCron(req, res);
   }
 
   if (req.query?.action === 'deliver') {

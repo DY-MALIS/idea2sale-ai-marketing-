@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Calendar, Bot, Zap, Plus, Sparkles, Clock, X, Send, Instagram, Twitter, Share2, Loader2, AlertCircle, Upload, Youtube } from 'lucide-react';
+import { Calendar, Bot, Zap, Plus, Sparkles, Clock, X, Send, Instagram, Share2, Loader2, AlertCircle, Upload, Youtube, Facebook } from 'lucide-react';
 import { formatImageKitUploadError } from '../../shared/imageKitError.js';
 import AITrainer from './AITrainer';
 import Suggestions from './Suggestions';
@@ -17,11 +17,12 @@ import { useAuth } from '../contexts/AuthContext';
 import { ScheduleHandoffRequest } from '../types';
 import { recordAuditEvent } from '../lib/auditClient';
 
-type Platform = 'TIKTOK' | 'YOUTUBE' | 'INSTAGRAM' | 'TWITTER' | 'TELEGRAM';
+type Platform = 'TIKTOK' | 'YOUTUBE' | 'INSTAGRAM' | 'TWITTER' | 'TELEGRAM' | 'FACEBOOK';
 
 const MB = 1024 * 1024;
 const TELEGRAM_MEDIA_LIMIT_MB = 48;
 const DEMO_INLINE_MEDIA_LIMIT_MB = 3;
+const DEFAULT_HASHTAGS = '#foryou #foodies #aicafe';
 const LOCAL_POSTS_KEY = 'demo_scheduled_posts';
 const UPLOAD_TIMEOUT_MESSAGE = 'Upload is taking too long. Please check your internet connection or use a smaller video.';
 
@@ -62,7 +63,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   };
   
   // Form state
-  const [content, setContent] = useState('');
+  const [content, setContent] = useState(DEFAULT_HASHTAGS);
   // An array, not a scalar, so one post can fan out to several destinations at
   // once (e.g. TikTok + Telegram) -- each selected platform gets its own
   // scheduled_posts doc (or Telegram's own create call) sharing one groupId,
@@ -265,7 +266,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
 
   const resetFormAfterSchedule = () => {
     setIsModalOpen(false);
-    setContent('');
+    setContent(DEFAULT_HASHTAGS);
     setVideoFile(null);
     setTelegramMediaFile(null);
 
@@ -469,7 +470,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
             status: 'PENDING',
             userId: userToUse.uid,
             aiSuggested: false,
-            videoUrl: platform === 'TIKTOK' || platform === 'YOUTUBE' ? videoUrl : '',
+            videoUrl: platform === 'TIKTOK' || platform === 'YOUTUBE' || platform === 'FACEBOOK' ? videoUrl : '',
             videoName: videoFile?.name || null,
             mediaUrl: '',
             mediaName: null,
@@ -478,7 +479,9 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
               ? (tiktokDeliveryMode === 'inbox' ? 'TIKTOK_UPLOAD_DRAFT' : 'TIKTOK_DIRECT_POST')
               : platform === 'YOUTUBE'
                 ? 'YOUTUBE_STUDIO_READY'
-                : 'PLANNED_ONLY',
+                : platform === 'FACEBOOK'
+                  ? 'FACEBOOK_AUTO_POST'
+                  : 'PLANNED_ONLY',
             createdAt: serverTimestamp()
           });
           void recordAuditEvent('scheduled_post_created', {
@@ -654,7 +657,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                           { id: 'TIKTOK', icon: Share2 },
                           { id: 'YOUTUBE', icon: Youtube },
                           { id: 'INSTAGRAM', icon: Instagram },
-                          { id: 'TWITTER', icon: Twitter },
+                          { id: 'FACEBOOK', icon: Facebook },
                           { id: 'TELEGRAM', icon: Send }
                         ].map((p) => (
                           <button
@@ -723,6 +726,12 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                           ? 'At the scheduled time, the video goes to your TikTok inbox. Open the notification in TikTok to review and publish it; the caption must be added there.'
                           : 'TikTok may reject public Direct Post while the app audit is under review. Choose Upload to TikTok until approval.'}
                       </p>
+                    </div>
+                  )}
+                  {platforms.includes('FACEBOOK') && (
+                    <div className="p-3 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800/60 rounded-xl flex items-start gap-2 text-blue-600 dark:text-blue-300 text-xs">
+                      <Facebook size={14} className="mt-0.5 shrink-0" />
+                      <p>Facebook posts automatically at the scheduled time to the connected Page, using the video above and this text as the caption -- no manual step needed.</p>
                     </div>
                   )}
                   {platforms.includes('TELEGRAM') && (

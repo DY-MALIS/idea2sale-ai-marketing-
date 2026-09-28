@@ -168,13 +168,13 @@ export interface ScheduleHandoffRequest {
   mediaDataUrl: string;
   mediaName: string;
   caption: string;
-  preferredPlatform?: 'TIKTOK' | 'YOUTUBE' | 'INSTAGRAM' | 'TWITTER' | 'TELEGRAM';
+  preferredPlatform?: 'TIKTOK' | 'YOUTUBE' | 'INSTAGRAM' | 'TWITTER' | 'TELEGRAM' | 'FACEBOOK';
 }
 
 export interface SchedulePost {
   id: string;
   content: string;
-  platform: 'TIKTOK' | 'YOUTUBE' | 'INSTAGRAM' | 'TWITTER' | 'TELEGRAM';
+  platform: 'TIKTOK' | 'YOUTUBE' | 'INSTAGRAM' | 'TWITTER' | 'TELEGRAM' | 'FACEBOOK';
   scheduledTime: string;
   status: 'PENDING' | 'PROCESSING' | 'PUBLISHED' | 'UPLOADED' | 'FAILED';
   userId: string;

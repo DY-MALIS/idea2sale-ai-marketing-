@@ -17,6 +17,10 @@
     {
       "path": "/api/tiktok/publish?action=cron",
       "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/tiktok/publish?action=facebookCron",
+      "schedule": "0 5 * * *"
     }
   ],
   "rewrites": [
