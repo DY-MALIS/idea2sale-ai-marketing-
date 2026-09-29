@@ -3,10 +3,12 @@ name: Scheduled posts (Telegram + TikTok)
 on:
   schedule:
     - cron: '*/10 * * * *'
+    - cron: '0 */6 * * *'
   workflow_dispatch: {}
 
 jobs:
   run-scheduled:
+    if: github.event.schedule != '0 */6 * * *'
     runs-on: ubuntu-latest
     steps:
       - name: Trigger due Telegram posts
@@ -19,3 +21,16 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           curl -sf -X POST -H "Authorization: Bearer $CRON_SECRET" "https://aime.angkorgate.ai/api/tiktok/publish?action=cron"
+
+  usage-check:
+    # OpenRouter credit balance and ImageKit's monthly video-transformation
+    # quota have each already blocked real generation jobs with no warning
+    # (Sep 2026). This pages TELEGRAM_ADMIN_CHAT_ID before either runs out.
+    if: github.event.schedule == '0 */6 * * *' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check OpenRouter/ImageKit usage
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -sf -X POST -H "Authorization: Bearer $CRON_SECRET" "https://aime.angkorgate.ai/api/telegram/run-scheduled?action=usageCheck"

@@ -8,6 +8,7 @@ import sharp from 'sharp';
 import { logAudit } from '../_audit.js';
 import { claimPendingPost, findRecentDuplicateTelegramPost } from '../_telegramClaim.js';
 import { notifyAdmins } from '../_alert.js';
+import { runUsageChecks } from '../_usageMonitor.js';
 import { checkRateLimit, getClientIp } from '../_rateLimit.js';
 import { generateOpenRouterImage, startOpenRouterVideo } from '../_openrouter.js';
 import { preparePlanVideoSpeech } from '../_videoSpeech.js';
@@ -675,6 +676,18 @@ export default async function handler(req, res) {
   const querySecret = req.query?.secret;
   if (auth !== `Bearer ${cronSecret}` && querySecret !== cronSecret) {
     return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  // Proactive OpenRouter/ImageKit quota check, run on its own low-frequency
+  // schedule (see .github/workflows/telegram-scheduler.yml) rather than on
+  // every 10-minute cron tick, since it calls two external billing APIs.
+  if (req.query?.action === 'usageCheck') {
+    try {
+      const { warnings } = await runUsageChecks();
+      return res.status(200).json({ ok: true, warnings });
+    } catch (error) {
+      return res.status(500).json({ ok: false, error: error?.message || 'Usage check failed.' });
+    }
   }
 
   try {
