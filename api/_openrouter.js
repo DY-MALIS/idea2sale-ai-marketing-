@@ -204,7 +204,18 @@ export async function synthesizeSpeechViaOpenRouter({ input, model, voice, forma
   };
 }
 
-export async function generateOpenRouterText({
+// A 200 OK response can still contain degenerate output -- the model stuck
+// repeating the same short chunk of text indefinitely instead of a real
+// answer. Observed disproportionately on Khmer-script prompts/outputs even
+// when the same request in English succeeds, so this isn't purely an
+// account-credit issue -- it also looks like occasional non-deterministic
+// sampling for lower-resource-language generation, the same failure shape
+// already handled by retrying the same model in transcribeAudioWithOpenRouter
+// above. One retry before giving up recovers those transient cases instead of
+// failing every Khmer request outright.
+const looksDegenerate = (content) => /(.{1,12})\1{14,}/.test(content);
+
+async function generateOpenRouterTextOnce({
   prompt,
   system = 'You are a helpful marketing assistant.',
   model,
@@ -291,16 +302,21 @@ export async function generateOpenRouterText({
   if (data?.choices?.[0]?.finish_reason === 'length') {
     console.warn(`OpenRouter response hit the max_tokens limit (${maxTokens ?? 'default'}) for model ${resolveOpenRouterTextModel(model)} and was likely truncated (${content.length} chars returned).`);
   }
-  // A 200 OK response can still contain degenerate output — the model stuck
-  // repeating the same short chunk of text indefinitely instead of a real
-  // answer. Observed to coincide with the OpenRouter account running low on
-  // credits (likely a lower-tier/fallback route being used). Surface this as
-  // a clear error instead of showing garbled repeated text to the user.
-  if (/(.{1,12})\1{14,}/.test(content)) {
+  if (looksDegenerate(content)) {
     throw new Error('The AI response was corrupted (stuck repeating the same text). This can happen when the OpenRouter account is low on credits. Check https://openrouter.ai/settings/credits and try again.');
   }
 
   return content;
+}
+
+export async function generateOpenRouterText(options) {
+  try {
+    return await generateOpenRouterTextOnce(options);
+  } catch (error) {
+    if (!/stuck repeating the same text/.test(error?.message || '')) throw error;
+    console.error('OpenRouter returned degenerate output, retrying once:', error.message);
+    return generateOpenRouterTextOnce(options);
+  }
 }
 
 // Grounds a text request in live web search results via OpenRouter's "web" plugin
