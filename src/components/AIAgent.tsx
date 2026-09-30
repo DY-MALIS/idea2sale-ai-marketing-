@@ -5,12 +5,10 @@ import { AnimatePresence, motion } from 'motion/react';
 import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, setDoc, serverTimestamp, updateDoc, where } from 'firebase/firestore';
 import readXlsxFile from 'read-excel-file/browser';
 import { db } from '../lib/firebase';
-import { uint8ArrayToBase64 } from '../lib/base64';
 import { readImagesIntoState } from '../lib/imageUpload';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../hooks/useToast';
-import { detectSpokenLanguage, splitSpeechByLanguage, SpeechSegment } from '../lib/voiceLanguage';
 import { connectGeminiLive, GeminiLiveSession } from '../lib/geminiLiveClient';
 import { BusinessProfileData, CreativeAutomationRequest } from '../types';
 
@@ -145,33 +143,14 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
   const attachedImagesRef = useRef(attachedImages);
   useEffect(() => { attachedImagesRef.current = attachedImages; }, [attachedImages]);
-  const [isListening, setIsListening] = useState(false);
-  const [isTranscribing, setIsTranscribing] = useState(false);
   const [liveVoiceEnabled, setLiveVoiceEnabled] = useState(false);
   const liveVoiceEnabledRef = useRef(false);
+  const [singleVoiceEnabled, setSingleVoiceEnabled] = useState(false);
+  const singleVoiceEnabledRef = useRef(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const speakingRef = useRef<HTMLAudioElement | null>(null);
-  // iOS Safari only unlocks the EXACT <audio> element that played during a user
-  // gesture -- a brand-new `new Audio(...)` created later (even from the same page
-  // session) is treated as never-unlocked and gets silently blocked again. So the
-  // fix isn't just "play something once during a click", it's "keep reusing that
-  // same element": this one persistent element is unlocked here (synchronously
-  // inside the Live Voice button's onClick) and speakAnswer below reuses it for
-  // every TTS segment by swapping .src instead of constructing a new Audio().
-  const audioUnlockedRef = useRef(false);
-  const unlockedAudioElRef = useRef<HTMLAudioElement | null>(null);
-  const SILENT_WAV_DATA_URL = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
-  const unlockAudioPlayback = () => {
-    if (audioUnlockedRef.current) return;
-    audioUnlockedRef.current = true;
-    const unlock = unlockedAudioElRef.current || new Audio();
-    unlockedAudioElRef.current = unlock;
-    unlock.src = SILENT_WAV_DATA_URL;
-    unlock.play().catch(() => { audioUnlockedRef.current = false; });
-  };
-  // Gemini Live (real-time listen+think+speak) is the primary Live Voice path;
-  // Live Voice has its own direct audio connection and never enters the
-  // one-shot record/transcribe/speak flow.
+  const [voiceConnecting, setVoiceConnecting] = useState(false);
+  const voiceActiveRef = useRef(false);
+  // Both voice buttons use one direct audio connection; typed chat stays separate.
   const geminiLiveSessionRef = useRef<GeminiLiveSession | null>(null);
   const geminiLiveActiveRef = useRef(false);
   const liveConnectionControllerRef = useRef<AbortController | null>(null);
@@ -184,17 +163,17 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: controller.signal,
-        body: JSON.stringify({ businessContext: businessContext || undefined, action: 'geminiLiveToken' }),
+        body: JSON.stringify({ businessContext: businessContext || undefined, voiceLanguage: voiceInputLanguageRef.current, action: 'geminiLiveToken' }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.token) throw new Error(data.error || 'Gemini Live is unavailable.');
-      if (session !== voiceSessionRef.current || !liveVoiceEnabledRef.current) {
+      if (session !== voiceSessionRef.current || !voiceActiveRef.current) {
         void playbackContext.close().catch(() => {});
         return false;
       }
 
       const endFailedLiveSession = (reason: string) => {
-        if (!geminiLiveActiveRef.current || session !== voiceSessionRef.current) return;
+        if (session !== voiceSessionRef.current || !voiceActiveRef.current) return;
         stopLiveVoice();
         notify(reason, 'error');
       };
@@ -202,22 +181,25 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       const geminiSession = await connectGeminiLive(data.token, data.model, playbackContext, {
         onAudioStart: () => setIsSpeaking(true),
         onInterrupted: () => setIsSpeaking(false),
-        onTurnComplete: () => setIsSpeaking(false),
+        onPlaybackComplete: () => {
+          setIsSpeaking(false);
+          if (singleVoiceEnabledRef.current && session === voiceSessionRef.current) stopLiveVoice();
+        },
         onError: (error) => endFailedLiveSession(error.message),
         onClose: () => endFailedLiveSession('Live Voice connection closed. Please start it again.'),
       }, { voiceName: data.voiceName, systemInstruction: data.systemInstruction }, controller.signal);
 
-      if (session !== voiceSessionRef.current || !liveVoiceEnabledRef.current) {
+      if (session !== voiceSessionRef.current || !voiceActiveRef.current) {
         geminiSession.close();
         return false;
       }
       geminiLiveActiveRef.current = true;
       geminiLiveSessionRef.current = geminiSession;
-      setIsListening(true);
+      setVoiceConnecting(false);
       return true;
     } catch (error) {
       void playbackContext.close().catch(() => {});
-      if (session === voiceSessionRef.current && liveVoiceEnabledRef.current && !controller.signal.aborted) {
+      if (session === voiceSessionRef.current && voiceActiveRef.current && !controller.signal.aborted) {
         stopLiveVoice();
         notify(error instanceof Error ? error.message : 'Live Voice is unavailable.', 'error');
       }
@@ -228,17 +210,10 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       }
     }
   };
-  const speechTurnRef = useRef(0);
   const voiceSessionRef = useRef(0);
-  const transcriptionControllerRef = useRef<AbortController | null>(null);
-  const voiceAgentRequestRef = useRef(false);
   const [businessContext, setBusinessContext] = useState<AgentBusinessContext | null>(null);
-  // Which language the user is about to speak for voice input. Independent from the
-  // UI display language, since people often keep the interface in one language while
-  // speaking another (e.g. English UI, Khmer speech) — tying recognition to the UI
-  // language made the recognizer use the wrong locale and mangle the transcript.
-  // Auto lets one conversation switch between Khmer, English, and both. The
-  // explicit options remain useful if automatic recognition misses Khmer speech.
+  // Speech language is independent of the UI language. Auto allows Khmer,
+  // English, and mixed turns; explicit choices guide the live audio model.
   const [voiceInputLanguage, setVoiceInputLanguage] = useState<'auto' | 'km' | 'en'>('auto');
   const voiceInputLanguageRef = useRef(voiceInputLanguage);
   const conversationEndRef = useRef<HTMLDivElement>(null);
@@ -288,147 +263,9 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     );
     return () => unsubscribe();
   }, [user, isDemoMode]);
-  // Holds the live mic recording session (not the browser's SpeechRecognition —
-  // see toggleVoiceInput for why). 'compressed' (MediaRecorder producing webm/opus
-  // or similar) is used whenever the browser supports it, since compressed audio
-  // is roughly 10x smaller per second than raw PCM for the same speech clarity —
-  // 'raw' (manual PCM capture via ScriptProcessorNode, wrapped in a WAV container)
-  // is the fallback for browsers without usable MediaRecorder audio support.
-  const recordingRef = useRef<
-    | { kind: 'compressed'; mediaRecorder: MediaRecorder; stream: MediaStream; chunks: Blob[]; mimeType: string; startedAt: number }
-    | { kind: 'raw'; audioContext: AudioContext; processor: ScriptProcessorNode; source: MediaStreamAudioSourceNode; stream: MediaStream; chunks: Float32Array[] }
-    | null
-  >(null);
   // Guards against overwriting the just-loaded saved conversation with an empty
   // autosave that could otherwise fire before the initial load resolves.
   const memoryLoadedRef = useRef(false);
-  // The voice-transcription fetch (stopRecordingAndTranscribe) can take up to
-  // 180s and isn't tied to requestControllerRef's unmount-abort above -- without
-  // this, a user who navigates away mid-transcription gets state updates (and an
-  // unexpected new askAgent() chat request) fired against an unmounted component
-  // once that fetch eventually resolves.
-  const isMountedRef = useRef(true);
-  useEffect(() => {
-    isMountedRef.current = true;
-    return () => {
-      isMountedRef.current = false;
-      liveVoiceEnabledRef.current = false;
-      voiceSessionRef.current += 1;
-      liveConnectionControllerRef.current?.abort();
-      liveConnectionControllerRef.current = null;
-      if (geminiLiveActiveRef.current) {
-        geminiLiveActiveRef.current = false;
-        geminiLiveSessionRef.current?.close();
-        geminiLiveSessionRef.current = null;
-      }
-      transcriptionControllerRef.current?.abort();
-      if (recordingTimeoutRef.current) clearTimeout(recordingTimeoutRef.current);
-      speechTurnRef.current += 1;
-      speakingRef.current?.pause();
-      speakingRef.current = null;
-    };
-  }, []);
-
-  const stopSpeaking = () => {
-    speechTurnRef.current += 1;
-    speakingRef.current?.pause();
-    speakingRef.current = null;
-    setIsSpeaking(false);
-  };
-
-  const speakAnswer = async (answer: string) => {
-    stopSpeaking();
-    const turn = speechTurnRef.current;
-    const spoken = answer
-      .replace(/```[\s\S]*?```/g, ' ')
-      .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
-      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
-      .replace(/[#*_`>|]/g, ' ')
-      .trim();
-    if (!spoken) {
-      return;
-    }
-    const segments = splitSpeechByLanguage(spoken);
-    if (!segments.length) {
-      return;
-    }
-    setIsSpeaking(true);
-    try {
-      const loadSpeech = async (segment: SpeechSegment): Promise<{ audioUrl: string; error?: string }> => {
-        try {
-          const response = await fetch('/api/ai', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              action: 'ttsGenerate',
-              input: segment.text,
-              languageHint: segment.language === 'km' ? 'Khmer' : 'English',
-              conversation: true,
-            }),
-          });
-          const data = await response.json();
-          return response.ok && data.audioUrl
-            ? { audioUrl: data.audioUrl }
-            : { audioUrl: '', error: data.error || 'Voice playback is unavailable.' };
-        } catch (error: any) {
-          return { audioUrl: '', error: error?.message || 'Voice playback is unavailable.' };
-        }
-      };
-      let pendingSpeech = loadSpeech(segments[0]);
-      for (let index = 0; index < segments.length; index += 1) {
-        if (turn !== speechTurnRef.current || !isMountedRef.current) return;
-        const data = await pendingSpeech;
-        if (!data.audioUrl) throw new Error(data.error || 'Voice playback is unavailable.');
-        if (turn !== speechTurnRef.current || !isMountedRef.current) return;
-        if (index + 1 < segments.length) pendingSpeech = loadSpeech(segments[index + 1]);
-        // Reuse the one element unlocked in the Live Voice button's onClick rather
-        // than `new Audio(...)` -- see unlockAudioPlayback's comment for why a
-        // fresh element would be blocked again on iOS Safari.
-        const audio = unlockedAudioElRef.current || new Audio();
-        unlockedAudioElRef.current = audio;
-        audio.src = data.audioUrl;
-        speakingRef.current = audio;
-        await new Promise<void>((resolve, reject) => {
-          audio.onended = () => resolve();
-          audio.onpause = () => resolve();
-          audio.onerror = () => reject(new Error('Voice playback failed.'));
-          audio.play().catch((playError: any) => {
-            // The browser blocked programmatic playback outside a user gesture --
-            // the unlock in the Live Voice button's onClick should normally prevent
-            // this, but if it still happens, force that unlock to run again on the
-            // next click instead of leaving audio permanently silent for the session.
-            if (playError?.name === 'NotAllowedError') audioUnlockedRef.current = false;
-            reject(playError);
-          });
-        });
-      }
-    } catch (error: any) {
-      if (turn === speechTurnRef.current && isMountedRef.current) {
-        const message = error?.name === 'NotAllowedError'
-          ? (language === 'km'
-            ? 'កម្មវិធីរុករកទប់ស្កាត់ការចាក់សំឡេង។ សូមចុច «សន្ទនាសំឡេងផ្ទាល់» ម្តងទៀត។'
-            : 'Your browser blocked audio playback. Press "Live Voice" again to re-enable it.')
-          : (error?.message || 'Voice playback failed.');
-        notify(message, 'error');
-      }
-    } finally {
-      if (turn === speechTurnRef.current && isMountedRef.current) {
-        speakingRef.current = null;
-        setIsSpeaking(false);
-      }
-    }
-  };
-  // Auto-stops a forgotten-open recording (e.g. the mic stays on because the user
-  // didn't realize it was still listening) — without this, the buffer keeps growing
-  // indefinitely, and a many-minutes-long recording becomes an upload that can stall
-  // well past Vercel's fixed 4.5MB request body limit, leaving the UI stuck on
-  // "Transcribing..." with no error ever surfacing. Compressed audio (~32kbps opus)
-  // fits 10 minutes in well under that limit; the raw-PCM fallback path cannot
-  // safely go nearly that long even downsampled to 16kHz, so it gets a shorter cap.
-  const recordingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const MAX_RECORDING_MS_COMPRESSED = 600000;
-  const MAX_RECORDING_MS_RAW = 60000;
-
   const micSupported = typeof navigator !== 'undefined' && Boolean(navigator.mediaDevices?.getUserMedia);
 
   useEffect(() => {
@@ -436,19 +273,6 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   }, [messages, loading]);
 
   useEffect(() => () => requestControllerRef.current?.abort(), []);
-  useEffect(() => () => {
-    const recording = recordingRef.current;
-    if (!recording) return;
-    recording.stream.getTracks().forEach((track) => track.stop());
-    if (recording.kind === 'compressed') {
-      if (recording.mediaRecorder.state !== 'inactive') recording.mediaRecorder.stop();
-    } else {
-      recording.processor.disconnect();
-      recording.source.disconnect();
-      void recording.audioContext.close();
-    }
-  }, []);
-
   // Long-term memory: reload the saved conversation and business profile so the
   // agent keeps context across page reloads and sessions instead of forgetting
   // everything the moment the tab closes.
@@ -594,7 +418,6 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     removeImage: language === 'km' ? 'ដកចេញ' : 'Remove',
     voiceInput: language === 'km' ? 'និយាយសំណួរ' : 'Voice input',
     listening: language === 'km' ? 'កំពុងស្តាប់...' : 'Listening...',
-    transcribing: language === 'km' ? 'កំពុងបំលែងជាអត្ថបទ...' : 'Transcribing...',
   }), [language]);
 
   const updateMessages = (nextMessages: AgentMessage[]) => {
@@ -886,313 +709,14 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     setAttachedImages((current) => current.filter((_, i) => i !== index));
   };
 
-  // Voice input records raw audio and sends it to an AI model for transcription,
-  // instead of using the browser's built-in Web Speech API — that API's Khmer
-  // support is patchy-to-nonexistent across browsers (it would silently "hear
-  // nothing" for Khmer speech with no useful error), while a general multimodal
-  // model transcribes Khmer reliably. Audio is captured as raw PCM and wrapped
-  // in a WAV container client-side, since WAV is a format OpenRouter's audio
-  // input is guaranteed to accept (unlike MediaRecorder's default webm/opus).
-  // Speech models (Whisper, Chirp) resample everything to 16kHz internally regardless
-  // of what's sent, so recording at the mic's native rate (typically 44.1/48kHz) and
-  // sending that wastes payload size for no transcription-quality benefit — it just
-  // eats into Vercel's fixed 4.5MB request body limit, capping how long a recording
-  // can be. Downsampling here first roughly triples the seconds of audio that fit in
-  // the same size budget.
-  const TARGET_SAMPLE_RATE = 16000;
-  const downsampleTo16kHz = (input: Float32Array, inputSampleRate: number): { samples: Float32Array; sampleRate: number } => {
-    if (inputSampleRate <= TARGET_SAMPLE_RATE) return { samples: input, sampleRate: inputSampleRate };
-    const ratio = inputSampleRate / TARGET_SAMPLE_RATE;
-    const outputLength = Math.floor(input.length / ratio);
-    const output = new Float32Array(outputLength);
-    for (let i = 0; i < outputLength; i += 1) {
-      output[i] = input[Math.floor(i * ratio)];
-    }
-    return { samples: output, sampleRate: TARGET_SAMPLE_RATE };
-  };
-
-  const floatTo16BitPcm = (input: Float32Array): Int16Array => {
-    const output = new Int16Array(input.length);
-    for (let i = 0; i < input.length; i += 1) {
-      const sample = Math.max(-1, Math.min(1, input[i]));
-      output[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
-    }
-    return output;
-  };
-
-  const buildWavBase64 = (samples: Int16Array, sampleRate: number): string => {
-    const buffer = new ArrayBuffer(44 + samples.length * 2);
-    const view = new DataView(buffer);
-    const writeString = (offset: number, value: string) => {
-      for (let i = 0; i < value.length; i += 1) view.setUint8(offset + i, value.charCodeAt(i));
-    };
-    writeString(0, 'RIFF');
-    view.setUint32(4, 36 + samples.length * 2, true);
-    writeString(8, 'WAVE');
-    writeString(12, 'fmt ');
-    view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true);
-    view.setUint16(22, 1, true);
-    view.setUint32(24, sampleRate, true);
-    view.setUint32(28, sampleRate * 2, true);
-    view.setUint16(32, 2, true);
-    view.setUint16(34, 16, true);
-    writeString(36, 'data');
-    view.setUint32(40, samples.length * 2, true);
-    let offset = 44;
-    for (let i = 0; i < samples.length; i += 1, offset += 2) {
-      view.setInt16(offset, samples[i], true);
-    }
-    return uint8ArrayToBase64(new Uint8Array(buffer));
-  };
-
-  const getSupportedRecorderMimeType = (): string | null => {
-    if (typeof MediaRecorder === 'undefined') return null;
-    const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
-    return candidates.find((type) => MediaRecorder.isTypeSupported(type)) || null;
-  };
-
-  const discardRecording = () => {
-    if (recordingTimeoutRef.current) clearTimeout(recordingTimeoutRef.current);
-    recordingTimeoutRef.current = null;
-    const recording = recordingRef.current;
-    recordingRef.current = null;
-    if (!recording) return;
-    recording.stream.getTracks().forEach((track) => track.stop());
-    if (recording.kind === 'compressed') {
-      if (recording.mediaRecorder.state !== 'inactive') recording.mediaRecorder.stop();
-    } else {
-      recording.processor.disconnect();
-      recording.source.disconnect();
-      void recording.audioContext.close();
-    }
-  };
-
-  const startRecording = async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    try {
-      const mimeType = getSupportedRecorderMimeType();
-      if (mimeType) {
-        const mediaRecorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 32000 });
-        const chunks: Blob[] = [];
-        mediaRecorder.ondataavailable = (event: BlobEvent) => {
-          if (event.data.size > 0) chunks.push(event.data);
-        };
-        mediaRecorder.start();
-        recordingRef.current = { kind: 'compressed', mediaRecorder, stream, chunks, mimeType, startedAt: Date.now() };
-      } else {
-        const AudioContextCtor = (window as any).AudioContext || (window as any).webkitAudioContext;
-        const audioContext: AudioContext = new AudioContextCtor();
-        const source = audioContext.createMediaStreamSource(stream);
-        // ScriptProcessorNode is deprecated in favor of AudioWorklet, but remains
-        // universally supported and is far simpler for a short-lived capture like this.
-        const processor = audioContext.createScriptProcessor(4096, 1, 1);
-        const chunks: Float32Array[] = [];
-        processor.onaudioprocess = (event: AudioProcessingEvent) => {
-          chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
-        };
-        source.connect(processor);
-        processor.connect(audioContext.destination);
-        recordingRef.current = { kind: 'raw', audioContext, processor, source, stream, chunks };
-      }
-      recordingTimeoutRef.current = setTimeout(() => {
-        setIsListening(false);
-        void stopRecordingAndTranscribe();
-      }, mimeType ? MAX_RECORDING_MS_COMPRESSED : MAX_RECORDING_MS_RAW);
-    } catch (error) {
-      // getUserMedia already succeeded by this point — if any later setup step
-      // throws (AudioContext/MediaRecorder construction, node creation), the live
-      // mic track must still be released here, otherwise the browser's mic
-      // indicator stays on indefinitely with no way to stop it short of a page reload.
-      stream.getTracks().forEach((track) => track.stop());
-      throw error;
-    }
-  };
-
-  const stopRecordingAndTranscribe = async () => {
-    const session = voiceSessionRef.current;
-    if (recordingTimeoutRef.current) {
-      clearTimeout(recordingTimeoutRef.current);
-      recordingTimeoutRef.current = null;
-    }
-    const recording = recordingRef.current;
-    recordingRef.current = null;
-    if (!recording) return;
-
-    const noSpeechMessage = language === 'km' ? 'មិនបានលឺសំឡេងអ្វីទេ។' : 'No speech was detected.';
-    const speakClearlyMessage = language === 'km'
-      ? 'មិនបានលឺសំឡេងអ្វីទេ។ សូមនិយាយឲ្យបានច្បាស់ជិតមីក្រូហ្វូន។'
-      : 'No speech was detected. Please speak clearly, close to the microphone.';
-
-    let audioBase64: string;
-    let format: string;
-    let recordedSeconds = 0;
-
-    if (recording.kind === 'compressed') {
-      const { mediaRecorder, stream, chunks, mimeType, startedAt } = recording;
-      const durationSeconds = (Date.now() - startedAt) / 1000;
-      recordedSeconds = durationSeconds;
-      const stopped = mediaRecorder.state === 'inactive'
-        ? Promise.resolve()
-        : new Promise<void>((resolve) => { mediaRecorder.onstop = () => resolve(); });
-      if (mediaRecorder.state !== 'inactive') mediaRecorder.stop();
-      await stopped;
-      stream.getTracks().forEach((track) => track.stop());
-
-      const blob = new Blob(chunks, { type: mimeType });
-      // Speech models (Whisper/Chirp included) are known to hallucinate plausible-sounding
-      // but entirely made-up sentences when fed audio that's mostly silence or background
-      // noise, instead of reporting "no speech" — e.g. a tap that stops recording almost
-      // immediately, or a pause with only room noise. Reject that locally before sending
-      // it anywhere, rather than showing the user a confident but fabricated transcript.
-      // Raw sample amplitude isn't available for compressed audio without decoding it, so
-      // bytes-per-second of the encoded blob is used instead: opus's VBR encoding produces
-      // very few bytes for near-silence versus real speech at the ~32kbps target bitrate.
-      const MIN_DURATION_SECONDS = 0.5;
-      const MIN_BYTES_PER_SECOND = 300;
-      if (blob.size === 0 || durationSeconds < MIN_DURATION_SECONDS) {
-        notify(noSpeechMessage, 'error');
-        return;
-      }
-      if (blob.size / durationSeconds < MIN_BYTES_PER_SECOND) {
-        notify(speakClearlyMessage, 'error');
-        return;
-      }
-
-      audioBase64 = uint8ArrayToBase64(new Uint8Array(await blob.arrayBuffer()));
-      format = mimeType.includes('mp4') ? 'm4a' : mimeType.includes('ogg') ? 'ogg' : 'webm';
-    } else {
-      recording.processor.disconnect();
-      recording.source.disconnect();
-      recording.stream.getTracks().forEach((track) => track.stop());
-      const sampleRate = recording.audioContext.sampleRate;
-      await recording.audioContext.close();
-
-      const totalLength = recording.chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-      if (totalLength === 0) {
-        notify(noSpeechMessage, 'error');
-        return;
-      }
-
-      const merged = new Float32Array(totalLength);
-      let mergeOffset = 0;
-      for (const chunk of recording.chunks) {
-        merged.set(chunk, mergeOffset);
-        mergeOffset += chunk.length;
-      }
-
-      const durationSeconds = merged.length / sampleRate;
-      recordedSeconds = durationSeconds;
-      let sumSquares = 0;
-      for (let i = 0; i < merged.length; i += 1) sumSquares += merged[i] * merged[i];
-      const rms = Math.sqrt(sumSquares / merged.length);
-      const MIN_DURATION_SECONDS = 0.5;
-      const MIN_RMS = 0.01;
-      if (durationSeconds < MIN_DURATION_SECONDS || rms < MIN_RMS) {
-        notify(speakClearlyMessage, 'error');
-        return;
-      }
-
-      const downsampled = downsampleTo16kHz(merged, sampleRate);
-      audioBase64 = buildWavBase64(floatTo16BitPcm(downsampled.samples), downsampled.sampleRate);
-      format = 'wav';
-    }
-
-    setIsTranscribing(true);
-    // Without a client-side timeout, a stalled request (slow upload, a hung provider
-    // call server-side) leaves "Transcribing..." spinning forever with no way out
-    // short of reloading the page, since fetch() itself never times out on its own.
-    // Scales with recording length since a 10-minute clip genuinely needs more upload
-    // and processing time than a 5-second one — a fixed short timeout would wrongly
-    // abort long-but-healthy transcriptions before they finish.
-    const timeoutMs = Math.min(180000, Math.max(30000, 20000 + recordedSeconds * 1500));
-    const timeoutController = new AbortController();
-    transcriptionControllerRef.current = timeoutController;
-    const timeoutId = setTimeout(() => timeoutController.abort(), timeoutMs);
-    try {
-      const response = await fetch('/api/ai', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: timeoutController.signal,
-        body: JSON.stringify({
-          action: 'sttTranscribe',
-          audioBase64,
-          format,
-          languageHint: voiceInputLanguageRef.current === 'km' ? 'Khmer' : voiceInputLanguageRef.current === 'en' ? 'English' : 'auto',
-        }),
-      });
-      const data = await response.json();
-      if (!isMountedRef.current || session !== voiceSessionRef.current) return;
-      if (!response.ok) throw new Error(data.error || 'Transcription failed.');
-      const transcript = String(data.transcript || '').trim();
-      if (liveVoiceEnabledRef.current && /^(ឈប់|ឈប់សួរ|បញ្ឈប់|បិទសន្ទនាសំឡេង|stop|stop listening|end conversation|turn off live voice)[\s.!?។]*$/iu.test(transcript)) {
-        stopLiveVoice();
-        return;
-      }
-      // Speech models occasionally hallucinate a short, fluent-sounding but completely
-      // fabricated sentence in the WRONG script even on real, audible speech (observed
-      // live: "Oh, no.", "John, I'm going to.", "I'm telling you." for actual Khmer
-      // input) — not caught by the earlier silence/duration check since the audio
-      // itself was real. When Khmer was requested but the result has no Khmer script
-      // at all, that mismatch itself is the strongest available signal of a bad
-      // transcription, so refuse to auto-send it rather than act on fabricated text.
-      const englishGreeting = /^(hello|hi|hey|good morning|good afternoon|good evening)[!.,? ]*$/i.test(transcript);
-      const looksLikeMismatchedHallucination = voiceInputLanguageRef.current === 'km' && transcript && !/[ក-៿]/.test(transcript) && !englishGreeting;
-      if (transcript && !looksLikeMismatchedHallucination) {
-        // Auto-send right after a successful transcription, like a real voice
-        // assistant — requiring a manual click on top of speaking made voice
-        // input feel like dictation rather than an actual voice command.
-        // A spoken question stays separate from any text left in the composer.
-        void askAgent(transcript, true);
-      } else {
-        notify(language === 'km' ? 'មិនបានលឺសំឡេងអ្វីទេ។ សូមសាកល្បងម្តងទៀត។' : 'No speech was detected. Please try again.', 'error');
-      }
-    } catch (error: any) {
-      if (!isMountedRef.current || session !== voiceSessionRef.current) return;
-      const message = error?.name === 'AbortError'
-        ? (language === 'km' ? 'ការបំលែងសំឡេងចំណាយពេលយូរពេក។ សូមសាកល្បងម្តងទៀតជាមួយសំឡេងខ្លីជាងនេះ។' : 'Transcription took too long. Please try again with a shorter recording.')
-        : (error?.message || (language === 'km' ? 'ការបំលែងសំឡេងទៅជាអត្ថបទបរាជ័យ។' : 'Voice transcription failed.'));
-      notify(message, 'error');
-    } finally {
-      clearTimeout(timeoutId);
-      if (transcriptionControllerRef.current === timeoutController) transcriptionControllerRef.current = null;
-      setIsTranscribing(false);
-    }
-  };
-
-  const toggleVoiceInput = () => {
-    if (isListening) {
-      setIsListening(false);
-      void stopRecordingAndTranscribe();
-      return;
-    }
-
-    if (liveVoiceEnabledRef.current) {
-      return;
-    }
-
-    void (async () => {
-      try {
-        stopSpeaking();
-        await startRecording();
-        setIsListening(true);
-      } catch (error: any) {
-        notify(
-          error?.name === 'NotAllowedError'
-            ? (language === 'km'
-              ? 'សូមអនុញ្ញាតការប្រើប្រាស់មីក្រូហ្វូនសម្រាប់គេហទំព័រនេះ (ចុច icon 🔒/mic ក្នុងប្រអប់អាសយដ្ឋាន browser)។'
-              : "Microphone access was blocked. Click the 🔒/mic icon in your browser's address bar and allow it for this site.")
-            : (language === 'km' ? 'មិនអាចចាប់ផ្តើមថតសំឡេងបានទេ។ សូមពិនិត្យមើលមីក្រូហ្វូនរបស់អ្នក។' : 'Could not start recording. Please check your microphone.'),
-          'error',
-        );
-      }
-    })();
-  };
-
   const stopLiveVoice = () => {
     voiceSessionRef.current += 1;
+    voiceActiveRef.current = false;
     liveVoiceEnabledRef.current = false;
+    singleVoiceEnabledRef.current = false;
     setLiveVoiceEnabled(false);
+    setSingleVoiceEnabled(false);
+    setVoiceConnecting(false);
     liveConnectionControllerRef.current?.abort();
     liveConnectionControllerRef.current = null;
     // Clear the active flag before close() so the session's own onClose handler
@@ -1203,40 +727,65 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       geminiLiveSessionRef.current?.close();
       geminiLiveSessionRef.current = null;
     }
-    transcriptionControllerRef.current?.abort();
-    if (voiceAgentRequestRef.current) requestControllerRef.current?.abort();
-    discardRecording();
-    stopSpeaking();
-    setIsListening(false);
-    setIsTranscribing(false);
+    setIsSpeaking(false);
   };
 
-  const askAgent = async (messageOverride?: string, speakReply = false) => {
-    const message = (typeof messageOverride === 'string' ? messageOverride : input).trim();
-    const imagesForRequest = speakReply ? [] : attachedImagesRef.current;
+  const startVoice = (mode: 'single' | 'live') => {
+    if (voiceActiveRef.current) {
+      const wasLive = liveVoiceEnabledRef.current;
+      stopLiveVoice();
+      if (mode === 'single' || wasLive) return;
+    }
+    voiceSessionRef.current += 1;
+    const session = voiceSessionRef.current;
+    voiceActiveRef.current = true;
+    liveVoiceEnabledRef.current = mode === 'live';
+    singleVoiceEnabledRef.current = mode === 'single';
+    setLiveVoiceEnabled(mode === 'live');
+    setSingleVoiceEnabled(mode === 'single');
+    setVoiceConnecting(true);
+    setIsSpeaking(false);
+    try {
+      const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContextCtor) throw new Error('Live audio is not supported by this browser.');
+      const playbackContext: AudioContext = new AudioContextCtor({ sampleRate: 24000 });
+      void playbackContext.resume().catch(() => {});
+      void startGeminiLive(session, playbackContext);
+    } catch (error) {
+      stopLiveVoice();
+      notify(error instanceof Error ? error.message : 'Live audio is unavailable.', 'error');
+    }
+  };
+
+  useEffect(() => () => {
+    voiceSessionRef.current += 1;
+    voiceActiveRef.current = false;
+    liveConnectionControllerRef.current?.abort();
+    geminiLiveSessionRef.current?.close();
+  }, []);
+
+  const askAgent = async () => {
+    if (voiceActiveRef.current) return;
+    const message = input.trim();
+    const imagesForRequest = attachedImagesRef.current;
     if ((!message && !imagesForRequest.length) || agentRequestActiveRef.current) return;
     agentRequestActiveRef.current = true;
-    const voiceSession = voiceSessionRef.current;
-    stopSpeaking();
 
     const history = messagesRef.current.slice(-HISTORY_MESSAGES);
     const userMessage: AgentMessage = {
       role: 'user',
       content: message || (language === 'km' ? '(រូបភាពភ្ជាប់)' : '(Attached image)'),
-      modality: speakReply ? 'voice' : 'text',
+      modality: 'text',
       imageDataUrls: imagesForRequest.length
         ? imagesForRequest.map((image) => `data:${image.mimeType};base64,${image.base64}`)
         : undefined,
     };
     const pendingMessages = [...messagesRef.current, userMessage].slice(-MAX_MESSAGES);
     updateMessages(pendingMessages);
-    if (!speakReply) {
-      setInput('');
-      setAttachedImages([]);
-      attachedImagesRef.current = [];
-    }
+    setInput('');
+    setAttachedImages([]);
+    attachedImagesRef.current = [];
     setLoading(true);
-    if (speakReply) voiceAgentRequestRef.current = true;
 
     requestControllerRef.current?.abort();
     const controller = new AbortController();
@@ -1252,9 +801,9 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           message,
           platform: 'Auto',
           mode: 'auto',
-          liveVoice: speakReply,
+          liveVoice: false,
           language,
-          detectedLanguage: message ? detectSpokenLanguage(message) : language,
+          detectedLanguage: message ? detectMessageLanguage(message) : language,
           history,
           images: imagesForRequest.map((image) => ({ base64: image.base64, mimeType: image.mimeType })),
           businessContext: businessContext || undefined,
@@ -1265,15 +814,8 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
 
       updateMessages([
         ...pendingMessages,
-        { role: 'assistant', content: String(data.text || 'No response generated.').trim(), modality: speakReply ? 'voice' : 'text' },
+        { role: 'assistant', content: String(data.text || 'No response generated.').trim(), modality: 'text' },
       ]);
-      // speakReply alone decides whether to speak this one reply -- a single
-      // "Voice input" tap sets it true without turning on the Live Voice loop
-      // (liveVoiceEnabledRef), so it must not be required here too or a
-      // one-shot voice question would go back to answering in text only.
-      if (speakReply && voiceSession === voiceSessionRef.current) {
-        void speakAnswer(String(data.text || '').trim());
-      }
 
       if (autoCreateEnabledRef.current && data.automation?.ready) {
         const kind = data.automation.kind === 'video' ? 'video' : 'image';
@@ -1301,8 +843,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     } catch (error: any) {
       if (error?.name !== 'AbortError') {
         const errorMessage = error?.message || (language === 'km' ? 'Agent មិនអាចឆ្លើយបាននៅពេលនេះ។' : 'The agent could not respond right now.');
-        if (speakReply) notify(errorMessage, 'error');
-        else updateMessages([...pendingMessages, { role: 'assistant', content: errorMessage, modality: 'text' }]);
+        updateMessages([...pendingMessages, { role: 'assistant', content: errorMessage, modality: 'text' }]);
       }
     } finally {
       if (requestControllerRef.current === controller) {
@@ -1310,7 +851,6 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         agentRequestActiveRef.current = false;
         setLoading(false);
       }
-      if (speakReply) voiceAgentRequestRef.current = false;
     }
   };
 
@@ -1648,6 +1188,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           <div className="space-y-2">
             <label className="text-[10px] font-bold text-brand-700 dark:text-brand-300 uppercase tracking-widest">{text.prompt}</label>
             <textarea
+              disabled={liveVoiceEnabled || singleVoiceEnabled}
               value={input}
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={(event) => {
@@ -1674,63 +1215,35 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
               {micSupported && (
                 <button
                   type="button"
-                  onClick={() => { unlockAudioPlayback(); toggleVoiceInput(); }}
-                  disabled={isTranscribing || liveVoiceEnabled}
-                  title={isListening ? text.listening : isTranscribing ? text.transcribing : text.voiceInput}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-bold transition-all disabled:opacity-60 ${
-                    isListening
-                      ? 'bg-red-500 border-red-500 text-white animate-pulse'
-                      : 'bg-white/70 dark:bg-slate-800/70 border-brand-200 text-brand-600 hover:bg-brand-50 dark:hover:bg-slate-700'
-                  }`}
+                  onClick={() => startVoice('single')}
+                  disabled={liveVoiceEnabled || loading}
+                  aria-pressed={singleVoiceEnabled}
+                  title={singleVoiceEnabled ? text.listening : text.voiceInput}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-bold transition-all disabled:opacity-60 ${singleVoiceEnabled ? 'bg-red-500 border-red-500 text-white animate-pulse' : 'bg-white/70 dark:bg-slate-800/70 border-brand-200 text-brand-600 hover:bg-brand-50 dark:hover:bg-slate-700'}`}
                 >
-                  {isTranscribing ? <Loader2 size={16} className="animate-spin" /> : isListening ? <MicOff size={16} /> : <Mic size={16} />}
-                  {isListening ? text.listening : isTranscribing ? text.transcribing : text.voiceInput}
+                  {voiceConnecting && singleVoiceEnabled ? <Loader2 size={16} className="animate-spin" /> : singleVoiceEnabled ? <MicOff size={16} /> : <Mic size={16} />}
+                  {singleVoiceEnabled ? (isSpeaking ? (language === 'km' ? 'កំពុងឆ្លើយ...' : 'Speaking...') : text.listening) : text.voiceInput}
                 </button>
               )}
 
               {micSupported && (
                 <button
                   type="button"
-                  onClick={() => {
-                    unlockAudioPlayback();
-                    if (liveVoiceEnabled) {
-                      stopLiveVoice();
-                    } else {
-                      voiceSessionRef.current += 1;
-                      const session = voiceSessionRef.current;
-                      liveVoiceEnabledRef.current = true;
-                      setLiveVoiceEnabled(true);
-                      stopSpeaking();
-                      // The playback AudioContext for Gemini Live must be created (and
-                      // resumed) right here, synchronously inside this click, or iOS
-                      // Safari leaves it permanently suspended -- same restriction as
-                      // unlockAudioPlayback above, just for Web Audio instead of <audio>.
-                      const GeminiAudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
-                      const playbackContext: AudioContext = new GeminiAudioContextCtor({ sampleRate: 24000 });
-                      void playbackContext.resume().catch(() => {});
-                      void startGeminiLive(session, playbackContext);
-                    }
-                  }}
+                  onClick={() => startVoice('live')}
                   aria-pressed={liveVoiceEnabled}
-                  disabled={!liveVoiceEnabled && (isTranscribing || loading || isListening)}
+                  disabled={!liveVoiceEnabled && loading}
                   className={`px-3 py-2 rounded-xl border text-xs font-bold disabled:opacity-50 ${liveVoiceEnabled ? 'bg-brand-600 border-brand-600 text-white' : 'bg-white/70 dark:bg-slate-800/70 border-brand-200 text-brand-600'}`}
                 >
                   {language === 'km' ? 'សន្ទនាសំឡេងផ្ទាល់' : 'Live Voice'} {liveVoiceEnabled ? (language === 'km' ? 'បើក' : 'On') : (language === 'km' ? 'បិទ' : 'Off')}
                 </button>
               )}
-              {isSpeaking && !geminiLiveActiveRef.current && (
-                <button type="button" onClick={stopSpeaking} className="px-3 py-2 rounded-xl border border-red-200 text-red-600 text-xs font-bold">
-                  {language === 'km' ? 'បញ្ឈប់សំឡេង' : 'Stop voice'}
-                </button>
-              )}
-
               {micSupported && (
                 <div className="flex bg-brand-50 dark:bg-slate-800/70 p-1 rounded-xl border border-brand-200">
                   {(['auto', 'km', 'en'] as const).map((lang) => (
                     <button
                       key={lang}
                       type="button"
-                      disabled={isListening}
+                      disabled={voiceActiveRef.current}
                       onClick={() => { voiceInputLanguageRef.current = lang; setVoiceInputLanguage(lang); }}
                       title={language === 'km' ? 'ភាសាដែលអ្នកនឹងនិយាយ' : 'Language you will speak'}
                       className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all disabled:opacity-50 ${
@@ -1748,11 +1261,10 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
             {liveVoiceEnabled && (
               <p className="text-xs font-medium text-brand-600 dark:text-brand-300" role="status">
                 {language === 'km'
-                  ? 'សន្ទនានឹងបន្តស្តាប់បន្ទាប់ពី Agent ឆ្លើយចប់។ ចុច «សន្ទនាសំឡេងផ្ទាល់» ម្តងទៀតដើម្បីឈប់។'
-                  : 'Live Voice listens again after each reply. Press Live Voice again to stop.'}
+                  ? 'សន្ទនាសំឡេងផ្ទាល់កំពុងដំណើរការ។ ចុចម្តងទៀតដើម្បីបញ្ចប់ការហៅ។'
+                  : 'Live audio call is active. Press Live Voice again to end the call.'}
               </p>
             )}
-
             {attachedImages.length > 0 && (
               <div className="flex flex-wrap gap-2">
                 {attachedImages.map((image, index) => (
@@ -1815,7 +1327,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
 
           <button
             onClick={() => void askAgent()}
-            disabled={loading || (!input.trim() && !attachedImages.length)}
+            disabled={loading || liveVoiceEnabled || singleVoiceEnabled || (!input.trim() && !attachedImages.length)}
             className="w-full bg-gradient-to-r from-brand-600 to-crab-shell hover:from-brand-700 hover:to-crab-shell/90 disabled:from-brand-200 disabled:to-brand-300 text-white font-bold py-5 rounded-2xl flex items-center justify-center gap-3 transition-all shadow-xl shadow-brand-500/20"
           >
             {loading ? <Loader2 className="animate-spin" /> : <Send size={20} />}
@@ -1828,9 +1340,10 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
             <h3 className="text-xl font-bold text-brand-700 dark:text-brand-300 flex items-center gap-2">
               <span className="w-2 h-6 bg-brand-500 rounded-full" />
-              {text.result}
+              {liveVoiceEnabled || singleVoiceEnabled ? (language === 'km' ? 'សន្ទនាសំឡេង' : 'Voice conversation') : text.result}
             </h3>
             <div className="flex items-center gap-2">
+              {!liveVoiceEnabled && !singleVoiceEnabled && <>
               {messages.length > 0 && (
                 <button
                   onClick={startNewChat}
@@ -1851,10 +1364,31 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                   <Copy size={20} />
                 </button>
               )}
+              </>}
             </div>
           </div>
 
           <div className="flex-1 max-h-[720px] overflow-y-auto pr-2 space-y-4">
+            {(liveVoiceEnabled || singleVoiceEnabled) ? (
+              <div className="h-full min-h-[500px] flex flex-col items-center justify-center text-center" role="status" aria-live="polite">
+                <div className={`w-24 h-24 rounded-full flex items-center justify-center mb-5 ${isSpeaking ? 'bg-brand-600 text-white animate-pulse' : 'bg-brand-50 text-brand-600'}`}>
+                  {voiceConnecting ? <Loader2 size={42} className="animate-spin" /> : isSpeaking ? <Bot size={42} /> : <Mic size={42} />}
+                </div>
+                <p className="text-xl font-bold text-brand-700 dark:text-brand-300">
+                  {voiceConnecting
+                    ? (language === 'km' ? 'កំពុងភ្ជាប់សំឡេង...' : 'Connecting voice...')
+                    : isSpeaking
+                      ? (language === 'km' ? 'Agent កំពុងឆ្លើយជាសំឡេង...' : 'Agent is speaking...')
+                      : (language === 'km' ? 'កំពុងស្តាប់អ្នក...' : 'Listening to you...')}
+                </p>
+                <p className="mt-2 text-slate-500 dark:text-slate-400">
+                  {language === 'km' ? 'ការសន្ទនានេះជាសំឡេងផ្ទាល់។' : 'This conversation is live audio.'}
+                </p>
+                <button type="button" onClick={stopLiveVoice} className="mt-8 px-5 py-3 rounded-xl border border-red-200 bg-red-50 text-red-600 font-bold">
+                  {language === 'km' ? 'បញ្ចប់ការហៅ' : 'End call'}
+                </button>
+              </div>
+            ) : <>
             {!messages.length && !loading && (
               <div className="h-full min-h-[500px] flex flex-col items-center justify-center text-center">
                 <div className="w-20 h-20 bg-brand-50 rounded-3xl flex items-center justify-center border border-brand-100 shadow-inner mb-5">
@@ -1934,6 +1468,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
               </div>
             )}
             <div ref={conversationEndRef} />
+            </>}
           </div>
         </section>
       </div>

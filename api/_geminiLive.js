@@ -43,10 +43,6 @@ export async function createGeminiLiveEphemeralToken({ voiceName = 'Aoede', syst
       model: `models/${model}`,
       config: {
         responseModalities: ['AUDIO'],
-        speechConfig: {
-          voiceConfig: { prebuiltVoiceConfig: { voiceName } },
-        },
-        ...(systemInstruction ? { systemInstruction: { parts: [{ text: systemInstruction }] } } : {}),
       },
     },
   });

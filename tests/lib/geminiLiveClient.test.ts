@@ -12,14 +12,10 @@ describe('Gemini Live browser connection', () => {
     const sent: any[] = [];
     let socket: any;
     let processor: any;
+    const sources: any[] = [];
+    const onAudioStart = vi.fn();
+    const onPlaybackComplete = vi.fn();
     const track = { stop: vi.fn() };
-    const captureContext = {
-      sampleRate: 16000,
-      destination: {},
-      createMediaStreamSource: () => ({ connect: vi.fn(), disconnect: vi.fn() }),
-      createScriptProcessor: () => (processor = { connect: vi.fn(), disconnect: vi.fn(), onaudioprocess: null }),
-      close: vi.fn().mockResolvedValue(undefined),
-    };
     const FakeWebSocket = class {
       static OPEN = 1;
       static CONNECTING = 0;
@@ -34,11 +30,24 @@ describe('Gemini Live browser connection', () => {
       close() { this.readyState = 3; }
     };
     vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [track] }) } });
-    vi.stubGlobal('window', { AudioContext: class { constructor() { return captureContext; } }, setInterval, setTimeout });
+    vi.stubGlobal('window', { setInterval, setTimeout });
     vi.stubGlobal('WebSocket', FakeWebSocket);
-    const playbackContext = { close: vi.fn().mockResolvedValue(undefined) } as unknown as AudioContext;
+    const playbackContext = {
+      sampleRate: 16000,
+      currentTime: 0,
+      destination: {},
+      createMediaStreamSource: () => ({ connect: vi.fn(), disconnect: vi.fn() }),
+      createScriptProcessor: () => (processor = { connect: vi.fn(), disconnect: vi.fn(), onaudioprocess: null }),
+      createBuffer: () => ({ duration: 0.1, copyToChannel: vi.fn() }),
+      createBufferSource: () => {
+        const source = { connect: vi.fn(), start: vi.fn(), stop: vi.fn(), onended: null as (() => void) | null };
+        sources.push(source);
+        return source;
+      },
+      close: vi.fn().mockResolvedValue(undefined),
+    } as unknown as AudioContext;
 
-    const pending = connectGeminiLive('ephemeral-token', 'gemini-3.8-live', playbackContext, {}, {
+    const pending = connectGeminiLive('ephemeral-token', 'gemini-3.8-live', playbackContext, { onAudioStart, onPlaybackComplete }, {
       voiceName: 'Aoede', systemInstruction: 'Speak Khmer for Khmer input.',
     });
     await vi.waitFor(() => expect(socket).toBeDefined());
@@ -63,6 +72,22 @@ describe('Gemini Live browser connection', () => {
     vi.advanceTimersByTime(200);
     expect(sent[1].realtimeInput.audio).toMatchObject({ mimeType: 'audio/pcm;rate=16000', data: expect.any(String) });
     expect(sent[1].realtimeInput).not.toHaveProperty('mediaChunks');
+    const audioData = Buffer.from(new Int16Array([100, -100]).buffer).toString('base64');
+    socket.onmessage({ data: JSON.stringify({ serverContent: { modelTurn: { parts: [{ inlineData: { mimeType: 'audio/pcm;rate=24000', data: audioData } }] } } }) });
+    await Promise.resolve();
+    expect(onAudioStart).toHaveBeenCalledOnce();
+    socket.onmessage({ data: JSON.stringify({ serverContent: { turnComplete: true } }) });
+    await Promise.resolve();
+    expect(onPlaybackComplete).not.toHaveBeenCalled();
+    sources[0].onended();
+    expect(onPlaybackComplete).toHaveBeenCalledOnce();
+    socket.onmessage({ data: JSON.stringify({ serverContent: { modelTurn: { parts: [{ inlineData: { mimeType: 'audio/pcm;rate=24000', data: audioData } }] } } }) });
+    await Promise.resolve();
+    expect(onAudioStart).toHaveBeenCalledTimes(2);
+    socket.onmessage({ data: JSON.stringify({ serverContent: { turnComplete: true } }) });
+    await Promise.resolve();
+    sources[1].onended();
+    expect(onPlaybackComplete).toHaveBeenCalledTimes(2);
     session.close();
     expect(track.stop).toHaveBeenCalledOnce();
   });

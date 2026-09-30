@@ -22,6 +22,7 @@ export interface GeminiLiveHandlers {
   onAudioStart?: () => void;
   onInterrupted?: () => void;
   onTurnComplete?: () => void;
+  onPlaybackComplete?: () => void;
   onError?: (error: Error) => void;
   onClose?: () => void;
 }
@@ -81,10 +82,13 @@ class StreamingPcmPlayer {
   private activeSources: AudioBufferSourceNode[] = [];
   private onFirstAudio?: () => void;
   private hasStartedPlaying = false;
+  private turnComplete = false;
+  private onPlaybackComplete?: () => void;
 
-  constructor(context: AudioContext, onFirstAudio?: () => void) {
+  constructor(context: AudioContext, onFirstAudio?: () => void, onPlaybackComplete?: () => void) {
     this.context = context;
     this.onFirstAudio = onFirstAudio;
+    this.onPlaybackComplete = onPlaybackComplete;
   }
 
   enqueue(pcm16: Int16Array) {
@@ -102,11 +106,25 @@ class StreamingPcmPlayer {
     this.activeSources.push(source);
     source.onended = () => {
       this.activeSources = this.activeSources.filter((node) => node !== source);
+      this.finishTurnIfDrained();
     };
     if (!this.hasStartedPlaying) {
       this.hasStartedPlaying = true;
       this.onFirstAudio?.();
     }
+  }
+
+  markTurnComplete() {
+    this.turnComplete = true;
+    this.finishTurnIfDrained();
+  }
+
+  private finishTurnIfDrained() {
+    if (!this.turnComplete || this.activeSources.length) return;
+    this.turnComplete = false;
+    this.hasStartedPlaying = false;
+    this.nextStartTime = this.context.currentTime;
+    this.onPlaybackComplete?.();
   }
 
   // Gemini's own turn-detection told us the user started talking over the
@@ -119,6 +137,7 @@ class StreamingPcmPlayer {
     this.activeSources = [];
     this.nextStartTime = this.context.currentTime;
     this.hasStartedPlaying = false;
+    this.turnComplete = false;
   }
 }
 
@@ -135,19 +154,23 @@ export async function connectGeminiLive(
   signal?: AbortSignal,
 ): Promise<GeminiLiveSession> {
   if (signal?.aborted) throw new DOMException('Live Voice was stopped.', 'AbortError');
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+  } });
   if (signal?.aborted) {
     stream.getTracks().forEach((track) => track.stop());
     throw new DOMException('Live Voice was stopped.', 'AbortError');
   }
-  const player = new StreamingPcmPlayer(playbackContext, handlers.onAudioStart);
+  const player = new StreamingPcmPlayer(playbackContext, handlers.onAudioStart, handlers.onPlaybackComplete);
 
-  const captureContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+  // Reuse the context created and resumed in the button click. A fresh context
+  // after the async token/microphone requests can remain suspended on iOS.
+  const captureContext = playbackContext;
   const source = captureContext.createMediaStreamSource(stream);
-  // ScriptProcessorNode is deprecated but universally supported, and matches
-  // the same capture approach already used for this app's other voice input
-  // (see AIAgent.tsx's raw-PCM recording fallback) -- no need for a second
-  // capture strategy just for this path.
+  // ScriptProcessorNode is deprecated but supported in the browsers this
+  // interface targets. It lets us send short PCM chunks continuously.
   const processor = captureContext.createScriptProcessor(4096, 1, 1);
   let pendingSamples: Float32Array[] = [];
   let closed = false;
@@ -170,10 +193,10 @@ export async function connectGeminiLive(
     signal?.removeEventListener('abort', onAbort);
     clearTimeout(readyTimeout);
     clearInterval(sendTimer);
+    player.stopAll();
     processor.disconnect();
     source.disconnect();
     stream.getTracks().forEach((track) => track.stop());
-    void captureContext.close().catch(() => {});
     void playbackContext.close().catch(() => {});
     if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) socket.close();
   };
@@ -260,6 +283,7 @@ export async function connectGeminiLive(
         }
         if (message?.serverContent?.turnComplete) {
           handlers.onTurnComplete?.();
+          player.markTurnComplete();
         }
       } catch (error) {
         fail(error instanceof Error ? error : new Error('Failed to parse Gemini Live message.'));

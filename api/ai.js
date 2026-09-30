@@ -12,6 +12,7 @@ import {
 } from './_openrouter.js';
 import { createKhmerNarration, generateKhmerConversationSpeech, generateKhmerSpeech } from './_khmerNarration.js';
 import { createGeminiLiveEphemeralToken } from './_geminiLive.js';
+import { liveVoiceLanguageInstruction } from './_liveVoiceInstruction.js';
 import { preparePlanVideoSpeech } from './_videoSpeech.js';
 import { startKhmerVideoJob } from './_khmerVideo.js';
 import { preserveKhmerDuringTranslation, compareKhmerTranscript, KHMER_SCRIPT_ONLY_INSTRUCTION } from '../shared/videoSpeech.js';
@@ -1947,7 +1948,8 @@ Return ONLY a single valid JSON object with this exact structure:
     if (action === 'geminiLiveToken') {
       const businessContext = businessContextFromBody(req.body);
       const voiceName = req.body?.voiceName === 'Achird' ? 'Achird' : 'Aoede';
-      const systemInstruction = `You are aime.angkorgate AI Agent, having a live spoken conversation with a creator or small business owner. Reply in the same language the user just spoke -- natural Khmer for Khmer, natural English for English, matching code-switching if they mix both. Keep answers conversational and complete: give real substance (key points, a concrete plan, or specific advice) rather than a one-line brush-off, but speak like a person on a call, not a document -- no markdown, headings, or bullet symbols, since this is heard, not read. ${CAMBODIA_MARKET_CONTEXT}${businessContentInstruction(businessContext)}`;
+      const voiceLanguage = ['auto', 'km', 'en'].includes(req.body?.voiceLanguage) ? req.body.voiceLanguage : 'auto';
+      const systemInstruction = `You are aime.angkorgate AI Agent in a live, bidirectional, voice-only call with a creator or small business owner. Listen to incoming audio and respond directly with spoken audio. ${liveVoiceLanguageInstruction(voiceLanguage)} Keep answers useful and conversational, with concrete advice where relevant. Do not read markdown, headings, or bullet symbols aloud. ${CAMBODIA_MARKET_CONTEXT}${businessContentInstruction(businessContext)} Spoken reply language follows the user's audio and the speech-language choice above, never the language of this business context or the app interface. Never answer Khmer speech in English or Hindi.`;
       const ephemeral = await createGeminiLiveEphemeralToken({ voiceName, systemInstruction });
       return res.status(200).json(ephemeral);
     }
