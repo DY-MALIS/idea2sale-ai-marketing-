@@ -149,6 +149,22 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const liveVoiceEnabledRef = useRef(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const speakingRef = useRef<HTMLAudioElement | null>(null);
+  // iOS Safari (and some other mobile browsers) only allow audio.play() to succeed
+  // when it runs as a direct consequence of a user gesture -- a play() called later
+  // from an async chain (mic auto-detects silence -> transcribe -> ask agent -> TTS
+  // fetch resolves) has lost that gesture context and gets silently rejected, so the
+  // reply shows as text but is never actually spoken. Playing one silent clip
+  // synchronously inside the Live Voice button's own onClick (a real gesture) unlocks
+  // audio playback for the rest of the page session, so every later programmatic
+  // audio.play() in speakAnswer succeeds too.
+  const audioUnlockedRef = useRef(false);
+  const SILENT_WAV_DATA_URL = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+  const unlockAudioPlayback = () => {
+    if (audioUnlockedRef.current) return;
+    audioUnlockedRef.current = true;
+    const unlock = new Audio(SILENT_WAV_DATA_URL);
+    unlock.play().catch(() => { audioUnlockedRef.current = false; });
+  };
   const speechTurnRef = useRef(0);
   const voiceSessionRef = useRef(0);
   const liveStartingSessionRef = useRef<number | null>(null);
@@ -312,12 +328,24 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           audio.onended = () => resolve();
           audio.onpause = () => resolve();
           audio.onerror = () => reject(new Error('Voice playback failed.'));
-          audio.play().catch(reject);
+          audio.play().catch((playError: any) => {
+            // The browser blocked programmatic playback outside a user gesture --
+            // the unlock in the Live Voice button's onClick should normally prevent
+            // this, but if it still happens, force that unlock to run again on the
+            // next click instead of leaving audio permanently silent for the session.
+            if (playError?.name === 'NotAllowedError') audioUnlockedRef.current = false;
+            reject(playError);
+          });
         });
       }
     } catch (error: any) {
       if (turn === speechTurnRef.current && isMountedRef.current) {
-        notify(error?.message || 'Voice playback failed.', 'error');
+        const message = error?.name === 'NotAllowedError'
+          ? (language === 'km'
+            ? 'កម្មវិធីរុករកទប់ស្កាត់ការចាក់សំឡេង។ សូមចុច «សន្ទនាសំឡេងផ្ទាល់» ម្តងទៀត។'
+            : 'Your browser blocked audio playback. Press "Live Voice" again to re-enable it.')
+          : (error?.message || 'Voice playback failed.');
+        notify(message, 'error');
       }
     } finally {
       if (turn === speechTurnRef.current && isMountedRef.current) {
@@ -1667,7 +1695,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
               {micSupported && (
                 <button
                   type="button"
-                  onClick={toggleVoiceInput}
+                  onClick={() => { unlockAudioPlayback(); toggleVoiceInput(); }}
                   disabled={isTranscribing}
                   title={isListening ? text.listening : isTranscribing ? text.transcribing : text.voiceInput}
                   className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-bold transition-all disabled:opacity-60 ${
@@ -1685,6 +1713,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                 <button
                   type="button"
                   onClick={() => {
+                    unlockAudioPlayback();
                     if (liveVoiceEnabled) {
                       stopLiveVoice();
                     } else {
