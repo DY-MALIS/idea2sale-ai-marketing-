@@ -11,6 +11,7 @@ import {
   redactSecrets,
 } from './_openrouter.js';
 import { createKhmerNarration, generateKhmerSpeech } from './_khmerNarration.js';
+import { createGeminiLiveEphemeralToken } from './_geminiLive.js';
 import { preparePlanVideoSpeech } from './_videoSpeech.js';
 import { startKhmerVideoJob } from './_khmerVideo.js';
 import { preserveKhmerDuringTranslation, compareKhmerTranscript, KHMER_SCRIPT_ONLY_INSTRUCTION } from '../shared/videoSpeech.js';
@@ -1818,9 +1819,12 @@ Return ONLY a single valid JSON object with this exact structure:
       // to the Google Translate voice, if each preceding tier fails.
       try {
         const geminiModel = process.env.OPEN_ROUTER_TTS_GEMINI_MODEL || 'google/gemini-3.1-flash-tts-preview';
-        // The persona/gender the caller actually asked for takes priority over the
-        // env var, which is only a fallback default for requests with no voice at all.
-        const geminiVoice = GEMINI_VOICE_BY_OPENAI_VOICE[voice] || process.env.OPEN_ROUTER_TTS_GEMINI_VOICE || 'Kore';
+        // The AI Agent's conversation TTS always uses the Aoede/Achird pair
+        // (picked by ear against the alternatives), regardless of the persona
+        // voice name -- other callers keep the existing Kore/Puck mapping.
+        const geminiVoice = req.body?.conversation
+          ? (['onyx', 'echo', 'male'].includes(voice) ? 'Achird' : 'Aoede')
+          : (GEMINI_VOICE_BY_OPENAI_VOICE[voice] || process.env.OPEN_ROUTER_TTS_GEMINI_VOICE || 'Kore');
         const audio = await synthesizeSpeechViaOpenRouter({ input, model: geminiModel, voice: geminiVoice, format: 'pcm' });
         return res.status(200).json(audio);
       } catch (geminiError) {
@@ -1870,6 +1874,20 @@ Return ONLY a single valid JSON object with this exact structure:
       if (!audioBase64) return res.status(400).json({ error: 'Audio is required.' });
       const transcript = await transcribeAudioWithOpenRouter({ audioBase64, format, languageHint, model });
       return res.status(200).json({ transcript });
+    }
+
+    // Mints a short-lived, single-use Gemini token so the browser can open the
+    // realtime Live voice session directly with Google -- see api/_geminiLive.js
+    // for why the real GEMINI_API_KEY can never reach the client. AIAgent.tsx
+    // requests one of these each time Live Voice is turned on, and falls back to
+    // the existing record -> transcribe -> generate -> speak pipeline if this
+    // fails for any reason (key not configured, model unavailable, network).
+    if (action === 'geminiLiveToken') {
+      const businessContext = businessContextFromBody(req.body);
+      const voiceName = req.body?.voiceName === 'Achird' ? 'Achird' : 'Aoede';
+      const systemInstruction = `You are aime.angkorgate AI Agent, having a live spoken conversation with a creator or small business owner. Reply in the same language the user just spoke -- natural Khmer for Khmer, natural English for English, matching code-switching if they mix both. Keep answers conversational and complete: give real substance (key points, a concrete plan, or specific advice) rather than a one-line brush-off, but speak like a person on a call, not a document -- no markdown, headings, or bullet symbols, since this is heard, not read. ${CAMBODIA_MARKET_CONTEXT}${businessContentInstruction(businessContext)}`;
+      const ephemeral = await createGeminiLiveEphemeralToken({ voiceName, systemInstruction });
+      return res.status(200).json(ephemeral);
     }
 
     if (action === 'videoGenerate') {

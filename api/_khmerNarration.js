@@ -35,7 +35,12 @@ export async function generateKhmerSpeech({
   const useEdgeOnly = forceEdge || (!preferNaturalVoice && String(process.env.KHMER_TTS_PROVIDER || '').trim().toLowerCase() !== 'gemini');
   if (!useEdgeOnly) {
     try {
-      const generated = await generateGeminiSpeech({ input: spokenInput, voice, performanceStyle: clearKhmerStyle, context });
+      // The AI Agent's live conversation always uses the Aoede/Achird pair
+      // (chosen by ear against the alternatives -- see the comment on
+      // generateGeminiSpeech's voiceOverride param), regardless of which
+      // narration voice name was passed in; narration keeps Kore/Charon.
+      const voiceOverride = preferNaturalVoice ? (edgeKhmerVoice(voice) === 'km-KH-PisethNeural' ? 'Achird' : 'Aoede') : undefined;
+      const generated = await generateGeminiSpeech({ input: spokenInput, voice, performanceStyle: clearKhmerStyle, context, voiceOverride });
       if (preferNaturalVoice) {
         const wavPrefix = 'data:audio/wav;base64,';
         if (!generated.audioUrl?.startsWith(wavPrefix)) throw new Error('Expressive voice returned unsupported audio.');

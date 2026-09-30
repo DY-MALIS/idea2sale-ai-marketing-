@@ -1,6 +1,6 @@
 import { redactSecrets } from './_openrouter.js';
 
-export async function generateGeminiSpeech({ input, voice = 'alloy', performanceStyle = '', context = '' }) {
+export async function generateGeminiSpeech({ input, voice = 'alloy', performanceStyle = '', context = '', voiceOverride }) {
   const key = process.env.OPEN_ROUTER_API_KEY || process.env.OPENROUTER_API_KEY;
   if (!key) throw new Error('OPEN_ROUTER_API_KEY is not configured on the server.');
   const text = String(input || '').trim();
@@ -8,10 +8,13 @@ export async function generateGeminiSpeech({ input, voice = 'alloy', performance
   const model = process.env.OPEN_ROUTER_TTS_GEMINI_MODEL || 'google/gemini-3.1-flash-tts-preview';
   if (!/^google\/gemini-[\w.-]+-tts(?:-preview)?$/.test(model)) throw new Error('Invalid OpenRouter Gemini TTS model configuration.');
   const requestedVoice = String(voice || '').trim().toLowerCase();
-  const voiceName = ['male', 'onyx', 'echo', 'ash', 'ballad', 'charon'].includes(requestedVoice)
+  // voiceOverride bypasses the keyword heuristic below entirely -- used by the
+  // AI Agent conversation path, which always wants the exact Aoede/Achird pair
+  // the natural-sounding-voice comparison settled on, not the narration voices.
+  const voiceName = voiceOverride || (['male', 'onyx', 'echo', 'ash', 'ballad', 'charon'].includes(requestedVoice)
     || requestedVoice.includes('piseth')
     ? 'Charon'
-    : 'Kore';
+    : 'Kore');
   const style = String(performanceStyle).trim()
     || 'Warm, clear conversational delivery at a normal, brisk everyday speaking speed -- like talking to a friend, not reciting slowly or dragging out words -- with crisp, distinct enunciation of every Khmer syllable so each word is still easy to make out.';
   const prompt = `Read only the SCRIPT verbatim, in its original language. If Khmer, speak native Cambodian Khmer; do not translate or transliterate the text. Do not read the directions or context aloud. Sound like a real person talking directly to one customer: use spontaneous breath, varied intonation, gentle emphasis on meaningful words, and a clear settled ending. Give every Khmer initial consonant, vowel, final consonant and syllable its complete sound; keep neighboring words distinct and never swallow word endings. Use a natural everyday social-video tempo, never faster than clear pronunciation allows. Do not use a slow measured AI/announcer cadence, drag out words, pause after each word, or add long dramatic gaps; do not rush or garble words either. Follow the meaning of the script rather than exaggerating every phrase.\nVocal age: sound like a young Cambodian adult in their early-to-mid 20s -- a bright, light, energetic voice, not a deep, slow, gravelly, or aged/elderly-sounding one.\nDelivery direction: ${style.slice(0, 1500)}\nPlan context (context only, never spoken): ${JSON.stringify(String(context).slice(0, 3000))}\nSCRIPT:\n${text}`;

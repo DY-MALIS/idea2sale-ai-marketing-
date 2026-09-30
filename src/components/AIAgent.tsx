@@ -12,6 +12,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../hooks/useToast';
 import { detectSpokenLanguage, splitSpeechByLanguage, SpeechSegment } from '../lib/voiceLanguage';
 import { advanceVoiceTurn, initialVoiceTurnState } from '../lib/voiceTurnDetector';
+import { connectGeminiLive, GeminiLiveSession } from '../lib/geminiLiveClient';
 import { BusinessProfileData, CreativeAutomationRequest } from '../types';
 
 const DEMO_BUSINESS_PROFILE_STORAGE_KEY = 'demo_business_profile';
@@ -167,6 +168,64 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     unlock.src = SILENT_WAV_DATA_URL;
     unlock.play().catch(() => { audioUnlockedRef.current = false; });
   };
+  // Gemini Live (real-time listen+think+speak) is the primary Live Voice path;
+  // geminiLiveActiveRef tracks whether it's the one currently running so
+  // stopLiveVoice/onClose/onError know whether there's a live session to tear
+  // down and whether falling back to the record/transcribe/speak pipeline is
+  // appropriate. A plain boolean ref (not state) is enough since nothing here
+  // needs to re-render specifically when it flips -- callers read it inside
+  // handlers, not JSX.
+  const geminiLiveSessionRef = useRef<GeminiLiveSession | null>(null);
+  const geminiLiveActiveRef = useRef(false);
+
+  const startGeminiLive = async (session: number, playbackContext: AudioContext): Promise<boolean> => {
+    try {
+      const response = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ businessContext: businessContext || undefined, action: 'geminiLiveToken' }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.token) throw new Error(data.error || 'Gemini Live is unavailable.');
+      if (session !== voiceSessionRef.current || !liveVoiceEnabledRef.current) {
+        void playbackContext.close().catch(() => {});
+        return false;
+      }
+
+      // Falls back to the existing pipeline (instead of just going silent) on
+      // any mid-session failure -- a dropped connection, an expired token, or
+      // the model being unavailable for this account shouldn't end the
+      // conversation, only make it slower.
+      const recoverToFallback = () => {
+        if (!geminiLiveActiveRef.current || session !== voiceSessionRef.current) return;
+        geminiLiveActiveRef.current = false;
+        geminiLiveSessionRef.current = null;
+        setIsSpeaking(false);
+        setIsListening(false);
+        if (liveVoiceEnabledRef.current) void beginLiveListening(session);
+      };
+
+      const geminiSession = await connectGeminiLive(data.token, data.model, playbackContext, {
+        onAudioStart: () => setIsSpeaking(true),
+        onInterrupted: () => setIsSpeaking(false),
+        onTurnComplete: () => setIsSpeaking(false),
+        onError: recoverToFallback,
+        onClose: recoverToFallback,
+      });
+
+      if (session !== voiceSessionRef.current || !liveVoiceEnabledRef.current) {
+        geminiSession.close();
+        return false;
+      }
+      geminiLiveActiveRef.current = true;
+      geminiLiveSessionRef.current = geminiSession;
+      setIsListening(true);
+      return true;
+    } catch (error) {
+      console.error('Gemini Live unavailable, using the standard voice pipeline instead:', error instanceof Error ? error.message : error);
+      return false;
+    }
+  };
   const speechTurnRef = useRef(0);
   const voiceSessionRef = useRef(0);
   const liveStartingSessionRef = useRef<number | null>(null);
@@ -255,6 +314,11 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       isMountedRef.current = false;
       liveVoiceEnabledRef.current = false;
       voiceSessionRef.current += 1;
+      if (geminiLiveActiveRef.current) {
+        geminiLiveActiveRef.current = false;
+        geminiLiveSessionRef.current?.close();
+        geminiLiveSessionRef.current = null;
+      }
       transcriptionControllerRef.current?.abort();
       if (recordingTimeoutRef.current) clearTimeout(recordingTimeoutRef.current);
       const monitor = voiceMonitorRef.current;
@@ -1234,6 +1298,14 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     voiceSessionRef.current += 1;
     liveVoiceEnabledRef.current = false;
     setLiveVoiceEnabled(false);
+    // Clear the active flag before close() so the session's own onClose handler
+    // (which also runs for this intentional close, not just a dropped
+    // connection) sees Live Voice is already off and skips its auto-fallback.
+    if (geminiLiveActiveRef.current) {
+      geminiLiveActiveRef.current = false;
+      geminiLiveSessionRef.current?.close();
+      geminiLiveSessionRef.current = null;
+    }
     transcriptionControllerRef.current?.abort();
     if (voiceAgentRequestRef.current) requestControllerRef.current?.abort();
     discardRecording();
@@ -1698,7 +1770,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
             />
             <p className="text-xs text-slate-400 dark:text-slate-400">{text.inputHint}</p>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <label
                 className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/70 dark:bg-slate-800/70 border border-brand-200 text-brand-600 hover:bg-brand-50 dark:hover:bg-slate-700 cursor-pointer transition-all text-xs font-bold"
                 title={text.attachImage}
@@ -1734,11 +1806,25 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                       stopLiveVoice();
                     } else {
                       voiceSessionRef.current += 1;
+                      const session = voiceSessionRef.current;
                       liveVoiceEnabledRef.current = true;
                       setLiveVoiceEnabled(true);
                       stopSpeaking();
-                      if (!recordingRef.current) void beginLiveListening(voiceSessionRef.current);
-                      else void startVoiceMonitor(recordingRef.current.stream).catch(() => stopLiveVoice());
+                      // The playback AudioContext for Gemini Live must be created (and
+                      // resumed) right here, synchronously inside this click, or iOS
+                      // Safari leaves it permanently suspended -- same restriction as
+                      // unlockAudioPlayback above, just for Web Audio instead of <audio>.
+                      const GeminiAudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
+                      const playbackContext: AudioContext = new GeminiAudioContextCtor({ sampleRate: 24000 });
+                      void playbackContext.resume().catch(() => {});
+                      void startGeminiLive(session, playbackContext).then((started) => {
+                        if (started || session !== voiceSessionRef.current || !liveVoiceEnabledRef.current) return;
+                        // Gemini Live didn't come up (no/invalid key, model unavailable,
+                        // network) -- fall through to the existing pipeline so Live
+                        // Voice still works, just without the realtime speedup.
+                        if (!recordingRef.current) void beginLiveListening(session);
+                        else void startVoiceMonitor(recordingRef.current.stream).catch(() => stopLiveVoice());
+                      });
                     }
                   }}
                   aria-pressed={liveVoiceEnabled}
@@ -1748,7 +1834,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                   {language === 'km' ? 'សន្ទនាសំឡេងផ្ទាល់' : 'Live Voice'} {liveVoiceEnabled ? (language === 'km' ? 'បើក' : 'On') : (language === 'km' ? 'បិទ' : 'Off')}
                 </button>
               )}
-              {isSpeaking && (
+              {isSpeaking && !geminiLiveActiveRef.current && (
                 <button type="button" onClick={() => { stopSpeaking(); if (liveVoiceEnabledRef.current) void beginLiveListening(); }} className="px-3 py-2 rounded-xl border border-red-200 text-red-600 text-xs font-bold">
                   {language === 'km' ? 'បញ្ឈប់សំឡេង' : 'Stop voice'}
                 </button>
