@@ -39,3 +39,25 @@ export const mp4DurationSeconds = (bytes: Uint8Array): number | null => {
   };
   return scan(0, bytes.byteLength);
 };
+
+// ffmpeg.wasm already receives the media bytes for muxing. Probe those same
+// bytes when a container has no usable movie header instead of waiting for a
+// browser <video>/<audio> metadata event that may never fire.
+export const ffprobeDurationSeconds = async (
+  ffmpeg: { ffprobe: (args: string[], timeout?: number) => Promise<number>; readFile: (path: string, encoding: 'utf8') => Promise<string | Uint8Array> },
+  inputName: string,
+  outputName: string,
+): Promise<number | null> => {
+  try {
+    const code = await ffmpeg.ffprobe([
+      '-v', 'error', '-show_entries', 'format=duration',
+      '-of', 'default=noprint_wrappers=1:nokey=1', inputName, '-o', outputName,
+    ], 15000);
+    if (code !== 0) return null;
+    const output = await ffmpeg.readFile(outputName, 'utf8');
+    const duration = Number(String(output).trim());
+    return Number.isFinite(duration) && duration > 0 ? duration : null;
+  } catch {
+    return null;
+  }
+};

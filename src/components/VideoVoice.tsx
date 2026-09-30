@@ -28,7 +28,7 @@ import {
 } from '../../shared/imageKitUrl.js';
 import { CreativeAutomationRequest, ScheduleHandoffRequest } from '../types';
 import { getLatestBusinessBranding } from '../lib/businessBranding';
-import { mp4DurationSeconds } from '../lib/mediaDuration';
+import { ffprobeDurationSeconds, mp4DurationSeconds } from '../lib/mediaDuration';
 import { deleteGenerationHistory, GenerationHistoryEntry, saveGenerationHistory, useGenerationHistory } from '../lib/generationHistory';
 import HistoryPanel from './HistoryPanel';
 import { estimateVideoGenerationCostUsd, MAX_VIDEO_DURATION_SECONDS, MAX_VIDEO_GENERATION_COST_USD } from '../../shared/videoCost.js';
@@ -253,25 +253,6 @@ const cleanupFfmpegFiles = async (ffmpeg: any, names: string[]) => {
   }));
 };
 
-const mediaDuration = (url: string, kind: 'audio' | 'video'): Promise<number> => new Promise((resolve, reject) => {
-  const media = document.createElement(kind);
-  const finish = (error?: Error) => {
-    clearTimeout(timer);
-    const duration = media.duration;
-    media.onloadedmetadata = null;
-    media.onerror = null;
-    media.removeAttribute('src');
-    media.load();
-    if (error || !Number.isFinite(duration) || duration <= 0) reject(error || new Error('Could not read media duration.'));
-    else resolve(duration);
-  };
-  const timer = window.setTimeout(() => finish(new Error('Reading media duration timed out.')), 15000);
-  media.onloadedmetadata = () => finish();
-  media.onerror = () => finish(new Error('Could not read media duration.'));
-  media.preload = 'metadata';
-  media.src = url;
-});
-
 const GeneratedVideoPlayer: React.FC<{ src: string; language: 'km' | 'en'; aspectRatio: VideoAspectRatio }> = ({ src, language, aspectRatio }) => {
   const normalizedSrc = normalizeImageKitVideoUrl(src);
   const [playbackSrc, setPlaybackSrc] = useState(normalizedSrc);
@@ -384,56 +365,38 @@ const applyVoiceOver = async (
   const [videoBytes, audioBytes] = await Promise.all([
     fetchFile(videoDataUrl), fetchFile(audioDataUrl),
   ]);
-  // Khmer presenter jobs already measured the exact uploaded audio on the
-  // server and fitted the provider's clip duration to it. Reading metadata
-  // again from ImageKit's video delivery URL can stall while a transformation
-  // is being prepared, even though the original MP4 is ready for ffmpeg.
-  // Legacy pending jobs have no saved durations, so inspect their downloaded
-  // bytes through local blob URLs instead of making two more network requests.
+  // Use the server's measured durations when available. For older saved jobs,
+  // probe the same downloaded files that ffmpeg will mux; browser media
+  // metadata can remain pending forever for these generated clips.
   const validDuration = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0;
-  let videoDuration = validDuration(knownDurations?.video) ? knownDurations.video : mp4DurationSeconds(videoBytes);
-  let audioDuration = validDuration(knownDurations?.audio) ? knownDurations.audio : null;
-  if (!validDuration(audioDuration)) {
-    const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
-    const audioContext: AudioContext | null = AudioContextCtor ? new AudioContextCtor() : null;
-    try {
-      if (audioContext) {
-        // decodeAudioData may detach its ArrayBuffer, so copy the bytes ffmpeg
-        // still needs for the final mux before handing them to the browser.
-        const decoded = await audioContext.decodeAudioData(audioBytes.slice().buffer as ArrayBuffer);
-        audioDuration = validDuration(decoded.duration) ? decoded.duration : null;
-      }
-    } catch {
-      // Fall back to the media element for formats this decoder cannot open.
-    } finally {
-      if (audioContext) void audioContext.close().catch(() => {});
-    }
-  }
-  if (!validDuration(videoDuration)) {
-    const blobUrl = URL.createObjectURL(new Blob([videoBytes], { type: 'video/mp4' }));
-    try { videoDuration = await mediaDuration(blobUrl, 'video'); }
-    finally { URL.revokeObjectURL(blobUrl); }
-  }
-  if (!validDuration(audioDuration)) {
-    const blobUrl = URL.createObjectURL(new Blob([audioBytes], { type: audioDataUrl.startsWith('data:audio/wav') ? 'audio/wav' : 'audio/mpeg' }));
-    try { audioDuration = await mediaDuration(blobUrl, 'audio'); }
-    finally { URL.revokeObjectURL(blobUrl); }
-  }
-  if (audioDuration > videoDuration + 0.1) {
-    throw new Error('សំឡេងវែងជាងវីដេអូ។ សូមបន្ថយអត្ថបទ ឬជ្រើសវីដេអូវែងជាងនេះ។');
-  }
   const audioExt = audioDataUrl.startsWith('data:audio/wav') ? 'wav' : 'mp3';
   const ffmpeg = await getFFmpeg();
+  let muxStarted = false;
   try {
     await ffmpeg.writeFile('vo_input.mp4', videoBytes);
     await ffmpeg.writeFile(`vo_audio.${audioExt}`, audioBytes);
+    let videoDuration = validDuration(knownDurations?.video) ? knownDurations.video : mp4DurationSeconds(videoBytes);
+    let audioDuration = validDuration(knownDurations?.audio) ? knownDurations.audio : null;
+    if (!validDuration(videoDuration)) {
+      videoDuration = await ffprobeDurationSeconds(ffmpeg, 'vo_input.mp4', 'vo_video_duration.txt');
+    }
+    if (!validDuration(audioDuration)) {
+      audioDuration = await ffprobeDurationSeconds(ffmpeg, `vo_audio.${audioExt}`, 'vo_audio_duration.txt');
+    }
+    if (!validDuration(videoDuration) || !validDuration(audioDuration)) {
+      throw new Error('Could not measure the generated media duration. The paid video job is saved; resume it instead of generating a new one.');
+    }
+    if (audioDuration > videoDuration + 0.1) {
+      throw new Error('សំឡេងវែងជាងវីដេអូ។ សូមបន្ថយអត្ថបទ ឬជ្រើសវីដេអូវែងជាងនេះ។');
+    }
+    muxStarted = true;
     // The TTS model has no reliable way to actually speak faster on request, so narration
     // is generated at a natural pace and sped up here instead via ffmpeg's atempo filter —
     // a real, predictable speed change that doesn't risk mangling pronunciation the way
     // asking the model to "talk fast" did. atempo only accepts 0.5-2.0 per instance, which
     // covers every speed this app requests.
     const safeSpeed = Number.isFinite(speed) ? Math.min(2, Math.max(0.5, speed)) : 1;
-    await ffmpeg.exec([
+    const muxCode = await ffmpeg.exec([
       '-i', 'vo_input.mp4',
       '-i', `vo_audio.${audioExt}`,
       '-map', '0:v:0',
@@ -448,6 +411,7 @@ const applyVoiceOver = async (
       '-movflags', '+faststart',
       'vo_output.mp4',
     ]);
+    if (muxCode !== 0) throw new Error('Could not merge narration into the video.');
     const data = await ffmpeg.readFile('vo_output.mp4');
     const blob = new Blob([data.buffer], { type: 'video/mp4' });
     return await new Promise<string>((resolve, reject) => {
@@ -457,9 +421,10 @@ const applyVoiceOver = async (
       reader.readAsDataURL(blob);
     });
   } catch (error) {
-    throw new Error('Could not merge narration into the video. Please try again.');
+    if (!muxStarted && error instanceof Error) throw error;
+    throw new Error('Could not merge narration into the video. Please resume the saved job.');
   } finally {
-    await cleanupFfmpegFiles(ffmpeg, ['vo_input.mp4', `vo_audio.${audioExt}`, 'vo_output.mp4']);
+    await cleanupFfmpegFiles(ffmpeg, ['vo_input.mp4', `vo_audio.${audioExt}`, 'vo_output.mp4', 'vo_video_duration.txt', 'vo_audio_duration.txt']);
   }
 };
 
@@ -590,19 +555,27 @@ const pollPendingVideoJob = async (pending: PendingVideoJob, idToken: string) =>
     }
     if (statusData.videoUrl) {
       const playableVideoUrl = normalizeImageKitVideoUrl(statusData.videoUrl);
-      return pending.narrationAudioUrl
+      if (!pending.narrationAudioUrl) return playableVideoUrl;
+      try {
         // Older narration uploads were accidentally given image-only ImageKit
         // transformations. Strip those parameters so already-paid resumable
         // jobs can still fetch and mux their original MP3.
-        ? applyVoiceOver(
+        return await applyVoiceOver(
           getOriginalImageKitUrl(playableVideoUrl),
           getOriginalImageKitUrl(pending.narrationAudioUrl),
           1,
           pending.outputDuration && pending.narrationDuration
             ? { video: pending.outputDuration, audio: pending.narrationDuration }
             : undefined,
-        )
-        : playableVideoUrl as string;
+        );
+      } catch (error) {
+        // Preserve a preview of the already-paid clip without presenting it as
+        // the finished narrated result. The saved job remains resumable.
+        if (error instanceof Error) {
+          (error as Error & { previewVideoUrl?: string }).previewVideoUrl = getOriginalImageKitUrl(playableVideoUrl);
+        }
+        throw error;
+      }
     }
   }
   throw new Error('Video is still processing. Resume this same paid job again later; a new job will not be started.');
@@ -678,6 +651,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   const [selectedEnglishVoiceURI, setSelectedEnglishVoiceURI] = useState('');
   const [loading, setLoading] = useState(false);
   const [generatedVideo, setGeneratedVideo] = useState<string | null>(null);
+  const [recoverableVideoUrl, setRecoverableVideoUrl] = useState<string | null>(null);
   const [videoNeedsReview, setVideoNeedsReview] = useState(false);
   const [performanceNeedsReview, setPerformanceNeedsReview] = useState(false);
   const [retainedClips, setRetainedClips] = useState<string[]>([]);
@@ -716,6 +690,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     setGeneratedVideoAspectRatio(restoredRatio);
     setCaptionPlatform(restoredRatio === '16:9' ? 'YouTube' : 'TikTok');
     setActiveTool('video');
+    setRecoverableVideoUrl(null);
     setVideoNeedsReview(false);
     setPerformanceNeedsReview(false);
     setVideoVoiceQualityNotice(null);
@@ -954,6 +929,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     if (!user || !resumableVideoJob || loading || audioLoading) return;
     setLoading(true);
     setGeneratedVideo(null);
+    setRecoverableVideoUrl(null);
     setVideoNeedsReview(false);
     setVideoVoiceQualityNotice(null);
     try {
@@ -998,6 +974,10 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       setResumableVideoJob(null);
       notify(language === 'km' ? 'បានបន្ត និងបញ្ចប់វីដេអូដោយជោគជ័យ។' : 'The existing video job was resumed and completed.', 'success');
     } catch (error: any) {
+      if (typeof error?.previewVideoUrl === 'string') {
+        setRecoverableVideoUrl(error.previewVideoUrl);
+        setGeneratedVideoAspectRatio(normalizeVideoAspectRatio(resumableVideoJob.aspectRatio));
+      }
       notify(error?.message || 'Could not resume the video job.', 'error');
     } finally {
       setWatermarking(false);
@@ -1032,6 +1012,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
 
     setLoading(true);
     setGeneratedVideo(null);
+    setRecoverableVideoUrl(null);
     setVideoNeedsReview(false);
     setPerformanceNeedsReview(false);
     setRetainedClips([]);
@@ -1231,6 +1212,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       return;
     } catch (error: any) {
       console.error(error);
+      if (typeof error?.previewVideoUrl === 'string') setRecoverableVideoUrl(error.previewVideoUrl);
       // ffmpeg.wasm and other browser-side steps can reject with something
       // that isn't a normal Error (a bare string, or an object with no usable
       // .message) — fall back to a neutral message instead of always blaming
@@ -2070,6 +2052,18 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                         : (language === 'km' ? 'បង្កើតថ្មី YouTube ផ្ដេក 16:9' : 'Generate new YouTube 16:9')}</span>
                     </button>
                   </div>
+                </div>
+              ) : activeTool === 'video' && recoverableVideoUrl ? (
+                <div className="w-full space-y-4">
+                  <div className="rounded-2xl border border-amber-300 bg-amber-50 px-5 py-4 text-sm font-semibold text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
+                    {language === 'km'
+                      ? 'វីដេអូដើមត្រូវបានរក្សាទុក ប៉ុន្តែសំឡេងមិនទាន់ភ្ជាប់រួចទេ។ សូមចុច «បន្តវីដេអូដែលកំពុងដំណើរការ» ដើម្បីបញ្ចប់ការងារដដែល។'
+                      : 'The original clip is saved, but narration is not finished. Use Resume processing video to complete the same job.'}
+                  </div>
+                  <GeneratedVideoPlayer src={recoverableVideoUrl} language={language} aspectRatio={generatedVideoAspectRatio} />
+                  <a href={recoverableVideoUrl} download="original-video-preview.mp4" className="inline-block text-sm font-semibold text-brand-700 underline dark:text-brand-300">
+                    {language === 'km' ? 'ទាញយកវីដេអូដើមសម្រាប់ពិនិត្យ' : 'Download original clip for review'}
+                  </a>
                 </div>
               ) : activeTool === 'voice' && (generatedAudio || voiceFallbackMessage) ? (
                 <div className="text-center space-y-6">
