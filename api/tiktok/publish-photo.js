@@ -2,7 +2,6 @@ import admin, { initFirebaseAdmin } from '../_firebaseAdmin.js';
 import { logAudit } from '../_audit.js';
 import { getCookie, recordTikTokPostSync } from '../_tiktok.js';
 import { uploadMediaDataUrl } from '../_imagekitUpload.js';
-import admin, { initFirebaseAdmin } from '../_firebaseAdmin.js';
 
 // A TikTok cookie can remain in a shared browser after the Firebase account
 // changes. Require the matching signed-in owner for every publish request.
