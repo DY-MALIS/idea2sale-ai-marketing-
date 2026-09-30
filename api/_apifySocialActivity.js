@@ -196,9 +196,5 @@ export async function fetchApifySocialActivity({ candidates = [], startDate = ''
   if (!isApifySocialActivityConfigured() || !Array.isArray(candidates) || !candidates.length) return [];
   if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) return [];
 
-  const [facebook, tiktok] = await Promise.all([
-    facebookActivities(candidates, startDate, endDate),
-    tiktokActivities(candidates, startDate, endDate),
-  ]);
-  return [...facebook, ...tiktok];
+  return facebookActivities(candidates, startDate, endDate);
 }

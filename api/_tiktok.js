@@ -5,10 +5,30 @@ import { notifyAdmins } from './_alert.js';
 
 const OAUTH_STATE_COOKIE = 'tiktok_oauth_state';
 const AUTOMATION_TOKEN_COLLECTION = 'tiktok_automation_tokens';
-// The app has one shared TikTok connection (see getCookie's doc comment above),
-// not a per-user one, so automation reuses that same single connection under a
-// fixed doc id rather than trying to pick "whose" token a cron run should use.
-const AUTOMATION_TOKEN_DOC = 'default';
+const AUTOMATION_TOKEN_DOC = (ownerId) => {
+  if (!ownerId || !/^[A-Za-z0-9_-]{1,128}$/.test(ownerId)) throw new Error('TikTok connection requires a signed-in owner.');
+  return ownerId;
+};
+
+export const oauthOwnerCookieHeader = (ownerId, state, req) => {
+  const secret = (process.env.TIKTOK_CLIENT_SECRET || '').trim();
+  if (!secret) throw new Error('TIKTOK_CLIENT_SECRET is not configured.');
+  const signature = crypto.createHmac('sha256', secret).update(`${state}:${ownerId}`).digest('hex');
+  return `tiktok_oauth_owner=${encodeURIComponent(`${ownerId}.${signature}`)}; ${sessionCookieAttributes(req)}; Max-Age=600`;
+};
+
+export const readOAuthOwner = (req, res) => {
+  const value = getCookie(req, 'tiktok_oauth_owner');
+  res.setHeader('Set-Cookie', [].concat(res.getHeader('Set-Cookie') || [], `tiktok_oauth_owner=; ${sessionCookieAttributes(req)}; Max-Age=0`));
+  const [ownerId, signature] = value.split('.');
+  const state = String(req.query?.state || '');
+  const secret = (process.env.TIKTOK_CLIENT_SECRET || '').trim();
+  if (!ownerId || !signature || !state || !secret) return null;
+  const expected = crypto.createHmac('sha256', secret).update(`${state}:${ownerId}`).digest('hex');
+  const supplied = Buffer.from(signature, 'hex');
+  const actual = Buffer.from(expected, 'hex');
+  return supplied.length === actual.length && crypto.timingSafeEqual(supplied, actual) ? AUTOMATION_TOKEN_DOC(ownerId) : null;
+};
 
 // Anti-CSRF state for the TikTok OAuth flow: a fresh random value per attempt,
 // stashed in a short-lived HttpOnly cookie by whichever endpoint starts the
@@ -96,15 +116,12 @@ export function getTikTokAuthUrl(req, state) {
   return `https://www.tiktok.com/v2/auth/authorize/?client_key=${encodeURIComponent(clientKey)}&scope=${encodeURIComponent(scope)}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`;
 }
 
-// Persists the tokens from a successful OAuth exchange so the cron auto-publisher
-// (api/tiktok/publish.js's ?action=cron) can call the TikTok API without a live
-// browser session -- the tiktok_token cookie set alongside this is short-lived and
-// only ever available on the request that just connected the account. Best-effort
-// by design: called from api/tiktok/callback.js, where a Firestore hiccup here
-// must never block the user's own connect flow from completing.
-export async function saveAutomationTokens(db, { accessToken, refreshToken, expiresIn, refreshExpiresIn, openId }) {
+// Persist each owner's tokens for scheduled publishing without a browser session.
+// A failed save must fail the connect flow so it cannot report a false success.
+export async function saveAutomationTokens(db, { ownerId, accessToken, refreshToken, expiresIn, refreshExpiresIn, openId }) {
   const now = Date.now();
-  await db.collection(AUTOMATION_TOKEN_COLLECTION).doc(AUTOMATION_TOKEN_DOC).set({
+  await db.collection(AUTOMATION_TOKEN_COLLECTION).doc(AUTOMATION_TOKEN_DOC(ownerId)).set({
+    ownerId,
     accessToken,
     refreshToken: refreshToken || null,
     expiresAt: now + (Number(expiresIn) || 0) * 1000,
@@ -128,29 +145,20 @@ export async function saveAutomationTokens(db, { accessToken, refreshToken, expi
 // can stop silently retrying a dead token and alert immediately instead of
 // only discovering the outage from a string of failed scheduled posts.
 export async function markAutomationTokenRevoked(db, { openId, reason }) {
-  const ref = db.collection(AUTOMATION_TOKEN_COLLECTION).doc(AUTOMATION_TOKEN_DOC);
-  const snap = await ref.get();
-  if (!snap.exists) return false;
-  // Guards against a webhook for a *different* openId clearing this one --
-  // there's only ever one automation connection today, but a stored openId
-  // should still be honored if present rather than trusted blindly.
-  const storedOpenId = snap.data()?.openId;
-  if (storedOpenId && openId && storedOpenId !== openId) return false;
-
-  await ref.update({
-    revoked: true,
-    revokedAt: FieldValue.serverTimestamp(),
-    revokedReason: reason || 'unknown reason',
-  });
-  return true;
+  if (!openId) return false;
+  const matches = await db.collection(AUTOMATION_TOKEN_COLLECTION).where('openId', '==', openId).get();
+  await Promise.all(matches.docs.map((snap) => snap.ref.update({
+    revoked: true, revokedAt: FieldValue.serverTimestamp(), revokedReason: reason || 'unknown reason',
+  })));
+  return matches.size > 0;
 }
 
-// Returns a valid access token for the shared automation connection, refreshing
+// Returns a valid access token for this owner's automation connection, refreshing
 // it first if it's expiring soon. Returns null (not a thrown error) when nothing
 // has ever been connected, so callers can treat "not connected" as a normal,
 // retryable state rather than a failure.
-export async function getAutomationAccessToken(db) {
-  const ref = db.collection(AUTOMATION_TOKEN_COLLECTION).doc(AUTOMATION_TOKEN_DOC);
+export async function getAutomationAccessToken(db, ownerId) {
+  const ref = db.collection(AUTOMATION_TOKEN_COLLECTION).doc(AUTOMATION_TOKEN_DOC(ownerId));
   const snap = await ref.get();
   if (!snap.exists) return null;
 
@@ -222,6 +230,7 @@ export async function getAutomationAccessToken(db) {
   }
 
   await saveAutomationTokens(db, {
+    ownerId,
     accessToken: refreshed.access_token,
     refreshToken: refreshed.refresh_token || data.refreshToken,
     expiresIn: refreshed.expires_in,

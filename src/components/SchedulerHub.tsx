@@ -20,7 +20,7 @@ import { recordAuditEvent } from '../lib/auditClient';
 type Platform = 'TIKTOK' | 'YOUTUBE' | 'INSTAGRAM' | 'TWITTER' | 'TELEGRAM' | 'FACEBOOK';
 
 const MB = 1024 * 1024;
-const TELEGRAM_MEDIA_LIMIT_MB = 48;
+const TELEGRAM_MEDIA_LIMIT_MB = 47;
 const DEMO_INLINE_MEDIA_LIMIT_MB = 3;
 const DEFAULT_HASHTAGS = '#foryou #foodies #aicafe';
 const LOCAL_POSTS_KEY = 'demo_scheduled_posts';
@@ -405,9 +405,10 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
       if (!user) throw new Error('Please sign in first.');
       const idToken = await user.getIdToken();
 
-      // Uploaded once and reused across every selected platform that needs
-      // it, rather than once per platform.
+      // TikTok/YouTube use one video upload. Telegram also needs a copy in
+      // ImageKit when that upload went to Firebase Storage.
       let videoUrl = '';
+      let videoImageKitUrl = '';
       if (requiresVideo && videoFile) {
         const safeName = videoFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
         const storageRef = ref(storage, `scheduled-videos/${userToUse.uid}/${Date.now()}-${safeName}`);
@@ -423,6 +424,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
           console.error('Firebase Storage upload failed, falling back to ImageKit:', storageError);
           const uploaded = await uploadMediaViaImageKit(videoFile, idToken);
           videoUrl = uploaded.mediaUrl;
+          videoImageKitUrl = uploaded.mediaUrl;
         } finally {
           setUploadProgress(null);
         }
@@ -431,10 +433,10 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
       let telegramMediaUrl = '';
       let telegramMediaType: 'photo' | 'video' | null = null;
       if (platforms.includes('TELEGRAM') && effectiveTelegramMedia) {
-        // Reuse the just-uploaded video URL instead of uploading the same
-        // file to ImageKit a second time when TikTok/YouTube already has it.
-        if (effectiveTelegramMedia === videoFile && videoUrl) {
-          telegramMediaUrl = videoUrl;
+        // Telegram scheduling accepts ImageKit media. Firebase download URLs
+        // used for TikTok/YouTube cannot be passed to that endpoint.
+        if (effectiveTelegramMedia === videoFile && videoImageKitUrl) {
+          telegramMediaUrl = videoImageKitUrl;
           telegramMediaType = 'video';
         } else {
           const uploaded = await uploadMediaViaImageKit(effectiveTelegramMedia, idToken);

@@ -1,16 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const { mockVerifyIdToken, mockInitFirebaseAdmin, mockDelete } = vi.hoisted(() => ({
+const { mockVerifyIdToken, mockInitFirebaseAdmin, mockDelete, mockGetCookie, mockDoc } = vi.hoisted(() => ({
   mockVerifyIdToken: vi.fn(),
   mockInitFirebaseAdmin: vi.fn(),
   mockDelete: vi.fn(),
+  mockGetCookie: vi.fn(),
+  mockDoc: vi.fn(),
 }));
 vi.mock('../../../api/_firebaseAdmin.js', () => ({
   default: { auth: () => ({ verifyIdToken: mockVerifyIdToken }) },
   initFirebaseAdmin: mockInitFirebaseAdmin,
 }));
 vi.mock('../../../api/_tiktok.js', () => ({
-  getCookie: vi.fn(),
+  getCookie: mockGetCookie,
   sessionCookieAttributes: vi.fn(() => 'HttpOnly; Secure; SameSite=None; Path=/'),
 }));
 
@@ -27,8 +29,9 @@ const response = () => ({
 afterEach(() => {
   vi.resetAllMocks();
   mockInitFirebaseAdmin.mockReturnValue({
-    collection: () => ({ doc: () => ({ delete: mockDelete }) }),
+    collection: () => ({ doc: mockDoc }),
   });
+  mockDoc.mockReturnValue({ delete: mockDelete });
 });
 
 describe('POST /api/tiktok/me?action=disconnect', () => {
@@ -49,14 +52,25 @@ describe('POST /api/tiktok/me?action=disconnect', () => {
     expect(mockDelete).not.toHaveBeenCalled();
   });
 
-  it('clears the shared automation connection for a signed-in user', async () => {
+  it('clears only the signed-in owner connection', async () => {
     mockVerifyIdToken.mockResolvedValue({ uid: 'user-1' });
+    mockGetCookie.mockImplementation((_req, name) => name === 'tiktok_owner' ? 'user-1' : 'token');
     const req = { method: 'POST', query: { action: 'disconnect' }, headers: { authorization: 'Bearer good-token' } };
     const res = response();
     await handler(req, res);
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({ ok: true });
     expect(mockDelete).toHaveBeenCalled();
-    expect(res.headers['Set-Cookie']).toContain('tiktok_token=;');
+    expect(mockDoc).toHaveBeenCalledWith('user-1');
+    expect(res.headers['Set-Cookie'][0]).toContain('tiktok_token=;');
+  });
+
+  it('cannot disconnect another profile connection on the same browser', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'user-2' });
+    mockGetCookie.mockReturnValue('user-1');
+    const res = response();
+    await handler({ method: 'POST', query: { action: 'disconnect' }, headers: { authorization: 'Bearer good-token' } }, res);
+    expect(res.statusCode).toBe(403);
+    expect(mockDelete).not.toHaveBeenCalled();
   });
 });

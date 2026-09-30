@@ -46,7 +46,7 @@ service cloud.firestore {
     }
 
     match /tiktok_automation_tokens/{docId} {
-      // Access/refresh tokens for the shared TikTok connection used by the cron
+      // Access/refresh tokens for each owner's TikTok connection used by the cron
       // auto-publisher (api/tiktok/publish.js's ?action=cron). Written and read
       // only by the server via the Admin SDK, which bypasses these rules --
       // denied to every client, admin included, since these are live secrets.
@@ -300,6 +300,9 @@ service cloud.firestore {
         && incoming().directory.size() <= 200
         && (!('telegramBotToken' in incoming()) || (incoming().telegramBotToken is string && incoming().telegramBotToken.size() <= 100))
         && (!('telegramChatId' in incoming()) || (incoming().telegramChatId is string && incoming().telegramChatId.size() <= 100))
+        && (!('telegramChannelUrl' in incoming()) || (incoming().telegramChannelUrl is string && incoming().telegramChannelUrl.size() <= 200))
+        && (!('tiktokHandle' in incoming()) || (incoming().tiktokHandle is string && incoming().tiktokHandle.size() <= 100))
+        && (!('facebookPageUrl' in incoming()) || (incoming().facebookPageUrl is string && incoming().facebookPageUrl.size() <= 300))
         && (!('telegramBotActive' in incoming()) || incoming().telegramBotActive is bool);
 
       // telegramBotActive is set server-side only (activateOwnBot in
@@ -320,6 +323,9 @@ service cloud.firestore {
         && incoming().directory.size() <= 200
         && (!('telegramBotToken' in incoming()) || (incoming().telegramBotToken is string && incoming().telegramBotToken.size() <= 100))
         && (!('telegramChatId' in incoming()) || (incoming().telegramChatId is string && incoming().telegramChatId.size() <= 100))
+        && (!('telegramChannelUrl' in incoming()) || (incoming().telegramChannelUrl is string && incoming().telegramChannelUrl.size() <= 200))
+        && (!('tiktokHandle' in incoming()) || (incoming().tiktokHandle is string && incoming().tiktokHandle.size() <= 100))
+        && (!('facebookPageUrl' in incoming()) || (incoming().facebookPageUrl is string && incoming().facebookPageUrl.size() <= 300))
         && (!('telegramBotActive' in incoming()) || incoming().telegramBotActive is bool);
 
       allow delete: if isSignedIn() && profileId == request.auth.uid;

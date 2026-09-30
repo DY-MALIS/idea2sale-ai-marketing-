@@ -1,15 +1,13 @@
 # aime.angkorgate: AI Marketing Hub
 
 AI marketing automation for TikTok/Facebook/Instagram sellers — copywriting, poster/video generation, TikTok
-auto-post, a Telegram-based CRM/scheduler, ad strategy generation, and an AI agent, built as a single shared
-workspace (see [PRD.md](PRD.md) for the full feature scope).
+auto-post, a Telegram-based CRM/scheduler, ad strategy generation, and an AI agent (see [PRD.md](PRD.md) for the full feature scope).
 
-This is a single-tenant workspace app: there is one shared Telegram bot for every business using the deployment, so
-the Telegram CRM/inbox is one shared workspace, readable only by admins (`admins/{uid}` — see "Firebase Setup"
-below). Most other data (scheduled posts, campaigns, business profile) is scoped per Firebase user. There is no
-multi-company/RLS layer — see [`src/components/SecurityCenter.tsx`](src/components/SecurityCenter.tsx) (in-app
-"Security Overview" page) for the current, accurate state of access control, and [firestore.rules](firestore.rules)
-for the source of truth.
+Each Firebase user has one business profile and owner-scoped posts, campaigns, Telegram bot/channel settings, and
+TikTok authorization. Administrators can inspect data across accounts; legacy leads from the original shared bot
+remain administrator-only. Multiple staff logins for one company are not grouped into a company workspace. See
+[`src/components/SecurityCenter.tsx`](src/components/SecurityCenter.tsx) and [firestore.rules](firestore.rules)
+for access details.
 
 ## Tech Stack
 
@@ -54,8 +52,8 @@ npm run dev
 4. For server-side Firestore Admin access on Vercel, set `FIREBASE_CLIENT_EMAIL` and `FIREBASE_PRIVATE_KEY` from a
    service account key (Project Settings → Service Accounts). Without these, the server falls back to Application
    Default Credentials, which only works in environments that provide them.
-5. Grant a user admin rights — required both to delete `tiktok_posts` records and to view the shared Telegram
-   CRM/inbox (`crm` and `automation` tabs) — by running:
+5. Grant a user admin rights to delete `tiktok_posts` records and inspect cross-account or legacy shared-bot
+   Telegram CRM data by running:
 
    ```bash
    npm run grant-admin -- someone@example.com
@@ -64,8 +62,7 @@ npm run dev
    ```
 
    This needs `FIREBASE_PROJECT_ID` and (for production) `FIREBASE_CLIENT_EMAIL`/`FIREBASE_PRIVATE_KEY` set in `.env`.
-   **Grant yourself admin before deploying `firestore.rules`** — the Telegram CRM/inbox rules now require an
-   `admins/{uid}` document to exist, so without this step no one (including you) can read it.
+   Standard users can view leads and messages from their own activated Telegram bot without admin rights.
 
 ## TikTok Setup
 
@@ -81,9 +78,9 @@ npm run dev
 5. **Scheduled/auto-post videos** (Smart Scheduler → TikTok) publish via a cron job
    (`api/tiktok/publish.js?action=cron`), not a browser session, so it needs its own persisted token: connect
    TikTok once (any "Connect TikTok" button) after deploying — `api/tiktok/callback.js` then stores the
-   access/refresh token in the `tiktok_automation_tokens` collection for the cron to use and auto-refresh. Until
-   that first connect happens, scheduled TikTok posts stay `PENDING` (not `FAILED`) and publish automatically as
-   soon as someone connects. The cron runs via `vercel.json` (once daily) and the GitHub Action fallback poller
+   access/refresh token in `tiktok_automation_tokens/{uid}` for that account's cron jobs to use and auto-refresh.
+   Existing connections stored under the old shared `default` document must reconnect. A scheduled post stays
+   `PENDING` until its own account connects. The cron runs via `vercel.json` (once daily) and the GitHub Action fallback poller
    (`telegram-scheduler.yml`, every 10 minutes) — same `CRON_SECRET` as the Telegram poller.
 6. **Webhooks**: in the Content Posting API product's Webhooks section, set the callback URL to
    `https://<your-domain>/api/tiktok/webhook` (a `vercel.json` rewrite maps this to
@@ -103,9 +100,12 @@ npm run dev
 
 ## Telegram Setup
 
-1. Create a bot via [@BotFather](https://t.me/BotFather) and set `TELEGRAM_BOT_TOKEN`.
-2. Set `TELEGRAM_CHAT_ID` to the chat/channel the scheduler should post to — scheduled broadcast posts fail
-   silently (status `FAILED`) without it.
+1. For each company login, create its own bot via [@BotFather](https://t.me/BotFather). Save its token and public
+   channel username (`@mychannel` or `https://t.me/mychannel`) in that login's Business Profile, then add that bot as
+   an administrator of the channel. A numeric channel/chat ID is supported when no username is saved. If both are
+   present, the username wins. Every post uses only that account's bot and destination.
+2. `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are not used as fallbacks for publishing. A post without an owner or
+   without the owner's bot and destination is blocked instead of going to a shared channel.
 3. Set `TELEGRAM_ADMIN_CHAT_ID` to a private administrator chat/group to receive best-effort publishing and AI
    delivery failure alerts. Do not reuse the public `TELEGRAM_CHAT_ID` for internal alerts.
 4. Register the webhook (`api/telegram/webhook.js`) with Telegram and set `TELEGRAM_WEBHOOK_SECRET`.

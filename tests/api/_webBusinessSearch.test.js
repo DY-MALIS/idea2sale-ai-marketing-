@@ -33,6 +33,19 @@ it('keeps official LinkedIn organization pages found by live search', async () =
   expect(business.linkedinUrl).toBe('https://www.linkedin.com/company/cambodia-academy/');
 });
 
+it('uses website evidence and excludes TikTok-only customer leads', async () => {
+  mocks.webSearch.mockResolvedValue({ content: JSON.stringify({ businesses: [
+    { name: 'Website Cafe', website: 'https://website-cafe.example.com', tiktokUrl: 'https://www.tiktok.com/@websitecafe', sourceUrl: 'https://website-cafe.example.com/contact' },
+    { name: 'TikTok Only Cafe', sourceUrl: 'https://www.tiktok.com/@onlycafe' },
+  ] }) });
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+
+  const businesses = await searchBusinessesOnWeb({ searchTerms: 'cafes' });
+
+  expect(businesses).toHaveLength(1);
+  expect(businesses[0]).toMatchObject({ businessName: 'Website Cafe', tiktokUrl: '', sourceUrl: 'https://website-cafe.example.com/contact' });
+});
+
 it('drops personal LinkedIn profiles from business results', async () => {
   mocks.webSearch.mockResolvedValue({
     content: JSON.stringify({

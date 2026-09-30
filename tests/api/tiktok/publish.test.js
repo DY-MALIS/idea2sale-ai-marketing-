@@ -53,8 +53,8 @@ const response = () => ({
 });
 
 beforeEach(() => {
-  mockGetCookie.mockReturnValue('cookie-token');
-  mockVerifyIdToken.mockRejectedValue(new Error('no bearer token in these tests'));
+  mockGetCookie.mockImplementation((_req, name) => name === 'tiktok_owner' ? 'owner-1' : 'cookie-token');
+  mockVerifyIdToken.mockResolvedValue({ uid: 'owner-1' });
   mockInitFirebaseAdmin.mockReturnValue({});
 });
 
@@ -103,6 +103,32 @@ it('records an inbox transfer as awaiting the creator instead of already publish
 });
 
 describe('POST /api/tiktok/publish', () => {
+  it('rejects a TikTok cookie owned by another signed-in profile', async () => {
+    mockVerifyIdToken.mockResolvedValueOnce({ uid: 'other-owner' });
+    const res = response();
+    await handler({ method: 'POST', query: {}, headers: { authorization: 'Bearer id-token' }, body: { videoUrl: 'data:video/mp4;base64,AA==' } }, res);
+    expect(res.statusCode).toBe(401);
+  });
+  it('downloads the original ImageKit MP4 when video transformations are exhausted', async () => {
+    const source = 'https://ik.imagekit.io/demo/video.mp4';
+    const fetchMock = vi.fn(async (url) => {
+      const target = String(url);
+      if (target.startsWith(source)) {
+        expect(new URL(target).searchParams.get('tr')).toBe('orig-true');
+        return { ok: true, headers: { get: () => 'video/mp4' }, arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer };
+      }
+      if (target.includes('/inbox/video/init/')) {
+        return { ok: true, json: async () => ({ data: { publish_id: 'pub-original', upload_url: 'https://upload.example.com/put' } }) };
+      }
+      if (target === 'https://upload.example.com/put') return { ok: true };
+      throw new Error(`Unexpected fetch to ${target}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await publishVideoToTikTok('token', { videoUrl: source, title: 'A video', mode: 'inbox' });
+    expect(result).toMatchObject({ publishId: 'pub-original', directPost: false });
+  });
+
   it('downloads an https:// video and uploads it via FILE_UPLOAD instead of PULL_FROM_URL', async () => {
     // TikTok's PULL_FROM_URL requires the video_url's domain to be pre-verified
     // in the Developer Portal (DNS TXT record) -- something impossible for our
@@ -137,7 +163,7 @@ describe('POST /api/tiktok/publish', () => {
     const req = {
       method: 'POST',
       query: {},
-      headers: {},
+      headers: { authorization: 'Bearer id-token' },
       body: { videoUrl: 'https://cdn.example.com/video.mp4', title: 'A video' },
     };
     const res = response();
@@ -155,7 +181,7 @@ describe('POST /api/tiktok/publish', () => {
     const req = {
       method: 'POST',
       query: {},
-      headers: {},
+      headers: { authorization: 'Bearer id-token' },
       body: { videoUrl: 'https://cdn.example.com/missing.mp4', title: 'A video' },
     };
     const res = response();
@@ -183,7 +209,7 @@ describe('POST /api/tiktok/publish', () => {
     const req = {
       method: 'POST',
       query: {},
-      headers: {},
+      headers: { authorization: 'Bearer id-token' },
       body: { videoUrl: `data:video/mp4;base64,${base64}`, title: 'A video' },
     };
     const res = response();
@@ -278,7 +304,7 @@ describe('POST /api/tiktok/publish?action=deliver (QStash callback)', () => {
     process.env.QSTASH_CURRENT_SIGNING_KEY = 'current';
     process.env.QSTASH_NEXT_SIGNING_KEY = 'next';
     mockInitFirebaseAdmin.mockReturnValue({
-      collection: () => ({ doc: () => ({ update: async () => {} }) }),
+      collection: () => ({ doc: () => ({ update: async () => {}, get: async () => ({ data: () => ({ userId: 'user-1' }) }) }) }),
     });
   });
 

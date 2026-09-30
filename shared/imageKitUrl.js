@@ -59,6 +59,24 @@ export const getOriginalImageKitUrl = (mediaUrl, urlEndpoint = '') => {
   return url.toString();
 };
 
+// A plain ImageKit video URL may still be optimized automatically, consuming
+// video transformation quota. Request the original bytes for uploaded MP4s,
+// but keep meaningful transforms on generated videos (audio/logo overlays).
+export const getUntransformedImageKitVideoUrl = (mediaUrl, urlEndpoint = '') => {
+  if (!mediaUrl) return '';
+  let url;
+  try {
+    url = new URL(mediaUrl);
+  } catch {
+    return mediaUrl;
+  }
+  if (!matchesImageKitEndpoint(url, urlEndpoint)) return mediaUrl;
+  const transform = url.searchParams.get('tr') || '';
+  if (transform && !/^(?:w-\d+,)?q-(?:\d+|auto),f-mp4$/.test(transform)) return mediaUrl;
+  url.searchParams.set('tr', 'orig-true');
+  return url.toString();
+};
+
 export const applyImageKitDeliveryTransform = (mediaUrl, mediaType, urlEndpoint = '') => {
   // Width, image-quality and image-format transforms do not apply to MP3/WAV
   // assets. Adding them made narration URLs return a transformation error,

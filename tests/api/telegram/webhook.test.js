@@ -141,16 +141,16 @@ describe('resolveOwnerBotToken', () => {
     expect(await resolveOwnerBotToken(db, 'owner-1')).toBe('own-token');
   });
 
-  it('falls back to the shared token if the owner has no token saved', async () => {
+  it('does not use the shared token if the owner has no token saved', async () => {
     process.env.TELEGRAM_BOT_TOKEN = 'shared-token';
     const db = { collection: () => ({ doc: () => ({ async get() { return { data: () => ({}) }; } }) }) };
-    expect(await resolveOwnerBotToken(db, 'owner-1')).toBe('shared-token');
+    expect(await resolveOwnerBotToken(db, 'owner-1')).toBe('');
   });
 
-  it('falls back to the shared token if the profile lookup throws', async () => {
+  it('does not use the shared token if the profile lookup throws', async () => {
     process.env.TELEGRAM_BOT_TOKEN = 'shared-token';
     const db = { collection: () => ({ doc: () => ({ async get() { throw new Error('offline'); } }) }) };
-    expect(await resolveOwnerBotToken(db, 'owner-1')).toBe('shared-token');
+    expect(await resolveOwnerBotToken(db, 'owner-1')).toBe('');
   });
 });
 

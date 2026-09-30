@@ -47,6 +47,13 @@ describe('demo schedule carry-over', () => {
 
     expect(wasDemoModeThisSession()).toBe(true);
     expect(mergeStoredScheduleHistory([], 'real-user')).toEqual([post()]);
+    expect(mergeStoredScheduleHistory([], 'another-user')).toEqual([]);
+  });
+
+  it('does not attribute ownerless legacy browser posts to a signed-in company', () => {
+    localStorage.setItem('demo_scheduled_posts', JSON.stringify([post({ userId: undefined })]));
+    markDemoModeSession();
+    expect(mergeStoredScheduleHistory([], 'real-user')).toEqual([]);
   });
 
   it('always keeps schedules belonging to the current user and lets remote copies win', () => {

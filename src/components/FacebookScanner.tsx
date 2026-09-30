@@ -78,7 +78,7 @@ const activityPlatformClass = (platform: NonNullable<FacebookRecentActivity['pla
 // activity there -- a merged single-list view silently hides that a
 // platform was checked at all, which read as "the scan skipped TikTok"
 // even though the backend already searches all three for every competitor.
-const ACTIVITY_PLATFORM_ORDER: NonNullable<FacebookRecentActivity['platform']>[] = ['Facebook', 'TikTok', 'LinkedIn'];
+const ACTIVITY_PLATFORM_ORDER: NonNullable<FacebookRecentActivity['platform']>[] = ['Web', 'Facebook', 'LinkedIn'];
 
 const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation }) => {
   const { language } = useLanguage();
@@ -116,8 +116,8 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     const selected = leads.filter((_, index) => !deselectedLeads.has(index));
     if (!selected.length) return;
     const headers = isKm
-      ? ['ឈ្មោះ/ក្រុមហ៊ុន', 'ប្រភេទអ្នកផ្តល់សេវា', 'ជំនាញ/មុខរបរ', 'ប្រភេទអាជីវកម្ម', 'អាសយដ្ឋាន', 'ទូរស័ព្ទ', 'អ៊ីមែល', 'Telegram', 'គេហទំព័រ', 'Facebook Page', 'TikTok', 'LinkedIn', 'ប្រភេទឱកាស', 'ពិន្ទុសក្តានុពល', 'កម្រិត Lead', 'សញ្ញាចាប់អារម្មណ៍', 'សញ្ញាចំណាយ', 'ប្រភេទការងារ', 'សញ្ញាជ្រើសបុគ្គលិក', 'សញ្ញាគូប្រកួត', 'សេវាកម្មដែលណែនាំ', 'សារ Inbox', 'ប្រភព']
-      : ['Name / Company', 'Entity Kind', 'Trade / Work Type', 'Business Type', 'Address', 'Phone', 'Email', 'Telegram', 'Website', 'Facebook Page', 'TikTok', 'LinkedIn', 'Opportunity Type', 'Fit Score', 'Lead Level', 'Interest Signals', 'Spending Signals', 'Job Types', 'Hiring Signals', 'Competitor Signals', 'Recommended Service', 'Inbox Message', 'Source URL'];
+      ? ['ឈ្មោះ/ក្រុមហ៊ុន', 'ប្រភេទអ្នកផ្តល់សេវា', 'ជំនាញ/មុខរបរ', 'ប្រភេទអាជីវកម្ម', 'អាសយដ្ឋាន', 'ទូរស័ព្ទ', 'អ៊ីមែល', 'Telegram', 'គេហទំព័រ', 'Facebook Page', 'LinkedIn', 'ប្រភេទឱកាស', 'ពិន្ទុសក្តានុពល', 'កម្រិត Lead', 'សញ្ញាចាប់អារម្មណ៍', 'សញ្ញាចំណាយ', 'ប្រភេទការងារ', 'សញ្ញាជ្រើសបុគ្គលិក', 'សញ្ញាគូប្រកួត', 'សេវាកម្មដែលណែនាំ', 'សារ Inbox', 'ប្រភព']
+      : ['Name / Company', 'Entity Kind', 'Trade / Work Type', 'Business Type', 'Address', 'Phone', 'Email', 'Telegram', 'Website', 'Facebook Page', 'LinkedIn', 'Opportunity Type', 'Fit Score', 'Lead Level', 'Interest Signals', 'Spending Signals', 'Job Types', 'Hiring Signals', 'Competitor Signals', 'Recommended Service', 'Inbox Message', 'Source URL'];
     const rows = selected.map((lead) => [
       lead.businessName,
       lead.entityKind || '',
@@ -129,7 +129,6 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
       lead.telegram || '',
       lead.website || '',
       lead.facebookUrl || lead.facebookPageName || '',
-      lead.tiktokUrl || '',
       lead.linkedinUrl || '',
       lead.opportunityType || '',
       lead.fitScore ?? '',
@@ -356,7 +355,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     exportActivityReport: 'ទាញយករបាយការណ៍សកម្មភាព',
     sourceCoverage: 'ប្រភពដែលបានចាប់យក',
     newActivity: 'ថ្មី',
-    eyebrow: 'Facebook Audience Intelligence',
+    eyebrow: 'Social Media Scanner',
     title: 'ស្គេនអតិថិជន និងគូប្រជែង',
     subtitle: 'វិភាគតម្រូវការ ចំណង់ចំណូលចិត្ត គូប្រជែង និងបង្កើតកាលវិភាគវីដេអូដោយ AI។',
     sourceTitle: 'ទិន្នន័យមានសុវត្ថិភាព និងគោរពឯកជនភាព',
@@ -402,7 +401,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     copy: 'ចម្លងរបាយការណ៍',
     copied: 'បានចម្លង',
     live: 'ការស្វែងរកលើវេបបានភ្ជាប់',
-    socialSearchConnected: 'ស្វែងរកតាម Web សាធារណៈ៖ Facebook + TikTok + LinkedIn',
+    socialSearchConnected: 'ស្វែងរកតាមគេហទំព័រសាធារណៈ + Facebook + LinkedIn',
     estimated: 'AI market estimate',
     webBusinesses: 'Lead ពិតដែលបានផ្ទៀងផ្ទាត់',
     viewMap: 'មើលលើ Google Maps',
@@ -474,7 +473,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     exportActivityReport: 'Download activity report',
     sourceCoverage: 'Captured by source',
     newActivity: 'New',
-    eyebrow: 'Facebook Audience Intelligence',
+    eyebrow: 'Social Media Scanner',
     title: 'Customer & competitor scanner',
     subtitle: 'Understand demand, preferences and competitors, then turn the findings into an AI video calendar.',
     sourceTitle: 'Privacy-safe research',
@@ -520,7 +519,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     copy: 'Copy report',
     copied: 'Copied',
     live: 'Web search connected',
-    socialSearchConnected: 'Public-web search: Facebook + TikTok + LinkedIn',
+    socialSearchConnected: 'Public websites + Facebook + LinkedIn',
     estimated: 'AI market estimate',
     webBusinesses: 'verified leads',
     viewMap: 'View on Google Maps',
@@ -807,7 +806,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
         <div className="relative grid gap-8 xl:grid-cols-[1.1fr_0.9fr] xl:items-center">
           <div>
             <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-bold uppercase tracking-wider">
-              <Facebook size={15} /> {text.eyebrow}
+              <Radar size={15} /> {text.eyebrow}
             </div>
             <h2 className="max-w-3xl text-3xl font-black tracking-tight md:text-5xl">{text.title}</h2>
             <p className="mt-4 max-w-2xl text-sm leading-7 text-blue-100 md:text-base">{text.subtitle}</p>
@@ -1001,8 +1000,8 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
               </div>
               <div className="mt-4">
                 <p className="mb-2 text-xs font-black uppercase tracking-wider text-slate-400">{text.sourceCoverage}</p>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  {(['Facebook', 'TikTok', 'LinkedIn', 'Web'] as const).map((platform) => (
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {(['Web', 'Facebook', 'LinkedIn'] as const).map((platform) => (
                     <div key={platform} className={`flex items-center justify-between rounded-xl px-3 py-2 text-xs font-black ${activityPlatformClass(platform)}`}>
                       <span>{platform === 'Web' ? text.websiteSource : platform}</span>
                       <span className="rounded-full bg-white/70 px-2 py-0.5 text-sm text-slate-800 dark:bg-black/20 dark:text-inherit">{activityPlatformCounts[platform]}</span>
@@ -1200,7 +1199,6 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                       {!!competitor.customerSegments?.length && <div><dt className="font-bold text-slate-400">{text.customerSegments}</dt><dd className="mt-1 text-slate-700 dark:text-slate-200">{competitor.customerSegments.join(' • ')}</dd></div>}
                       <div className="flex flex-wrap gap-3">
                         {competitor.facebookUrl && <a href={competitor.facebookUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 font-bold text-blue-600 hover:underline"><Facebook size={14} />Facebook</a>}
-                        {competitor.tiktokUrl && <a href={competitor.tiktokUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 font-bold text-slate-800 hover:underline dark:text-slate-100"><ExternalLink size={14} />TikTok</a>}
                         {competitor.linkedinUrl && <a href={competitor.linkedinUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 font-bold text-sky-700 hover:underline dark:text-sky-300"><ExternalLink size={14} />LinkedIn</a>}
                         {competitor.sourceUrl && <a href={competitor.sourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 font-bold text-blue-600 hover:underline"><ExternalLink size={14} />{text.viewEvidence}</a>}
                       </div>
@@ -1358,13 +1356,11 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                         {lead.telegram && <p><span className="font-bold text-slate-400">{text.telegram}: </span>{/^(?:https?:\/\/|@)/i.test(lead.telegram) ? <a className="font-semibold text-sky-600 hover:underline" href={lead.telegram.startsWith('@') ? `https://t.me/${lead.telegram.slice(1)}` : lead.telegram} target="_blank" rel="noopener noreferrer">{lead.telegram}</a> : lead.telegram}</p>}
                         {(lead.facebookUrl || lead.facebookPageName) && <p><span className="font-bold text-slate-400">{text.facebookPage}: </span>{lead.facebookUrl ? <a className="font-semibold text-blue-600 hover:underline" href={lead.facebookUrl} target="_blank" rel="noopener noreferrer">{lead.facebookPageName || lead.businessName}</a> : lead.facebookPageName}</p>}
                         {lead.linkedinUrl && <p><span className="font-bold text-slate-400">LinkedIn: </span><a className="font-semibold text-sky-700 hover:underline dark:text-sky-300" href={lead.linkedinUrl} target="_blank" rel="noopener noreferrer">{lead.businessName}</a></p>}
-                        {lead.tiktokUrl && <p><span className="font-bold text-slate-400">TikTok: </span><a className="font-semibold text-slate-800 hover:underline dark:text-slate-100" href={lead.tiktokUrl} target="_blank" rel="noopener noreferrer">{lead.businessName}</a></p>}
                       </div>
                     </details>
 
                     <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
                       {lead.facebookUrl && <a href={lead.facebookUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white"><ExternalLink size={14} />{text.viewPage}</a>}
-                      {lead.tiktokUrl && <a href={lead.tiktokUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-3 py-2 text-xs font-bold text-white dark:bg-slate-100 dark:text-slate-900"><ExternalLink size={14} />TikTok</a>}
                       {lead.linkedinUrl && <a href={lead.linkedinUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-sky-700 px-3 py-2 text-xs font-bold text-white"><ExternalLink size={14} />LinkedIn</a>}
                       {lead.evidenceSourceUrl && <a href={lead.evidenceSourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-brand-200 bg-white/70 px-3 py-2 text-xs font-bold text-brand-700 dark:bg-slate-900 dark:text-brand-300"><ExternalLink size={14} />{text.viewEvidence}</a>}
                       {lead.mapsUrl && <a href={lead.mapsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white"><ExternalLink size={14} />{text.viewMap}</a>}

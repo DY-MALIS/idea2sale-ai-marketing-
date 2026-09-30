@@ -8,6 +8,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { BusinessDirectoryEntry, BusinessProfileData } from '../types';
 import { recordAuditEvent } from '../lib/auditClient';
+import { channelUsernameFromProfile } from '../../shared/telegramDestination.js';
 
 const DEMO_STORAGE_KEY = 'demo_business_profile';
 const LOGO_MAX_DIMENSION = 256;
@@ -71,6 +72,9 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
   const [directory, setDirectory] = useState<BusinessDirectoryEntry[]>([]);
   const [telegramBotToken, setTelegramBotToken] = useState('');
   const [telegramChatId, setTelegramChatId] = useState('');
+  const [telegramChannelUrl, setTelegramChannelUrl] = useState('');
+  const [tiktokHandle, setTiktokHandle] = useState('');
+  const [facebookPageUrl, setFacebookPageUrl] = useState('');
 
   const [entryName, setEntryName] = useState('');
   const [entryType, setEntryType] = useState<'COMPANY' | 'INDIVIDUAL'>('COMPANY');
@@ -86,6 +90,9 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
     let cancelled = false;
     const load = async () => {
       setLoading(true);
+      setBusinessName(''); setLogoDataUrl(''); setDirectory([]);
+      setTelegramBotToken(''); setTelegramChatId(''); setTelegramChannelUrl('');
+      setTiktokHandle(''); setFacebookPageUrl(''); setTelegramBotActive(false);
       try {
         if (isDemoMode || !user) {
           const local = getLocalProfile();
@@ -95,6 +102,9 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
           setDirectory(local.directory || []);
           setTelegramBotToken(local.telegramBotToken || '');
           setTelegramChatId(local.telegramChatId || '');
+          setTelegramChannelUrl(local.telegramChannelUrl || '');
+          setTiktokHandle(local.tiktokHandle || '');
+          setFacebookPageUrl(local.facebookPageUrl || '');
         } else {
           const snap = await getDoc(doc(db, 'business_profiles', user.uid));
           if (cancelled) return;
@@ -105,7 +115,14 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
             setDirectory(data.directory || []);
             setTelegramBotToken(data.telegramBotToken || '');
             setTelegramChatId(data.telegramChatId || '');
+            setTelegramChannelUrl(data.telegramChannelUrl || '');
+            setTiktokHandle(data.tiktokHandle || '');
+            setFacebookPageUrl(data.facebookPageUrl || '');
             setTelegramBotActive(Boolean(data.telegramBotActive));
+          } else {
+            setBusinessName(''); setLogoDataUrl(''); setDirectory([]);
+            setTelegramBotToken(''); setTelegramChatId(''); setTelegramChannelUrl('');
+            setTiktokHandle(''); setFacebookPageUrl(''); setTelegramBotActive(false);
           }
         }
       } catch (err) {
@@ -147,6 +164,22 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
   };
 
   const handleSave = async () => {
+    const channelInput = telegramChannelUrl.trim();
+    const channelUsername = channelUsernameFromProfile(channelInput);
+    if (channelInput && !channelUsername) {
+      setError('Enter a public Telegram channel username such as @mycompany or https://t.me/mycompany.');
+      return;
+    }
+    const channelUrl = channelUsername ? `https://t.me/${channelUsername.slice(1)}` : '';
+    const pageUrl = facebookPageUrl.trim();
+    if (pageUrl && !/^https:\/\/(?:www\.|m\.)?(?:facebook\.com|fb\.com)\//i.test(pageUrl)) {
+      setError('Enter a Facebook Page URL beginning with https://facebook.com/');
+      return;
+    }
+    if (tiktokHandle.trim() && !/^@?[A-Za-z0-9._]{1,100}$/.test(tiktokHandle.trim())) {
+      setError('Enter only your TikTok username, such as @mycompany.');
+      return;
+    }
     setSaving(true);
     setError(null);
     setSaved(false);
@@ -156,6 +189,9 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
       directory,
       telegramBotToken: telegramBotToken.trim(),
       telegramChatId: telegramChatId.trim(),
+      telegramChannelUrl: channelUrl,
+      tiktokHandle: tiktokHandle.trim().replace(/^@/, ''),
+      facebookPageUrl: facebookPageUrl.trim(),
     };
     try {
       if (isDemoMode || !user) {
@@ -177,6 +213,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
         });
       }
       setSaved(true);
+      window.dispatchEvent(new Event('business-profile-updated'));
       setTimeout(() => setSaved(false), 3000);
     } catch (err: any) {
       console.error('Failed to save business profile:', err);
@@ -344,6 +381,25 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
               </div>
             </div>
 
+            <div className="space-y-3">
+              <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest block">TikTok &amp; Facebook</label>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Save your company channels here. TikTok publishing also requires connecting your own TikTok account; a Facebook Page URL is for profile context only.</p>
+              <input
+                type="text"
+                value={tiktokHandle}
+                onChange={(e) => setTiktokHandle(e.target.value)}
+                placeholder="TikTok username, e.g. @mycompany"
+                className="w-full px-4 py-3 bg-brand-50 border border-brand-100 dark:bg-slate-800 dark:border-slate-700 rounded-2xl text-sm text-brand-700 dark:text-slate-100 focus:outline-none focus:ring-2 ring-brand-500/20"
+              />
+              <input
+                type="url"
+                value={facebookPageUrl}
+                onChange={(e) => setFacebookPageUrl(e.target.value)}
+                placeholder="https://www.facebook.com/mycompany"
+                className="w-full px-4 py-3 bg-brand-50 border border-brand-100 dark:bg-slate-800 dark:border-slate-700 rounded-2xl text-sm text-brand-700 dark:text-slate-100 focus:outline-none focus:ring-2 ring-brand-500/20"
+              />
+            </div>
+
             <div>
               <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
                 <Send size={12} />
@@ -364,6 +420,13 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
                   value={telegramChatId}
                   onChange={(e) => setTelegramChatId(e.target.value)}
                   placeholder={t('telegramChatIdPlaceholder')}
+                  className="w-full px-4 py-3 bg-brand-50 border border-brand-100 dark:bg-slate-800 dark:border-slate-700 rounded-2xl text-sm text-brand-700 dark:text-slate-100 focus:outline-none focus:ring-2 ring-brand-500/20"
+                />
+                <input
+                  type="text"
+                  value={telegramChannelUrl}
+                  onChange={(e) => setTelegramChannelUrl(e.target.value)}
+                  placeholder="Channel username, e.g. @mycompany"
                   className="w-full px-4 py-3 bg-brand-50 border border-brand-100 dark:bg-slate-800 dark:border-slate-700 rounded-2xl text-sm text-brand-700 dark:text-slate-100 focus:outline-none focus:ring-2 ring-brand-500/20"
                 />
               </div>

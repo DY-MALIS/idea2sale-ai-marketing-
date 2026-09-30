@@ -14,6 +14,8 @@ import { generateOpenRouterImage, startOpenRouterVideo } from '../_openrouter.js
 import { preparePlanVideoSpeech } from '../_videoSpeech.js';
 import { generateKhmerSpeech } from '../_khmerNarration.js';
 import { applyPosterTextOverlay } from '../_posterOverlay.js';
+import { getUntransformedImageKitVideoUrl } from '../../shared/imageKitUrl.js';
+import { telegramDestinationFromProfile } from '../../shared/telegramDestination.js';
 import reviewVideoHandler from './_review-video.js';
 import {
   applyImageKitDeliveryTransform,
@@ -223,6 +225,63 @@ export const uploadMediaDataUrl = (options) => uploadImageKitMediaDataUrl({
   ...options,
 });
 
+// ImageKit can return 403 "Video transformations limit exceeded" even for a
+// plain video URL because its default delivery optimizes video automatically.
+// Uploaded MP4s need no processing for Telegram; orig-true serves their bytes
+// without spending video transformation quota. Keep substantive transforms
+// (such as narration or logo overlays) on generated videos intact.
+export const telegramMediaUrlFor = (mediaUrl, mediaType) => {
+  const source = String(mediaUrl || '').trim();
+  if (mediaType !== 'video' || !isImageKitMediaUrl(source)) {
+    return applyImageKitDeliveryTransform(source, mediaType === 'video' ? 'video' : 'photo');
+  }
+  return getUntransformedImageKitVideoUrl(source, process.env.IMAGEKIT_URL_ENDPOINT || '');
+};
+
+const MAX_TELEGRAM_UPLOAD_BYTES = 50 * 1000 * 1000;
+const isTrustedMediaDownloadUrl = (mediaUrl) => {
+  if (isImageKitMediaUrl(mediaUrl)) return true;
+  try {
+    const url = new URL(mediaUrl);
+    return url.protocol === 'https:' && ['firebasestorage.googleapis.com', 'storage.googleapis.com'].includes(url.hostname);
+  } catch {
+    return false;
+  }
+};
+
+// Telegram can fetch at most 20 MB from a URL, while multipart video uploads
+// may be up to 50 MB. Download only our own storage URLs and upload the bytes
+// directly so large videos and long ImageKit filenames can be published.
+export const uploadTelegramMediaUrl = async ({ token, chatId, mediaUrl, mediaType, caption }) => {
+  if (!isTrustedMediaDownloadUrl(mediaUrl)) throw new Error('The scheduled media URL is not from app storage. Please upload the file again.');
+  const source = await fetch(mediaUrl, { signal: AbortSignal.timeout(120000) });
+  if (!source.ok) {
+    throw new Error(source.status === 403 && isImageKitMediaUrl(mediaUrl)
+      ? 'The stored video is unavailable from ImageKit. Please upload the original file again or restore the ImageKit video allowance.'
+      : `The stored media could not be downloaded (HTTP ${source.status}). Please upload the file again.`);
+  }
+  const declaredSize = Number(source.headers.get('content-length'));
+  if (declaredSize > MAX_TELEGRAM_UPLOAD_BYTES) throw new Error('Telegram accepts video files up to 50 MB. Please choose a smaller file.');
+  const bytes = Buffer.from(await source.arrayBuffer());
+  if (!bytes.length || bytes.length > MAX_TELEGRAM_UPLOAD_BYTES) throw new Error('The media file is empty or exceeds Telegram\'s 50 MB limit.');
+  const isVideo = mediaType === 'video';
+  const contentType = source.headers.get('content-type') || '';
+  if (isVideo && !/^video\//i.test(contentType)) throw new Error('The stored video URL did not return a video file. Please upload the file again.');
+  const form = new FormData();
+  form.set('chat_id', String(chatId));
+  if (caption) {
+    form.set('caption', caption);
+    form.set('parse_mode', 'HTML');
+  }
+  form.set(isVideo ? 'video' : 'photo', new Blob([bytes], { type: isVideo ? 'video/mp4' : contentType || 'image/jpeg' }), isVideo ? 'telegram-video.mp4' : 'telegram-photo.jpg');
+  const response = await fetch(`https://api.telegram.org/bot${token}/${isVideo ? 'sendVideo' : 'sendPhoto'}`, {
+    method: 'POST', body: form, signal: AbortSignal.timeout(120000),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.ok) throw new Error(data?.description || 'Telegram could not publish this media file.');
+  return { messageId: data.result?.message_id || null };
+};
+
 const startPlanVideoJob = (item, speech) => {
   const requestedDuration = Number(item.duration);
   const duration = [4, 6, 8].includes(requestedDuration) ? requestedDuration : 8;
@@ -306,6 +365,10 @@ const createScheduledTelegramPost = async (req, res) => {
   }
 
   const db = initFirebaseAdmin();
+  const destination = await resolveTelegramDestination(db, decoded.uid);
+  if (!destination.token || !destination.chatId) {
+    return res.status(409).json({ error: 'Connect your own Telegram bot and channel in Business Profile before scheduling.' });
+  }
   let uploaded;
   if (mediaUrl) {
     let parsedUrl;
@@ -369,28 +432,18 @@ export const postTelegramMessage = async (req, res) => {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // Auth is optional here (this path is also hit by demo-mode posts with no
-  // account at all) -- but when a caller IS signed in, resolve their own
-  // Telegram destination the same way sendTelegram() does for scheduled posts,
-  // so "send now"/the live polling loop in Scheduler.tsx actually honors a
-  // user's own connected channel instead of always falling through to the
-  // shared one.
-  let db;
-  let userId;
-  if (req.headers.authorization) {
-    try {
-      const decoded = await verifyUser(req);
-      userId = decoded.uid;
-      db = initFirebaseAdmin();
-    } catch (error) {
-      console.error('Optional auth on postTelegramMessage failed, using the shared channel:', error?.message);
-    }
+  let decoded;
+  try {
+    decoded = await verifyUser(req);
+  } catch {
+    return res.status(401).json({ error: 'Sign in to send to your Telegram channel.' });
   }
-  const { token, chatId } = await resolveTelegramDestination(db, userId);
+  const db = initFirebaseAdmin();
+  const { token, chatId } = await resolveTelegramDestination(db, decoded.uid);
 
   if (!token || !chatId) {
     return res.status(503).json({
-      error: 'Telegram is not configured. Add TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in Vercel.'
+      error: 'Connect your own Telegram bot and channel in Business Profile before publishing.'
     });
   }
 
@@ -398,15 +451,10 @@ export const postTelegramMessage = async (req, res) => {
   const mediaDataUrl = String(req.body?.mediaDataUrl || '').trim();
   const mediaName = String(req.body?.mediaName || 'telegram-media').trim();
   const mediaType = String(req.body?.mediaType || '').trim().toLowerCase();
-  // This immediate-send path (used by the legacy Scheduler.tsx polling loop and its
-  // "send now" button) historically sent whatever hosted URL it was given as-is,
-  // unlike the newer action=create path, which resizes at upload time. A full-res
-  // AI-generated image/video routinely trips Telegram's "wrong type of the web page
-  // content" (its way of saying "too large"), so apply the same resize here too.
-  const mediaUrl = applyImageKitDeliveryTransform(
-    String(req.body?.mediaUrl || '').trim(),
-    mediaType === 'video' ? 'video' : 'photo'
-  );
+  // Use original bytes for uploaded videos, and resize images for URL delivery.
+  // The video branch below sends multipart so Telegram's 20 MB URL limit does
+  // not block ordinary user uploads.
+  const mediaUrl = telegramMediaUrlFor(req.body?.mediaUrl, mediaType);
 
   if (!rawText && !mediaUrl && !mediaDataUrl) {
     return res.status(400).json({ error: 'Telegram text, image, or video is required.' });
@@ -415,6 +463,10 @@ export const postTelegramMessage = async (req, res) => {
   try {
     const hasMedia = !!(mediaUrl || mediaDataUrl);
     const text = telegramTextFor(rawText, hasMedia ? TELEGRAM_CAPTION_LIMIT : TELEGRAM_MESSAGE_LIMIT);
+    if (mediaUrl && !mediaDataUrl && mediaType === 'video') {
+      const { messageId } = await uploadTelegramMediaUrl({ token, chatId, mediaUrl, mediaType, caption: text });
+      return res.status(200).json({ ok: true, messageId });
+    }
     const method = hasMedia
       ? mediaType === 'video'
         ? 'sendVideo'
@@ -475,17 +527,8 @@ export const postTelegramMessage = async (req, res) => {
     let data = await readTelegramJson(telegramRes);
 
     if (mediaUrl && (!telegramRes.ok || !data.ok)) {
-      telegramRes = await fetch(`https://api.telegram.org/bot${token}/sendDocument`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: chatId,
-          document: mediaUrl,
-          caption: text || undefined,
-          parse_mode: text ? 'HTML' : undefined
-        })
-      });
-      data = await readTelegramJson(telegramRes);
+      const uploaded = await uploadTelegramMediaUrl({ token, chatId, mediaUrl, mediaType, caption: text });
+      return res.status(200).json({ ok: true, messageId: uploaded.messageId });
     }
 
     if (!telegramRes.ok || !data.ok) {
@@ -505,51 +548,42 @@ export const postTelegramMessage = async (req, res) => {
   }
 };
 
-// Looks up the post owner's own bot/channel (set in Business Profile) so their
-// scheduled content goes to their own Telegram channel instead of the app's
-// shared default -- falls back to the shared TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID
-// env vars whenever the user hasn't configured their own (the common case, and
-// always the case for posts predating this feature).
+// Every post requires its owner's Business Profile bot and channel. There is no
+// deployment-wide fallback: an ownerless legacy post is never broadcast.
 export const resolveTelegramDestination = async (db, userId) => {
-  const sharedToken = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
-  const sharedChatId = (process.env.TELEGRAM_CHAT_ID || '').trim();
-
-  if (db && userId) {
-    try {
-      const snap = await db.collection('business_profiles').doc(userId).get();
-      const ownToken = (snap.data()?.telegramBotToken || '').trim();
-      const ownChatId = (snap.data()?.telegramChatId || '').trim();
-      if (ownToken && ownChatId) return { token: ownToken, chatId: ownChatId };
-    } catch (error) {
-      console.error('Could not load the post owner\'s Telegram profile, using the shared channel:', error?.message);
-    }
+  if (!userId || !db) return { token: '', chatId: '' };
+  try {
+    const snap = await db.collection('business_profiles').doc(userId).get();
+    return telegramDestinationFromProfile(snap.data());
+  } catch (error) {
+    console.error('Could not load the post owner\'s Telegram profile:', error?.message);
+    return { token: '', chatId: '' };
   }
-
-  return { token: sharedToken, chatId: sharedChatId };
 };
 
 export const sendTelegram = async (post, db) => {
   const { token, chatId } = await resolveTelegramDestination(db, post.userId);
 
   if (!token || !chatId) {
-    throw new Error('Telegram is not configured.');
+    throw new Error('Connect your own Telegram bot and channel in Business Profile before publishing.');
   }
 
   const rawText = String(post.content || '').trim();
   const mediaType = String(post.mediaType || '').trim().toLowerCase();
-  // A post scheduled with a pre-existing mediaUrl (rather than a fresh mediaDataUrl
-  // upload) skips the resize applied in uploadMediaDataUrl -- apply it here too so
-  // every send path resizes before hitting Telegram, regardless of how the URL got here.
-  const mediaUrl = applyImageKitDeliveryTransform(
-    String(post.mediaUrl || '').trim(),
-    mediaType === 'video' ? 'video' : 'photo'
-  );
+  // Uploaded videos use original bytes to avoid ImageKit's transformation quota;
+  // generated videos retain any substantive narration or logo transforms.
+  const mediaUrl = telegramMediaUrlFor(post.mediaUrl, mediaType);
 
   if (!rawText && !mediaUrl) {
     throw new Error('Post has no text or media URL.');
   }
 
   const text = telegramTextFor(rawText, mediaUrl ? TELEGRAM_CAPTION_LIMIT : TELEGRAM_MESSAGE_LIMIT);
+
+  if (mediaUrl && mediaType === 'video') {
+    const { messageId } = await uploadTelegramMediaUrl({ token, chatId, mediaUrl, mediaType, caption: text });
+    return { messageId, chatId };
+  }
 
   const method = mediaUrl
     ? mediaType === 'video'
@@ -580,17 +614,8 @@ export const sendTelegram = async (post, db) => {
   let data = await response.json();
 
   if (mediaUrl && (!response.ok || !data.ok)) {
-    response = await fetch(`https://api.telegram.org/bot${token}/sendDocument`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        document: mediaUrl,
-        caption: text || undefined,
-        parse_mode: text ? 'HTML' : undefined
-      })
-    });
-    data = await response.json();
+    const { messageId } = await uploadTelegramMediaUrl({ token, chatId, mediaUrl, mediaType, caption: text });
+    return { messageId, chatId };
   }
 
   if (!response.ok || !data.ok) {
@@ -598,10 +623,7 @@ export const sendTelegram = async (post, db) => {
   }
 
   // chatId is returned alongside the message id (not just logged) so callers can
-  // persist which chat a delivery actually landed in -- resolveTelegramDestination
-  // silently falls back between a user's own bot and the shared one, which made a
-  // "why isn't this in the channel I'm looking at" report impossible to debug
-  // without this trail.
+  // persist which chat a delivery actually landed in for diagnostics.
   return { messageId: data.result?.message_id || null, chatId };
 };
 

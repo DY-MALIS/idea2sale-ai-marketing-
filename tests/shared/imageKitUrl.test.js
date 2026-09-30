@@ -4,6 +4,7 @@ import {
   applyImageKitDeliveryTransform,
   applyImageKitMuteTransform,
   getOriginalImageKitUrl,
+  getUntransformedImageKitVideoUrl,
   normalizeImageKitVideoUrl,
 } from '../../shared/imageKitUrl.js';
 
@@ -48,6 +49,14 @@ describe('ImageKit URL transformations', () => {
     const original = getOriginalImageKitUrl(transformed);
     expect(new URL(original).searchParams.has('tr')).toBe(false);
     expect(new URL(original).searchParams.get('v')).toBe('1');
+  });
+
+  it('bypasses the video quota for plain uploads while keeping generated overlays', () => {
+    const uploaded = 'https://ik.imagekit.io/acme/video.mp4';
+    expect(new URL(getUntransformedImageKitVideoUrl(uploaded)).searchParams.get('tr')).toBe('orig-true');
+    expect(new URL(getUntransformedImageKitVideoUrl(`${uploaded}?tr=w-1280%2Cq-85%2Cf-mp4`)).searchParams.get('tr')).toBe('orig-true');
+    const withOverlay = `${uploaded}?tr=ac-none%3Al-image%2Ci-logo.png%2Cl-end`;
+    expect(getUntransformedImageKitVideoUrl(withOverlay)).toBe(withOverlay);
   });
 
   it('does not transform an unrelated host', () => {

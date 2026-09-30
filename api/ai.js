@@ -45,6 +45,15 @@ const CLIENT_ERROR_RATE_LIMIT_PER_HOUR = Number(process.env.CLIENT_ERROR_RATE_LI
 // per-IP budget than the general AI quota above.
 const EMAIL_RATE_LIMIT_PER_HOUR = Number(process.env.EMAIL_RATE_LIMIT_PER_HOUR) || 20;
 
+export const resolveAgentReplyLanguage = (message, detectedLanguage = '') => {
+  const hasKhmer = /[\u1780-\u17FF]/u.test(String(message || ''));
+  const hasEnglish = /[A-Za-z]/u.test(String(message || ''));
+  if (hasKhmer && hasEnglish) return 'Mixed Khmer and English';
+  if (hasKhmer) return 'Khmer';
+  if (hasEnglish) return 'English';
+  return detectedLanguage === 'mixed' ? 'Mixed Khmer and English' : detectedLanguage === 'km' ? 'Khmer' : 'English';
+};
+
 export const getAiRateLimitPolicy = (action) => {
   if (action === 'videoGenerate') {
     return {
@@ -276,21 +285,29 @@ export const resolveVideoAspectRatio = () => '16:9';
 const businessContextFromBody = (body = {}) => {
   const source = body.businessContext && typeof body.businessContext === 'object' ? body.businessContext : body;
   const businessName = String(source?.businessName || '').trim().slice(0, 120);
+  const tiktokHandle = String(source?.tiktokHandle || '').trim().replace(/^@/, '').slice(0, 100);
+  const facebookPageUrl = String(source?.facebookPageUrl || '').trim().slice(0, 300);
+  const telegramChannelUrl = String(source?.telegramChannelUrl || '').trim().slice(0, 300);
   const directory = Array.isArray(source?.directory)
     ? source.directory.filter((entry) => entry?.name).slice(0, 20).map((entry) => ({
         name: String(entry.name).trim().slice(0, 100),
         type: entry.type === 'INDIVIDUAL' ? 'individual' : 'company',
       }))
     : [];
-  return { businessName, directory };
+  return { businessName, directory, tiktokHandle, facebookPageUrl, telegramChannelUrl };
 };
 
-const businessContentInstruction = ({ businessName, directory }, { requireName = false } = {}) => {
-  if (!businessName && !directory.length) return '';
+const businessContentInstruction = ({ businessName, directory, tiktokHandle, facebookPageUrl, telegramChannelUrl }, { requireName = false } = {}) => {
+  if (!businessName && !directory.length && !tiktokHandle && !facebookPageUrl && !telegramChannelUrl) return '';
   const knownNames = directory.length
     ? ` Known directory names: ${directory.map((entry) => `${entry.name} (${entry.type})`).join(', ')}.`
     : '';
-  return `\nSAVED BUSINESS PROFILE: The content is for "${businessName || 'the user\'s business'}".${knownNames} Use these exact saved names; never invent a replacement company name.${businessName ? ` ${requireName ? 'Every customer-facing script, spoken dialogue, caption and CTA MUST naturally say the exact business name at least once.' : 'Naturally identify the business by this exact name whenever the content represents, promotes, or asks viewers to contact it.'}` : ''}`;
+  const channels = [
+    tiktokHandle ? `TikTok @${tiktokHandle}` : '',
+    facebookPageUrl ? `Facebook Page ${facebookPageUrl}` : '',
+    telegramChannelUrl ? `Telegram channel ${telegramChannelUrl}` : '',
+  ].filter(Boolean);
+  return `\nSAVED BUSINESS PROFILE: The content is for "${businessName || 'the user\'s business'}".${knownNames} Use these exact saved names; never invent a replacement company name.${businessName ? ` ${requireName ? 'Every customer-facing script, spoken dialogue, caption and CTA MUST naturally say the exact business name at least once.' : 'Naturally identify the business by this exact name whenever the content represents, promotes, or asks viewers to contact it.'}` : ''}${channels.length ? ` Saved public channels: ${channels.join('; ')}. Use them only when relevant to the requested content; do not imply a channel is connected for automatic publishing.` : ''}`;
 };
 
 export const ensureBusinessInInboxMessage = (message, businessName) => {
@@ -527,9 +544,9 @@ ${CAMBODIA_MARKET_CONTEXT}
 
 Critical language contract:
 - The language of the user's latest message is the only language that controls your reply.
-- If the latest message contains Khmer characters, reply entirely in natural Khmer, even if the UI preference or older messages are English.
-- If the latest message is English and contains no Khmer characters, reply entirely in English, even if the UI preference or older messages are Khmer.
-- If the latest message intentionally mixes Khmer and English, keep the same mixed style naturally.
+- If the latest message is Khmer, reply in natural Khmer, even if the UI preference or older messages are English.
+- If the latest message is English, reply in English, even if the UI preference or older messages are Khmer.
+- If the latest message mixes Khmer and English, preserve that same code-switching style. Keep Khmer explanations in Khmer and English phrases in English; familiar English product names inside a Khmer sentence do not require whole English paragraphs.
 - Do not let previous assistant messages change the reply language.
 
 Core behavior:
@@ -669,10 +686,10 @@ Aspect ratio defaults: poster=3:4 unless the user names another format, TikTok/R
     aspectRatio,
     prompt,
     headline: plan.kind === 'image' && imageMode === 'poster'
-      ? String(plan.headline || (responseLanguage === 'Khmer' ? 'បង្កើតអនាគតជាមួយគ្នា' : 'Build What Comes Next')).trim().slice(0, 80)
+      ? String(plan.headline || (responseLanguage !== 'English' ? 'បង្កើតអនាគតជាមួយគ្នា' : 'Build What Comes Next')).trim().slice(0, 80)
       : '',
     cta: plan.kind === 'image' && imageMode === 'poster'
-      ? String(plan.cta || (responseLanguage === 'Khmer' ? 'ស្វែងយល់បន្ថែម' : 'Learn More')).trim().slice(0, 30)
+      ? String(plan.cta || (responseLanguage !== 'English' ? 'ស្វែងយល់បន្ថែម' : 'Learn More')).trim().slice(0, 30)
       : '',
     posterStyle: plan.kind === 'image' && imageMode === 'poster'
       ? String(plan.posterStyle || 'Modern').trim().slice(0, 40)
@@ -859,6 +876,7 @@ export default async function handler(req, res) {
       const message = String(req.body?.message || '').trim();
       const platform = String(req.body?.platform || 'All');
       const mode = String(req.body?.mode || 'chat');
+      const liveVoice = req.body?.liveVoice === true;
       const history = Array.isArray(req.body?.history) ? req.body.history.slice(-20) : [];
       const images = Array.isArray(req.body?.images)
         ? req.body.images
@@ -867,7 +885,7 @@ export default async function handler(req, res) {
         : [];
       if (!message && !images.length) return res.status(400).json({ error: 'Please enter a question or content request.' });
       const detectedLanguage = String(req.body?.detectedLanguage || '').toLowerCase();
-      const responseLanguage = detectedLanguage === 'km' || /[\u1780-\u17FF]/.test(message) ? 'Khmer' : 'English';
+      const responseLanguage = resolveAgentReplyLanguage(message, detectedLanguage);
 
       const historyText = history
         .filter((item) => item?.role === 'assistant' || item?.role === 'user')
@@ -900,6 +918,7 @@ export default async function handler(req, res) {
 UI language preference: ${language} (lower priority than the latest user message language)
 Platform focus: ${platform}. If this is Auto, infer the platform from the user's wording. If no platform is mentioned, do not assume content is needed unless the user asks for content.
 Mode: ${mode}. If this is auto, infer the user's intent and answer that intent only.
+${liveVoice ? 'This is an ongoing spoken conversation. Answer in short, natural spoken sentences. Keep the goal from the recent conversation in mind. If a needed detail is still missing, ask one relevant follow-up question, then wait for the next spoken turn. Do not end the conversation or say goodbye unless the user asks to stop.' : ''}
 
 Saved business profile (persistent memory across all conversations — use this naturally when relevant, never ask the user to repeat information already given here):
 ${businessContextText}
@@ -920,7 +939,7 @@ ${xContext || 'No X API context was requested or available.'}
 User request:
 ${message || (images.length > 1 ? '(No text — just the attached images. Describe what you see in each and offer relevant marketing help.)' : '(No text — just the attached image. Describe what you see and offer relevant marketing help.)')}
 
-Respond in ${responseLanguage}. This is mandatory. If response language is Khmer, do not answer in English except for unavoidable product names, API names, hashtags, or code. If response language is English, do not answer in Khmer.
+Respond in ${responseLanguage}. This is mandatory. If response language is Khmer, use natural Khmer except for unavoidable names and technical terms. If response language is English, do not answer in Khmer. If response language is Mixed Khmer and English, mirror the user's mix naturally: keep Khmer phrases in Khmer and English phrases in English, without translating everything into one language.
 
 Response rules:
 - Treat this as a real chat. Understand what the user wants before deciding the format.
@@ -959,6 +978,25 @@ Response rules:
         prompt: `Create a concise digital advertising strategy for: "${query}". Write entirely in ${outputLanguage}. Include target audience, three-second hooks, campaign structure, and a practical test budget (in USD, matching how Cambodian sellers actually budget). Do not invent live ad-account metrics.${businessContext.businessName ? ` Make every proposed customer-facing hook or CTA identify "${businessContext.businessName}" by its exact name.` : ''}`,
       });
       return res.status(200).json({ strategy: strategy || 'No strategy generated.' });
+    }
+
+    if (action === 'adsCreative' || action === 'adsScalingAdvice') {
+      const strategy = String(req.body?.strategy || '').trim();
+      const query = String(req.body?.query || '').trim();
+      if (!strategy) return res.status(400).json({ error: 'Generate an ad strategy first.' });
+      const businessContext = businessContextFromBody(req.body);
+      const outputLanguage = containsKhmerScript(query)
+        ? 'Khmer'
+        : query ? 'English' : containsKhmerScript(strategy) ? 'Khmer' : 'English';
+      const task = action === 'adsCreative'
+        ? 'Create a ready-to-use paid social ad package with primary copy, a short headline, call to action, a 15-second video script, creative direction, audience targeting, and an initial test budget. Keep the copy practical and ready to paste into an ad manager. Do not claim the campaign was published.'
+        : 'Give concise scaling guidance: measurable signals that an ad is ready to scale, a safe day-by-day budget increase plan, warning signs to pause spending, and a reminder that the user must apply changes in their own ad account.';
+      const text = await generateOpenRouterText({
+        system: `You are a practical paid social advertising specialist. Write the entire answer in ${outputLanguage}, including all headings and ad copy. ${CAMBODIA_MARKET_CONTEXT}${businessContentInstruction(businessContext, { requireName: true })}`,
+        prompt: `${task}\n\nProduct or category: ${query || 'Use the product described in the strategy.'}\n\nApproved strategy:\n${strategy}\n\nRespond in ${outputLanguage}. Do not invent account performance data.`,
+      });
+      if (!text?.trim()) return res.status(502).json({ error: 'No ad content was generated. Please try again.' });
+      return res.status(200).json({ text });
     }
 
     if (action === 'productImageAnalyze') {
@@ -1314,7 +1352,7 @@ ${isCompetitorScan
 1. CUSTOMER INTELLIGENCE (ស្វែងរកអតិថិជន):
    - What they bought / need ("គេបានអ្វី / គេទិញអ្វី"): Detail concrete products, variations, bundles, and price thresholds (e.g. $10-$25 COD) that customers actually buy, plus specific real-life pain points they solve.
    - What they like / appreciate ("គេចូលចិត្តអ្វី"): Concrete trust and satisfaction drivers (e.g. fast delivery in Phnom Penh, free gifts, genuine unboxing, polite sellers using "បង/អូន", clear pricing, COD reliability).
-   - Content they want to see ("គេចង់ឱ្យបង្កើត content ប្រភេទអ្វី"): Exact video formats and angles that Facebook/TikTok buyers crave (e.g. Real transformation Before/After, honest test demonstrations, comedic relatable skits, price breakdown vs fake goods, live Q&A).
+   - Content they want to see ("គេចង់ឱ្យបង្កើត content ប្រភេទអ្វី"): Exact video formats and angles that customers are likely to value based on the verified website and public business evidence (e.g. real transformation Before/After, honest test demonstrations, price breakdown, live Q&A).
    - Target personas: 2-3 specific customer profiles with demographics and exact buying triggers.
 
 2. COMPETITOR INTELLIGENCE (ស្វែងរក និងវិភាគគូប្រជែងពី Facebook):
@@ -1761,7 +1799,16 @@ Return ONLY a single valid JSON object with this exact structure:
       if (!input) return res.status(400).json({ error: 'Text is required.' });
 
       if (containsKhmerScript(input)) {
-        return res.status(200).json(await generateKhmerSpeech({ input, voice, performanceStyle, context: String(req.body?.context || '') }));
+        return res.status(200).json(await generateKhmerSpeech({
+          input,
+          voice,
+          performanceStyle: req.body?.conversation
+            ? 'Speak clearly and warmly as one person answering another in a natural conversation. Keep natural phrase pauses and pronounce every Khmer syllable fully.'
+            : performanceStyle,
+          context: String(req.body?.context || ''),
+          edgeRate: req.body?.conversation ? '+0%' : undefined,
+          preferNaturalVoice: Boolean(req.body?.conversation),
+        }));
       }
 
       // Gemini's dedicated TTS model is tried next \u2014 it advertises much broader

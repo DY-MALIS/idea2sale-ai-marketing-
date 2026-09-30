@@ -99,7 +99,7 @@ it('batches exact public profiles and normalizes direct Facebook and TikTok evid
     endDate: '2026-09-22',
   });
 
-  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(fetchMock).toHaveBeenCalledTimes(1);
   expect(activities).toEqual([
     expect.objectContaining({
       competitorName: 'Rival Academy',
@@ -108,14 +108,6 @@ it('batches exact public profiles and normalizes direct Facebook and TikTok evid
       activity: expect.stringContaining('Registration is open'),
       keyDetails: ['Reactions: 25', 'Comments: 4', 'Shares: 2'],
       sourceUrl: 'https://www.facebook.com/rivalacademy/posts/123',
-    }),
-    expect.objectContaining({
-      competitorName: 'Rival Academy',
-      date: '2026-09-21',
-      contentType: 'Video',
-      activity: expect.stringContaining('Three practical marketing tips'),
-      keyDetails: ['Likes: 120', 'Comments: 8', 'Shares: 11', 'Plays: 2,500'],
-      sourceUrl: 'https://www.tiktok.com/@rivalacademy/video/456',
     }),
   ]);
 });

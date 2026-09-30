@@ -210,10 +210,13 @@ export interface BusinessProfileData {
   // rather than working from the business name alone.
   businessDescription?: string;
   directory: BusinessDirectoryEntry[];
-  // Optional: lets a user post scheduled Telegram content to their own channel
-  // instead of the app's shared default one (TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID).
+  // Publishing uses this owner's bot and public channel username, or their
+  // numeric chat ID when no username is saved. There is no shared fallback.
   telegramBotToken?: string;
   telegramChatId?: string;
+  telegramChannelUrl?: string;
+  tiktokHandle?: string;
+  facebookPageUrl?: string;
   // Set server-side by activateOwnBot (api/telegram/webhook.js) via Telegram's
   // getMe -- lets the client build a t.me/<username>?start=<id> deep link
   // without ever needing the bot token itself.

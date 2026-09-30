@@ -1,4 +1,4 @@
-import { getRedirectUri, sessionCookieAttributes, verifyAndClearOAuthState, saveAutomationTokens } from '../_tiktok.js';
+import { getRedirectUri, sessionCookieAttributes, verifyAndClearOAuthState, readOAuthOwner, saveAutomationTokens } from '../_tiktok.js';
 import { getYouTubeRedirectUri, exchangeYouTubeCode, saveYouTubeAutomationTokens } from '../_youtube.js';
 import { initFirebaseAdmin } from '../_firebaseAdmin.js';
 
@@ -79,6 +79,8 @@ export default async function handler(req, res) {
   if (!verifyAndClearOAuthState(req, res)) {
     return res.status(400).send('Invalid or expired TikTok login attempt. Please try connecting again.');
   }
+  const ownerId = readOAuthOwner(req, res);
+  if (!ownerId) return res.status(400).send('TikTok connection is not linked to a signed-in profile. Please connect again.');
 
   const clientKey = (process.env.TIKTOK_CLIENT_KEY || process.env.VITE_TIKTOK_CLIENT_KEY || '').trim();
   const clientSecret = (process.env.TIKTOK_CLIENT_SECRET || process.env.VITE_TIKTOK_CLIENT_SECRET || '').trim();
@@ -107,22 +109,17 @@ export default async function handler(req, res) {
 
     const token = data.access_token || '';
 
-    // Best-effort: persists the refresh token so the cron auto-publisher
-    // (api/tiktok/publish.js's ?action=cron) can keep posting scheduled TikTok
-    // content after this cookie expires -- must never block the connect flow
-    // below from completing, since that's what the user is actually waiting on.
-    try {
-      const db = initFirebaseAdmin();
-      await saveAutomationTokens(db, {
-        accessToken: token,
-        refreshToken: data.refresh_token,
-        expiresIn: data.expires_in,
-        refreshExpiresIn: data.refresh_expires_in,
-        openId: data.open_id,
-      });
-    } catch (persistError) {
-      console.error('Failed to persist TikTok automation tokens:', persistError?.message || persistError);
-    }
+    // The browser connection and scheduled publisher must identify the same
+    // owner. Do not report success if this owner's token could not be saved.
+    const db = initFirebaseAdmin();
+    await saveAutomationTokens(db, {
+      ownerId,
+      accessToken: token,
+      refreshToken: data.refresh_token,
+      expiresIn: data.expires_in,
+      refreshExpiresIn: data.refresh_expires_in,
+      openId: data.open_id,
+    });
 
     // Append, don't replace -- verifyAndClearOAuthState above already queued the
     // state cookie's clearing header, and setHeader() overwrites rather than adds.
@@ -130,6 +127,7 @@ export default async function handler(req, res) {
     res.setHeader('Set-Cookie', [].concat(
       existingSetCookie || [],
       `tiktok_token=${token}; ${sessionCookieAttributes(req)}; Max-Age=${data.expires_in || 86400}`,
+      `tiktok_owner=${encodeURIComponent(ownerId)}; ${sessionCookieAttributes(req)}; Max-Age=${data.expires_in || 86400}`,
     ));
     const openerOrigin = new URL(getRedirectUri(req)).origin;
     res.setHeader('Content-Type', 'text/html; charset=utf-8');

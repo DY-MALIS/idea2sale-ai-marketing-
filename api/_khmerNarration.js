@@ -1,7 +1,7 @@
-import { generateOpenRouterText, normalizeForKhmerSpeech } from './_openrouter.js';
+import { generateOpenRouterText, normalizeForKhmerSpeech, transcribeAudioWithOpenRouter } from './_openrouter.js';
 import { synthesizeKhmerSpeechViaEdge } from './_edgeSpeech.js';
 import { generateGeminiSpeech } from './_geminiSpeech.js';
-import { KHMER_SCRIPT_ONLY_INSTRUCTION } from '../shared/videoSpeech.js';
+import { compareKhmerTranscript, KHMER_SCRIPT_ONLY_INSTRUCTION } from '../shared/videoSpeech.js';
 
 const edgeKhmerVoice = (voice) => {
   const selected = String(voice || '').toLowerCase();
@@ -18,6 +18,7 @@ export async function generateKhmerSpeech({
   targetDuration,
   forceEdge = false,
   edgeRate,
+  preferNaturalVoice = false,
 }) {
   if (!/[\u1780-\u17ff]/.test(input)) throw new Error('Khmer narration text is required.');
   const spokenInput = normalizeForKhmerSpeech(input);
@@ -25,14 +26,31 @@ export async function generateKhmerSpeech({
   const timingDirection = Number.isFinite(targetSeconds) && targetSeconds >= 4 && targetSeconds <= 8
     ? ` Complete the exact script within ${Math.max(3.5, targetSeconds - 0.15).toFixed(2)} seconds using a naturally brisk conversational pace and minimal pauses. Do not omit, abbreviate or cut off any word.`
     : '';
-  const clearKhmerStyle = `Native Cambodian Khmer with crisp initial and final consonants, complete syllables, correct vowel length and clearly separated words. Fully pronounce every word ending without merging adjacent words. Speak at a natural everyday social-video pace, never faster than clear articulation allows. Use at most one brief pause at a natural clause boundary; never use a measured announcer cadence, pause after each word, mumble, swallow endings, stretch vowels or use a foreign accent.${timingDirection} ${String(performanceStyle || '').trim()}`.trim();
-  // A successful generative TTS response does not guarantee Khmer speech.
-  // Use language-specific voices by default; Gemini requires explicit opt-in.
-  const useEdgeOnly = forceEdge || String(process.env.KHMER_TTS_PROVIDER || '').trim().toLowerCase() !== 'gemini';
+  const clearKhmerStyle = preferNaturalVoice
+    ? `Speak like a native Cambodian talking with one person in a relaxed conversation. Let the meaning guide the emphasis and intonation, with natural breaths and short pauses between thoughts. Keep every Khmer syllable clear and complete at a comfortable pace, without a stiff announcer rhythm, a foreign accent, or exaggerated emotion. ${String(performanceStyle || '').trim()}`.trim()
+    : `Native Cambodian Khmer with crisp initial and final consonants, complete syllables, correct vowel length and clearly separated words. Fully pronounce every word ending without merging adjacent words. Speak at a natural everyday social-video pace, never faster than clear articulation allows. Use at most one brief pause at a natural clause boundary; never use a measured announcer cadence, pause after each word, mumble, swallow endings, stretch vowels or use a foreign accent.${timingDirection} ${String(performanceStyle || '').trim()}`.trim();
+  // Agent conversations prefer an expressive read, but only play it after a
+  // Khmer transcription confirms that it actually says the requested words.
+  // Other narration keeps its existing provider choice.
+  const useEdgeOnly = forceEdge || (!preferNaturalVoice && String(process.env.KHMER_TTS_PROVIDER || '').trim().toLowerCase() !== 'gemini');
   if (!useEdgeOnly) {
     try {
+      const generated = await generateGeminiSpeech({ input: spokenInput, voice, performanceStyle: clearKhmerStyle, context });
+      if (preferNaturalVoice) {
+        const wavPrefix = 'data:audio/wav;base64,';
+        if (!generated.audioUrl?.startsWith(wavPrefix)) throw new Error('Expressive voice returned unsupported audio.');
+        const transcript = await transcribeAudioWithOpenRouter({
+          audioBase64: generated.audioUrl.slice(wavPrefix.length),
+          format: 'wav',
+          languageHint: 'Khmer',
+          model: process.env.OPEN_ROUTER_STT_MODEL || 'google/chirp-3',
+        });
+        if (!compareKhmerTranscript(spokenInput, transcript).passed) {
+          throw new Error('Expressive voice did not clearly match the Khmer reply.');
+        }
+      }
       return {
-        ...await generateGeminiSpeech({ input: spokenInput, voice, performanceStyle: clearKhmerStyle, context }),
+        ...generated,
         spokenText: spokenInput,
       };
     } catch (error) {
@@ -57,7 +75,7 @@ export async function generateKhmerSpeech({
       ? 'The expressive read exceeded the clip duration; a brisk Khmer neural voice preserved the full script.'
       : useEdgeOnly
         ? ''
-      : 'Expressive Khmer voice was unavailable; standard Khmer neural voice was used.',
+      : 'Expressive Khmer voice was unavailable or unclear; standard Khmer neural voice was used.',
   };
 }
 

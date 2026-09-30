@@ -2,16 +2,16 @@ import admin, { initFirebaseAdmin } from '../_firebaseAdmin.js';
 import { logAudit } from '../_audit.js';
 import { getCookie, recordTikTokPostSync } from '../_tiktok.js';
 import { uploadMediaDataUrl } from '../_imagekitUpload.js';
+import admin, { initFirebaseAdmin } from '../_firebaseAdmin.js';
 
-// Best-effort: TikTok publishing is authenticated via the tiktok_token cookie
-// (one shared TikTok connection for the app), not Firebase Auth, so there is
-// no uid to require here. If the caller is signed in to Firebase we still
-// attach their uid to the audit log; if not, the log just has no actor.
+// A TikTok cookie can remain in a shared browser after the Firebase account
+// changes. Require the matching signed-in owner for every publish request.
 async function resolveActorUid(req) {
   const authHeader = req.headers.authorization || '';
   const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
   if (!idToken) return null;
   try {
+    initFirebaseAdmin();
     const decoded = await admin.auth().verifyIdToken(idToken, true);
     return decoded.uid;
   } catch {
@@ -58,7 +58,8 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: { message: 'Method not allowed' } });
   }
 
-  const token = getCookie(req, 'tiktok_token');
+  const actorUid = await resolveActorUid(req);
+  const token = actorUid && getCookie(req, 'tiktok_owner') === actorUid ? getCookie(req, 'tiktok_token') : '';
   if (!token) {
     return res.status(401).json({
       error: {
@@ -115,7 +116,6 @@ export default async function handler(req, res) {
     const publishId = initData?.data?.publish_id;
 
     try {
-      const actorUid = await resolveActorUid(req);
       const db = initFirebaseAdmin();
       await logAudit(db, {
         action: 'tiktok_publish_photo',

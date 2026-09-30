@@ -1,36 +1,38 @@
 import admin, { initFirebaseAdmin } from '../_firebaseAdmin.js';
 import { getCookie, sessionCookieAttributes } from '../_tiktok.js';
 
-// Clears the shared TikTok connection so a fresh "Connect TikTok" can pick a
+// Clears this owner's TikTok connection so a fresh "Connect TikTok" can pick a
 // different account -- TikTok's own login page otherwise reuses whatever
 // TikTok session is already active in the browser, same as Google did before
 // prompt=select_account, so simply clicking "reconnect" without this can land
-// back on the same old account. Best-effort on the Firestore delete: an
-// interrupted request must still clear the cookie so the browser side of the
-// disconnect always succeeds.
+// back on the same old account. The stored token must be deleted before this
+// endpoint reports success, since cron can still publish with it.
 async function disconnectTikTok(req, res) {
-  // Deletes the one shared automation connection every scheduled TikTok post
-  // depends on, so this must not be callable by an anonymous request -- unlike
-  // the read below (which only needs the TikTok cookie), require a signed-in
-  // Firebase user the same way api/tiktok/stats.js does.
+  // Delete only this user's automation connection after verifying Firebase auth.
   const authHeader = req.headers.authorization || '';
   const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
   if (!idToken) return res.status(401).json({ error: 'Sign in to disconnect TikTok.' });
+  let owner;
   try {
-    await admin.auth().verifyIdToken(idToken, true);
+    initFirebaseAdmin();
+    owner = await admin.auth().verifyIdToken(idToken, true);
   } catch {
     return res.status(401).json({ error: 'Sign in again.' });
   }
 
-  const clearCookie = `tiktok_token=; ${sessionCookieAttributes(req)}; Max-Age=0`;
-  res.setHeader('Set-Cookie', clearCookie);
-
+  if (getCookie(req, 'tiktok_owner') !== owner.uid) return res.status(403).json({ error: 'This TikTok connection belongs to another profile.' });
   try {
     const db = initFirebaseAdmin();
-    await db.collection('tiktok_automation_tokens').doc('default').delete();
+    await db.collection('tiktok_automation_tokens').doc(owner.uid).delete();
   } catch (error) {
     console.error('Failed to clear stored TikTok automation token:', error?.message || error);
+    return res.status(503).json({ error: 'Could not disconnect TikTok. Please try again.' });
   }
+
+  res.setHeader('Set-Cookie', [
+    `tiktok_token=; ${sessionCookieAttributes(req)}; Max-Age=0`,
+    `tiktok_owner=; ${sessionCookieAttributes(req)}; Max-Age=0`,
+  ]);
 
   return res.status(200).json({ ok: true });
 }
@@ -44,7 +46,16 @@ export default async function handler(req, res) {
     return disconnectTikTok(req, res);
   }
 
-  const token = getCookie(req, 'tiktok_token');
+  const idToken = String(req.headers.authorization || '').replace(/^Bearer /, '');
+  if (!idToken) return res.status(401).json({ error: 'Sign in to view your TikTok connection.' });
+  let owner;
+  try {
+    initFirebaseAdmin();
+    owner = await admin.auth().verifyIdToken(idToken, true);
+  } catch {
+    return res.status(401).json({ error: 'Sign in again.' });
+  }
+  const token = getCookie(req, 'tiktok_owner') === owner.uid ? getCookie(req, 'tiktok_token') : '';
   if (!token) return res.status(401).json({ error: 'Not connected to TikTok', code: 'not_connected' });
 
   try {

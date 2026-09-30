@@ -20,6 +20,7 @@ export const getStoredScheduledPosts = (): SchedulePost[] => {
 // signed up in the same session" flow, not a demo session from days ago on a
 // public computer.
 const DEMO_SESSION_KEY = 'was_demo_mode_this_session';
+const DEMO_CLAIMED_BY_KEY = 'demo_scheduled_posts_claimed_by';
 
 export const markDemoModeSession = () => {
   try {
@@ -32,6 +33,18 @@ export const markDemoModeSession = () => {
 export const wasDemoModeThisSession = (): boolean => {
   try {
     return sessionStorage.getItem(DEMO_SESSION_KEY) === '1';
+  } catch {
+    return false;
+  }
+};
+
+const canUseDemoCarryOver = (currentUserId: string): boolean => {
+  if (!wasDemoModeThisSession()) return false;
+  try {
+    const claimedBy = sessionStorage.getItem(DEMO_CLAIMED_BY_KEY);
+    if (claimedBy && claimedBy !== currentUserId) return false;
+    if (!claimedBy) sessionStorage.setItem(DEMO_CLAIMED_BY_KEY, currentUserId);
+    return true;
   } catch {
     return false;
   }
@@ -51,11 +64,13 @@ export const mergeStoredScheduleHistory = (
   remotePosts: SchedulePost[],
   currentUserId: string,
 ) => {
-  const demoCarryOverAllowed = wasDemoModeThisSession();
+  const demoCarryOverAllowed = canUseDemoCarryOver(currentUserId);
   const merged = new Map<string, SchedulePost>();
   remotePosts.forEach((post) => merged.set(postIdentity(post), post));
   getStoredScheduledPosts()
-    .filter((post) => !post.userId || post.userId === currentUserId || (post.userId === 'demo-user' && demoCarryOverAllowed))
+    // Ownerless legacy browser records cannot safely be attributed to a
+    // signed-in company, so keep them in demo history only.
+    .filter((post) => post.userId === currentUserId || (post.userId === 'demo-user' && demoCarryOverAllowed))
     .forEach((post) => {
       const key = postIdentity(post);
       if (!merged.has(key)) merged.set(key, post);

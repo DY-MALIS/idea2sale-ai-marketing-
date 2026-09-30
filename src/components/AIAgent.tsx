@@ -10,6 +10,8 @@ import { readImagesIntoState } from '../lib/imageUpload';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../hooks/useToast';
+import { detectSpokenLanguage, splitSpeechByLanguage, SpeechSegment } from '../lib/voiceLanguage';
+import { advanceVoiceTurn, initialVoiceTurnState } from '../lib/voiceTurnDetector';
 import { BusinessProfileData, CreativeAutomationRequest } from '../types';
 
 const DEMO_BUSINESS_PROFILE_STORAGE_KEY = 'demo_business_profile';
@@ -125,24 +127,46 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [autoCreateEnabled, setAutoCreateEnabled] = useState(true);
+  const autoCreateEnabledRef = useRef(autoCreateEnabled);
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [conversationSessions, setConversationSessions] = useState<AgentConversationSession[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [activeSessionId, setActiveSessionId] = useState<string>(() => newSessionId());
+  const messagesRef = useRef(messages);
+  const conversationSessionsRef = useRef(conversationSessions);
+  const activeSessionIdRef = useRef(activeSessionId);
+  useEffect(() => {
+    messagesRef.current = messages;
+    conversationSessionsRef.current = conversationSessions;
+    activeSessionIdRef.current = activeSessionId;
+  }, [messages, conversationSessions, activeSessionId]);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
+  const attachedImagesRef = useRef(attachedImages);
+  useEffect(() => { attachedImagesRef.current = attachedImages; }, [attachedImages]);
   const [isListening, setIsListening] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [liveVoiceEnabled, setLiveVoiceEnabled] = useState(false);
+  const liveVoiceEnabledRef = useRef(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const speakingRef = useRef<HTMLAudioElement | null>(null);
+  const speechTurnRef = useRef(0);
+  const voiceSessionRef = useRef(0);
+  const liveStartingSessionRef = useRef<number | null>(null);
+  const transcriptionControllerRef = useRef<AbortController | null>(null);
+  const voiceAgentRequestRef = useRef(false);
+  const voiceMonitorRef = useRef<{ context: AudioContext; timer: ReturnType<typeof setInterval> } | null>(null);
   const [businessContext, setBusinessContext] = useState<AgentBusinessContext | null>(null);
   // Which language the user is about to speak for voice input. Independent from the
   // UI display language, since people often keep the interface in one language while
   // speaking another (e.g. English UI, Khmer speech) — tying recognition to the UI
   // language made the recognizer use the wrong locale and mangle the transcript.
-  // Defaults to Khmer regardless of UI language, since this app's users speak Khmer
-  // far more often than the UI happens to be set to Khmer (the toggle still lets
-  // anyone switch to English before recording).
-  const [voiceInputLanguage, setVoiceInputLanguage] = useState<'km' | 'en'>('km');
+  // Auto lets one conversation switch between Khmer, English, and both. The
+  // explicit options remain useful if automatic recognition misses Khmer speech.
+  const [voiceInputLanguage, setVoiceInputLanguage] = useState<'auto' | 'km' | 'en'>('auto');
+  const voiceInputLanguageRef = useRef(voiceInputLanguage);
   const conversationEndRef = useRef<HTMLDivElement>(null);
   const requestControllerRef = useRef<AbortController | null>(null);
+  const agentRequestActiveRef = useRef(false);
 
   // Content Plan: upload a CSV/Google Sheet content calendar, let the AI turn
   // each dated row into a ready generation prompt, then save the confirmed
@@ -207,7 +231,102 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   // unexpected new askAgent() chat request) fired against an unmounted component
   // once that fetch eventually resolves.
   const isMountedRef = useRef(true);
-  useEffect(() => () => { isMountedRef.current = false; }, []);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      liveVoiceEnabledRef.current = false;
+      voiceSessionRef.current += 1;
+      transcriptionControllerRef.current?.abort();
+      if (recordingTimeoutRef.current) clearTimeout(recordingTimeoutRef.current);
+      const monitor = voiceMonitorRef.current;
+      if (monitor) {
+        clearInterval(monitor.timer);
+        void monitor.context.close();
+        voiceMonitorRef.current = null;
+      }
+      speechTurnRef.current += 1;
+      speakingRef.current?.pause();
+      speakingRef.current = null;
+    };
+  }, []);
+
+  const stopSpeaking = () => {
+    speechTurnRef.current += 1;
+    speakingRef.current?.pause();
+    speakingRef.current = null;
+    setIsSpeaking(false);
+  };
+
+  const speakAnswer = async (answer: string) => {
+    stopSpeaking();
+    const turn = speechTurnRef.current;
+    const session = voiceSessionRef.current;
+    const spoken = answer
+      .replace(/```[\s\S]*?```/g, ' ')
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+      .replace(/[#*_`>|]/g, ' ')
+      .trim();
+    if (!spoken) {
+      if (liveVoiceEnabledRef.current) void beginLiveListening(session);
+      return;
+    }
+    const segments = splitSpeechByLanguage(spoken);
+    if (!segments.length) {
+      if (liveVoiceEnabledRef.current) void beginLiveListening(session);
+      return;
+    }
+    setIsSpeaking(true);
+    try {
+      const loadSpeech = async (segment: SpeechSegment): Promise<{ audioUrl: string; error?: string }> => {
+        try {
+          const response = await fetch('/api/ai', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'ttsGenerate',
+              input: segment.text,
+              languageHint: segment.language === 'km' ? 'Khmer' : 'English',
+              conversation: true,
+            }),
+          });
+          const data = await response.json();
+          return response.ok && data.audioUrl
+            ? { audioUrl: data.audioUrl }
+            : { audioUrl: '', error: data.error || 'Voice playback is unavailable.' };
+        } catch (error: any) {
+          return { audioUrl: '', error: error?.message || 'Voice playback is unavailable.' };
+        }
+      };
+      let pendingSpeech = loadSpeech(segments[0]);
+      for (let index = 0; index < segments.length; index += 1) {
+        if (turn !== speechTurnRef.current || !isMountedRef.current) return;
+        const data = await pendingSpeech;
+        if (!data.audioUrl) throw new Error(data.error || 'Voice playback is unavailable.');
+        if (turn !== speechTurnRef.current || !isMountedRef.current) return;
+        if (index + 1 < segments.length) pendingSpeech = loadSpeech(segments[index + 1]);
+        const audio = new Audio(data.audioUrl);
+        speakingRef.current = audio;
+        await new Promise<void>((resolve, reject) => {
+          audio.onended = () => resolve();
+          audio.onpause = () => resolve();
+          audio.onerror = () => reject(new Error('Voice playback failed.'));
+          audio.play().catch(reject);
+        });
+      }
+    } catch (error: any) {
+      if (turn === speechTurnRef.current && isMountedRef.current) {
+        notify(error?.message || 'Voice playback failed.', 'error');
+      }
+    } finally {
+      if (turn === speechTurnRef.current && isMountedRef.current) {
+        speakingRef.current = null;
+        setIsSpeaking(false);
+        if (liveVoiceEnabledRef.current && session === voiceSessionRef.current) void beginLiveListening(session);
+      }
+    }
+  };
   // Auto-stops a forgotten-open recording (e.g. the mic stays on because the user
   // didn't realize it was still listening) — without this, the buffer keeps growing
   // indefinitely, and a many-minutes-long recording becomes an upload that can stall
@@ -389,8 +508,10 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
 
   const updateMessages = (nextMessages: AgentMessage[]) => {
     const trimmed = nextMessages.slice(-MAX_MESSAGES);
-    const currentSession = buildSession(trimmed, activeSessionId);
-    const nextSessions = upsertSession(conversationSessions, currentSession);
+    const currentSession = buildSession(trimmed, activeSessionIdRef.current);
+    const nextSessions = upsertSession(conversationSessionsRef.current, currentSession);
+    messagesRef.current = trimmed;
+    conversationSessionsRef.current = nextSessions;
     setConversationSessions(nextSessions);
     setMessages(trimmed);
     persistConversation(trimmed, nextSessions);
@@ -740,6 +861,100 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     return candidates.find((type) => MediaRecorder.isTypeSupported(type)) || null;
   };
 
+  const stopVoiceMonitor = () => {
+    const monitor = voiceMonitorRef.current;
+    if (!monitor) return;
+    voiceMonitorRef.current = null;
+    clearInterval(monitor.timer);
+    void monitor.context.close();
+  };
+
+  const discardRecording = () => {
+    stopVoiceMonitor();
+    if (recordingTimeoutRef.current) clearTimeout(recordingTimeoutRef.current);
+    recordingTimeoutRef.current = null;
+    const recording = recordingRef.current;
+    recordingRef.current = null;
+    if (!recording) return;
+    recording.stream.getTracks().forEach((track) => track.stop());
+    if (recording.kind === 'compressed') {
+      if (recording.mediaRecorder.state !== 'inactive') recording.mediaRecorder.stop();
+    } else {
+      recording.processor.disconnect();
+      recording.source.disconnect();
+      void recording.audioContext.close();
+    }
+  };
+
+  const startVoiceMonitor = async (stream: MediaStream) => {
+    stopVoiceMonitor();
+    const AudioContextCtor = (window as any).AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextCtor) throw new Error('Audio activity detection is unavailable in this browser.');
+    const context: AudioContext = new AudioContextCtor();
+    try {
+      const source = context.createMediaStreamSource(stream);
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 2048;
+      source.connect(analyser);
+      void context.resume().catch(() => {});
+      const samples = new Float32Array(analyser.fftSize);
+      let state = initialVoiceTurnState();
+      let lastTick = performance.now();
+      const timer = setInterval(() => {
+        if (!recordingRef.current || !liveVoiceEnabledRef.current) return;
+        analyser.getFloatTimeDomainData(samples);
+        let energy = 0;
+        for (const sample of samples) energy += sample * sample;
+        const now = performance.now();
+        const result = advanceVoiceTurn(state, Math.sqrt(energy / samples.length), now - lastTick);
+        state = result.state;
+        lastTick = now;
+        if (result.shouldSubmit) {
+          stopVoiceMonitor();
+          setIsListening(false);
+          void stopRecordingAndTranscribe();
+        }
+      }, 100);
+      voiceMonitorRef.current = { context, timer };
+    } catch (error) {
+      void context.close();
+      throw error;
+    }
+  };
+
+  const beginLiveListening = async (session = voiceSessionRef.current) => {
+    if (!liveVoiceEnabledRef.current || !isMountedRef.current || session !== voiceSessionRef.current || recordingRef.current || liveStartingSessionRef.current !== null) return;
+    liveStartingSessionRef.current = session;
+    try {
+      await startRecording();
+      if (!liveVoiceEnabledRef.current || !isMountedRef.current || session !== voiceSessionRef.current) {
+        discardRecording();
+        return;
+      }
+      const stream = recordingRef.current?.stream;
+      if (stream) await startVoiceMonitor(stream);
+      if (!liveVoiceEnabledRef.current || !isMountedRef.current || session !== voiceSessionRef.current) {
+        discardRecording();
+        return;
+      }
+      setIsListening(true);
+    } catch (error: any) {
+      discardRecording();
+      if (!isMountedRef.current || session !== voiceSessionRef.current) return;
+      liveVoiceEnabledRef.current = false;
+      setLiveVoiceEnabled(false);
+      setIsListening(false);
+      notify(error?.name === 'NotAllowedError'
+        ? (language === 'km' ? 'សូមអនុញ្ញាតមីក្រូហ្វូនសម្រាប់សន្ទនាសំឡេង។' : 'Allow microphone access to use Live Voice.')
+        : (language === 'km' ? 'មិនអាចចាប់ផ្តើមមីក្រូហ្វូនបានទេ។' : 'Could not start the microphone.'), 'error');
+    } finally {
+      if (liveStartingSessionRef.current === session) liveStartingSessionRef.current = null;
+      if (session !== voiceSessionRef.current && liveVoiceEnabledRef.current && !recordingRef.current) {
+        void beginLiveListening(voiceSessionRef.current);
+      }
+    }
+  };
+
   const startRecording = async () => {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     try {
@@ -782,6 +997,11 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   };
 
   const stopRecordingAndTranscribe = async () => {
+    stopVoiceMonitor();
+    const session = voiceSessionRef.current;
+    const resumeLive = () => {
+      if (liveVoiceEnabledRef.current && session === voiceSessionRef.current) void beginLiveListening(session);
+    };
     if (recordingTimeoutRef.current) {
       clearTimeout(recordingTimeoutRef.current);
       recordingTimeoutRef.current = null;
@@ -803,7 +1023,9 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       const { mediaRecorder, stream, chunks, mimeType, startedAt } = recording;
       const durationSeconds = (Date.now() - startedAt) / 1000;
       recordedSeconds = durationSeconds;
-      const stopped = new Promise<void>((resolve) => { mediaRecorder.onstop = () => resolve(); });
+      const stopped = mediaRecorder.state === 'inactive'
+        ? Promise.resolve()
+        : new Promise<void>((resolve) => { mediaRecorder.onstop = () => resolve(); });
       if (mediaRecorder.state !== 'inactive') mediaRecorder.stop();
       await stopped;
       stream.getTracks().forEach((track) => track.stop());
@@ -821,10 +1043,12 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       const MIN_BYTES_PER_SECOND = 300;
       if (blob.size === 0 || durationSeconds < MIN_DURATION_SECONDS) {
         notify(noSpeechMessage, 'error');
+        resumeLive();
         return;
       }
       if (blob.size / durationSeconds < MIN_BYTES_PER_SECOND) {
         notify(speakClearlyMessage, 'error');
+        resumeLive();
         return;
       }
 
@@ -840,6 +1064,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       const totalLength = recording.chunks.reduce((sum, chunk) => sum + chunk.length, 0);
       if (totalLength === 0) {
         notify(noSpeechMessage, 'error');
+        resumeLive();
         return;
       }
 
@@ -859,6 +1084,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       const MIN_RMS = 0.01;
       if (durationSeconds < MIN_DURATION_SECONDS || rms < MIN_RMS) {
         notify(speakClearlyMessage, 'error');
+        resumeLive();
         return;
       }
 
@@ -876,7 +1102,9 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     // abort long-but-healthy transcriptions before they finish.
     const timeoutMs = Math.min(180000, Math.max(30000, 20000 + recordedSeconds * 1500));
     const timeoutController = new AbortController();
+    transcriptionControllerRef.current = timeoutController;
     const timeoutId = setTimeout(() => timeoutController.abort(), timeoutMs);
+    let submitted = false;
     try {
       const response = await fetch('/api/ai', {
         method: 'POST',
@@ -886,13 +1114,17 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           action: 'sttTranscribe',
           audioBase64,
           format,
-          languageHint: voiceInputLanguage === 'km' ? 'Khmer' : 'English',
+          languageHint: voiceInputLanguageRef.current === 'km' ? 'Khmer' : voiceInputLanguageRef.current === 'en' ? 'English' : 'auto',
         }),
       });
       const data = await response.json();
-      if (!isMountedRef.current) return;
+      if (!isMountedRef.current || session !== voiceSessionRef.current) return;
       if (!response.ok) throw new Error(data.error || 'Transcription failed.');
       const transcript = String(data.transcript || '').trim();
+      if (liveVoiceEnabledRef.current && /^(ឈប់|ឈប់សួរ|បញ្ឈប់|បិទសន្ទនាសំឡេង|stop|stop listening|end conversation|turn off live voice)[\s.!?។]*$/iu.test(transcript)) {
+        stopLiveVoice();
+        return;
+      }
       // Speech models occasionally hallucinate a short, fluent-sounding but completely
       // fabricated sentence in the WRONG script even on real, audible speech (observed
       // live: "Oh, no.", "John, I'm going to.", "I'm telling you." for actual Khmer
@@ -900,25 +1132,30 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       // itself was real. When Khmer was requested but the result has no Khmer script
       // at all, that mismatch itself is the strongest available signal of a bad
       // transcription, so refuse to auto-send it rather than act on fabricated text.
-      const looksLikeMismatchedHallucination = voiceInputLanguage === 'km' && transcript && !/[ក-៿]/.test(transcript);
+      const englishGreeting = /^(hello|hi|hey|good morning|good afternoon|good evening)[!.,? ]*$/i.test(transcript);
+      const looksLikeMismatchedHallucination = voiceInputLanguageRef.current === 'km' && transcript && !/[ក-៿]/.test(transcript) && !englishGreeting;
       if (transcript && !looksLikeMismatchedHallucination) {
         // Auto-send right after a successful transcription, like a real voice
         // assistant — requiring a manual click on top of speaking made voice
         // input feel like dictation rather than an actual voice command.
-        const combinedMessage = input.trim() ? `${input.trim()} ${transcript}` : transcript;
+        const combinedMessage = liveVoiceEnabledRef.current ? transcript : input.trim() ? `${input.trim()} ${transcript}` : transcript;
         setInput(combinedMessage);
-        void askAgent(combinedMessage);
+        submitted = true;
+        void askAgent(combinedMessage, liveVoiceEnabledRef.current);
       } else {
         notify(language === 'km' ? 'មិនបានលឺសំឡេងអ្វីទេ។ សូមសាកល្បងម្តងទៀត។' : 'No speech was detected. Please try again.', 'error');
       }
     } catch (error: any) {
+      if (!isMountedRef.current || session !== voiceSessionRef.current) return;
       const message = error?.name === 'AbortError'
         ? (language === 'km' ? 'ការបំលែងសំឡេងចំណាយពេលយូរពេក។ សូមសាកល្បងម្តងទៀតជាមួយសំឡេងខ្លីជាងនេះ។' : 'Transcription took too long. Please try again with a shorter recording.')
         : (error?.message || (language === 'km' ? 'ការបំលែងសំឡេងទៅជាអត្ថបទបរាជ័យ។' : 'Voice transcription failed.'));
       notify(message, 'error');
     } finally {
       clearTimeout(timeoutId);
+      if (transcriptionControllerRef.current === timeoutController) transcriptionControllerRef.current = null;
       setIsTranscribing(false);
+      if (!submitted) resumeLive();
     }
   };
 
@@ -929,8 +1166,15 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       return;
     }
 
+    if (liveVoiceEnabledRef.current) {
+      stopSpeaking();
+      void beginLiveListening();
+      return;
+    }
+
     void (async () => {
       try {
+        stopSpeaking();
         await startRecording();
         setIsListening(true);
       } catch (error: any) {
@@ -946,24 +1190,42 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     })();
   };
 
-  const askAgent = async (messageOverride?: string) => {
-    const message = (typeof messageOverride === 'string' ? messageOverride : input).trim();
-    if ((!message && !attachedImages.length) || loading) return;
+  const stopLiveVoice = () => {
+    voiceSessionRef.current += 1;
+    liveVoiceEnabledRef.current = false;
+    setLiveVoiceEnabled(false);
+    transcriptionControllerRef.current?.abort();
+    if (voiceAgentRequestRef.current) requestControllerRef.current?.abort();
+    discardRecording();
+    stopSpeaking();
+    setIsListening(false);
+    setIsTranscribing(false);
+  };
 
-    const history = messages.slice(-HISTORY_MESSAGES);
+  const askAgent = async (messageOverride?: string, speakReply = false) => {
+    const message = (typeof messageOverride === 'string' ? messageOverride : input).trim();
+    const imagesForRequest = attachedImagesRef.current;
+    if ((!message && !imagesForRequest.length) || agentRequestActiveRef.current) return;
+    agentRequestActiveRef.current = true;
+    const voiceSession = voiceSessionRef.current;
+    let voiceReplyStarted = false;
+    stopSpeaking();
+
+    const history = messagesRef.current.slice(-HISTORY_MESSAGES);
     const userMessage: AgentMessage = {
       role: 'user',
       content: message || (language === 'km' ? '(រូបភាពភ្ជាប់)' : '(Attached image)'),
-      imageDataUrls: attachedImages.length
-        ? attachedImages.map((image) => `data:${image.mimeType};base64,${image.base64}`)
+      imageDataUrls: imagesForRequest.length
+        ? imagesForRequest.map((image) => `data:${image.mimeType};base64,${image.base64}`)
         : undefined,
     };
-    const pendingMessages = [...messages, userMessage].slice(-MAX_MESSAGES);
-    const imagesForRequest = attachedImages;
+    const pendingMessages = [...messagesRef.current, userMessage].slice(-MAX_MESSAGES);
     updateMessages(pendingMessages);
     setInput('');
     setAttachedImages([]);
+    attachedImagesRef.current = [];
     setLoading(true);
+    if (speakReply) voiceAgentRequestRef.current = true;
 
     requestControllerRef.current?.abort();
     const controller = new AbortController();
@@ -979,8 +1241,9 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           message,
           platform: 'Auto',
           mode: 'auto',
+          liveVoice: speakReply,
           language,
-          detectedLanguage: message ? detectMessageLanguage(message) : language,
+          detectedLanguage: message ? detectSpokenLanguage(message) : language,
           history,
           images: imagesForRequest.map((image) => ({ base64: image.base64, mimeType: image.mimeType })),
           businessContext: businessContext || undefined,
@@ -993,8 +1256,12 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         ...pendingMessages,
         { role: 'assistant', content: String(data.text || 'No response generated.').trim() },
       ]);
+      if (speakReply && liveVoiceEnabledRef.current && voiceSession === voiceSessionRef.current) {
+        voiceReplyStarted = true;
+        void speakAnswer(String(data.text || '').trim());
+      }
 
-      if (autoCreateEnabled && data.automation?.ready) {
+      if (autoCreateEnabledRef.current && data.automation?.ready) {
         const kind = data.automation.kind === 'video' ? 'video' : 'image';
         onCreativeAutomation({
           id: `${Date.now()}-${kind}`,
@@ -1030,7 +1297,12 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     } finally {
       if (requestControllerRef.current === controller) {
         requestControllerRef.current = null;
+        agentRequestActiveRef.current = false;
         setLoading(false);
+      }
+      if (speakReply) voiceAgentRequestRef.current = false;
+      if (speakReply && !voiceReplyStarted && liveVoiceEnabledRef.current && voiceSession === voiceSessionRef.current) {
+        void beginLiveListening(voiceSession);
       }
     }
   };
@@ -1410,13 +1682,41 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
               )}
 
               {micSupported && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (liveVoiceEnabled) {
+                      stopLiveVoice();
+                    } else {
+                      voiceSessionRef.current += 1;
+                      liveVoiceEnabledRef.current = true;
+                      setLiveVoiceEnabled(true);
+                      stopSpeaking();
+                      if (!recordingRef.current) void beginLiveListening(voiceSessionRef.current);
+                      else void startVoiceMonitor(recordingRef.current.stream).catch(() => stopLiveVoice());
+                    }
+                  }}
+                  aria-pressed={liveVoiceEnabled}
+                  disabled={!liveVoiceEnabled && (isTranscribing || loading)}
+                  className={`px-3 py-2 rounded-xl border text-xs font-bold disabled:opacity-50 ${liveVoiceEnabled ? 'bg-brand-600 border-brand-600 text-white' : 'bg-white/70 dark:bg-slate-800/70 border-brand-200 text-brand-600'}`}
+                >
+                  {language === 'km' ? 'សន្ទនាសំឡេងផ្ទាល់' : 'Live Voice'} {liveVoiceEnabled ? (language === 'km' ? 'បើក' : 'On') : (language === 'km' ? 'បិទ' : 'Off')}
+                </button>
+              )}
+              {isSpeaking && (
+                <button type="button" onClick={() => { stopSpeaking(); if (liveVoiceEnabledRef.current) void beginLiveListening(); }} className="px-3 py-2 rounded-xl border border-red-200 text-red-600 text-xs font-bold">
+                  {language === 'km' ? 'បញ្ឈប់សំឡេង' : 'Stop voice'}
+                </button>
+              )}
+
+              {micSupported && (
                 <div className="flex bg-brand-50 dark:bg-slate-800/70 p-1 rounded-xl border border-brand-200">
-                  {(['km', 'en'] as const).map((lang) => (
+                  {(['auto', 'km', 'en'] as const).map((lang) => (
                     <button
                       key={lang}
                       type="button"
                       disabled={isListening}
-                      onClick={() => setVoiceInputLanguage(lang)}
+                      onClick={() => { voiceInputLanguageRef.current = lang; setVoiceInputLanguage(lang); }}
                       title={language === 'km' ? 'ភាសាដែលអ្នកនឹងនិយាយ' : 'Language you will speak'}
                       className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all disabled:opacity-50 ${
                         voiceInputLanguage === lang
@@ -1424,12 +1724,19 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                           : 'text-brand-400 hover:text-brand-700'
                       }`}
                     >
-                      {lang === 'km' ? 'ខ្មែរ' : 'English'}
+                      {lang === 'auto' ? (language === 'km' ? 'ស្វ័យប្រវត្តិ' : 'Auto') : lang === 'km' ? 'ខ្មែរ' : 'English'}
                     </button>
                   ))}
                 </div>
               )}
             </div>
+            {liveVoiceEnabled && (
+              <p className="text-xs font-medium text-brand-600 dark:text-brand-300" role="status">
+                {language === 'km'
+                  ? 'សន្ទនានឹងបន្តស្តាប់បន្ទាប់ពី Agent ឆ្លើយចប់។ ចុច «សន្ទនាសំឡេងផ្ទាល់» ម្តងទៀតដើម្បីឈប់។'
+                  : 'Live Voice listens again after each reply. Press Live Voice again to stop.'}
+              </p>
+            )}
 
             {attachedImages.length > 0 && (
               <div className="flex flex-wrap gap-2">
@@ -1477,7 +1784,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
               type="button"
               role="switch"
               aria-checked={autoCreateEnabled}
-              onClick={() => setAutoCreateEnabled((enabled) => !enabled)}
+              onClick={() => { autoCreateEnabledRef.current = !autoCreateEnabledRef.current; setAutoCreateEnabled(autoCreateEnabledRef.current); }}
               className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${
                 autoCreateEnabled ? 'bg-emerald-500' : 'bg-slate-300'
               }`}

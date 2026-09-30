@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { mockVerifyIdToken, mockGetFirestore } = vi.hoisted(() => ({
   mockVerifyIdToken: vi.fn(),
@@ -18,7 +18,7 @@ vi.mock('firebase-admin/firestore', async (importOriginal) => ({
   getFirestore: mockGetFirestore,
 }));
 
-const { GENERATED_VIDEO_STATUSES, applyImageKitDeliveryTransform, applyImageKitLogoOverlay, escapeTelegramHtml, formatTelegramHtml, postTelegramMessage, sendTelegram, telegramTextFor, truncateForTelegram } =
+const { GENERATED_VIDEO_STATUSES, applyImageKitDeliveryTransform, applyImageKitLogoOverlay, escapeTelegramHtml, formatTelegramHtml, postTelegramMessage, sendTelegram, telegramMediaUrlFor, telegramTextFor, truncateForTelegram } =
   await import('../../../api/telegram/run-scheduled.js');
 
 const originalEnv = { ...process.env };
@@ -127,6 +127,53 @@ describe('applyImageKitDeliveryTransform', () => {
   });
 });
 
+describe('Telegram video delivery', () => {
+  beforeEach(() => {
+    process.env.IMAGEKIT_PUBLIC_KEY = 'public-test';
+    process.env.IMAGEKIT_PRIVATE_KEY = 'private-test';
+    process.env.IMAGEKIT_URL_ENDPOINT = 'https://ik.imagekit.io/demo';
+  });
+
+  it('serves an uploaded MP4 as original bytes when video transformations are exhausted', async () => {
+    const source = 'https://ik.imagekit.io/demo/telegram-media/video.mp4';
+    const delivered = telegramMediaUrlFor(source, 'video');
+    expect(new URL(delivered).searchParams.get('tr')).toBe('orig-true');
+    expect(new URL(telegramMediaUrlFor(`${source}?tr=w-1280%2Cq-85%2Cf-mp4`, 'video')).searchParams.get('tr')).toBe('orig-true');
+
+    process.env.TELEGRAM_BOT_TOKEN = 'shared-token';
+    process.env.TELEGRAM_CHAT_ID = 'shared-chat';
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'content-type': 'video/mp4', 'content-length': '26183412' }),
+        arrayBuffer: async () => new Uint8Array([0, 1, 2]).buffer,
+      })
+      .mockResolvedValueOnce(okTelegramResponse());
+    global.fetch = fetchSpy;
+    await sendTelegram({ userId: 'u1', content: 'caption', mediaType: 'video', mediaUrl: source }, fakeDbWithProfile({ telegramBotToken: 'own-token', telegramChatId: 'own-chat' }));
+    expect(fetchSpy.mock.calls[0][0]).toBe(delivered);
+    expect(fetchSpy.mock.calls[1][0]).toContain('/sendVideo');
+    expect(fetchSpy.mock.calls[1][1].body).toBeInstanceOf(FormData);
+    expect(fetchSpy.mock.calls[1][1].body.get('video').size).toBe(3);
+  });
+
+  it('preserves generated video overlays and narration transforms', () => {
+    const source = 'https://ik.imagekit.io/demo/video.mp4?tr=ac-none%3Al-image%2Ci-logo.png%2Cl-end';
+    expect(telegramMediaUrlFor(source, 'video')).toBe(source);
+  });
+
+  it('stops before posting if stored video delivery is still blocked', async () => {
+    process.env.TELEGRAM_BOT_TOKEN = 'shared-token';
+    process.env.TELEGRAM_CHAT_ID = 'shared-chat';
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: false, status: 403 });
+    global.fetch = fetchSpy;
+    await expect(sendTelegram({
+      userId: 'u1', content: 'caption', mediaType: 'video', mediaUrl: 'https://ik.imagekit.io/demo/video.mp4',
+    }, fakeDbWithProfile({ telegramBotToken: 'own-token', telegramChatId: 'own-chat' }))).rejects.toThrow('ImageKit');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('applyImageKitLogoOverlay', () => {
   it('adds the saved logo as a relative bottom-left video layer', () => {
     const result = applyImageKitLogoOverlay(
@@ -173,29 +220,25 @@ describe('formatTelegramHtml', () => {
 });
 
 describe('sendTelegram destination resolution', () => {
-  it('uses the shared bot/channel when no db is passed', async () => {
+  it('requires the owner profile instead of using a shared channel', async () => {
     process.env.TELEGRAM_BOT_TOKEN = 'shared-token';
     process.env.TELEGRAM_CHAT_ID = 'shared-chat';
     const fetchSpy = vi.fn().mockResolvedValue(okTelegramResponse());
     global.fetch = fetchSpy;
 
-    await sendTelegram({ userId: 'u1', content: 'hello' });
-
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    expect(fetchSpy.mock.calls[0][0]).toContain('bot' + 'shared-token');
-    expect(JSON.parse(fetchSpy.mock.calls[0][1].body).chat_id).toBe('shared-chat');
+    await expect(sendTelegram({ userId: 'u1', content: 'hello' })).rejects.toThrow('Business Profile');
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('uses the shared bot/channel when the post owner has no profile override', async () => {
+  it('refuses an owner with no Telegram destination', async () => {
     process.env.TELEGRAM_BOT_TOKEN = 'shared-token';
     process.env.TELEGRAM_CHAT_ID = 'shared-chat';
     const fetchSpy = vi.fn().mockResolvedValue(okTelegramResponse());
     global.fetch = fetchSpy;
     const db = fakeDbWithProfile({ businessName: 'Acme' });
 
-    await sendTelegram({ userId: 'u1', content: 'hello' }, db);
-
-    expect(JSON.parse(fetchSpy.mock.calls[0][1].body).chat_id).toBe('shared-chat');
+    await expect(sendTelegram({ userId: 'u1', content: 'hello' }, db)).rejects.toThrow('Business Profile');
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('uses the post owner\'s own bot/channel when both fields are set', async () => {
@@ -211,40 +254,98 @@ describe('sendTelegram destination resolution', () => {
     expect(JSON.parse(fetchSpy.mock.calls[0][1].body).chat_id).toBe('own-chat');
   });
 
-  it('falls back to the shared channel if only one override field is set', async () => {
+  it('sends each company only to its saved channel username with its own bot key', async () => {
+    process.env.TELEGRAM_BOT_TOKEN = 'shared-token';
+    process.env.TELEGRAM_CHAT_ID = 'shared-chat';
+    const profiles = {
+      companyA: { telegramBotToken: 'bot-a', telegramChatId: '-100old', telegramChannelUrl: 'https://t.me/channel_a' },
+      companyB: { telegramBotToken: 'bot-b', telegramChannelUrl: '@channel_b' },
+    };
+    const db = { collection: () => ({ doc: (uid) => ({ get: async () => ({ data: () => profiles[uid] }) }) }) };
+    const fetchSpy = vi.fn().mockResolvedValue(okTelegramResponse());
+    global.fetch = fetchSpy;
+
+    await sendTelegram({ userId: 'companyA', content: 'A only' }, db);
+    await sendTelegram({ userId: 'companyB', content: 'B only' }, db);
+    expect(fetchSpy.mock.calls.map(([url, options]) => [url, JSON.parse(options.body).chat_id])).toEqual([
+      [expect.stringContaining('botbot-a'), '@channel_a'],
+      [expect.stringContaining('botbot-b'), '@channel_b'],
+    ]);
+    expect(fetchSpy.mock.calls.every(([url]) => !url.includes('shared-token'))).toBe(true);
+  });
+
+  it('never broadcasts an ownerless legacy post to the shared channel', async () => {
+    process.env.TELEGRAM_BOT_TOKEN = 'shared-token';
+    process.env.TELEGRAM_CHAT_ID = 'shared-chat';
+    const fetchSpy = vi.fn().mockResolvedValue(okTelegramResponse());
+    global.fetch = fetchSpy;
+    await expect(sendTelegram({ content: 'ownerless' })).rejects.toThrow('Business Profile');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('requires both bot token and channel ID', async () => {
     process.env.TELEGRAM_BOT_TOKEN = 'shared-token';
     process.env.TELEGRAM_CHAT_ID = 'shared-chat';
     const fetchSpy = vi.fn().mockResolvedValue(okTelegramResponse());
     global.fetch = fetchSpy;
     const db = fakeDbWithProfile({ telegramBotToken: 'own-token-only' });
 
-    await sendTelegram({ userId: 'u1', content: 'hello' }, db);
-
-    expect(JSON.parse(fetchSpy.mock.calls[0][1].body).chat_id).toBe('shared-chat');
+    await expect(sendTelegram({ userId: 'u1', content: 'hello' }, db)).rejects.toThrow('Business Profile');
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('falls back to the shared channel if the profile lookup throws', async () => {
+  it('does not send to another channel if the owner profile lookup throws', async () => {
     process.env.TELEGRAM_BOT_TOKEN = 'shared-token';
     process.env.TELEGRAM_CHAT_ID = 'shared-chat';
     const fetchSpy = vi.fn().mockResolvedValue(okTelegramResponse());
     global.fetch = fetchSpy;
     const throwingDb = { collection: () => ({ doc: () => ({ get: async () => { throw new Error('offline'); } }) }) };
 
-    await sendTelegram({ userId: 'u1', content: 'hello' }, throwingDb);
-
-    expect(JSON.parse(fetchSpy.mock.calls[0][1].body).chat_id).toBe('shared-chat');
+    await expect(sendTelegram({ userId: 'u1', content: 'hello' }, throwingDb)).rejects.toThrow('Business Profile');
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('throws when neither the shared nor a per-user destination is configured', async () => {
     delete process.env.TELEGRAM_BOT_TOKEN;
     delete process.env.TELEGRAM_CHAT_ID;
 
-    await expect(sendTelegram({ userId: 'u1', content: 'hello' })).rejects.toThrow('not configured');
+    await expect(sendTelegram({ userId: 'u1', content: 'hello' })).rejects.toThrow('Business Profile');
   });
 });
 
 describe('postTelegramMessage (the "send now"/live-polling immediate-send path)', () => {
-  it('uses the shared channel when the caller sends no Authorization header (demo mode)', async () => {
+  it('uploads a hosted video as multipart when sending immediately', async () => {
+    process.env.IMAGEKIT_PUBLIC_KEY = 'public-test';
+    process.env.IMAGEKIT_PRIVATE_KEY = 'private-test';
+    process.env.IMAGEKIT_URL_ENDPOINT = 'https://ik.imagekit.io/demo';
+    process.env.TELEGRAM_BOT_TOKEN = 'shared-token';
+    process.env.TELEGRAM_CHAT_ID = 'shared-chat';
+    process.env.FIREBASE_PROJECT_ID = 'test-project';
+    process.env.FIREBASE_CLIENT_EMAIL = 'test@example.com';
+    process.env.FIREBASE_PRIVATE_KEY = 'test-key';
+    mockVerifyIdToken.mockResolvedValueOnce({ uid: 'u1' });
+    mockGetFirestore.mockReturnValue(fakeDbWithProfile({ telegramBotToken: 'own-token', telegramChatId: 'own-chat' }));
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'content-type': 'video/mp4' }),
+        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+      })
+      .mockResolvedValueOnce(okTelegramResponse());
+    global.fetch = fetchSpy;
+
+    const res = createMockRes();
+    await postTelegramMessage({
+      method: 'POST', headers: { authorization: 'Bearer good-token' },
+      body: { text: 'caption', mediaType: 'video', mediaUrl: 'https://ik.imagekit.io/demo/video.mp4' },
+    }, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(fetchSpy.mock.calls[1][1].body).toBeInstanceOf(FormData);
+    expect(fetchSpy.mock.calls[1][1].body.get('video').size).toBe(3);
+  });
+
+  it('rejects demo mode instead of posting to a shared channel', async () => {
     process.env.TELEGRAM_BOT_TOKEN = 'shared-token';
     process.env.TELEGRAM_CHAT_ID = 'shared-chat';
     global.fetch = vi.fn().mockResolvedValue({ ok: true, text: async () => JSON.stringify({ ok: true, result: { message_id: 42 } }) });
@@ -254,11 +355,11 @@ describe('postTelegramMessage (the "send now"/live-polling immediate-send path)'
     await postTelegramMessage(req, res);
 
     expect(mockVerifyIdToken).not.toHaveBeenCalled();
-    expect(JSON.parse(global.fetch.mock.calls[0][1].body).chat_id).toBe('shared-chat');
-    expect(res.statusCode).toBe(200);
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(401);
   });
 
-  it('falls back to the shared channel if the Authorization header is present but invalid', async () => {
+  it('rejects an invalid sign-in instead of using the shared channel', async () => {
     process.env.TELEGRAM_BOT_TOKEN = 'shared-token';
     process.env.TELEGRAM_CHAT_ID = 'shared-chat';
     mockVerifyIdToken.mockRejectedValueOnce(new Error('invalid token'));
@@ -268,8 +369,8 @@ describe('postTelegramMessage (the "send now"/live-polling immediate-send path)'
     const res = createMockRes();
     await postTelegramMessage(req, res);
 
-    expect(JSON.parse(global.fetch.mock.calls[0][1].body).chat_id).toBe('shared-chat');
-    expect(res.statusCode).toBe(200);
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(401);
   });
 
   it("uses the signed-in caller's own channel when their Business Profile has one configured", async () => {

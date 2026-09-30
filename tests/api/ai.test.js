@@ -11,10 +11,19 @@ import {
   getVideoCaptionSpec,
   googleSheetsUrlToCsvExportUrl,
   resolveCreativeImageMode,
+  resolveAgentReplyLanguage,
   resolveCompetitorResearchTarget,
   resolveFacebookScanMode,
   resolveVideoAspectRatio,
 } from '../../api/ai.js';
+
+describe('resolveAgentReplyLanguage', () => {
+  it('follows the latest spoken words, including mixed Khmer and English', () => {
+    expect(resolveAgentReplyLanguage('សួស្តី', 'en')).toBe('Khmer');
+    expect(resolveAgentReplyLanguage('Hello', 'km')).toBe('English');
+    expect(resolveAgentReplyLanguage('សួស្តី Hello', 'km')).toBe('Mixed Khmer and English');
+  });
+});
 
 describe('getVideoCaptionSpec', () => {
   it('creates a standard YouTube post with title and searchable description guidance', () => {

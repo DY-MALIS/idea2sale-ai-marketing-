@@ -18,17 +18,11 @@ function cleanHandle(value = '') {
   let handle = String(value || '').trim();
   if (handle.includes('tiktok.com/@')) handle = handle.split('tiktok.com/@')[1] || handle;
   handle = handle.split('?')[0].split('/')[0].replace(/^@/, '').trim();
-  return handle || process.env.TIKTOK_PUBLIC_HANDLE || 'ai.cafe4';
-}
-
-function numberFromEnv(name, fallback) {
-  const value = Number(process.env[name]);
-  return Number.isFinite(value) ? value : fallback;
+  return handle;
 }
 
 function fallbackStats(req, message = 'TikTok official statistics are not available yet.') {
   const handle = cleanHandle(req.query?.handle);
-  const isDefaultHandle = handle.toLowerCase() === 'ai.cafe4';
   return {
     handle,
     displayName: handle,
@@ -36,13 +30,13 @@ function fallbackStats(req, message = 'TikTok official statistics are not availa
     bio: '',
     isVerified: false,
     profileDeepLink: '',
-    followers: numberFromEnv('TIKTOK_PUBLIC_FOLLOWERS', isDefaultHandle ? 3 : 0),
-    following: numberFromEnv('TIKTOK_PUBLIC_FOLLOWING', 0),
-    likes: numberFromEnv('TIKTOK_PUBLIC_LIKES', isDefaultHandle ? 197 : 0),
-    videoCount: numberFromEnv('TIKTOK_PUBLIC_VIDEO_COUNT', 0),
+    followers: null,
+    following: null,
+    likes: null,
+    videoCount: null,
     canReadStats: false,
     updatedAt: new Date().toISOString(),
-    source: 'configured_public_fallback',
+    source: 'not_connected',
     message,
   };
 }
@@ -55,7 +49,7 @@ async function handleVideoList(req, res) {
   const user = await requireSignedInUser(req);
   if (!user) return res.status(401).json({ error: 'Sign in to view TikTok videos.', code: 'auth_required' });
 
-  const token = getCookie(req, 'tiktok_token');
+  const token = getCookie(req, 'tiktok_owner') === user.uid ? getCookie(req, 'tiktok_token') : '';
   if (!token) return res.status(200).json({ videos: [], canReadVideos: false, message: 'Connect TikTok to read your recent videos.' });
 
   const fields = 'id,cover_image_url,title,share_url,view_count,create_time';
@@ -92,7 +86,7 @@ export default async function handler(req, res) {
   const user = await requireSignedInUser(req);
   if (!user) return res.status(401).json({ error: 'Sign in to view TikTok statistics.', code: 'auth_required' });
 
-  const token = getCookie(req, 'tiktok_token');
+  const token = getCookie(req, 'tiktok_owner') === user.uid ? getCookie(req, 'tiktok_token') : '';
   if (!token) return res.status(200).json(fallbackStats(req, 'Connect TikTok to read official account statistics.'));
   const fields = 'open_id,avatar_url,display_name,username,follower_count,following_count,likes_count,video_count,bio_description,is_verified,profile_deep_link';
   try {

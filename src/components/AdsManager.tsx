@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   TrendingUp,
   Target,
@@ -23,13 +23,17 @@ import { getLatestBusinessBranding } from '../lib/businessBranding';
 const AdsManager: React.FC = () => {
   const { t, language } = useLanguage();
   const { user, isDemoMode } = useAuth();
+  const cacheKey = (name: string) => `${name}_${user?.uid || 'demo'}`;
   const [targetQuery, setTargetQuery] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
-  const [strategy, setStrategy] = useState<string | null>(() => localStorage.getItem('ads_strategy'));
+  const [strategy, setStrategy] = useState<string | null>(null);
+  const [strategyError, setStrategyError] = useState<string | null>(null);
   const [isCreatingAd, setIsCreatingAd] = useState(false);
-  const [adCreative, setAdCreative] = useState<string | null>(() => localStorage.getItem('ads_creative'));
+  const [adCreative, setAdCreative] = useState<string | null>(null);
+  const [adError, setAdError] = useState<string | null>(null);
 
-  const [scalingAdvice, setScalingAdvice] = useState<string | null>(() => localStorage.getItem('ads_scaling_advice'));
+  const [scalingAdvice, setScalingAdvice] = useState<string | null>(null);
+  const [scalingError, setScalingError] = useState<string | null>(null);
   const [isGettingScalingAdvice, setIsGettingScalingAdvice] = useState(false);
 
   const [productImageBase64, setProductImageBase64] = useState<string | null>(null);
@@ -43,47 +47,50 @@ const AdsManager: React.FC = () => {
   // earlier scan-language selection) landing after a newer one and overwriting
   // imageAnalysis/targetQuery with data tied to the wrong upload.
   const analysisRequestIdRef = useRef(0);
+  const accountRequestIdRef = useRef(0);
+
+  useEffect(() => {
+    analysisRequestIdRef.current += 1;
+    accountRequestIdRef.current += 1;
+    setStrategy(localStorage.getItem(cacheKey('ads_strategy')));
+    setAdCreative(localStorage.getItem(cacheKey('ads_creative')));
+    setScalingAdvice(localStorage.getItem(cacheKey('ads_scaling_advice')));
+    setImageAnalysis(null);
+    setProductImageBase64(null);
+    setTargetQuery('');
+  }, [user?.uid, isDemoMode]);
 
   const handleGetScalingAdvice = async () => {
     if (!strategy) return;
+    const requestId = accountRequestIdRef.current;
+    const storageKey = cacheKey('ads_scaling_advice');
     setIsGettingScalingAdvice(true);
+    setScalingError(null);
+    setScalingAdvice(null);
+    localStorage.removeItem(storageKey);
     try {
       const businessContext = await getLatestBusinessBranding(user, isDemoMode);
       const response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'socialAgent',
-          language,
-          platform: 'Facebook/TikTok Ads',
-          mode: 'scaling-advice',
+          action: 'adsScalingAdvice',
           businessContext,
-          message: `Based on this ad strategy, give practical scaling guidance for a small business owner managing their own ad account.
-
-Product/category:
-${targetQuery || 'Use the product implied by the strategy.'}
-
-Strategy:
-${strategy}
-
-Return:
-1. The specific signal(s) that show an ad set is winning and ready to scale (e.g. CPA/ROAS thresholds, minimum spend/conversions before judging)
-2. A safe day-by-day budget increase plan (percentage per step, how often)
-3. Warning signs to pause or cut spend
-4. One sentence reminding them to apply these changes manually in Meta Ads Manager / TikTok Ads Manager, since this tool does not have ad account access.
-
-Keep it concise and practical.`,
+          query: targetQuery,
+          strategy,
         }),
       });
       const data = await response.json();
+      if (requestId !== accountRequestIdRef.current) return;
       if (!response.ok) throw new Error(data.error || 'Failed to generate scaling guidance.');
       const text = data.text || 'No guidance generated.';
       setScalingAdvice(text);
-      localStorage.setItem('ads_scaling_advice', text);
+      localStorage.setItem(storageKey, text);
     } catch (error: any) {
-      setScalingAdvice(error.message || 'Error generating scaling guidance.');
+      if (requestId !== accountRequestIdRef.current) return;
+      setScalingError(error.message || (language === 'km' ? 'មិនអាចបង្កើតការណែនាំបង្កើនថវិកាបានទេ។' : 'Could not generate scaling advice.'));
     } finally {
-      setIsGettingScalingAdvice(false);
+      if (requestId === accountRequestIdRef.current) setIsGettingScalingAdvice(false);
     }
   };
 
@@ -203,9 +210,17 @@ Keep it concise and practical.`,
 
   const handleGenerateStrategy = async () => {
     if (!targetQuery.trim()) return;
+    const requestId = accountRequestIdRef.current;
+    const strategyKey = cacheKey('ads_strategy');
+    const scalingKey = cacheKey('ads_scaling_advice');
+    const creativeKey = cacheKey('ads_creative');
     setIsGenerating(true);
     setStrategy(null);
+    setStrategyError(null);
     setScalingAdvice(null);
+    setScalingError(null);
+    localStorage.removeItem(strategyKey);
+    localStorage.removeItem(scalingKey);
     try {
       const businessContext = await getLatestBusinessBranding(user, isDemoMode);
       // Khmer-detection-in-query and the Khmer-output decision now live
@@ -218,63 +233,54 @@ Keep it concise and practical.`,
         body: JSON.stringify({ action: 'adsStrategy', query: targetQuery, language, businessContext }),
       });
       const data = await response.json();
+      if (requestId !== accountRequestIdRef.current) return;
       if (!response.ok) throw new Error(data.error || 'Failed to generate strategy.');
       const text = data.strategy || 'No strategy generated.';
       setStrategy(text);
       setAdCreative(null);
-      localStorage.setItem('ads_strategy', text);
-      localStorage.removeItem('ads_creative');
+      setAdError(null);
+      localStorage.setItem(strategyKey, text);
+      localStorage.removeItem(creativeKey);
     } catch (error: any) {
+      if (requestId !== accountRequestIdRef.current) return;
       console.error(error);
-      setStrategy(error.message || 'Error generating strategy.');
+      setStrategyError(error.message || (language === 'km' ? 'មិនអាចបង្កើតយុទ្ធសាស្ត្របានទេ។' : 'Could not generate a strategy.'));
     } finally {
-      setIsGenerating(false);
+      if (requestId === accountRequestIdRef.current) setIsGenerating(false);
     }
   };
 
   const handleCreateAd = async () => {
     if (!strategy) return;
+    const requestId = accountRequestIdRef.current;
+    const storageKey = cacheKey('ads_creative');
     setIsCreatingAd(true);
+    setAdError(null);
+    setAdCreative(null);
+    localStorage.removeItem(storageKey);
     try {
       const businessContext = await getLatestBusinessBranding(user, isDemoMode);
       const response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'socialAgent',
-          language,
-          platform: 'Facebook/TikTok Ads',
-          mode: 'create-ad',
+          action: 'adsCreative',
           businessContext,
-          message: `Create a ready-to-launch paid social ad from this strategy.
-
-Product/category:
-${targetQuery || 'Use the product implied by the strategy.'}
-
-Strategy:
-${strategy}
-
-Return a practical ad package with:
-1. Primary ad text
-2. Short headline
-3. CTA
-4. 15-second video ad script
-5. Creative direction
-6. Audience targeting checklist
-7. First test budget suggestion
-
-Keep it ready to copy into TikTok Ads or Meta Ads.`,
+          query: targetQuery,
+          strategy,
         }),
       });
       const data = await response.json();
+      if (requestId !== accountRequestIdRef.current) return;
       if (!response.ok) throw new Error(data.error || 'Failed to create ad.');
       const text = data.text || 'No ad generated.';
       setAdCreative(text);
-      localStorage.setItem('ads_creative', text);
+      localStorage.setItem(storageKey, text);
     } catch (error: any) {
-      setAdCreative(error.message || 'Error creating ad.');
+      if (requestId !== accountRequestIdRef.current) return;
+      setAdError(error.message || (language === 'km' ? 'មិនអាចបង្កើតការផ្សាយពាណិជ្ជកម្មបានទេ។' : 'Could not create the ad.'));
     } finally {
-      setIsCreatingAd(false);
+      if (requestId === accountRequestIdRef.current) setIsCreatingAd(false);
     }
   };
 
@@ -384,6 +390,7 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
                 {isGenerating ? <Loader2 className="animate-spin" /> : <Zap size={18} />}
                 {t('generateStrategyBtn')}
               </button>
+              {strategyError && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{strategyError}</p>}
             </div>
 
           </div>
@@ -410,6 +417,7 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
                 {scalingAdvice}
               </div>
             )}
+            {scalingError && <p role="alert" className="mt-4 text-sm text-white">{scalingError}</p>}
           </div>
         </div>
 
@@ -496,6 +504,7 @@ Keep it ready to copy into TikTok Ads or Meta Ads.`,
                     {isCreatingAd ? <Loader2 size={18} className="animate-spin" /> : <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />}
                   </button>
                 </div>
+                {adError && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{adError}</p>}
                 
                 <div className="prose prose-brand max-w-none">
                   <div className="whitespace-pre-wrap text-brand-700 dark:text-brand-400 leading-relaxed font-sans">

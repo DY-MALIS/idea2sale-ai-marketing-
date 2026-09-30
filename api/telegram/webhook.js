@@ -521,13 +521,15 @@ const buildSystemPrompt = (businessName, isKhmer) => [
 // bot's incoming webhook and for replying to one of its captured leads).
 export const resolveOwnerBotToken = async (db, ownerId) => {
   const sharedToken = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
-  if (db && ownerId) {
+  if (ownerId) {
+    if (!db) return '';
     try {
       const snap = await db.collection('business_profiles').doc(ownerId).get();
       const ownToken = (snap.data()?.telegramBotToken || '').trim();
-      if (ownToken) return ownToken;
+      return ownToken;
     } catch (error) {
-      console.error("Could not load the bot owner's Telegram profile, using the shared bot:", error?.message);
+      console.error("Could not load the bot owner's Telegram profile:", error?.message);
+      return '';
     }
   }
   return sharedToken;

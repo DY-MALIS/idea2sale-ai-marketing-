@@ -8,6 +8,7 @@ import { getYouTubeAuthUrl } from '../../_youtube.js';
 export default function handler(req, res) {
   const provider = String(req.query?.provider || 'tiktok').toLowerCase();
   try {
+    if (provider !== 'youtube') return res.status(401).send('Connect TikTok from your signed-in profile.');
     const state = createOAuthState();
     res.setHeader('Set-Cookie', oauthStateCookieHeader(state, req));
     const url = provider === 'youtube' ? getYouTubeAuthUrl(req, state) : getTikTokAuthUrl(req, state);

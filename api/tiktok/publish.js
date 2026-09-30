@@ -6,6 +6,7 @@ import { getCookie, getAutomationAccessToken, recordTikTokPostSync, scheduleTikT
 import { claimPendingPost, findRecentDuplicateTikTokPost, findRecentDuplicateYouTubePost } from '../_telegramClaim.js';
 import { getYouTubeAutomationAccessToken, publishVideoToYouTube } from '../_youtube.js';
 import { notifyAdmins } from '../_alert.js';
+import { getUntransformedImageKitVideoUrl } from '../../shared/imageKitUrl.js';
 
 // Vercel's Hobby plan caps a deployment at 12 serverless functions; this file
 // was already one of them, so QStash's per-post delivery callback lives here
@@ -29,15 +30,13 @@ const getRawBody = (req) => {
   });
 };
 
-// Best-effort: TikTok publishing is authenticated via the tiktok_token cookie
-// (one shared TikTok connection for the app), not Firebase Auth, so there is
-// no uid to require here. If the caller is signed in to Firebase we still
-// attach their uid to the audit log; if not, the log just has no actor.
+// The signed-in Firebase account must own the TikTok browser connection.
 async function resolveActorUid(req) {
   const authHeader = req.headers.authorization || '';
   const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
   if (!idToken) return null;
   try {
+    initFirebaseAdmin();
     const decoded = await admin.auth().verifyIdToken(idToken, true);
     return decoded.uid;
   } catch {
@@ -123,7 +122,7 @@ function publicUrlRequest(videoUrl) {
 // that requirement entirely -- TikTok never fetches our URL, so nothing about
 // it needs to be pre-verified.
 async function videoFromUrl(videoUrl) {
-  const response = await fetch(videoUrl);
+  const response = await fetch(getUntransformedImageKitVideoUrl(videoUrl, process.env.IMAGEKIT_URL_ENDPOINT || ''));
   if (!response.ok) {
     const error = new Error(`Could not download the video to publish (HTTP ${response.status}).`);
     error.status = 502;
@@ -201,7 +200,8 @@ export async function publishVideoToTikTok(token, { videoUrl, title: rawTitle, m
 }
 
 async function handlePublishRequest(req, res) {
-  const token = getCookie(req, 'tiktok_token');
+  const actorUid = await resolveActorUid(req);
+  const token = actorUid && getCookie(req, 'tiktok_owner') === actorUid ? getCookie(req, 'tiktok_token') : '';
   if (!token) {
     return res.status(401).json({
       error: {
@@ -220,7 +220,6 @@ async function handlePublishRequest(req, res) {
     });
 
     try {
-      const actorUid = await resolveActorUid(req);
       const db = initFirebaseAdmin();
       await logAudit(db, {
         action: 'tiktok_publish_video',
@@ -393,35 +392,17 @@ async function runTikTokCron(req, res) {
       return res.status(200).json({ ok: true, checkedAt: nowIso, processed: 0, results: [] });
     }
 
-    let token;
-    try {
-      token = await getAutomationAccessToken(db);
-    } catch (error) {
-      const message = error?.message || 'TikTok token refresh failed.';
-      console.error('TikTok automation token refresh failed:', message);
-      await notifyAdmins(`TikTok auto-publish token refresh failed: ${message}`);
-      return res.status(200).json({ ok: true, checkedAt: nowIso, processed: 0, skipped: 'token_refresh_failed' });
-    }
-
-    if (!token) {
-      // Nobody has connected TikTok for automation yet -- leave these posts
-      // PENDING (not FAILED) so they publish the moment someone does, instead of
-      // forcing a recreate of the schedule after connecting. Alert only once a
-      // due post has sat unpublished for a while, not on every 10-minute poll
-      // tick right after deploy before anyone has had a chance to connect yet.
-      const NOT_CONNECTED_ALERT_DELAY_MS = 60 * 60 * 1000;
-      const oldestDueMs = dueDocs.reduce((min, doc) => {
-        const scheduledMs = Date.parse(String(doc.data()?.scheduledTime || ''));
-        return Number.isFinite(scheduledMs) ? Math.min(min, scheduledMs) : min;
-      }, Infinity);
-      if (Number.isFinite(oldestDueMs) && Date.now() - oldestDueMs > NOT_CONNECTED_ALERT_DELAY_MS) {
-        await notifyAdmins('TikTok scheduled posts are due but TikTok automation has never been connected. Connect TikTok so the cron can publish them.');
-      }
-      return res.status(200).json({ ok: true, checkedAt: nowIso, processed: 0, skipped: 'not_connected' });
-    }
-
     const results = [];
     for (const doc of dueDocs) {
+      const ownerId = doc.data()?.userId;
+      const token = ownerId ? await getAutomationAccessToken(db, ownerId).catch((error) => {
+        console.error('TikTok token refresh failed for post owner:', error?.message);
+        return null;
+      }) : null;
+      if (!token) {
+        results.push({ id: doc.id, ok: true, skipped: 'owner_not_connected' });
+        continue;
+      }
       const result = await deliverOneScheduledTikTokPost(db, doc.ref, token);
       results.push({ id: doc.id, ...result });
       if (!result.ok) await notifyAdmins(`TikTok scheduled post ${doc.id} failed (cron): ${result.error}`);
@@ -517,9 +498,11 @@ async function handleDeliverAction(req, res) {
     const db = initFirebaseAdmin();
     const ref = db.collection('scheduled_posts').doc(postId);
 
+    const postSnap = await ref.get();
+    const ownerId = postSnap.data()?.userId;
     let token;
     try {
-      token = await getAutomationAccessToken(db);
+      token = ownerId ? await getAutomationAccessToken(db, ownerId) : null;
     } catch (error) {
       const message = error?.message || 'TikTok token refresh failed.';
       await notifyAdmins(`TikTok auto-publish token refresh failed (QStash delivery for ${postId}): ${message}`);
@@ -653,7 +636,7 @@ async function deliverOneScheduledYouTubePost(db, docRef) {
     }
     if (!post.videoUrl) throw new Error('This scheduled post has no video to upload.');
 
-    const videoResponse = await fetch(post.videoUrl, { signal: AbortSignal.timeout(60000) });
+    const videoResponse = await fetch(getUntransformedImageKitVideoUrl(post.videoUrl, process.env.IMAGEKIT_URL_ENDPOINT || ''), { signal: AbortSignal.timeout(60000) });
     if (!videoResponse.ok) throw new Error(`Could not download the video to upload (HTTP ${videoResponse.status}).`);
     const videoBuffer = Buffer.from(await videoResponse.arrayBuffer());
 

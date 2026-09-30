@@ -341,28 +341,31 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
   }, [user, isDemoMode]);
 
   React.useEffect(() => {
+    let cancelled = false;
+    setTiktokUser(null);
+    const refreshTikTokUser = async () => {
+      if (!user) return;
+      try {
+        const idToken = await user.getIdToken();
+        const response = await fetch('/api/tiktok/me', { headers: { Authorization: `Bearer ${idToken}` } });
+        const data = await response.json();
+        if (!cancelled) setTiktokUser(response.ok && !data.error ? data : null);
+      } catch (error) {
+        if (!cancelled) setTiktokUser(null);
+      }
+    };
     const handleMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
       if (event.data?.type === 'TIKTOK_AUTH_SUCCESS') {
         setIsAuthenticating(false);
-        fetch('/api/tiktok/me')
-          .then(res => res.json())
-          .then(data => { if (!data.error) setTiktokUser(data); })
-          .catch(err => console.error("Failed to fetch user after auth", err));
+        void refreshTikTokUser();
       }
     };
     window.addEventListener('message', handleMessage);
-    
-    // Initial check
-    fetch('/api/tiktok/me')
-      .then(res => res.json())
-      .then(data => {
-        if (!data.error) setTiktokUser(data);
-      })
-      .catch(() => {});
+    void refreshTikTokUser();
 
-    return () => window.removeEventListener('message', handleMessage);
-  }, []);
+    return () => { cancelled = true; window.removeEventListener('message', handleMessage); };
+  }, [user?.uid]);
 
   const handleTikTokAuth = async () => {
     if (isAuthenticating) {
@@ -374,7 +377,8 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
     const timeout = setTimeout(() => setIsAuthenticating(false), 10000);
 
     try {
-      const res = await fetch('/api/auth/tiktok');
+      if (!user) throw new Error('Sign in to connect TikTok.');
+      const res = await fetch('/api/auth/tiktok', { headers: { Authorization: `Bearer ${await user.getIdToken()}` } });
       const data = await res.json();
       if (data.url) {
         const width = 600, height = 700;

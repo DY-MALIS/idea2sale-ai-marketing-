@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   PenTool,
   Calendar,
@@ -21,6 +21,8 @@ import { motion } from 'motion/react';
 import { TabType } from '../types';
 import { cn } from '../lib/utils';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useAuth } from '../contexts/AuthContext';
+import { getLatestBusinessBranding, type BusinessBranding } from '../lib/businessBranding';
 
 interface SidebarProps {
   activeTab: TabType;
@@ -40,6 +42,19 @@ const Sidebar: React.FC<SidebarProps> = ({
   onClose,
 }) => {
   const { t } = useLanguage();
+  const { user, isDemoMode } = useAuth();
+  const [branding, setBranding] = useState<BusinessBranding | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setBranding(null);
+    const load = () => getLatestBusinessBranding(user, isDemoMode).then((profile) => {
+      if (!cancelled) setBranding(profile);
+    });
+    void load();
+    window.addEventListener('business-profile-updated', load);
+    return () => { cancelled = true; window.removeEventListener('business-profile-updated', load); };
+  }, [user?.uid, isDemoMode]);
 
   const handleTabChange = (tab: TabType) => {
     setActiveTab(tab);
@@ -94,12 +109,12 @@ const Sidebar: React.FC<SidebarProps> = ({
         <h1 className="min-w-0 text-lg font-display font-bold text-white flex items-center gap-3 lg:text-2xl">
           <div className="h-10 w-10 shrink-0 overflow-hidden rounded-xl bg-white shadow-lg shadow-brand-500/20 ring-1 ring-white/40 lg:h-12 lg:w-12 lg:rounded-2xl">
             <img
-              src="/favicon.svg"
-              alt="aime.angkorgate icon"
+              src={branding?.logoDataUrl || '/favicon.svg'}
+              alt={branding?.businessName ? `${branding.businessName} logo` : 'aime.angkorgate icon'}
               className="h-full w-full object-cover"
             />
           </div>
-          <span className="truncate tracking-tight">aime.angkorgate</span>
+          <span className="truncate tracking-tight">{branding?.businessName || 'aime.angkorgate'}</span>
         </h1>
         <button
           type="button"
@@ -163,9 +178,9 @@ const Sidebar: React.FC<SidebarProps> = ({
           </button>
         </div>
         
-        <motion.a
+        {branding?.telegramBotUsername ? <motion.a
           whileTap={{ scale: 0.98 }}
-          href="https://t.me/aime_angkorgate_bot"
+          href={`https://t.me/${branding.telegramBotUsername}`}
           target="_blank"
           rel="noopener noreferrer"
           onClick={onClose}
@@ -173,10 +188,10 @@ const Sidebar: React.FC<SidebarProps> = ({
         >
           <Bot size={18} />
           <span className="text-sm font-medium">{t('openTelegramBot')}</span>
-        </motion.a>
-        <motion.a
+        </motion.a> : null}
+        {branding?.telegramChannelUrl ? <motion.a
           whileTap={{ scale: 0.98 }}
-          href="https://t.me/aimarketingengine"
+          href={branding.telegramChannelUrl}
           target="_blank"
           rel="noopener noreferrer"
           onClick={onClose}
@@ -184,7 +199,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         >
           <Send size={18} />
           <span className="text-sm font-medium">{t('openTelegramChannel')}</span>
-        </motion.a>
+        </motion.a> : null}
         <motion.button
           whileTap={{ scale: 0.98 }}
           onClick={() => {

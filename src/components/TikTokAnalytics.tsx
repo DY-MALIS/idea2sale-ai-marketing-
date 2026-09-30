@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Eye,
   Heart,
@@ -15,12 +15,11 @@ import {
   BadgeCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { collection, query, where, orderBy, limit, onSnapshot, Timestamp } from 'firebase/firestore';
+import { collection, query, where, limit, onSnapshot, Timestamp, doc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { cn } from '../lib/utils';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
-import { useIsAdmin } from '../hooks/useIsAdmin';
 import { getStoredScheduledPosts, mergeStoredScheduleHistory } from '../lib/scheduledPosts';
 import { useToast } from '../hooks/useToast';
 
@@ -31,18 +30,16 @@ const getLocalTelegramPosts = () => {
 const TikTokAnalytics: React.FC = () => {
   const { t } = useLanguage();
   const { user, isDemoMode } = useAuth();
-  const { isAdmin, checking: checkingAdmin } = useIsAdmin();
   const { notify, ToastHost } = useToast();
+  const accountRequestIdRef = useRef(0);
+  const cacheKey = (name: string) => `${name}_${user?.uid || 'demo'}`;
   const [telegramPosts, setTelegramPosts] = useState<any[]>([]);
   const [disconnecting, setDisconnecting] = useState(false);
-  const [handle, setHandle] = useState(() => localStorage.getItem('tiktok_handle') || 'ai.cafe4');
+  const [handle, setHandle] = useState('');
   const [isEditingHandle, setIsEditingHandle] = useState(false);
   const [tempHandle, setTempHandle] = useState(handle);
   const [posts, setPosts] = useState<any[]>([]);
-  const [publicStats, setPublicStats] = useState<any>(() => {
-    const saved = localStorage.getItem('tiktok_stats');
-    return saved ? JSON.parse(saved) : null;
-  });
+  const [publicStats, setPublicStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
@@ -53,6 +50,7 @@ const TikTokAnalytics: React.FC = () => {
   const [videosMessage, setVideosMessage] = useState<string | null>(null);
 
   const fetchVideos = async () => {
+    const requestId = accountRequestIdRef.current;
     setVideosLoading(true);
     const videosController = new AbortController();
     const videosTimeoutId = window.setTimeout(() => videosController.abort(), 15000);
@@ -65,20 +63,25 @@ const TikTokAnalytics: React.FC = () => {
         headers: { Authorization: `Bearer ${idToken}` },
       });
       const data = await response.json();
+      if (requestId !== accountRequestIdRef.current) return;
       if (!response.ok) throw new Error(data.error || `Server returned ${response.status}`);
       setVideos(data.videos || []);
       setVideosMessage(data.canReadVideos ? null : data.message || null);
     } catch (err: any) {
+      if (requestId !== accountRequestIdRef.current) return;
       console.error('Fetch TikTok videos error:', err);
       setVideos([]);
       setVideosMessage(err.message || 'Unable to load TikTok videos.');
     } finally {
       window.clearTimeout(videosTimeoutId);
-      setVideosLoading(false);
+      if (requestId === accountRequestIdRef.current) setVideosLoading(false);
     }
   };
 
   const fetchPublicStats = async () => {
+    const requestId = accountRequestIdRef.current;
+    const handleKey = cacheKey('tiktok_handle');
+    const statsKey = cacheKey('tiktok_stats');
     setSyncing(true);
     setStatsError(null);
     setStatsErrorCode(null);
@@ -97,6 +100,7 @@ const TikTokAnalytics: React.FC = () => {
         headers: { Authorization: `Bearer ${idToken}` },
       });
       const data = await response.json();
+      if (requestId !== accountRequestIdRef.current) return;
       if (!response.ok) {
         setStatsErrorCode(data.code || 'sync_error');
         throw new Error(data.error || `Server returned ${response.status}`);
@@ -104,16 +108,17 @@ const TikTokAnalytics: React.FC = () => {
       setPublicStats(data);
       if (data.handle) {
         setHandle(data.handle);
-        localStorage.setItem('tiktok_handle', data.handle);
+        localStorage.setItem(handleKey, data.handle);
       }
-      localStorage.setItem('tiktok_stats', JSON.stringify(data));
+      localStorage.setItem(statsKey, JSON.stringify(data));
       setLastUpdated(new Date().toLocaleTimeString());
     } catch (err: any) {
+      if (requestId !== accountRequestIdRef.current) return;
       console.error("Fetch stats error:", err);
       setStatsError(err.message || 'Unable to sync TikTok statistics.');
     } finally {
       window.clearTimeout(statsTimeoutId);
-      setSyncing(false);
+      if (requestId === accountRequestIdRef.current) setSyncing(false);
     }
   };
 
@@ -127,7 +132,7 @@ const TikTokAnalytics: React.FC = () => {
         headers: { Authorization: `Bearer ${idToken}` },
       });
       if (!res.ok) throw new Error(`Server returned ${res.status}`);
-      localStorage.removeItem('tiktok_stats');
+      localStorage.removeItem(cacheKey('tiktok_stats'));
       setPublicStats(null);
       setStatsError(null);
       setStatsErrorCode('not_connected');
@@ -162,9 +167,44 @@ const TikTokAnalytics: React.FC = () => {
     
     if (cleanHandle) {
       setHandle(cleanHandle);
-      localStorage.setItem('tiktok_handle', cleanHandle);
+      localStorage.setItem(cacheKey('tiktok_handle'), cleanHandle);
       setIsEditingHandle(false);
       // Data will be fetched via useEffect
+    }
+  };
+
+  useEffect(() => {
+    accountRequestIdRef.current += 1;
+    let cancelled = false;
+    setHandle('');
+    const savedHandle = localStorage.getItem(cacheKey('tiktok_handle')) || '';
+    if (user && !isDemoMode) {
+      getDoc(doc(db, 'business_profiles', user.uid)).then((snapshot) => {
+        if (!cancelled) setHandle(String(snapshot.data()?.tiktokHandle || savedHandle));
+      }).catch(() => { if (!cancelled) setHandle(savedHandle); });
+    } else {
+      setHandle(savedHandle);
+    }
+    const saved = localStorage.getItem(cacheKey('tiktok_stats'));
+    try { setPublicStats(saved ? JSON.parse(saved) : null); } catch { setPublicStats(null); }
+    setVideos([]);
+    setPosts([]);
+    setTelegramPosts([]);
+    setStatsError(null);
+    setStatsErrorCode(null);
+    setLastUpdated(null);
+    return () => { cancelled = true; };
+  }, [user?.uid, isDemoMode]);
+
+  const connectTikTok = async () => {
+    try {
+      if (!user) throw new Error('Sign in before connecting TikTok.');
+      const response = await fetch('/api/auth/tiktok', { headers: { Authorization: `Bearer ${await user.getIdToken()}` } });
+      const data = await response.json();
+      if (!response.ok || !data.url) throw new Error(data.error || 'Could not connect TikTok.');
+      window.open(data.url, '_blank');
+    } catch (error: any) {
+      notify(error.message || 'Could not connect TikTok.', 'error');
     }
   };
 
@@ -183,7 +223,7 @@ const TikTokAnalytics: React.FC = () => {
     };
     window.addEventListener('message', handleAuthSuccess);
     
-    if (checkingAdmin || !user || isDemoMode) {
+    if (!user || isDemoMode) {
       setPosts([]);
       setLoading(false);
       return () => {
@@ -193,9 +233,7 @@ const TikTokAnalytics: React.FC = () => {
     }
 
     setLoading(true);
-    const q = isAdmin
-      ? query(collection(db, 'tiktok_posts'), orderBy('createdAt', 'desc'), limit(10))
-      : query(collection(db, 'tiktok_posts'), where('userId', '==', user.uid), limit(10));
+    const q = query(collection(db, 'tiktok_posts'), where('userId', '==', user.uid), limit(10));
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const postsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
@@ -213,7 +251,7 @@ const TikTokAnalytics: React.FC = () => {
       window.removeEventListener('message', handleAuthSuccess);
       unsubscribe();
     };
-  }, [handle, user, isDemoMode, isAdmin, checkingAdmin]);
+  }, [handle, user, isDemoMode]);
 
   useEffect(() => {
     if (isDemoMode) {
@@ -228,13 +266,11 @@ const TikTokAnalytics: React.FC = () => {
       return;
     }
 
-    const q = isAdmin
-      ? query(collection(db, 'scheduled_posts'), where('platform', '==', 'TELEGRAM'))
-      : query(
-          collection(db, 'scheduled_posts'),
-          where('userId', '==', user.uid),
-          where('platform', '==', 'TELEGRAM')
-        );
+    const q = query(
+      collection(db, 'scheduled_posts'),
+      where('userId', '==', user.uid),
+      where('platform', '==', 'TELEGRAM')
+    );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const remotePosts = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as any[];
@@ -248,7 +284,7 @@ const TikTokAnalytics: React.FC = () => {
     });
 
     return () => unsubscribe();
-  }, [user, isDemoMode, isAdmin, checkingAdmin]);
+  }, [user, isDemoMode]);
 
   // A post skipped as a duplicate (same media already delivered by another doc --
   // see findRecentDuplicateTelegramPost) is marked PUBLISHED so it stops being
@@ -366,7 +402,7 @@ const TikTokAnalytics: React.FC = () => {
             {t('disconnectAccount')}
           </button>
           <button
-            onClick={() => window.open('/api/auth/tiktok/redirect', '_blank')}
+            onClick={connectTikTok}
             className="px-6 py-3 bg-black text-white rounded-2xl font-bold flex items-center gap-2 hover:bg-neutral-800 transition-all shadow-lg"
           >
             <RefreshCw size={18} />

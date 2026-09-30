@@ -31,9 +31,9 @@ const controls: Control[] = [
     detail: 'scheduled_posts, campaigns, reply_rules, audience_activity, and business_profiles only allow read/write where userId == the signed-in uid.',
   },
   {
-    label: 'Shared Telegram CRM and inbox',
+    label: 'Owner-scoped Telegram CRM and inbox',
     status: 'live',
-    detail: 'telegram_leads and telegram_messages are readable by admins only (admins/{uid} must exist) — there is one shared Telegram bot for every business using this deployment, so this is a trusted shared workspace, not per-business isolation. Writes are server-only (Admin SDK).',
+    detail: 'Owners with an activated bot can read their own Telegram leads and messages by ownerId. Administrators can inspect all records, including legacy shared-bot records. Writes are server-only.',
   },
   {
     label: 'Public TikTok analytics read',
@@ -43,7 +43,7 @@ const controls: Control[] = [
   {
     label: 'Admin-gated deletes',
     status: 'live',
-    detail: 'Sensitive shared data and destructive TikTok record deletion require an admins/{uid} document. The configured administrator can inspect all user data; standard accounts remain owner-scoped.',
+    detail: 'Sensitive cross-account data and destructive TikTok record deletion require an admins/{uid} document. Administrators can inspect all user data; standard accounts remain owner-scoped.',
   },
   {
     label: 'Server secrets never sent to client',
@@ -86,9 +86,9 @@ const SecurityCenter: React.FC = () => {
           <p className="text-sm font-bold uppercase tracking-[0.18em] text-brand-600">Admin Security</p>
           <h2 className="mt-2 text-4xl font-display font-bold text-slate-950 dark:text-slate-100">Security Overview</h2>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600 dark:text-slate-300">
-            This app is a single Firebase project (Firestore + Firebase Auth), not a multi-company system with row-level
-            security. It is appropriate for one business/team using it as one shared workspace. It is not yet safe for
-            hosting multiple unrelated companies' confidential data under one deployment.
+            Each signed-in user has an owner-scoped business profile and operational records in one Firebase project.
+            Administrators retain cross-account access. Give each company its own login and configure its Telegram bot
+            and TikTok connection in that account before publishing.
           </p>
         </div>
         <div className="flex flex-col items-start gap-3 lg:items-end">
@@ -140,8 +140,8 @@ const SecurityCenter: React.FC = () => {
           <h3 className="mt-4 text-lg font-bold text-slate-950 dark:text-slate-100">Data Model</h3>
           <div className="mt-4 space-y-3 text-sm leading-6 text-slate-600 dark:text-slate-300">
             <p>Most collections are owned by a single userId and are only readable/writable by that user.</p>
-            <p>The Telegram CRM (leads and messages) is shared across every admin — one bot, one shared inbox, not a multi-tenant one. Non-admins get no access at all.</p>
-            <p>There is no company/workspace concept in the data model today.</p>
+            <p>Telegram CRM leads and messages carry an ownerId for each activated bot. Owners see their own records; admins can inspect all accounts and legacy shared-bot records.</p>
+            <p>One Firebase login maps to one business profile. Separate staff accounts for the same company are not grouped into a shared company workspace.</p>
           </div>
         </div>
         <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
