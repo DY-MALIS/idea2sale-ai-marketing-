@@ -45,6 +45,13 @@ interface FacebookScannerProps {
   onCreativeAutomation: (request: CreativeAutomationRequest) => void;
 }
 
+// lucide-react has no TikTok glyph -- same path used for the TikTok nav icon in Sidebar.tsx.
+const TikTokIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} className="fill-current" xmlns="http://www.w3.org/2000/svg">
+    <path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.06 3.42-.01 6.83-.02 10.25-.17 4.14-4.23 7.25-8.26 6.5-3.94-.73-6.47-5.11-4.67-8.73 1.14-2.2 3.86-3.54 6.32-3.14.05 1.58 0 3.16 0 4.74-1.57-.14-3.29.35-4.23 1.71-.96 1.39-.64 3.55.75 4.53 1.38.97 3.56.64 4.53-.75.28-.38.39-.84.41-1.3.02-3.58 0-7.17.01-10.75 0-2.87 0-5.74 0-8.61z" />
+  </svg>
+);
+
 type ScanMode = NonNullable<FacebookPotentialLead['opportunityType']>;
 
 const countryOptions = [
@@ -78,7 +85,7 @@ const activityPlatformClass = (platform: NonNullable<FacebookRecentActivity['pla
 // activity there -- a merged single-list view silently hides that a
 // platform was checked at all, which read as "the scan skipped TikTok"
 // even though the backend already searches all three for every competitor.
-const ACTIVITY_PLATFORM_ORDER: NonNullable<FacebookRecentActivity['platform']>[] = ['Web', 'Facebook', 'LinkedIn'];
+const ACTIVITY_PLATFORM_ORDER: NonNullable<FacebookRecentActivity['platform']>[] = ['Web', 'Facebook', 'TikTok', 'LinkedIn'];
 
 const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation }) => {
   const { language } = useLanguage();
@@ -401,7 +408,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     copy: 'ចម្លងរបាយការណ៍',
     copied: 'បានចម្លង',
     live: 'ការស្វែងរកលើវេបបានភ្ជាប់',
-    socialSearchConnected: 'ស្វែងរកតាមគេហទំព័រសាធារណៈ + Facebook + LinkedIn',
+    socialSearchConnected: 'ស្វែងរកតាមគេហទំព័រសាធារណៈ + Facebook + TikTok + LinkedIn',
     estimated: 'AI market estimate',
     webBusinesses: 'Lead ពិតដែលបានផ្ទៀងផ្ទាត់',
     viewMap: 'មើលលើ Google Maps',
@@ -1000,8 +1007,8 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
               </div>
               <div className="mt-4">
                 <p className="mb-2 text-xs font-black uppercase tracking-wider text-slate-400">{text.sourceCoverage}</p>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                  {(['Web', 'Facebook', 'LinkedIn'] as const).map((platform) => (
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {(['Web', 'Facebook', 'TikTok', 'LinkedIn'] as const).map((platform) => (
                     <div key={platform} className={`flex items-center justify-between rounded-xl px-3 py-2 text-xs font-black ${activityPlatformClass(platform)}`}>
                       <span>{platform === 'Web' ? text.websiteSource : platform}</span>
                       <span className="rounded-full bg-white/70 px-2 py-0.5 text-sm text-slate-800 dark:bg-black/20 dark:text-inherit">{activityPlatformCounts[platform]}</span>
@@ -1199,6 +1206,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                       {!!competitor.customerSegments?.length && <div><dt className="font-bold text-slate-400">{text.customerSegments}</dt><dd className="mt-1 text-slate-700 dark:text-slate-200">{competitor.customerSegments.join(' • ')}</dd></div>}
                       <div className="flex flex-wrap gap-3">
                         {competitor.facebookUrl && <a href={competitor.facebookUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 font-bold text-blue-600 hover:underline"><Facebook size={14} />Facebook</a>}
+                        {competitor.tiktokUrl && <a href={competitor.tiktokUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 font-bold text-slate-800 hover:underline dark:text-slate-100"><TikTokIcon />TikTok</a>}
                         {competitor.linkedinUrl && <a href={competitor.linkedinUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 font-bold text-sky-700 hover:underline dark:text-sky-300"><ExternalLink size={14} />LinkedIn</a>}
                         {competitor.sourceUrl && <a href={competitor.sourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 font-bold text-blue-600 hover:underline"><ExternalLink size={14} />{text.viewEvidence}</a>}
                       </div>
@@ -1355,12 +1363,14 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                         {lead.email && <p><span className="font-bold text-slate-400">{text.email}: </span><a className="font-semibold text-blue-600 hover:underline" href={`mailto:${lead.email}`}>{lead.email}</a></p>}
                         {lead.telegram && <p><span className="font-bold text-slate-400">{text.telegram}: </span>{/^(?:https?:\/\/|@)/i.test(lead.telegram) ? <a className="font-semibold text-sky-600 hover:underline" href={lead.telegram.startsWith('@') ? `https://t.me/${lead.telegram.slice(1)}` : lead.telegram} target="_blank" rel="noopener noreferrer">{lead.telegram}</a> : lead.telegram}</p>}
                         {(lead.facebookUrl || lead.facebookPageName) && <p><span className="font-bold text-slate-400">{text.facebookPage}: </span>{lead.facebookUrl ? <a className="font-semibold text-blue-600 hover:underline" href={lead.facebookUrl} target="_blank" rel="noopener noreferrer">{lead.facebookPageName || lead.businessName}</a> : lead.facebookPageName}</p>}
+                        {lead.tiktokUrl && <p><span className="font-bold text-slate-400">TikTok: </span><a className="font-semibold text-slate-800 hover:underline dark:text-slate-100" href={lead.tiktokUrl} target="_blank" rel="noopener noreferrer">{lead.businessName}</a></p>}
                         {lead.linkedinUrl && <p><span className="font-bold text-slate-400">LinkedIn: </span><a className="font-semibold text-sky-700 hover:underline dark:text-sky-300" href={lead.linkedinUrl} target="_blank" rel="noopener noreferrer">{lead.businessName}</a></p>}
                       </div>
                     </details>
 
                     <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
                       {lead.facebookUrl && <a href={lead.facebookUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white"><ExternalLink size={14} />{text.viewPage}</a>}
+                      {lead.tiktokUrl && <a href={lead.tiktokUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-3 py-2 text-xs font-bold text-white dark:bg-slate-100 dark:text-slate-900"><TikTokIcon />TikTok</a>}
                       {lead.linkedinUrl && <a href={lead.linkedinUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-sky-700 px-3 py-2 text-xs font-bold text-white"><ExternalLink size={14} />LinkedIn</a>}
                       {lead.evidenceSourceUrl && <a href={lead.evidenceSourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-brand-200 bg-white/70 px-3 py-2 text-xs font-bold text-brand-700 dark:bg-slate-900 dark:text-brand-300"><ExternalLink size={14} />{text.viewEvidence}</a>}
                       {lead.mapsUrl && <a href={lead.mapsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white"><ExternalLink size={14} />{text.viewMap}</a>}
