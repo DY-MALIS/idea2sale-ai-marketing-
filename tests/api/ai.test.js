@@ -57,6 +57,8 @@ describe('video rate-limit policy', () => {
       failClosed: true,
     });
     expect(getAiRateLimitPolicy('videoStatus')).toMatchObject({ scope: 'video-status', failClosed: false });
+    expect(getAiRateLimitPolicy('geminiLiveToken')).toMatchObject({ scope: 'ai-live-voice', failClosed: false });
+    expect(getAiRateLimitPolicy('geminiLiveToken').limit).toBeGreaterThan(10);
     expect(getAiRateLimitPolicy('copyGenerate')).toMatchObject({ scope: 'ai' });
     expect(getAiRateLimitPolicy('videoStatus').limit).toBeGreaterThan(80);
   });

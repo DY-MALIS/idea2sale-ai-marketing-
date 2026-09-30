@@ -149,6 +149,8 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const singleVoiceEnabledRef = useRef(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [voiceConnecting, setVoiceConnecting] = useState(false);
+  const [voiceRetryAt, setVoiceRetryAt] = useState(0);
+  const voiceRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const voiceActiveRef = useRef(false);
   // Both voice buttons use one direct audio connection; typed chat stays separate.
   const geminiLiveSessionRef = useRef<GeminiLiveSession | null>(null);
@@ -166,6 +168,12 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         body: JSON.stringify({ businessContext: businessContext || undefined, voiceLanguage: voiceInputLanguageRef.current, action: 'geminiLiveToken' }),
       });
       const data = await response.json().catch(() => ({}));
+      if (response.status === 429) {
+        const seconds = Math.min(3600, Math.max(1, Number(data.retryAfterSeconds || response.headers.get('Retry-After')) || 60));
+        setVoiceRetryAt(Date.now() + seconds * 1000);
+        if (voiceRetryTimerRef.current) clearTimeout(voiceRetryTimerRef.current);
+        voiceRetryTimerRef.current = setTimeout(() => setVoiceRetryAt(0), seconds * 1000);
+      }
       if (!response.ok || !data.token) throw new Error(data.error || 'Gemini Live is unavailable.');
       if (session !== voiceSessionRef.current || !voiceActiveRef.current) {
         void playbackContext.close().catch(() => {});
@@ -731,6 +739,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   };
 
   const startVoice = (mode: 'single' | 'live') => {
+    if (!voiceActiveRef.current && Date.now() < voiceRetryAt) return;
     if (voiceActiveRef.current) {
       const wasLive = liveVoiceEnabledRef.current;
       stopLiveVoice();
@@ -762,6 +771,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     voiceActiveRef.current = false;
     liveConnectionControllerRef.current?.abort();
     geminiLiveSessionRef.current?.close();
+    if (voiceRetryTimerRef.current) clearTimeout(voiceRetryTimerRef.current);
   }, []);
 
   const askAgent = async () => {
@@ -1216,7 +1226,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                 <button
                   type="button"
                   onClick={() => startVoice('single')}
-                  disabled={liveVoiceEnabled || loading}
+                  disabled={liveVoiceEnabled || loading || voiceRetryAt > Date.now()}
                   aria-pressed={singleVoiceEnabled}
                   title={singleVoiceEnabled ? text.listening : text.voiceInput}
                   className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-bold transition-all disabled:opacity-60 ${singleVoiceEnabled ? 'bg-red-500 border-red-500 text-white animate-pulse' : 'bg-white/70 dark:bg-slate-800/70 border-brand-200 text-brand-600 hover:bg-brand-50 dark:hover:bg-slate-700'}`}
@@ -1231,7 +1241,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                   type="button"
                   onClick={() => startVoice('live')}
                   aria-pressed={liveVoiceEnabled}
-                  disabled={!liveVoiceEnabled && loading}
+                  disabled={!liveVoiceEnabled && (loading || voiceRetryAt > Date.now())}
                   className={`px-3 py-2 rounded-xl border text-xs font-bold disabled:opacity-50 ${liveVoiceEnabled ? 'bg-brand-600 border-brand-600 text-white' : 'bg-white/70 dark:bg-slate-800/70 border-brand-200 text-brand-600'}`}
                 >
                   {language === 'km' ? 'សន្ទនាសំឡេងផ្ទាល់' : 'Live Voice'} {liveVoiceEnabled ? (language === 'km' ? 'បើក' : 'On') : (language === 'km' ? 'បិទ' : 'Off')}
@@ -1263,6 +1273,13 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                 {language === 'km'
                   ? 'សន្ទនាសំឡេងផ្ទាល់កំពុងដំណើរការ។ ចុចម្តងទៀតដើម្បីបញ្ចប់ការហៅ។'
                   : 'Live audio call is active. Press Live Voice again to end the call.'}
+              </p>
+            )}
+            {voiceRetryAt > Date.now() && (
+              <p className="text-xs font-medium text-red-600" role="status">
+                {language === 'km'
+                  ? `ការហៅសំឡេងដល់កម្រិតកំណត់។ សាកល្បងវិញប្រហែល ${Math.ceil((voiceRetryAt - Date.now()) / 60000)} នាទីទៀត។`
+                  : `Live Voice limit reached. Try again in about ${Math.ceil((voiceRetryAt - Date.now()) / 60000)} minutes.`}
               </p>
             )}
             {attachedImages.length > 0 && (

@@ -49,6 +49,7 @@ describe('checkRateLimit', () => {
     await checkRateLimit(db, { scope: 'ai', key: '1.2.3.4', limit: 1 });
     const blocked = await checkRateLimit(db, { scope: 'ai', key: '1.2.3.4', limit: 1 });
     expect(blocked.allowed).toBe(false);
+    expect(blocked.retryAfterSeconds).toBeGreaterThan(0);
   });
 
   it('keeps separate budgets per scope and per key', async () => {

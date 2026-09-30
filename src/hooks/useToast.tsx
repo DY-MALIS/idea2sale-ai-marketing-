@@ -29,7 +29,10 @@ export const useToast = () => {
 
   const notify = useCallback((message: string, type: 'success' | 'error' = 'success') => {
     const id = Date.now() + Math.random();
-    setToasts((prev) => [...prev, { id, type, message }]);
+    // Repeated 429s from the same action should not pile up identical errors.
+    setToasts((prev) => type === 'error' && prev.some((toast) => toast.type === type && toast.message === message)
+      ? prev
+      : [...prev, { id, type, message }]);
     const dismissAfter = type === 'error' ? ERROR_AUTO_DISMISS_MS : SUCCESS_AUTO_DISMISS_MS;
     if (dismissAfter !== null) {
       setTimeout(() => dismiss(id), dismissAfter);

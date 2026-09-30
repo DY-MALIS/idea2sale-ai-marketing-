@@ -31,9 +31,10 @@ import { createHash } from 'crypto';
 // needs a general per-IP limit. Paid video generation is stricter below: both
 // registered and guest Firebase sessions authenticate, then receive dedicated
 // per-user and per-IP fail-closed quotas.
-// One shared per-IP budget across every action here, not per-action, since a
-// script abusing this endpoint would just spread calls across actions otherwise.
+// Ordinary AI actions share a per-IP budget. Paid video work, polling, and
+// Live Voice call setup have separate budgets suited to their usage patterns.
 const AI_RATE_LIMIT_PER_HOUR = Number(process.env.AI_RATE_LIMIT_PER_HOUR) || 60;
+const AI_LIVE_VOICE_RATE_LIMIT_PER_HOUR = Number(process.env.AI_LIVE_VOICE_RATE_LIMIT_PER_HOUR) || 30;
 const VIDEO_GENERATION_RATE_LIMIT_PER_HOUR = Number(process.env.VIDEO_GENERATION_RATE_LIMIT_PER_HOUR) || 3;
 const VIDEO_GENERATION_IP_RATE_LIMIT_PER_HOUR = Number(process.env.VIDEO_GENERATION_IP_RATE_LIMIT_PER_HOUR) || 6;
 const VIDEO_STATUS_RATE_LIMIT_PER_HOUR = Number(process.env.VIDEO_STATUS_RATE_LIMIT_PER_HOUR) || 300;
@@ -68,6 +69,11 @@ export const getAiRateLimitPolicy = (action) => {
   }
   if (action === 'videoStatus') {
     return { scope: 'video-status', limit: VIDEO_STATUS_RATE_LIMIT_PER_HOUR, failClosed: false };
+  }
+  // One token opens an entire bidirectional audio call. Starting a call must
+  // not spend the same quota used by typed chat and other AI tools.
+  if (action === 'geminiLiveToken') {
+    return { scope: 'ai-live-voice', limit: AI_LIVE_VOICE_RATE_LIMIT_PER_HOUR, failClosed: false };
   }
   return { scope: 'ai', limit: AI_RATE_LIMIT_PER_HOUR, failClosed: false };
 };
@@ -867,11 +873,14 @@ export default async function handler(req, res) {
       checks.unshift({ scope: rateLimitPolicy.ipScope, key: getClientIp(req), limit: rateLimitPolicy.ipLimit });
     }
     for (const check of checks) {
-      const { allowed } = await checkRateLimit(db, check);
+      const { allowed, retryAfterSeconds } = await checkRateLimit(db, check);
       if (!allowed) {
+        res.setHeader('Retry-After', String(retryAfterSeconds));
         return res.status(429).json({ error: action === 'videoGenerate'
           ? 'Video generation limit reached for this account or connection. Please try again later.'
-          : 'Too many AI requests from this connection. Please wait a bit and try again.' });
+          : action === 'geminiLiveToken'
+            ? 'Live Voice limit reached for this connection. Please try again later.'
+            : 'Too many AI requests from this connection. Please wait a bit and try again.', retryAfterSeconds });
       }
     }
   } catch (error) {

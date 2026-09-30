@@ -17,6 +17,7 @@ export const getClientIp = (req) => {
 // writes bypass firestore.rules -- no client can read or tamper with this.
 export async function checkRateLimit(db, { scope, key, limit, windowMs = DEFAULT_WINDOW_MS }) {
   const bucket = Math.floor(Date.now() / windowMs);
+  const retryAfterSeconds = Math.max(1, Math.ceil(((bucket + 1) * windowMs - Date.now()) / 1000));
   const docId = `${scope}_${key}_${bucket}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 400);
   const ref = db.collection('rate_limits').doc(docId);
 
@@ -24,7 +25,7 @@ export async function checkRateLimit(db, { scope, key, limit, windowMs = DEFAULT
     const snap = await tx.get(ref);
     const count = snap.exists ? (snap.data()?.count || 0) : 0;
     if (count >= limit) {
-      return { allowed: false, count, limit };
+      return { allowed: false, count, limit, retryAfterSeconds };
     }
     tx.set(ref, { count: count + 1, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     return { allowed: true, count: count + 1, limit };
