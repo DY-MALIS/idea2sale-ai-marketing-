@@ -55,7 +55,7 @@ interface BusinessProfileProps {
 }
 
 const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const { user, isDemoMode, loading: authLoading } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -68,6 +68,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
   const [botStatusMessage, setBotStatusMessage] = useState<string | null>(null);
 
   const [businessName, setBusinessName] = useState('');
+  const [businessDescription, setBusinessDescription] = useState('');
   const [logoDataUrl, setLogoDataUrl] = useState('');
   const [directory, setDirectory] = useState<BusinessDirectoryEntry[]>([]);
   const [telegramBotToken, setTelegramBotToken] = useState('');
@@ -90,7 +91,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
     let cancelled = false;
     const load = async () => {
       setLoading(true);
-      setBusinessName(''); setLogoDataUrl(''); setDirectory([]);
+      setBusinessName(''); setBusinessDescription(''); setLogoDataUrl(''); setDirectory([]);
       setTelegramBotToken(''); setTelegramChatId(''); setTelegramChannelUrl('');
       setTiktokHandle(''); setFacebookPageUrl(''); setTelegramBotActive(false);
       try {
@@ -98,6 +99,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
           const local = getLocalProfile();
           if (cancelled) return;
           setBusinessName(local.businessName);
+          setBusinessDescription(local.businessDescription || '');
           setLogoDataUrl(local.logoDataUrl);
           setDirectory(local.directory || []);
           setTelegramBotToken(local.telegramBotToken || '');
@@ -111,6 +113,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
           if (snap.exists()) {
             const data = snap.data() as BusinessProfileData & { telegramBotActive?: boolean };
             setBusinessName(data.businessName || '');
+            setBusinessDescription(data.businessDescription || '');
             setLogoDataUrl(data.logoDataUrl || '');
             setDirectory(data.directory || []);
             setTelegramBotToken(data.telegramBotToken || '');
@@ -120,7 +123,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
             setFacebookPageUrl(data.facebookPageUrl || '');
             setTelegramBotActive(Boolean(data.telegramBotActive));
           } else {
-            setBusinessName(''); setLogoDataUrl(''); setDirectory([]);
+            setBusinessName(''); setBusinessDescription(''); setLogoDataUrl(''); setDirectory([]);
             setTelegramBotToken(''); setTelegramChatId(''); setTelegramChannelUrl('');
             setTiktokHandle(''); setFacebookPageUrl(''); setTelegramBotActive(false);
           }
@@ -185,6 +188,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
     setSaved(false);
     const profile: BusinessProfileData = {
       businessName: businessName.trim(),
+      businessDescription: businessDescription.trim().slice(0, 1000),
       logoDataUrl,
       directory,
       telegramBotToken: telegramBotToken.trim(),
@@ -313,6 +317,21 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
                 value={businessName}
                 onChange={(e) => setBusinessName(e.target.value)}
                 placeholder={t('businessNamePlaceholder')}
+                className="w-full px-4 py-3 bg-brand-50 border border-brand-100 dark:bg-slate-800 dark:border-slate-700 rounded-2xl text-sm text-brand-700 dark:text-slate-100 focus:outline-none focus:ring-2 ring-brand-500/20"
+              />
+            </div>
+
+            <div>
+              <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-2 block" htmlFor="business-description">
+                {language === 'km' ? 'អាជីវកម្មរបស់អ្នកលក់អ្វី?' : 'What does your business sell?'}
+              </label>
+              <textarea
+                id="business-description"
+                value={businessDescription}
+                onChange={(event) => setBusinessDescription(event.target.value)}
+                maxLength={1000}
+                rows={3}
+                placeholder={language === 'km' ? 'ឧទាហរណ៍៖ ហាងកាហ្វេ និងម៉ាត លក់ភេសជ្ជៈ និងទំនិញប្រចាំថ្ងៃ' : 'For example: a cafe and mini mart selling drinks and everyday goods'}
                 className="w-full px-4 py-3 bg-brand-50 border border-brand-100 dark:bg-slate-800 dark:border-slate-700 rounded-2xl text-sm text-brand-700 dark:text-slate-100 focus:outline-none focus:ring-2 ring-brand-500/20"
               />
             </div>

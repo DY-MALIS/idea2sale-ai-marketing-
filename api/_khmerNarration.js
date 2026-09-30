@@ -1,4 +1,4 @@
-import { generateOpenRouterText, normalizeForKhmerSpeech, transcribeAudioWithOpenRouter } from './_openrouter.js';
+import { generateOpenRouterText, generateTranslateSpeech, normalizeForKhmerSpeech, transcribeAudioWithOpenRouter } from './_openrouter.js';
 import { synthesizeKhmerSpeechViaEdge } from './_edgeSpeech.js';
 import { generateGeminiSpeech } from './_geminiSpeech.js';
 import { compareKhmerTranscript, KHMER_SCRIPT_ONLY_INSTRUCTION } from '../shared/videoSpeech.js';
@@ -82,6 +82,22 @@ export async function generateKhmerSpeech({
         ? ''
       : 'Expressive Khmer voice was unavailable or unclear; standard Khmer neural voice was used.',
   };
+}
+
+// Conversation audio needs a playable reply even when both expressive Gemini
+// and Edge's neural endpoint fail. Keep this last resort scoped to conversations;
+// video narration has separate quality and pronunciation requirements.
+export async function generateKhmerConversationSpeech(options) {
+  try {
+    return await generateKhmerSpeech({ ...options, preferNaturalVoice: true, edgeRate: '+0%' });
+  } catch (error) {
+    const audio = await generateTranslateSpeech({ input: options.input });
+    return {
+      ...audio,
+      spokenText: options.input,
+      fallbackReason: error?.message || 'Khmer conversation voices were unavailable.',
+    };
+  }
 }
 
 export async function createKhmerNarration(prompt, duration = 8, businessName = '') {

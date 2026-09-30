@@ -8,7 +8,7 @@ vi.mock('../../api/_openrouter.js', () => ({
   transcribeAudioWithOpenRouter: mocks.transcribe,
   normalizeForKhmerSpeech: (text) => String(text).normalize('NFC').trim(),
 }));
-import { createKhmerNarration, generateKhmerSpeech } from '../../api/_khmerNarration.js';
+import { createKhmerNarration, generateKhmerConversationSpeech, generateKhmerSpeech } from '../../api/_khmerNarration.js';
 afterEach(() => { vi.unstubAllEnvs(); vi.resetAllMocks(); });
 describe('Khmer narration', () => {
   beforeEach(() => { vi.stubEnv('KHMER_TTS_PROVIDER', 'gemini'); });
@@ -97,6 +97,15 @@ describe('Khmer narration', () => {
     mocks.edge.mockRejectedValue(new Error('auth failed'));
     await expect(generateKhmerSpeech({ input: 'សួស្តី' })).rejects.toThrow('auth failed');
     expect(mocks.translate).not.toHaveBeenCalled();
+  });
+  it('keeps a spoken Agent reply available when Edge returns empty audio', async () => {
+    const script = '\u179f\u17bd\u179f\u17d2\u178f\u17b8';
+    mocks.gemini.mockRejectedValue(new Error('provider unavailable'));
+    mocks.edge.mockRejectedValue(new Error('Edge TTS returned empty audio.'));
+    mocks.translate.mockResolvedValue({ audioUrl: 'data:audio/mp3;base64,YXVkaW8=', provider: 'translate' });
+    const result = await generateKhmerConversationSpeech({ input: script });
+    expect(result).toMatchObject({ audioUrl: 'data:audio/mp3;base64,YXVkaW8=', spokenText: script });
+    expect(mocks.translate).toHaveBeenCalledWith({ input: script });
   });
   it('rejects generated scripts in the wrong language', async () => {
     mocks.text.mockResolvedValue('Hello');

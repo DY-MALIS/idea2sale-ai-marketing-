@@ -5,6 +5,7 @@ import type { BusinessDirectoryEntry, BusinessProfileData } from '../types';
 
 export interface BusinessBranding {
   businessName: string;
+  businessDescription: string;
   logoDataUrl: string;
   directory: BusinessDirectoryEntry[];
   telegramBotUsername: string;
@@ -14,7 +15,7 @@ export interface BusinessBranding {
   facebookPageUrl: string;
 }
 
-const emptyBranding = (): BusinessBranding => ({ businessName: '', logoDataUrl: '', directory: [], telegramBotUsername: '', telegramBotActive: false, telegramChannelUrl: '', tiktokHandle: '', facebookPageUrl: '' });
+const emptyBranding = (): BusinessBranding => ({ businessName: '', businessDescription: '', logoDataUrl: '', directory: [], telegramBotUsername: '', telegramBotActive: false, telegramChannelUrl: '', tiktokHandle: '', facebookPageUrl: '' });
 
 // Read at the moment an asset/script is generated. The main tabs stay mounted
 // while Business Profile is edited, so mount-time state otherwise becomes stale.
@@ -29,6 +30,7 @@ export async function getLatestBusinessBranding(user: User | null, isDemoMode: b
     }
     return {
       businessName: String(profile?.businessName || '').trim(),
+      businessDescription: String(profile?.businessDescription || '').trim(),
       logoDataUrl: String(profile?.logoDataUrl || ''),
       directory: Array.isArray(profile?.directory) ? profile.directory : [],
       telegramBotUsername: String(profile?.telegramBotUsername || ''),

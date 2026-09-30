@@ -140,6 +140,8 @@ export interface FacebookScanResult {
   webSearchAvailable?: boolean;
   scanMode?: FacebookPotentialLead['opportunityType'];
   researchTarget?: string;
+  audienceResearch?: boolean;
+  audienceSourceUrl?: string;
   activityWindow?: { startDate: string; endDate: string };
   customerInsights: FacebookCustomerInsights;
   competitors: FacebookCompetitorInsight[];

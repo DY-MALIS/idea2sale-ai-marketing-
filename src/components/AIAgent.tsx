@@ -11,7 +11,6 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../hooks/useToast';
 import { detectSpokenLanguage, splitSpeechByLanguage, SpeechSegment } from '../lib/voiceLanguage';
-import { advanceVoiceTurn, initialVoiceTurnState } from '../lib/voiceTurnDetector';
 import { connectGeminiLive, GeminiLiveSession } from '../lib/geminiLiveClient';
 import { BusinessProfileData, CreativeAutomationRequest } from '../types';
 
@@ -23,6 +22,7 @@ const AGENT_MEMORY_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000;
 interface AgentMessage {
   role: 'user' | 'assistant';
   content: string;
+  modality?: 'text' | 'voice';
   imageDataUrls?: string[];
 }
 
@@ -83,14 +83,15 @@ const detectMessageLanguage = (message: string) => (
 );
 
 const sessionTitleFromMessages = (messages: AgentMessage[]) => (
-  messages.find((message) => message.role === 'user' && message.content.trim())?.content.trim().slice(0, 80)
+  messages.find((message) => message.role === 'user' && message.content.trim() && message.modality !== 'voice')?.content.trim().slice(0, 80)
+  || (messages.some((message) => message.modality === 'voice') ? 'Voice conversation' : '')
   || messages[0]?.content.trim().slice(0, 80)
   || 'Conversation'
 );
 
 const buildSession = (messages: AgentMessage[], existingId?: string): AgentConversationSession | null => {
   const textOnly = messages
-    .map(({ role, content }) => ({ role, content }))
+    .map(({ role, content, modality }) => ({ role, content, ...(modality ? { modality } : {}) }))
     .filter((message) => message.content.trim());
   if (!textOnly.length) return null;
   return {
@@ -169,20 +170,20 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     unlock.play().catch(() => { audioUnlockedRef.current = false; });
   };
   // Gemini Live (real-time listen+think+speak) is the primary Live Voice path;
-  // geminiLiveActiveRef tracks whether it's the one currently running so
-  // stopLiveVoice/onClose/onError know whether there's a live session to tear
-  // down and whether falling back to the record/transcribe/speak pipeline is
-  // appropriate. A plain boolean ref (not state) is enough since nothing here
-  // needs to re-render specifically when it flips -- callers read it inside
-  // handlers, not JSX.
+  // Live Voice has its own direct audio connection and never enters the
+  // one-shot record/transcribe/speak flow.
   const geminiLiveSessionRef = useRef<GeminiLiveSession | null>(null);
   const geminiLiveActiveRef = useRef(false);
+  const liveConnectionControllerRef = useRef<AbortController | null>(null);
 
   const startGeminiLive = async (session: number, playbackContext: AudioContext): Promise<boolean> => {
+    const controller = new AbortController();
+    liveConnectionControllerRef.current = controller;
     try {
       const response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({ businessContext: businessContext || undefined, action: 'geminiLiveToken' }),
       });
       const data = await response.json().catch(() => ({}));
@@ -192,26 +193,19 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         return false;
       }
 
-      // Falls back to the existing pipeline (instead of just going silent) on
-      // any mid-session failure -- a dropped connection, an expired token, or
-      // the model being unavailable for this account shouldn't end the
-      // conversation, only make it slower.
-      const recoverToFallback = () => {
+      const endFailedLiveSession = (reason: string) => {
         if (!geminiLiveActiveRef.current || session !== voiceSessionRef.current) return;
-        geminiLiveActiveRef.current = false;
-        geminiLiveSessionRef.current = null;
-        setIsSpeaking(false);
-        setIsListening(false);
-        if (liveVoiceEnabledRef.current) void beginLiveListening(session);
+        stopLiveVoice();
+        notify(reason, 'error');
       };
 
       const geminiSession = await connectGeminiLive(data.token, data.model, playbackContext, {
         onAudioStart: () => setIsSpeaking(true),
         onInterrupted: () => setIsSpeaking(false),
         onTurnComplete: () => setIsSpeaking(false),
-        onError: recoverToFallback,
-        onClose: recoverToFallback,
-      });
+        onError: (error) => endFailedLiveSession(error.message),
+        onClose: () => endFailedLiveSession('Live Voice connection closed. Please start it again.'),
+      }, { voiceName: data.voiceName, systemInstruction: data.systemInstruction }, controller.signal);
 
       if (session !== voiceSessionRef.current || !liveVoiceEnabledRef.current) {
         geminiSession.close();
@@ -222,16 +216,22 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       setIsListening(true);
       return true;
     } catch (error) {
-      console.error('Gemini Live unavailable, using the standard voice pipeline instead:', error instanceof Error ? error.message : error);
+      void playbackContext.close().catch(() => {});
+      if (session === voiceSessionRef.current && liveVoiceEnabledRef.current && !controller.signal.aborted) {
+        stopLiveVoice();
+        notify(error instanceof Error ? error.message : 'Live Voice is unavailable.', 'error');
+      }
       return false;
+    } finally {
+      if (liveConnectionControllerRef.current === controller && controller.signal.aborted) {
+        liveConnectionControllerRef.current = null;
+      }
     }
   };
   const speechTurnRef = useRef(0);
   const voiceSessionRef = useRef(0);
-  const liveStartingSessionRef = useRef<number | null>(null);
   const transcriptionControllerRef = useRef<AbortController | null>(null);
   const voiceAgentRequestRef = useRef(false);
-  const voiceMonitorRef = useRef<{ context: AudioContext; timer: ReturnType<typeof setInterval> } | null>(null);
   const [businessContext, setBusinessContext] = useState<AgentBusinessContext | null>(null);
   // Which language the user is about to speak for voice input. Independent from the
   // UI display language, since people often keep the interface in one language while
@@ -314,6 +314,8 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       isMountedRef.current = false;
       liveVoiceEnabledRef.current = false;
       voiceSessionRef.current += 1;
+      liveConnectionControllerRef.current?.abort();
+      liveConnectionControllerRef.current = null;
       if (geminiLiveActiveRef.current) {
         geminiLiveActiveRef.current = false;
         geminiLiveSessionRef.current?.close();
@@ -321,12 +323,6 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       }
       transcriptionControllerRef.current?.abort();
       if (recordingTimeoutRef.current) clearTimeout(recordingTimeoutRef.current);
-      const monitor = voiceMonitorRef.current;
-      if (monitor) {
-        clearInterval(monitor.timer);
-        void monitor.context.close();
-        voiceMonitorRef.current = null;
-      }
       speechTurnRef.current += 1;
       speakingRef.current?.pause();
       speakingRef.current = null;
@@ -343,7 +339,6 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const speakAnswer = async (answer: string) => {
     stopSpeaking();
     const turn = speechTurnRef.current;
-    const session = voiceSessionRef.current;
     const spoken = answer
       .replace(/```[\s\S]*?```/g, ' ')
       .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
@@ -351,12 +346,10 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       .replace(/[#*_`>|]/g, ' ')
       .trim();
     if (!spoken) {
-      if (liveVoiceEnabledRef.current) void beginLiveListening(session);
       return;
     }
     const segments = splitSpeechByLanguage(spoken);
     if (!segments.length) {
-      if (liveVoiceEnabledRef.current) void beginLiveListening(session);
       return;
     }
     setIsSpeaking(true);
@@ -422,7 +415,6 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       if (turn === speechTurnRef.current && isMountedRef.current) {
         speakingRef.current = null;
         setIsSpeaking(false);
-        if (liveVoiceEnabledRef.current && session === voiceSessionRef.current) void beginLiveListening(session);
       }
     }
   };
@@ -533,7 +525,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   // add real storage cost within a handful of exchanges, so they stay session-only.
   const persistConversation = (nextMessages: AgentMessage[], sessionsOverride = conversationSessions, sessionId = activeSessionId) => {
     if (!memoryLoadedRef.current) return;
-    const textOnly = nextMessages.map(({ role, content }) => ({ role, content }));
+    const textOnly = nextMessages.map(({ role, content, modality }) => ({ role, content, ...(modality ? { modality } : {}) }));
     const currentSession = buildSession(textOnly, sessionId);
     const sessions = currentSession
       ? [
@@ -960,16 +952,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     return candidates.find((type) => MediaRecorder.isTypeSupported(type)) || null;
   };
 
-  const stopVoiceMonitor = () => {
-    const monitor = voiceMonitorRef.current;
-    if (!monitor) return;
-    voiceMonitorRef.current = null;
-    clearInterval(monitor.timer);
-    void monitor.context.close();
-  };
-
   const discardRecording = () => {
-    stopVoiceMonitor();
     if (recordingTimeoutRef.current) clearTimeout(recordingTimeoutRef.current);
     recordingTimeoutRef.current = null;
     const recording = recordingRef.current;
@@ -982,75 +965,6 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       recording.processor.disconnect();
       recording.source.disconnect();
       void recording.audioContext.close();
-    }
-  };
-
-  const startVoiceMonitor = async (stream: MediaStream) => {
-    stopVoiceMonitor();
-    const AudioContextCtor = (window as any).AudioContext || (window as any).webkitAudioContext;
-    if (!AudioContextCtor) throw new Error('Audio activity detection is unavailable in this browser.');
-    const context: AudioContext = new AudioContextCtor();
-    try {
-      const source = context.createMediaStreamSource(stream);
-      const analyser = context.createAnalyser();
-      analyser.fftSize = 2048;
-      source.connect(analyser);
-      void context.resume().catch(() => {});
-      const samples = new Float32Array(analyser.fftSize);
-      let state = initialVoiceTurnState();
-      let lastTick = performance.now();
-      const timer = setInterval(() => {
-        if (!recordingRef.current || !liveVoiceEnabledRef.current) return;
-        analyser.getFloatTimeDomainData(samples);
-        let energy = 0;
-        for (const sample of samples) energy += sample * sample;
-        const now = performance.now();
-        const result = advanceVoiceTurn(state, Math.sqrt(energy / samples.length), now - lastTick);
-        state = result.state;
-        lastTick = now;
-        if (result.shouldSubmit) {
-          stopVoiceMonitor();
-          setIsListening(false);
-          void stopRecordingAndTranscribe();
-        }
-      }, 100);
-      voiceMonitorRef.current = { context, timer };
-    } catch (error) {
-      void context.close();
-      throw error;
-    }
-  };
-
-  const beginLiveListening = async (session = voiceSessionRef.current) => {
-    if (!liveVoiceEnabledRef.current || !isMountedRef.current || session !== voiceSessionRef.current || recordingRef.current || liveStartingSessionRef.current !== null) return;
-    liveStartingSessionRef.current = session;
-    try {
-      await startRecording();
-      if (!liveVoiceEnabledRef.current || !isMountedRef.current || session !== voiceSessionRef.current) {
-        discardRecording();
-        return;
-      }
-      const stream = recordingRef.current?.stream;
-      if (stream) await startVoiceMonitor(stream);
-      if (!liveVoiceEnabledRef.current || !isMountedRef.current || session !== voiceSessionRef.current) {
-        discardRecording();
-        return;
-      }
-      setIsListening(true);
-    } catch (error: any) {
-      discardRecording();
-      if (!isMountedRef.current || session !== voiceSessionRef.current) return;
-      liveVoiceEnabledRef.current = false;
-      setLiveVoiceEnabled(false);
-      setIsListening(false);
-      notify(error?.name === 'NotAllowedError'
-        ? (language === 'km' ? 'សូមអនុញ្ញាតមីក្រូហ្វូនសម្រាប់សន្ទនាសំឡេង។' : 'Allow microphone access to use Live Voice.')
-        : (language === 'km' ? 'មិនអាចចាប់ផ្តើមមីក្រូហ្វូនបានទេ។' : 'Could not start the microphone.'), 'error');
-    } finally {
-      if (liveStartingSessionRef.current === session) liveStartingSessionRef.current = null;
-      if (session !== voiceSessionRef.current && liveVoiceEnabledRef.current && !recordingRef.current) {
-        void beginLiveListening(voiceSessionRef.current);
-      }
     }
   };
 
@@ -1096,11 +1010,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   };
 
   const stopRecordingAndTranscribe = async () => {
-    stopVoiceMonitor();
     const session = voiceSessionRef.current;
-    const resumeLive = () => {
-      if (liveVoiceEnabledRef.current && session === voiceSessionRef.current) void beginLiveListening(session);
-    };
     if (recordingTimeoutRef.current) {
       clearTimeout(recordingTimeoutRef.current);
       recordingTimeoutRef.current = null;
@@ -1142,12 +1052,10 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       const MIN_BYTES_PER_SECOND = 300;
       if (blob.size === 0 || durationSeconds < MIN_DURATION_SECONDS) {
         notify(noSpeechMessage, 'error');
-        resumeLive();
         return;
       }
       if (blob.size / durationSeconds < MIN_BYTES_PER_SECOND) {
         notify(speakClearlyMessage, 'error');
-        resumeLive();
         return;
       }
 
@@ -1163,7 +1071,6 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       const totalLength = recording.chunks.reduce((sum, chunk) => sum + chunk.length, 0);
       if (totalLength === 0) {
         notify(noSpeechMessage, 'error');
-        resumeLive();
         return;
       }
 
@@ -1183,7 +1090,6 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       const MIN_RMS = 0.01;
       if (durationSeconds < MIN_DURATION_SECONDS || rms < MIN_RMS) {
         notify(speakClearlyMessage, 'error');
-        resumeLive();
         return;
       }
 
@@ -1203,7 +1109,6 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     const timeoutController = new AbortController();
     transcriptionControllerRef.current = timeoutController;
     const timeoutId = setTimeout(() => timeoutController.abort(), timeoutMs);
-    let submitted = false;
     try {
       const response = await fetch('/api/ai', {
         method: 'POST',
@@ -1237,15 +1142,8 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         // Auto-send right after a successful transcription, like a real voice
         // assistant — requiring a manual click on top of speaking made voice
         // input feel like dictation rather than an actual voice command.
-        const combinedMessage = liveVoiceEnabledRef.current ? transcript : input.trim() ? `${input.trim()} ${transcript}` : transcript;
-        setInput(combinedMessage);
-        submitted = true;
-        // This function only ever runs after a spoken recording (single tap of
-        // "Voice input" or a Live Voice turn) -- speak the reply either way, not
-        // only when the separate Live Voice loop is on. Live Voice still governs
-        // whether listening auto-resumes after the reply (see askAgent/speakAnswer);
-        // a single voice-input tap now speaks its answer once and then stops.
-        void askAgent(combinedMessage, true);
+        // A spoken question stays separate from any text left in the composer.
+        void askAgent(transcript, true);
       } else {
         notify(language === 'km' ? 'មិនបានលឺសំឡេងអ្វីទេ។ សូមសាកល្បងម្តងទៀត។' : 'No speech was detected. Please try again.', 'error');
       }
@@ -1259,7 +1157,6 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       clearTimeout(timeoutId);
       if (transcriptionControllerRef.current === timeoutController) transcriptionControllerRef.current = null;
       setIsTranscribing(false);
-      if (!submitted) resumeLive();
     }
   };
 
@@ -1271,8 +1168,6 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     }
 
     if (liveVoiceEnabledRef.current) {
-      stopSpeaking();
-      void beginLiveListening();
       return;
     }
 
@@ -1298,9 +1193,11 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     voiceSessionRef.current += 1;
     liveVoiceEnabledRef.current = false;
     setLiveVoiceEnabled(false);
+    liveConnectionControllerRef.current?.abort();
+    liveConnectionControllerRef.current = null;
     // Clear the active flag before close() so the session's own onClose handler
     // (which also runs for this intentional close, not just a dropped
-    // connection) sees Live Voice is already off and skips its auto-fallback.
+    // connection) sees Live Voice is already off.
     if (geminiLiveActiveRef.current) {
       geminiLiveActiveRef.current = false;
       geminiLiveSessionRef.current?.close();
@@ -1316,26 +1213,28 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
 
   const askAgent = async (messageOverride?: string, speakReply = false) => {
     const message = (typeof messageOverride === 'string' ? messageOverride : input).trim();
-    const imagesForRequest = attachedImagesRef.current;
+    const imagesForRequest = speakReply ? [] : attachedImagesRef.current;
     if ((!message && !imagesForRequest.length) || agentRequestActiveRef.current) return;
     agentRequestActiveRef.current = true;
     const voiceSession = voiceSessionRef.current;
-    let voiceReplyStarted = false;
     stopSpeaking();
 
     const history = messagesRef.current.slice(-HISTORY_MESSAGES);
     const userMessage: AgentMessage = {
       role: 'user',
       content: message || (language === 'km' ? '(រូបភាពភ្ជាប់)' : '(Attached image)'),
+      modality: speakReply ? 'voice' : 'text',
       imageDataUrls: imagesForRequest.length
         ? imagesForRequest.map((image) => `data:${image.mimeType};base64,${image.base64}`)
         : undefined,
     };
     const pendingMessages = [...messagesRef.current, userMessage].slice(-MAX_MESSAGES);
     updateMessages(pendingMessages);
-    setInput('');
-    setAttachedImages([]);
-    attachedImagesRef.current = [];
+    if (!speakReply) {
+      setInput('');
+      setAttachedImages([]);
+      attachedImagesRef.current = [];
+    }
     setLoading(true);
     if (speakReply) voiceAgentRequestRef.current = true;
 
@@ -1366,14 +1265,13 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
 
       updateMessages([
         ...pendingMessages,
-        { role: 'assistant', content: String(data.text || 'No response generated.').trim() },
+        { role: 'assistant', content: String(data.text || 'No response generated.').trim(), modality: speakReply ? 'voice' : 'text' },
       ]);
       // speakReply alone decides whether to speak this one reply -- a single
       // "Voice input" tap sets it true without turning on the Live Voice loop
       // (liveVoiceEnabledRef), so it must not be required here too or a
       // one-shot voice question would go back to answering in text only.
       if (speakReply && voiceSession === voiceSessionRef.current) {
-        voiceReplyStarted = true;
         void speakAnswer(String(data.text || '').trim());
       }
 
@@ -1402,13 +1300,9 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       }
     } catch (error: any) {
       if (error?.name !== 'AbortError') {
-        updateMessages([
-          ...pendingMessages,
-          {
-            role: 'assistant',
-            content: error?.message || (language === 'km' ? 'Agent មិនអាចឆ្លើយបាននៅពេលនេះ។' : 'The agent could not respond right now.'),
-          },
-        ]);
+        const errorMessage = error?.message || (language === 'km' ? 'Agent មិនអាចឆ្លើយបាននៅពេលនេះ។' : 'The agent could not respond right now.');
+        if (speakReply) notify(errorMessage, 'error');
+        else updateMessages([...pendingMessages, { role: 'assistant', content: errorMessage, modality: 'text' }]);
       }
     } finally {
       if (requestControllerRef.current === controller) {
@@ -1417,13 +1311,10 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         setLoading(false);
       }
       if (speakReply) voiceAgentRequestRef.current = false;
-      if (speakReply && !voiceReplyStarted && liveVoiceEnabledRef.current && voiceSession === voiceSessionRef.current) {
-        void beginLiveListening(voiceSession);
-      }
     }
   };
 
-  const latestAnswer = [...messages].reverse().find((message) => message.role === 'assistant')?.content || '';
+  const latestAnswer = [...messages].reverse().find((message) => message.role === 'assistant' && message.modality !== 'voice')?.content || '';
   const conversationHistory = useMemo(() => {
     const currentSession = buildSession(messages, activeSessionId);
     return [
@@ -1784,7 +1675,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                 <button
                   type="button"
                   onClick={() => { unlockAudioPlayback(); toggleVoiceInput(); }}
-                  disabled={isTranscribing}
+                  disabled={isTranscribing || liveVoiceEnabled}
                   title={isListening ? text.listening : isTranscribing ? text.transcribing : text.voiceInput}
                   className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-bold transition-all disabled:opacity-60 ${
                     isListening
@@ -1817,25 +1708,18 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                       const GeminiAudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
                       const playbackContext: AudioContext = new GeminiAudioContextCtor({ sampleRate: 24000 });
                       void playbackContext.resume().catch(() => {});
-                      void startGeminiLive(session, playbackContext).then((started) => {
-                        if (started || session !== voiceSessionRef.current || !liveVoiceEnabledRef.current) return;
-                        // Gemini Live didn't come up (no/invalid key, model unavailable,
-                        // network) -- fall through to the existing pipeline so Live
-                        // Voice still works, just without the realtime speedup.
-                        if (!recordingRef.current) void beginLiveListening(session);
-                        else void startVoiceMonitor(recordingRef.current.stream).catch(() => stopLiveVoice());
-                      });
+                      void startGeminiLive(session, playbackContext);
                     }
                   }}
                   aria-pressed={liveVoiceEnabled}
-                  disabled={!liveVoiceEnabled && (isTranscribing || loading)}
+                  disabled={!liveVoiceEnabled && (isTranscribing || loading || isListening)}
                   className={`px-3 py-2 rounded-xl border text-xs font-bold disabled:opacity-50 ${liveVoiceEnabled ? 'bg-brand-600 border-brand-600 text-white' : 'bg-white/70 dark:bg-slate-800/70 border-brand-200 text-brand-600'}`}
                 >
                   {language === 'km' ? 'សន្ទនាសំឡេងផ្ទាល់' : 'Live Voice'} {liveVoiceEnabled ? (language === 'km' ? 'បើក' : 'On') : (language === 'km' ? 'បិទ' : 'Off')}
                 </button>
               )}
               {isSpeaking && !geminiLiveActiveRef.current && (
-                <button type="button" onClick={() => { stopSpeaking(); if (liveVoiceEnabledRef.current) void beginLiveListening(); }} className="px-3 py-2 rounded-xl border border-red-200 text-red-600 text-xs font-bold">
+                <button type="button" onClick={stopSpeaking} className="px-3 py-2 rounded-xl border border-red-200 text-red-600 text-xs font-bold">
                   {language === 'km' ? 'បញ្ឈប់សំឡេង' : 'Stop voice'}
                 </button>
               )}
@@ -2020,12 +1904,12 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                               ))}
                             </div>
                           )}
-                          <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
+                          <p className="whitespace-pre-wrap leading-relaxed">{message.modality === 'voice' ? (language === 'km' ? 'សំណួរជាសំឡេង' : 'Voice message') : message.content}</p>
                         </>
                       ) : (
-                        <div className="prose prose-brand max-w-none">
-                          <Markdown>{message.content}</Markdown>
-                        </div>
+                        message.modality === 'voice'
+                          ? <p className="leading-relaxed">{language === 'km' ? 'ចម្លើយជាសំឡេង' : 'Voice reply'}</p>
+                          : <div className="prose prose-brand max-w-none"><Markdown>{message.content}</Markdown></div>
                       )}
                     </div>
                     {isUser && (

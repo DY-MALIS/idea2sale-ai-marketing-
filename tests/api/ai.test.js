@@ -5,6 +5,7 @@ import {
   DEFAULT_COMPETITOR_ENTITY_CAP,
   ensureBusinessInInboxMessage,
   extractRequestedLeadCount,
+  findExactBusiness,
   FACEBOOK_SCAN_MODES,
   getFacebookCompetitorActivityWindow,
   getAiRateLimitPolicy,
@@ -12,9 +13,11 @@ import {
   googleSheetsUrlToCsvExportUrl,
   resolveCreativeImageMode,
   resolveAgentReplyLanguage,
+  resolveAudienceResearchTarget,
   resolveCompetitorResearchTarget,
   resolveFacebookScanMode,
   resolveVideoAspectRatio,
+  shouldReuseOwnBusinessCompetitors,
 } from '../../api/ai.js';
 
 describe('resolveAgentReplyLanguage', () => {
@@ -170,6 +173,38 @@ describe('resolveCompetitorResearchTarget', () => {
   it('preserves an explicit competitor or niche target', () => {
     expect(resolveCompetitorResearchTarget('skincare competitors Cambodia', 'DGACADEMY')).toBe('skincare competitors Cambodia');
     expect(resolveCompetitorResearchTarget('DGACADEMY competitors', 'DGACADEMY')).toBe('DGACADEMY competitors');
+    expect(resolveCompetitorResearchTarget('ស្វែងរកគូប្រកួតប្រជែងរបស់Dating Cafe & Mart', 'DGACADEMY')).toBe('Dating Cafe & Mart');
+    expect(resolveCompetitorResearchTarget('competitors of Dating Cafe & Mart', 'DGACADEMY')).toBe('Dating Cafe & Mart');
+  });
+});
+
+describe('shouldReuseOwnBusinessCompetitors', () => {
+  it('never substitutes profile competitors for a named target with no results', () => {
+    expect(shouldReuseOwnBusinessCompetitors('Dating Cafe & Mart', 'DGACADEMY', 0)).toBe(false);
+    expect(shouldReuseOwnBusinessCompetitors('DGACADEMY', 'DGACADEMY', 0)).toBe(true);
+    expect(shouldReuseOwnBusinessCompetitors('DGACADEMY', 'DGACADEMY', 2)).toBe(false);
+  });
+});
+
+describe('resolveAudienceResearchTarget', () => {
+  it('extracts the named company from customer-audience requests', () => {
+    expect(resolveAudienceResearchTarget('please tell me of my client of dating cafe & mart')).toBe('dating cafe & mart');
+    expect(resolveAudienceResearchTarget('customers of Dating Cafe & Mart')).toBe('Dating Cafe & Mart');
+    expect(resolveAudienceResearchTarget('customers of ABC Cafe')).toBe('ABC Cafe');
+    expect(resolveAudienceResearchTarget('អតិថិជនរបស់ Dating Cafe & Mart')).toBe('Dating Cafe & Mart');
+    expect(resolveAudienceResearchTarget('customers of my competitor')).toBe('');
+  });
+});
+
+describe('findExactBusiness', () => {
+  it('keeps only the requested business and accepts ampersand spelling', () => {
+    const businesses = [
+      { businessName: 'DGACADEMY' },
+      { businessName: 'Dating Cafe and Mart' },
+      { businessName: 'Dating App' },
+    ];
+    expect(findExactBusiness(businesses, 'Dating Cafe & Mart')).toBe(businesses[1]);
+    expect(findExactBusiness(businesses, 'Unknown Cafe')).toBeNull();
   });
 });
 

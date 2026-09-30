@@ -77,6 +77,17 @@ const jsonFromText = (text) => {
 
 const competitorKey = (value) => String(value || '').trim().toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
 
+// A brand can contain a word from an unrelated industry. In particular,
+// "Dating Cafe & Mart" has been misread as a matchmaking service and returned
+// Tinder and dating websites as competitors. A cafe/mart is a physical food or
+// retail business; a matchmaking platform is not a substitute for either.
+const isClearlyDifferentIndustry = (target, candidate) => (
+  /\b(?:cafe|café|coffee\s*shop|mart|grocery|restaurant)\b/i.test(target)
+  && /\b(?:online dating|dating (?:app|website|site|platform|service)|matchmaking|singles (?:app|site|platform))\b/i.test(
+    `${candidate.matchReason} ${candidate.positioning}`,
+  )
+);
+
 // A dated post/video's own URL commonly encodes its Page's slug
 // (facebook.com/<slug>/posts/... or /videos/...), but a reel URL
 // (facebook.com/reel/<id>/) does not -- the model's search grounding often
@@ -175,7 +186,7 @@ const searchWithRetry = async (prompt, { maxResults, maxTokens, isUsable, onFail
   return parsed;
 };
 
-export async function researchCompetitors({ query, country = 'Cambodia', countryCode = 'KH', activityStartDate = '', activityEndDate = '', targetCount = 50 }) {
+export async function researchCompetitors({ query, targetDescription = '', country = 'Cambodia', countryCode = 'KH', activityStartDate = '', activityEndDate = '', targetCount = 50 }) {
   const requestedTargetCount = Math.min(50, Math.max(1, Math.round(Number(targetCount) || 50)));
   const hasActivityWindow = /^\d{4}-\d{2}-\d{2}$/.test(activityStartDate)
     && /^\d{4}-\d{2}-\d{2}$/.test(activityEndDate)
@@ -196,8 +207,9 @@ export async function researchCompetitors({ query, country = 'Cambodia', country
     'Customer review platforms, industry associations, credible local news, comparison lists, event exhibitor lists, marketplaces, and professional directories, to find direct competitors the other source groups miss.',
   ];
   const buildDiscoveryPrompt = (focus) => `Search the live web about "${query}" in ${country}.
+${targetDescription ? `The owner supplied this Business Profile description of the target: "${String(targetDescription).slice(0, 1000)}". Use it to identify the target's industry, but independently verify every competitor and its source URL.` : ''}
 
-Step 1 -- Identify the target: determine whether "${query}" is the name of one specific real business/brand/organization, or a general product niche/category (e.g. "skincare", "women's fashion shop"). Base this only on what real search results show -- never guess.
+Step 1 -- Identify the target: determine whether "${query}" is the name of one specific real business/brand/organization, or a general product niche/category (e.g. "skincare", "women's fashion shop"). Base this only on what real search results show -- never guess. For a named business, search the FULL exact name and establish what it actually sells before discovering competitors. Do not reinterpret a brand word as the business category: "Dating Cafe & Mart" is not a dating app unless a source explicitly says it sells matchmaking; a cafe or mart competes with other cafes or marts serving the same local customers.
 
 Step 2 -- Find real competitors. SEARCH PASS FOCUS: ${focus}
 
@@ -206,6 +218,7 @@ A business only counts as a competitor if it meets ALL of these:
   (b) Overlapping customers -- it targets a similar customer segment in the same geographic market (${country}, and the same city/region when the target is a local business).
   (c) Currently active and real -- found via an actual, live search result (its own website, a business directory listing, a comparison article, a news mention, a real Facebook Page, or an official LinkedIn company/school page), not a defunct business or an unrelated mention of the same words.
 Every competitor you list MUST satisfy all three and come with a real source URL backing it. Explicitly exclude suppliers, distributors that do not sell a substitute, agencies serving the target, partners, customers, parent/sister companies, businesses that merely share a broad industry, and companies outside the real geographic/customer market. Include competitors at every size, not only ones as big as or bigger than the target -- a smaller or newer real competitor is still a valid entry, just labeled accordingly (see "marketPresence" below). Return up to ${requestedTargetCount} matches actually found; never target a quota and never pad the list. Search alternate spellings and local-language names so legitimate local businesses are not missed. Never invent a competitor name and never list one you cannot support with a real source URL.
+If the exact target's product/service cannot be established from search evidence, return no competitors. Never substitute a similarly named business or the category suggested by one word of the target's name.
 Every entry you return already met all three criteria above, so always set "isDirectCompetitor": true and "matchConfidence": "high" for it -- these are not separate judgment calls. If you are not fully confident a business satisfies all three, omit it entirely rather than listing it with a lower confidence; there is no "medium" or "low" tier, only include or exclude.
 
 For each verified competitor, provide a short factual "matchReason" stating the exact overlapping product/service, customer group, and location supported by the search evidence. Also classify "marketPresence" relative to the target -- "stronger" (clearly bigger public footprint: more followers/engagement, more locations, more active marketing), "similar" (comparable scale and visibility), or "weaker" (smaller or less visible, but still a real, active, verifiable competitor) -- based only on what the search evidence actually shows, never a guess. Rank the list strongest presence first, but never drop a "weaker" entry just for being weaker. Search its official website first, then its official Facebook Page and LinkedIn organization page. Never search TikTok. Only return URLs explicitly found in live results; never return a personal profile and never construct a URL from the company name. Only fill in "positioning" if the source actually supports it; otherwise leave it as an empty string rather than inferring.
@@ -271,6 +284,7 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
       lastKnownActivity: null,
     };
     if (!isDirectCompetitor || matchConfidence !== 'high' || !candidate.matchReason) return;
+    if (isClearlyDifferentIndustry(query, candidate)) return;
     if (!candidate.name || !/^https?:\/\//i.test(candidate.sourceUrl) || socialPlatformFromUrl(candidate.sourceUrl) === 'TikTok') return;
     const key = competitorKey(candidate.name);
     if (!key) return;

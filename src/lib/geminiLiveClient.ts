@@ -10,7 +10,7 @@
 // no local silence-timeout logic here: audio just streams continuously while
 // the session is open.
 
-const GEMINI_LIVE_WS_URL = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent';
+const GEMINI_LIVE_WS_URL = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained';
 const MIC_SAMPLE_RATE = 16000;
 const PLAYBACK_SAMPLE_RATE = 24000;
 // How often a chunk of captured mic audio is sent -- short enough to keep
@@ -28,6 +28,11 @@ export interface GeminiLiveHandlers {
 
 export interface GeminiLiveSession {
   close: () => void;
+}
+
+export interface GeminiLiveSetup {
+  voiceName?: string;
+  systemInstruction?: string;
 }
 
 const floatTo16BitPcm = (input: Float32Array): Int16Array => {
@@ -126,8 +131,15 @@ export async function connectGeminiLive(
   // worked around for plain <audio> playback elsewhere in AIAgent.tsx.
   playbackContext: AudioContext,
   handlers: GeminiLiveHandlers = {},
+  setupConfig: GeminiLiveSetup = {},
+  signal?: AbortSignal,
 ): Promise<GeminiLiveSession> {
+  if (signal?.aborted) throw new DOMException('Live Voice was stopped.', 'AbortError');
   const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  if (signal?.aborted) {
+    stream.getTracks().forEach((track) => track.stop());
+    throw new DOMException('Live Voice was stopped.', 'AbortError');
+  }
   const player = new StreamingPcmPlayer(playbackContext, handlers.onAudioStart);
 
   const captureContext = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -139,12 +151,24 @@ export async function connectGeminiLive(
   const processor = captureContext.createScriptProcessor(4096, 1, 1);
   let pendingSamples: Float32Array[] = [];
   let closed = false;
+  let ready = false;
 
   const socket = new WebSocket(`${GEMINI_LIVE_WS_URL}?access_token=${encodeURIComponent(ephemeralToken)}`);
+  let settleConnect: ((session: GeminiLiveSession) => void) | null = null;
+  let rejectConnect: ((error: Error) => void) | null = null;
+  const connected = new Promise<GeminiLiveSession>((resolve, reject) => {
+    settleConnect = resolve;
+    rejectConnect = reject;
+  });
+  const readyTimeout = window.setTimeout(() => {
+    if (!ready) fail(new Error('Gemini Live did not become ready in time.'));
+  }, 15000);
 
   const cleanup = () => {
     if (closed) return;
     closed = true;
+    signal?.removeEventListener('abort', onAbort);
+    clearTimeout(readyTimeout);
     clearInterval(sendTimer);
     processor.disconnect();
     source.disconnect();
@@ -153,16 +177,27 @@ export async function connectGeminiLive(
     void playbackContext.close().catch(() => {});
     if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) socket.close();
   };
+  const fail = (error: Error) => {
+    if (closed) return;
+    if (!ready) rejectConnect?.(error);
+    cleanup();
+    handlers.onError?.(error);
+  };
+  const onAbort = () => {
+    if (!ready) rejectConnect?.(new DOMException('Live Voice was stopped.', 'AbortError'));
+    cleanup();
+  };
+  signal?.addEventListener('abort', onAbort, { once: true });
 
   processor.onaudioprocess = (event: AudioProcessingEvent) => {
-    if (socket.readyState !== WebSocket.OPEN) return;
+    if (!ready || socket.readyState !== WebSocket.OPEN) return;
     pendingSamples.push(new Float32Array(event.inputBuffer.getChannelData(0)));
   };
   source.connect(processor);
   processor.connect(captureContext.destination);
 
   const flushMicAudio = () => {
-    if (!pendingSamples.length || socket.readyState !== WebSocket.OPEN) return;
+    if (!ready || !pendingSamples.length || socket.readyState !== WebSocket.OPEN) return;
     const totalLength = pendingSamples.reduce((sum, chunk) => sum + chunk.length, 0);
     const merged = new Float32Array(totalLength);
     let offset = 0;
@@ -173,15 +208,27 @@ export async function connectGeminiLive(
     const pcm16 = floatTo16BitPcm(downsampled);
     socket.send(JSON.stringify({
       realtimeInput: {
-        mediaChunks: [{ mimeType: `audio/pcm;rate=${MIC_SAMPLE_RATE}`, data: int16ArrayToBase64(pcm16) }],
+        audio: { mimeType: `audio/pcm;rate=${MIC_SAMPLE_RATE}`, data: int16ArrayToBase64(pcm16) },
       },
     }));
   };
   const sendTimer = window.setInterval(flushMicAudio, SEND_CHUNK_MS);
 
   socket.onopen = () => {
-    socket.send(JSON.stringify({ setup: { model } }));
-    handlers.onOpen?.();
+    socket.send(JSON.stringify({
+      setup: {
+        model: model.startsWith('models/') ? model : `models/${model}`,
+        generationConfig: {
+          responseModalities: ['AUDIO'],
+          ...(setupConfig.voiceName ? {
+            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: setupConfig.voiceName } } },
+          } : {}),
+        },
+        ...(setupConfig.systemInstruction ? {
+          systemInstruction: { parts: [{ text: setupConfig.systemInstruction }] },
+        } : {}),
+      },
+    }));
   };
 
   socket.onmessage = (event) => {
@@ -189,6 +236,16 @@ export async function connectGeminiLive(
       try {
         const raw = typeof event.data === 'string' ? event.data : await (event.data as Blob).text();
         const message = JSON.parse(raw);
+        if (message?.setupComplete && !ready) {
+          ready = true;
+          clearTimeout(readyTimeout);
+          settleConnect?.({ close: cleanup });
+          handlers.onOpen?.();
+        }
+        if (message?.error) {
+          fail(new Error(message.error.message || 'Gemini Live returned an error.'));
+          return;
+        }
         const modelTurn = message?.serverContent?.modelTurn;
         const parts: Array<{ inlineData?: { mimeType?: string; data?: string } }> = modelTurn?.parts || [];
         for (const part of parts) {
@@ -205,19 +262,21 @@ export async function connectGeminiLive(
           handlers.onTurnComplete?.();
         }
       } catch (error) {
-        handlers.onError?.(error instanceof Error ? error : new Error('Failed to parse Gemini Live message.'));
+        fail(error instanceof Error ? error : new Error('Failed to parse Gemini Live message.'));
       }
     })();
   };
 
   socket.onerror = () => {
-    handlers.onError?.(new Error('Gemini Live connection failed.'));
+    fail(new Error('Gemini Live connection failed.'));
   };
 
   socket.onclose = () => {
+    if (!ready) rejectConnect?.(new Error('Gemini Live closed before it was ready.'));
+    if (closed) return;
     cleanup();
     handlers.onClose?.();
   };
 
-  return { close: cleanup };
+  return connected;
 }

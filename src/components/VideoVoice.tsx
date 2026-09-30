@@ -28,6 +28,7 @@ import {
 } from '../../shared/imageKitUrl.js';
 import { CreativeAutomationRequest, ScheduleHandoffRequest } from '../types';
 import { getLatestBusinessBranding } from '../lib/businessBranding';
+import { mp4DurationSeconds } from '../lib/mediaDuration';
 import { deleteGenerationHistory, GenerationHistoryEntry, saveGenerationHistory, useGenerationHistory } from '../lib/generationHistory';
 import HistoryPanel from './HistoryPanel';
 import { estimateVideoGenerationCostUsd, MAX_VIDEO_DURATION_SECONDS, MAX_VIDEO_GENERATION_COST_USD } from '../../shared/videoCost.js';
@@ -84,6 +85,8 @@ interface PendingVideoJob {
   userId: string;
   jobId: string;
   narrationAudioUrl?: string;
+  narrationDuration?: number;
+  outputDuration?: number;
   narrationFallbackReason?: string;
   expectedScript?: string;
   aspectRatio?: VideoAspectRatio;
@@ -371,19 +374,59 @@ const removeVideoAudio = async (videoUrl: string): Promise<string> => {
   }
 };
 
-const applyVoiceOver = async (videoDataUrl: string, audioDataUrl: string, speed = 1): Promise<string> => {
-  const [videoDuration, audioDuration] = await Promise.all([
-    mediaDuration(videoDataUrl, 'video'), mediaDuration(audioDataUrl, 'audio'),
+const applyVoiceOver = async (
+  videoDataUrl: string,
+  audioDataUrl: string,
+  speed = 1,
+  knownDurations?: { video: number; audio: number },
+): Promise<string> => {
+  const { fetchFile } = await import('@ffmpeg/util');
+  const [videoBytes, audioBytes] = await Promise.all([
+    fetchFile(videoDataUrl), fetchFile(audioDataUrl),
   ]);
+  // Khmer presenter jobs already measured the exact uploaded audio on the
+  // server and fitted the provider's clip duration to it. Reading metadata
+  // again from ImageKit's video delivery URL can stall while a transformation
+  // is being prepared, even though the original MP4 is ready for ffmpeg.
+  // Legacy pending jobs have no saved durations, so inspect their downloaded
+  // bytes through local blob URLs instead of making two more network requests.
+  const validDuration = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0;
+  let videoDuration = validDuration(knownDurations?.video) ? knownDurations.video : mp4DurationSeconds(videoBytes);
+  let audioDuration = validDuration(knownDurations?.audio) ? knownDurations.audio : null;
+  if (!validDuration(audioDuration)) {
+    const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
+    const audioContext: AudioContext | null = AudioContextCtor ? new AudioContextCtor() : null;
+    try {
+      if (audioContext) {
+        // decodeAudioData may detach its ArrayBuffer, so copy the bytes ffmpeg
+        // still needs for the final mux before handing them to the browser.
+        const decoded = await audioContext.decodeAudioData(audioBytes.slice().buffer as ArrayBuffer);
+        audioDuration = validDuration(decoded.duration) ? decoded.duration : null;
+      }
+    } catch {
+      // Fall back to the media element for formats this decoder cannot open.
+    } finally {
+      if (audioContext) void audioContext.close().catch(() => {});
+    }
+  }
+  if (!validDuration(videoDuration)) {
+    const blobUrl = URL.createObjectURL(new Blob([videoBytes], { type: 'video/mp4' }));
+    try { videoDuration = await mediaDuration(blobUrl, 'video'); }
+    finally { URL.revokeObjectURL(blobUrl); }
+  }
+  if (!validDuration(audioDuration)) {
+    const blobUrl = URL.createObjectURL(new Blob([audioBytes], { type: audioDataUrl.startsWith('data:audio/wav') ? 'audio/wav' : 'audio/mpeg' }));
+    try { audioDuration = await mediaDuration(blobUrl, 'audio'); }
+    finally { URL.revokeObjectURL(blobUrl); }
+  }
   if (audioDuration > videoDuration + 0.1) {
     throw new Error('សំឡេងវែងជាងវីដេអូ។ សូមបន្ថយអត្ថបទ ឬជ្រើសវីដេអូវែងជាងនេះ។');
   }
   const audioExt = audioDataUrl.startsWith('data:audio/wav') ? 'wav' : 'mp3';
   const ffmpeg = await getFFmpeg();
   try {
-    const { fetchFile } = await import('@ffmpeg/util');
-    await ffmpeg.writeFile('vo_input.mp4', await fetchFile(videoDataUrl));
-    await ffmpeg.writeFile(`vo_audio.${audioExt}`, await fetchFile(audioDataUrl));
+    await ffmpeg.writeFile('vo_input.mp4', videoBytes);
+    await ffmpeg.writeFile(`vo_audio.${audioExt}`, audioBytes);
     // The TTS model has no reliable way to actually speak faster on request, so narration
     // is generated at a natural pace and sped up here instead via ffmpeg's atempo filter —
     // a real, predictable speed change that doesn't risk mangling pronunciation the way
@@ -551,7 +594,14 @@ const pollPendingVideoJob = async (pending: PendingVideoJob, idToken: string) =>
         // Older narration uploads were accidentally given image-only ImageKit
         // transformations. Strip those parameters so already-paid resumable
         // jobs can still fetch and mux their original MP3.
-        ? applyVoiceOver(playableVideoUrl, getOriginalImageKitUrl(pending.narrationAudioUrl), 1)
+        ? applyVoiceOver(
+          getOriginalImageKitUrl(playableVideoUrl),
+          getOriginalImageKitUrl(pending.narrationAudioUrl),
+          1,
+          pending.outputDuration && pending.narrationDuration
+            ? { video: pending.outputDuration, audio: pending.narrationDuration }
+            : undefined,
+        )
         : playableVideoUrl as string;
     }
   }
@@ -581,6 +631,8 @@ const attemptGenerateVideoClip = async (
       userId,
       jobId: data.jobId,
       narrationAudioUrl: data.narrationAudioUrl || undefined,
+      narrationDuration: Number(data.narrationDuration) || undefined,
+      outputDuration: Number(data.outputDuration) || undefined,
       narrationFallbackReason: data.narrationFallbackReason || undefined,
       expectedScript: data.spokenScript || khmerSpeech?.script || undefined,
       aspectRatio: normalizeVideoAspectRatio(data.outputAspectRatio || aspectRatio),

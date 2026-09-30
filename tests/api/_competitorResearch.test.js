@@ -45,6 +45,15 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it('uses the saved business description to disambiguate a brand name', async () => {
+  queueDiscoveryTimes({ content: JSON.stringify({ isSpecificEntity: true, entitySummary: '', competitors: [] }) });
+  await researchCompetitors({ query: 'Dating Cafe & Mart', targetDescription: 'Cafe and mini mart selling coffee and groceries.' });
+  expect(mocks.webSearch.mock.calls.slice(0, 3).every(([request]) => (
+    request.prompt.includes('Cafe and mini mart selling coffee and groceries.')
+    && request.prompt.includes('Dating Cafe & Mart')
+  ))).toBe(true);
+});
+
 it('returns only competitors whose source URL is real and reachable', async () => {
   mocks.webSearch.mockResolvedValue({
     content: JSON.stringify({
@@ -179,6 +188,28 @@ it('never fabricates a competitor -- returns an empty list when the model finds 
   expect(mocks.webSearch).toHaveBeenCalledTimes(3);
   expect(result.competitors).toEqual([]);
   expect(result.isSpecificEntity).toBe(false);
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it('does not treat a dating app as a competitor of a cafe and mart', async () => {
+  mocks.webSearch.mockResolvedValue({ content: JSON.stringify({
+    isSpecificEntity: true,
+    entitySummary: 'Dating Cafe & Mart is a cafe and convenience store.',
+    competitors: [{
+      name: 'Dating App',
+      isDirectCompetitor: true,
+      matchConfidence: 'high',
+      matchReason: 'Online dating and matchmaking for singles who may meet at cafes',
+      marketPresence: 'stronger',
+      positioning: 'Dating website',
+      sourceUrl: 'https://dating-app.example.com',
+    }],
+  }) });
+  vi.stubGlobal('fetch', vi.fn());
+
+  const result = await researchCompetitors({ query: 'Dating Cafe & Mart' });
+
+  expect(result.competitors).toEqual([]);
   expect(fetch).not.toHaveBeenCalled();
 });
 

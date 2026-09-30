@@ -384,6 +384,8 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     savedCompetitor: 'បានរក្សាទុក!',
     noVerifiedLeads: 'មិនទាន់មាន Lead ដែលបានផ្ទៀងផ្ទាត់ទេ។ សូមសាកល្បងស្គេនម្តងទៀត ដើម្បីទទួលបានឈ្មោះអាជីវកម្មពិត។',
     noVerifiedCompetitors: 'ការស្វែងរកលើវេបផ្ទាល់មិនរកឃើញឈ្មោះគូប្រកួតប្រជែងពិតដែលអាចផ្ទៀងផ្ទាត់បានទេ។ ប្រព័ន្ធនឹងមិនស្មានឈ្មោះឡើយ។',
+    audienceScope: 'បង្ហាញតែក្រុមអតិថិជនទូទៅពីព័ត៌មានសាធារណៈ។ មិនអាចមើលឈ្មោះអតិថិជនឯកជនបានទេ។',
+    audienceNotFound: 'មិនរកឃើញក្រុមហ៊ុនដែលមានឈ្មោះត្រូវគ្នាពីប្រភពសាធារណៈទេ។ សូមប្រើឈ្មោះ Page ផ្លូវការឱ្យត្រឹមត្រូវ។',
     researchTarget: 'គោលដៅស្រាវជ្រាវ',
     needSignals: 'សញ្ញាថាត្រូវការ Content/Video',
     recommendedService: 'សេវាកម្មដែលគួរផ្តល់ជូន',
@@ -502,6 +504,8 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     savedCompetitor: 'Saved!',
     noVerifiedLeads: 'No verified leads yet. Try scanning again to receive real business names.',
     noVerifiedCompetitors: 'Live web search found no real, verifiable competitor names. The system will not guess any.',
+    audienceScope: 'Shows aggregate customer groups from public information. Private customer names are not available.',
+    audienceNotFound: 'The exact business was not found in public sources. Try its official Page name.',
     researchTarget: 'Research target',
     needSignals: 'Signals they may need content/video',
     recommendedService: 'Recommended service',
@@ -615,6 +619,10 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     if (!cleanQuery || loading) return;
     setLoading(true);
     setError('');
+    // A new target must not display the previous scan's competitors while its
+    // request is running or if it fails. Saved results remain in History.
+    setResult(null);
+    setComparisonBaseline(null);
     try {
       const businessContext = await getLatestBusinessBranding(user, isDemoMode);
       const currentBusinessName = businessContext.businessName;
@@ -654,7 +662,9 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
       void saveGenerationHistory({
         user, isDemoMode, type: 'facebook_scan',
         title: cleanQuery,
-        summary: resolvedMode === 'competitor_activity'
+        summary: data.audienceResearch
+          ? (isKm ? `ស្រាវជ្រាវក្រុមអតិថិជនរបស់ ${data.researchTarget || cleanQuery}` : `Audience research for ${data.researchTarget || cleanQuery}`)
+          : resolvedMode === 'competitor_activity'
           ? (isKm ? `ចាប់យកបាន ${activityCount} សកម្មភាពក្នុង ៧ ថ្ងៃ` : `${activityCount} competitor activit${activityCount === 1 ? 'y' : 'ies'} captured in 7 days`)
           : (isKm ? `Lead ចំនួន ${leadCount}` : `${leadCount} lead${leadCount === 1 ? '' : 's'} found`),
         payload: { query: cleanQuery, country, days, scanMode: resolvedMode, result: data },
@@ -841,7 +851,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
               <Search className="shrink-0 text-brand-500" size={20} />
               <input
                 value={query}
-                onChange={(event) => setQuery(event.target.value)}
+                onChange={(event) => { setQuery(event.target.value); setModeExplicit(false); }}
                 onKeyDown={(event) => event.key === 'Enter' && void scan()}
                 placeholder={text.placeholder}
                 className="h-14 w-full bg-transparent text-sm font-medium text-slate-800 outline-none placeholder:text-slate-400 dark:text-white"
@@ -853,7 +863,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                 <button
                   key={suggestion}
                   type="button"
-                  onClick={() => setQuery(suggestion)}
+                  onClick={() => { setQuery(suggestion); setModeExplicit(false); }}
                   className="shrink-0 rounded-full border border-brand-200 bg-white/70 px-3 py-1 text-xs font-semibold text-brand-700 transition hover:bg-brand-50 dark:border-brand-800 dark:bg-slate-900/60 dark:text-brand-300 dark:hover:bg-slate-800"
                 >
                   {suggestion}
@@ -890,15 +900,22 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
               {result.webSearchAvailable ? <Check size={15} /> : <Sparkles size={15} />}
               {result.webSearchAvailable ? (resultIsCompetitorScan ? text.socialSearchConnected : text.live) : text.estimated}
             </span>
-            {!!result.webSearchAvailable && <span className="rounded-full bg-blue-50 px-4 py-2 text-xs font-bold text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">{resultIsCompetitorScan ? result.competitors.length : (result.potentialLeads?.length || 0)} {resultIsCompetitorScan ? text.competitors : text.webBusinesses}</span>}
-            {resultIsCompetitorScan && result.researchTarget && (
+            {!!result.webSearchAvailable && !result.audienceResearch && <span className="rounded-full bg-blue-50 px-4 py-2 text-xs font-bold text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">{resultIsCompetitorScan ? result.competitors.length : (result.potentialLeads?.length || 0)} {resultIsCompetitorScan ? text.competitors : text.webBusinesses}</span>}
+            {(resultIsCompetitorScan || result.audienceResearch) && result.researchTarget && (
               <span className="rounded-full bg-indigo-50 px-4 py-2 text-xs font-bold text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300">
                 {text.researchTarget}: {result.researchTarget}
               </span>
             )}
           </div>
 
-          {!resultIsCompetitorScan && <div className="grid gap-5 xl:grid-cols-3">
+          {result.audienceResearch && (
+            <div className="rounded-2xl border border-indigo-200 bg-indigo-50/80 p-4 text-sm text-indigo-900 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-100">
+              <p>{result.audienceSourceUrl ? text.audienceScope : text.audienceNotFound}</p>
+              {result.audienceSourceUrl && <a href={result.audienceSourceUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1 font-bold underline"><ExternalLink size={14} />{text.viewEvidence}</a>}
+            </div>
+          )}
+
+          {!resultIsCompetitorScan && (!result.audienceResearch || result.audienceSourceUrl) && <div className="grid gap-5 xl:grid-cols-3">
             {insightCards.map(({ title, icon: Icon, items, iconClass }) => (
               <article key={title} className="glass rounded-[2rem] p-6">
                 <div className="mb-5 flex items-center gap-3">
@@ -1230,7 +1247,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
             )}
           </section>}
 
-          {!resultIsCompetitorScan && <section>
+          {!resultIsCompetitorScan && !result.audienceResearch && <section>
             <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h3 className="flex items-center gap-2 text-xl font-black text-slate-800 dark:text-white"><BriefcaseBusiness className="text-emerald-500" />{text.leads}</h3>
