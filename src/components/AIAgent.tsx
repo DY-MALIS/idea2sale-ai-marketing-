@@ -1176,7 +1176,12 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         const combinedMessage = liveVoiceEnabledRef.current ? transcript : input.trim() ? `${input.trim()} ${transcript}` : transcript;
         setInput(combinedMessage);
         submitted = true;
-        void askAgent(combinedMessage, liveVoiceEnabledRef.current);
+        // This function only ever runs after a spoken recording (single tap of
+        // "Voice input" or a Live Voice turn) -- speak the reply either way, not
+        // only when the separate Live Voice loop is on. Live Voice still governs
+        // whether listening auto-resumes after the reply (see askAgent/speakAnswer);
+        // a single voice-input tap now speaks its answer once and then stops.
+        void askAgent(combinedMessage, true);
       } else {
         notify(language === 'km' ? 'មិនបានលឺសំឡេងអ្វីទេ។ សូមសាកល្បងម្តងទៀត។' : 'No speech was detected. Please try again.', 'error');
       }
@@ -1291,7 +1296,11 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         ...pendingMessages,
         { role: 'assistant', content: String(data.text || 'No response generated.').trim() },
       ]);
-      if (speakReply && liveVoiceEnabledRef.current && voiceSession === voiceSessionRef.current) {
+      // speakReply alone decides whether to speak this one reply -- a single
+      // "Voice input" tap sets it true without turning on the Live Voice loop
+      // (liveVoiceEnabledRef), so it must not be required here too or a
+      // one-shot voice question would go back to answering in text only.
+      if (speakReply && voiceSession === voiceSessionRef.current) {
         voiceReplyStarted = true;
         void speakAnswer(String(data.text || '').trim());
       }
