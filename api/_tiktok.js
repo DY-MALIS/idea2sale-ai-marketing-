@@ -262,7 +262,7 @@ export async function recordTikTokPostSync(db, { publishId, title, videoUrl, use
 // configured.
 export async function scheduleTikTokQStashDelivery(req, postId, scheduledDate) {
   const token = (process.env.QSTASH_TOKEN || '').trim();
-  if (!token) return;
+  if (!token) return false;
 
   try {
     const client = new QStashClient({ token, baseUrl: process.env.QSTASH_URL });
@@ -272,6 +272,7 @@ export async function scheduleTikTokQStashDelivery(req, postId, scheduledDate) {
       body: { postId },
       notBefore: Math.floor(scheduledDate.getTime() / 1000),
     });
+    return true;
   } catch (error) {
     const message = error?.message || String(error);
     console.error('QStash TikTok scheduling failed:', message);
@@ -280,5 +281,6 @@ export async function scheduleTikTokQStashDelivery(req, postId, scheduledDate) {
     // configured 10-minute schedule by two hours or more (see the comment
     // above) -- an admin needs to know right away, not discover it from a late post.
     await notifyAdmins(`TikTok QStash scheduling failed for post ${postId}, falling back to the periodic poller (can lag hours): ${message}`);
+    return false;
   }
 }

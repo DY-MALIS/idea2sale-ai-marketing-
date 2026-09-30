@@ -264,6 +264,7 @@ describe('POST /api/tiktok/publish?action=scheduleQstash', () => {
   });
 
   it("enqueues QStash delivery for the caller's own pending post", async () => {
+    mockScheduleQstash.mockResolvedValue(true);
     mockVerifyIdToken.mockResolvedValue({ uid: 'user-1' });
     mockInitFirebaseAdmin.mockReturnValue({
       collection: () => ({ doc: () => ({ get: async () => ({ exists: true, data: () => ({ userId: 'user-1' }) }) }) }),
@@ -271,7 +272,7 @@ describe('POST /api/tiktok/publish?action=scheduleQstash', () => {
     const res = response();
     await handler(req({ postId: 'post-1', scheduledTime: '2026-09-24T00:00:00.000Z' }), res);
     expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({ ok: true });
+    expect(res.body).toEqual({ ok: true, preciseDeliveryQueued: true });
     expect(mockScheduleQstash).toHaveBeenCalledWith(expect.anything(), 'post-1', new Date('2026-09-24T00:00:00.000Z'));
   });
 
@@ -287,7 +288,7 @@ describe('POST /api/tiktok/publish?action=scheduleQstash', () => {
     const res = response();
     await handler(req({ postId: 'post-1', scheduledTime: '2026-09-24T00:00:00.000Z' }), res);
     expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({ ok: true });
+    expect(res.body).toEqual({ ok: true, preciseDeliveryQueued: false });
   });
 });
 

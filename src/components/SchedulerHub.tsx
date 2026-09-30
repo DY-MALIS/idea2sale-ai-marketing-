@@ -55,6 +55,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [scheduleNotice, setScheduleNotice] = useState<string | null>(null);
   const handledHandoffRef = React.useRef<string | null>(null);
 
   // Helper for local datetime string
@@ -445,23 +446,27 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
       let videoUrl = '';
       let videoImageKitUrl = '';
       if (requiresVideo && videoFile) {
-        const safeName = videoFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-        const storageRef = ref(storage, `scheduled-videos/${userToUse.uid}/${Date.now()}-${safeName}`);
-        setUploadProgress(0);
-        try {
-          await uploadVideoWithProgress(storageRef, videoFile, setUploadProgress);
-          videoUrl = await getDownloadURL(storageRef);
-        } catch (storageError) {
-          // Firebase Storage can be unreachable on some networks even when
-          // the same connection uploads to ImageKit fine (confirmed live) --
-          // fall back rather than failing the whole post on a storage-
-          // provider-specific issue.
-          console.error('Firebase Storage upload failed, falling back to ImageKit:', storageError);
+        if (platforms.includes('TELEGRAM') && effectiveTelegramMedia === videoFile) {
+          // One hosted video works for both Telegram and TikTok/YouTube. Avoid
+          // uploading the same large file to Firebase and then ImageKit again.
           const uploaded = await uploadMediaViaImageKit(videoFile, idToken);
           videoUrl = uploaded.mediaUrl;
           videoImageKitUrl = uploaded.mediaUrl;
-        } finally {
-          setUploadProgress(null);
+        } else {
+          const safeName = videoFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+          const storageRef = ref(storage, `scheduled-videos/${userToUse.uid}/${Date.now()}-${safeName}`);
+          setUploadProgress(0);
+          try {
+            await uploadVideoWithProgress(storageRef, videoFile, setUploadProgress);
+            videoUrl = await getDownloadURL(storageRef);
+          } catch (storageError) {
+            console.error('Firebase Storage upload failed, falling back to ImageKit:', storageError);
+            const uploaded = await uploadMediaViaImageKit(videoFile, idToken);
+            videoUrl = uploaded.mediaUrl;
+            videoImageKitUrl = uploaded.mediaUrl;
+          } finally {
+            setUploadProgress(null);
+          }
         }
       }
 
@@ -481,6 +486,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
       }
 
       const failures: string[] = [];
+      const deliveryWarnings: string[] = [];
       for (const platform of platforms) {
         try {
           if (platform === 'TELEGRAM') {
@@ -543,19 +549,24 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
             hasMedia: Boolean(videoUrl),
           });
           if (platform === 'TIKTOK') {
-            // Best-effort: this only enqueues a precise QStash callback so the
-            // post publishes at the exact scheduled instant instead of waiting
-            // on the periodic poller (observed live lagging its configured
-            // 10-minute schedule by two hours or more). The post above is
-            // already safely scheduled either way, so a failure here must
-            // never surface as a scheduling error to the user.
-            fetch('/api/tiktok/publish?action=scheduleQstash', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-              body: JSON.stringify({ postId: scheduledDocRef.id, scheduledTime: scheduledDate.toISOString() }),
-            }).catch((qstashError) => {
+            // Await the precise callback before reporting success. A serverless
+            // response can stop an unawaited fetch, leaving only the slower
+            // periodic poller. The Firestore post remains scheduled if QStash
+            // fails, so show a delivery warning instead of failing the post.
+            try {
+              const queueResponse = await fetch('/api/tiktok/publish?action=scheduleQstash', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+                body: JSON.stringify({ postId: scheduledDocRef.id, scheduledTime: scheduledDate.toISOString() }),
+              });
+              const queueResult = await queueResponse.json().catch(() => ({}));
+              if (!queueResponse.ok || queueResult.preciseDeliveryQueued !== true) {
+                deliveryWarnings.push('TikTok was saved, but exact-time delivery could not be queued. The backup scheduler will retry it.');
+              }
+            } catch (qstashError) {
               console.error('Failed to enqueue precise TikTok delivery:', qstashError);
-            });
+              deliveryWarnings.push('TikTok was saved, but exact-time delivery could not be queued. The backup scheduler will retry it.');
+            }
           }
         } catch (platformError) {
           const message = platformError instanceof Error ? platformError.message : 'unknown error';
@@ -568,9 +579,11 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
       }
 
       resetFormAfterSchedule();
-      if (failures.length) {
-        setFormError(`Scheduled for ${platforms.length - failures.length}/${platforms.length} platform(s). Failed: ${failures.join('; ')}`);
-      }
+      setFormError(null);
+      setScheduleNotice(failures.length || deliveryWarnings.length ? [
+        ...(failures.length ? [`Scheduled for ${platforms.length - failures.length}/${platforms.length} platform(s). Failed: ${failures.join('; ')}`] : []),
+        ...deliveryWarnings,
+      ].join(' ') : 'Scheduled successfully.');
     } catch (err) {
       console.error('Error creating post:', err);
       const message = err instanceof Error ? err.message : t('failedSavePostErr');
@@ -614,7 +627,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
-            onClick={() => setIsModalOpen(true)}
+            onClick={() => { setScheduleNotice(null); setIsModalOpen(true); }}
             className="px-6 py-3 bg-brand-700 hover:bg-brand-800 text-white rounded-2xl font-bold text-sm shadow-xl shadow-brand-700/20 flex items-center gap-2 transition-transform"
           >
             <Plus size={18} />
@@ -622,6 +635,12 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
           </motion.button>
         </div>
       </header>
+
+      {scheduleNotice && (
+        <div role="status" className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm font-semibold text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
+          {scheduleNotice}
+        </div>
+      )}
 
       <div className="rounded-2xl border border-brand-200 bg-brand-50 px-5 py-4 text-sm text-brand-700 flex items-start gap-2 dark:bg-slate-800 dark:border-slate-700 dark:text-brand-400">
         <Zap size={16} className="mt-0.5 shrink-0 text-brand-500" />

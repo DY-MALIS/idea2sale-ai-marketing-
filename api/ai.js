@@ -1583,10 +1583,10 @@ Return ONLY a single valid JSON object with this exact structure:
 
       const rawPlan = Array.isArray(parsed?.videoPlan) ? parsed.videoPlan : [];
       const normalizedPlan = rawPlan.map((item, idx) => {
+        // Do not prepend a Latin business name to Khmer speech. The model is
+        // asked to spell names phonetically; adding the raw name afterward can
+        // switch the Khmer TTS voice to English and overrun the clip.
         const generatedVoiceOver = String(item?.voiceOverText || '').trim();
-        const brandedVoiceOver = contentBusinessName && !generatedVoiceOver.toLocaleLowerCase().includes(contentBusinessName.toLocaleLowerCase())
-          ? `${contentBusinessName}៖ ${generatedVoiceOver}`.trim().slice(0, 90)
-          : generatedVoiceOver;
         const itemDate = item?.date && /^\d{4}-\d{2}-\d{2}$/.test(item.date)
           ? item.date
           : new Date(today.getTime() + idx * 86400000).toISOString().slice(0, 10);
@@ -1600,7 +1600,7 @@ Return ONLY a single valid JSON object with this exact structure:
           prompt: String(item?.prompt || '').slice(0, 2000),
           voiceGender: item?.voiceGender === 'Male' ? 'Male' : 'Female',
           aspectRatio: '16:9',
-          voiceOverText: brandedVoiceOver.slice(0, 500),
+          voiceOverText: generatedVoiceOver.slice(0, 500),
           performanceStyle: String(item?.performanceStyle || '').trim().slice(0, 1000),
           suggestedPostTime: String(item?.suggestedPostTime || '11:30 AM').slice(0, 30),
           cta: String(item?.cta || '').slice(0, 120),
@@ -1993,6 +1993,7 @@ Return ONLY a single valid JSON object with this exact structure:
           voiceGender: req.body.khmerSpeech.voiceGender === 'Male' ? 'Male' : 'Female',
           businessName: String(req.body.khmerSpeech.businessName || '').trim().slice(0, 120),
           performanceStyle: String(req.body.khmerSpeech.performanceStyle || '').trim().slice(0, 1000),
+          allowScriptShortening: req.body.khmerSpeech.allowScriptShortening === true,
           duration,
           aspectRatio,
         };
@@ -2002,11 +2003,11 @@ Return ONLY a single valid JSON object with this exact structure:
           duration,
           images,
           aspectRatio,
-          // Render the referenced Khmer narration and mouth motion together in
-          // one audiovisual pass. The browser still replaces the provider track
-          // with this exact reference afterward because some completed jobs omit
-          // their audio stream even when audio generation was requested.
-          generateAudio: true,
+          allowScriptShortening: item.allowScriptShortening,
+          // The reference waveform guides mouth movement. The browser muxes
+          // that exact narration into the final clip, so a second provider
+          // audio render can introduce different words or reject the video.
+          generateAudio: false,
         });
         const responseBody = {
           ...job,

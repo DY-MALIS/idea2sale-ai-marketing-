@@ -587,7 +587,7 @@ const attemptGenerateVideoClip = async (
   images: { base64: string; mimeType: string }[],
   duration: number,
   aspectRatio: VideoAspectRatio,
-  khmerSpeech?: { script: string; voiceGender: string; businessName?: string; performanceStyle?: string },
+  khmerSpeech?: { script: string; voiceGender: string; businessName?: string; performanceStyle?: string; allowScriptShortening?: boolean },
   idToken?: string,
   userId?: string,
 ): Promise<{ videoUrl: string; narrationFallbackReason?: string; pendingFingerprint: string; expectedScript?: string; outputAspectRatio: VideoAspectRatio }> => {
@@ -992,6 +992,9 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     voiceOverTextOverride?: string,
     durationOverride?: number,
     aspectRatioOverride?: VideoAspectRatio,
+    voiceGenderOverride?: VoiceGender,
+    performanceStyleOverride?: string,
+    allowScriptShorteningOverride?: boolean,
   ) => {
     // A second call while one is already running would call resetFFmpeg() (which
     // terminates the shared ffmpeg.wasm singleton) out from under the first call's
@@ -1003,11 +1006,18 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     // The interactive generator is intentionally landscape-first. Automated
     // jobs may still pass an explicit ratio, but a manual click must never reuse
     // stale TikTok state from a restored/history job.
-    const generationAspectRatio: VideoAspectRatio = '16:9';
-    setVideoAspectRatio('16:9');
-    setCaptionPlatform('YouTube');
+    const generationAspectRatio: VideoAspectRatio = aspectRatioOverride || '16:9';
+    const generationVoiceGender = voiceGenderOverride || voiceGender;
+    const generationPerformanceStyle = performanceStyleOverride?.trim() || voicePersonas[voicePersona].style;
+    setVideoAspectRatio(generationAspectRatio);
+    setCaptionPlatform(generationAspectRatio === '16:9' ? 'YouTube' : 'TikTok');
     setGeneratedVideoAspectRatio(generationAspectRatio);
-    let voiceOverContent = (typeof voiceOverTextOverride === 'string' ? voiceOverTextOverride : (voiceOverEnabled ? voiceOverText : '')).trim();
+    // An automation handoff carries its own narration choice. React has not
+    // applied setVoiceOverEnabled() from the effect yet when this call begins.
+    const narrationRequested = typeof voiceOverTextOverride === 'string'
+      ? Boolean(voiceOverTextOverride.trim())
+      : voiceOverEnabled;
+    let voiceOverContent = (typeof voiceOverTextOverride === 'string' ? voiceOverTextOverride : (narrationRequested ? voiceOverText : '')).trim();
     if (!promptText && !videoImages.length) return;
 
     setLoading(true);
@@ -1030,17 +1040,17 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         user.getIdToken(),
         resetFFmpeg(),
       ]);
-      if (!voiceOverContent && generationLanguage === 'Khmer' && voiceOverEnabled && voiceOverTextOverride === undefined) {
+      if (!voiceOverContent && generationLanguage === 'Khmer' && narrationRequested && voiceOverTextOverride === undefined) {
         voiceOverContent = extractVideoDialogue(promptText).script;
       }
-      if (voiceOverEnabled && voiceOverTextOverride === undefined && !voiceOverContent && generationLanguage === 'Khmer' && !wantsSilentVideo(promptText)) {
+      if (narrationRequested && voiceOverTextOverride === undefined && !voiceOverContent && generationLanguage === 'Khmer' && !wantsSilentVideo(promptText)) {
         const response = await fetchAiWithTimeout({ action: 'videoNarration', prompt: promptText || 'Product introduction', duration: durationOverride || videoDuration, businessContext });
         const data = await response.json();
         if (!response.ok || !data.text) throw new Error(data.error || 'Could not prepare Khmer narration.');
         voiceOverContent = data.text;
         setVoiceOverText(data.text);
       }
-      const silentRequested = !voiceOverEnabled || wantsSilentVideo(promptText);
+      const silentRequested = !narrationRequested || (voiceOverTextOverride === undefined && wantsSilentVideo(promptText));
       if (silentRequested) voiceOverContent = '';
       const nativeKhmerSpeech = generationLanguage === 'Khmer' && !silentRequested;
       const audioDirection = nativeKhmerSpeech ? 'Khmer/Cambodian context. '
@@ -1075,12 +1085,18 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         const generatedClip = await generateVideoClip(segmentPrompt, referenceImages, segments[i], generationAspectRatio,
           spokenSegments?.[i] ? {
             script: spokenSegments[i],
-            voiceGender,
+            voiceGender: generationVoiceGender,
             businessName: businessContext.businessName,
-            performanceStyle: voicePersonas[voicePersona].style,
+            performanceStyle: generationPerformanceStyle,
+            allowScriptShortening: allowScriptShorteningOverride === true,
           } : undefined,
           idToken,
           user.uid);
+        if (allowScriptShorteningOverride && segments.length === 1 && generatedClip.expectedScript
+          && generatedClip.expectedScript !== spokenSegments?.[i]) {
+          voiceOverContent = generatedClip.expectedScript;
+          setVoiceOverText(generatedClip.expectedScript);
+        }
         setGeneratedVideoAspectRatio(generatedClip.outputAspectRatio);
         let clip = generatedClip.videoUrl;
         if (generatedClip.narrationFallbackReason) usedKhmerVoiceFallback = true;
@@ -1191,7 +1207,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
               prompt: promptText,
               videoLanguage: generationLanguage,
               voiceOverText: voiceOverContent,
-              voiceGender,
+              voiceGender: generationVoiceGender,
               voicePersona,
               videoDuration: durationOverride || videoDuration,
               videoAspectRatio: generationAspectRatio,
@@ -1235,6 +1251,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   React.useEffect(() => {
     if (!automationRequest || automationRequest.kind !== 'video') return;
     if (handledAutomationRef.current === automationRequest.id) return;
+    if (loading || audioLoading) return;
 
     const generationLanguage = automationRequest.language === 'km' ? 'Khmer' : 'English';
     const requestedVoiceOver = (automationRequest.voiceOverText || '').trim();
@@ -1247,6 +1264,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     setVideoLanguage(generationLanguage);
     setCaptionLanguage(generationLanguage);
     setVideoDuration(requestedDuration);
+    if (automationRequest.voiceGender) setVoiceGender(automationRequest.voiceGender);
     const requestedAspectRatio = normalizeVideoAspectRatio(automationRequest.aspectRatio);
     setVideoAspectRatio(requestedAspectRatio);
     setCaptionPlatform(requestedAspectRatio === '16:9' ? 'YouTube' : 'TikTok');
@@ -1260,8 +1278,9 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         : `The agent prepared a ${automationRequest.platform} brief and started automatic video creation${requestedVoiceOver ? ' with a Khmer voice-over' : ''}.`,
     );
     onAutomationConsumed?.(automationRequest.id);
-    void handleGenerateVideo(automationRequest.prompt, generationLanguage, requestedVoiceOver, requestedDuration, requestedAspectRatio);
-  }, [automationRequest?.id]);
+    void handleGenerateVideo(automationRequest.prompt, generationLanguage, requestedVoiceOver, requestedDuration, requestedAspectRatio,
+      automationRequest.voiceGender, automationRequest.performanceStyle, automationRequest.allowScriptShortening);
+  }, [automationRequest?.id, loading, audioLoading]);
 
   const handleGenerateAudio = async () => {
     if (loading || audioLoading) return;

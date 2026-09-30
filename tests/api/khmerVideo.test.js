@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ image: vi.fn(), video: vi.fn(), speech: vi.fn() }));
+const mocks = vi.hoisted(() => ({ image: vi.fn(), video: vi.fn(), speech: vi.fn(), shorten: vi.fn() }));
 vi.mock('../../api/_openrouter.js', () => ({ generateOpenRouterImage: mocks.image, startOpenRouterVideo: mocks.video }));
-vi.mock('../../api/_khmerNarration.js', () => ({ generateKhmerSpeech: mocks.speech }));
+vi.mock('../../api/_khmerNarration.js', () => ({ generateKhmerSpeech: mocks.speech, shortenGeneratedKhmerNarration: mocks.shorten }));
 import { fitKhmerClipDurationToNarration, startKhmerVideoJob } from '../../api/_khmerVideo.js';
 afterEach(() => { vi.resetAllMocks(); vi.unstubAllEnvs(); });
 const uploadStub = ({ audioDuration = 3.4, audioUrl = 'https://audio', imageUrl = 'https://image' } = {}) => vi.fn(async ({ mediaType }) => (
@@ -72,6 +72,39 @@ it('still rejects narration that exceeds the eight-second budget ceiling', async
   expect(mocks.speech).toHaveBeenCalledTimes(2);
   expect(mocks.image).not.toHaveBeenCalled();
   expect(mocks.video).not.toHaveBeenCalled();
+});
+
+it('shortens an overlong AI scanner script before starting a paid video', async () => {
+  mocks.speech
+    .mockResolvedValueOnce({ audioUrl: 'long-audio', duration: 9.2, provider: 'gemini' })
+    .mockResolvedValueOnce({ audioUrl: 'short-audio', duration: 6.5, provider: 'gemini', spokenText: 'ខ្លី និង ច្បាស់' });
+  mocks.shorten.mockResolvedValue('ខ្លី និង ច្បាស់');
+  mocks.video.mockResolvedValue({ jobId: 'job' });
+  const upload = uploadStub({ audioDuration: 6.5 });
+  const result = await startKhmerVideoJob(
+    { businessName: 'Example Cafe' },
+    { script: 'ប្រយោគខ្មែរដែលវែងខ្លាំង', prompt: 'Presenter' },
+    upload,
+    { duration: 8, images: [{ mimeType: 'image/png', base64: 'AAAA' }], allowScriptShortening: true },
+  );
+  expect(mocks.shorten).toHaveBeenCalledWith('ប្រយោគខ្មែរដែលវែងខ្លាំង', 'Example Cafe', 45);
+  expect(mocks.speech).toHaveBeenCalledTimes(2);
+  expect(mocks.video).toHaveBeenCalledTimes(1);
+  expect(result.narrationAudio.spokenText).toBe('ខ្លី និង ច្បាស់');
+});
+
+it('rewrites a Latin brand in AI scanner speech before synthesis', async () => {
+  mocks.shorten.mockResolvedValue('ហាងកាហ្វេរបស់យើង');
+  mocks.speech.mockResolvedValue({ audioUrl: 'audio', duration: 4.2, provider: 'edge' });
+  mocks.video.mockResolvedValue({ jobId: 'job' });
+  const upload = uploadStub({ audioDuration: 4.2 });
+  await startKhmerVideoJob(
+    { businessName: 'Dating Cafe & Mart' },
+    { script: 'សូមមក Dating Cafe & Mart', prompt: 'Cafe' },
+    upload,
+    { duration: 8, images: [{ mimeType: 'image/png', base64: 'AAAA' }], allowScriptShortening: true },
+  );
+  expect(mocks.speech).toHaveBeenCalledWith(expect.objectContaining({ input: 'ហាងកាហ្វេរបស់យើង' }));
 });
 
 it('retries an overlong expressive read at a measured Edge rate without changing the script', async () => {

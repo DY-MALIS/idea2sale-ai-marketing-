@@ -8,7 +8,7 @@ vi.mock('../../api/_openrouter.js', () => ({
   transcribeAudioWithOpenRouter: mocks.transcribe,
   normalizeForKhmerSpeech: (text) => String(text).normalize('NFC').trim(),
 }));
-import { createKhmerNarration, generateKhmerConversationSpeech, generateKhmerSpeech } from '../../api/_khmerNarration.js';
+import { createKhmerNarration, generateKhmerConversationSpeech, generateKhmerSpeech, shortenGeneratedKhmerNarration } from '../../api/_khmerNarration.js';
 afterEach(() => { vi.unstubAllEnvs(); vi.resetAllMocks(); });
 describe('Khmer narration', () => {
   beforeEach(() => { vi.stubEnv('KHMER_TTS_PROVIDER', 'gemini'); });
@@ -60,10 +60,21 @@ describe('Khmer narration', () => {
   });
 
   it('asks the voice to preserve every word while fitting the target clip', async () => {
-    mocks.gemini.mockResolvedValue({ audioUrl: 'natural-khmer', provider: 'gemini' });
+    mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,YXVkaW8=', provider: 'gemini' });
+    mocks.transcribe.mockResolvedValue('សួស្តី');
     await generateKhmerSpeech({ input: 'សួស្តី', targetDuration: 6 });
     expect(mocks.gemini.mock.calls[0][0].performanceStyle).toContain('within 5.85 seconds');
     expect(mocks.gemini.mock.calls[0][0].performanceStyle).toContain('Do not omit, abbreviate or cut off any word');
+    expect(mocks.transcribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the Khmer neural voice when a paid video Gemini read changes the words', async () => {
+    mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,YXVkaW8=', provider: 'gemini' });
+    mocks.transcribe.mockResolvedValue('ខុសទាំងស្រុង');
+    mocks.edge.mockResolvedValue({ audioUrl: 'clear-khmer', provider: 'edge' });
+    const result = await generateKhmerSpeech({ input: 'សួស្តី', targetDuration: 8 });
+    expect(result).toMatchObject({ provider: 'edge', spokenText: 'សួស្តី' });
+    expect(result.fallbackReason).toContain('unclear');
   });
 
   it('uses the requested measured rate when an overlong read is retried with Edge', async () => {
@@ -127,5 +138,15 @@ describe('Khmer narration', () => {
     }));
     expect(mocks.text.mock.calls[0][0].prompt).toContain('two connected short clauses');
     expect(mocks.text.mock.calls[0][0].prompt).toContain('DGACADEMY');
+  });
+  it('rewrites an AI plan line with a Latin brand into spoken Khmer', async () => {
+    mocks.text.mockResolvedValue('សូមមកហាងកាហ្វេរបស់យើង។');
+    const result = await shortenGeneratedKhmerNarration('សូមមក Dating Cafe & Mart។', 'Dating Cafe & Mart', 45);
+    expect(result).toBe('សូមមកហាងកាហ្វេរបស់យើង។');
+    expect(mocks.text.mock.calls[0][0].prompt).toContain('45 Khmer characters');
+  });
+  it('rejects a rewrite that still leaves an unknown Latin brand', async () => {
+    mocks.text.mockResolvedValue('សូមមក Example Cafe។');
+    await expect(shortenGeneratedKhmerNarration('សូមមក Example Cafe។')).rejects.toThrow('clear Khmer narration');
   });
 });

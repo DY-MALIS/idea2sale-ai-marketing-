@@ -719,11 +719,14 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     onCreativeAutomation({
       id: `facebook-scan-${Date.now()}-${item.date}`,
       kind: 'video',
-      prompt: `${item.prompt}\n\nPerformance direction: ${item.performanceStyle}\nHook: ${item.hook}`,
+      prompt: item.prompt,
       platform: 'Facebook',
       aspectRatio: '16:9',
       language: 'km',
       voiceOverText: item.voiceOverText,
+      voiceGender: item.voiceGender,
+      performanceStyle: item.performanceStyle,
+      allowScriptShortening: true,
       duration: 8,
     });
   };

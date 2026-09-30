@@ -1,5 +1,5 @@
 import { generateOpenRouterImage, startOpenRouterVideo } from './_openrouter.js';
-import { generateKhmerSpeech } from './_khmerNarration.js';
+import { generateKhmerSpeech, shortenGeneratedKhmerNarration } from './_khmerNarration.js';
 import { trimVideoNarrationSilence } from './_videoNarrationTiming.js';
 import {
   assertVideoGenerationWithinBudget,
@@ -32,6 +32,7 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
   images = [],
   aspectRatio = item.aspectRatio || '9:16',
   generateAudio,
+  allowScriptShortening = false,
 } = {}) => {
   const hasKhmerSpeech = speech.mode !== 'silent';
   assertVideoGenerationWithinBudget({
@@ -42,8 +43,14 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
   if (speech.mode === 'silent') {
     return { job: await startOpenRouterVideo({ prompt: visualPrompt(speech.prompt), duration, aspectRatio }), avatarImage: null };
   }
+  let spokenScript = speech.script;
+  let scriptShortened = false;
+  if (allowScriptShortening && /[A-Za-z]{2,}/.test(spokenScript)) {
+    spokenScript = await shortenGeneratedKhmerNarration(spokenScript, item.businessName);
+    scriptShortened = true;
+  }
   const speechOptions = {
-    input: speech.script,
+    input: spokenScript,
     voice: item.voiceGender || 'Female',
     performanceStyle: speech.performanceStyle || item.performanceStyle || '',
     context: item.prompt || speech.prompt || '',
@@ -56,6 +63,19 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
   if (!(measuredDuration > 0) || measuredDuration <= MAX_KHMER_CLIP_DURATION) {
     uploadedNarration = await uploadMediaDataUrl({ mediaDataUrl: audio.audioUrl, mediaType: 'audio' });
     measuredDuration = Number(audio.duration || uploadedNarration.duration);
+  }
+
+  if (measuredDuration > MAX_KHMER_CLIP_DURATION && allowScriptShortening && !scriptShortened) {
+    spokenScript = await shortenGeneratedKhmerNarration(spokenScript, item.businessName, 45);
+    speechOptions.input = spokenScript;
+    audio = await trimVideoNarrationSilence(await generateKhmerSpeech(speechOptions));
+    measuredDuration = Number(audio.duration);
+    uploadedNarration = undefined;
+    scriptShortened = true;
+    if (!(measuredDuration > 0) || measuredDuration <= MAX_KHMER_CLIP_DURATION) {
+      uploadedNarration = await uploadMediaDataUrl({ mediaDataUrl: audio.audioUrl, mediaType: 'audio' });
+      measuredDuration = Number(audio.duration || uploadedNarration.duration);
+    }
   }
 
   // Keep every word. If the expressive voice (or the normal Edge fallback)
@@ -84,7 +104,7 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
     : await generateOpenRouterImage({ prompt: visualPrompt(speech.avatarPrompt), aspectRatio, model: BUDGET_AVATAR_IMAGE_MODEL });
   const avatarImage = await uploadMediaDataUrl({ mediaDataUrl: image.imageUrl, mediaType: 'photo' });
   const avatarReferenceUrl = getOriginalImageKitUrl(avatarImage.mediaUrl, process.env.IMAGEKIT_URL_ENDPOINT || '');
-  const exactKhmerTranscript = String(narrationAudio.spokenText || speech.script || '').trim();
+  const exactKhmerTranscript = String(narrationAudio.spokenText || spokenScript || '').trim();
   const job = await startOpenRouterVideo({
     // Mini retains image/audio reference support while keeping an 8-second
     // Khmer presenter video (including avatar + narration reserve) under $0.80.
@@ -104,7 +124,7 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
       ...narrationAudio,
       provider: audio.provider || audio.model || 'unknown',
       fallbackReason: audio.fallbackReason || '',
-      spokenText: audio.spokenText || speech.script,
+      spokenText: audio.spokenText || spokenScript,
     },
   };
 };

@@ -288,6 +288,7 @@ const startPlanVideoJob = (item, speech) => {
   return startKhmerVideoJob(item, speech, uploadMediaDataUrl, {
     duration,
     generateAudio: false,
+    allowScriptShortening: true,
     aspectRatio: item.aspectRatio || '9:16',
   });
 };
@@ -740,7 +741,7 @@ export default async function handler(req, res) {
         const { job, avatarImage, narrationAudio: generatedNarrationAudio } = await startPlanVideoJob(item, speech);
         await planRef.update({
           status: 'PROCESSING', videoJobId: job.jobId,
-          voiceOverText: speech.script, voiceOverMode: speech.mode,
+          voiceOverText: generatedNarrationAudio?.spokenText || speech.script, voiceOverMode: speech.mode,
           generationPrompt: speech.prompt, performanceStyle: speech.performanceStyle || '',
           ...(avatarImage ? { avatarImage } : {}),
           ...(generatedNarrationAudio ? { narrationAudio: generatedNarrationAudio } : {}),
@@ -1066,7 +1067,7 @@ export default async function handler(req, res) {
         await planDoc.ref.update({
           status: 'PROCESSING',
           videoJobId: job.jobId,
-          voiceOverText: speech.script,
+          voiceOverText: generatedNarrationAudio?.spokenText || speech.script,
           voiceOverMode: speech.mode,
           generationPrompt: speech.prompt,
           performanceStyle: speech.performanceStyle || '',

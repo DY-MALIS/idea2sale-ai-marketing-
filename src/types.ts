@@ -160,6 +160,9 @@ export interface CreativeAutomationRequest {
   aspectRatio: '1:1' | '9:16' | '16:9' | '4:5' | '3:4';
   language: 'km' | 'en';
   voiceOverText?: string;
+  voiceGender?: 'Male' | 'Female';
+  performanceStyle?: string;
+  allowScriptShortening?: boolean;
   duration?: number;
   headline?: string;
   cta?: string;

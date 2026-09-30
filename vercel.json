@@ -2,14 +2,16 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
     "api/ai.js": {
-      "maxDuration": 300
+      "maxDuration": 300,
+      "includeFiles": "node_modules/ffmpeg-static/ffmpeg"
     },
     "api/telegram/deliver.js": {
       "maxDuration": 300,
       "includeFiles": "node_modules/ffmpeg-static/ffmpeg"
     },
     "api/telegram/run-scheduled.js": {
-      "maxDuration": 300
+      "maxDuration": 300,
+      "includeFiles": "node_modules/ffmpeg-static/ffmpeg"
     },
     "api/tiktok/publish.js": {
       "maxDuration": 300

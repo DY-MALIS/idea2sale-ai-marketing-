@@ -41,7 +41,9 @@ export async function generateKhmerSpeech({
       // narration voice name was passed in; narration keeps Kore/Charon.
       const voiceOverride = preferNaturalVoice ? (edgeKhmerVoice(voice) === 'km-KH-PisethNeural' ? 'Achird' : 'Aoede') : undefined;
       const generated = await generateGeminiSpeech({ input: spokenInput, voice, performanceStyle: clearKhmerStyle, context, voiceOverride });
-      if (preferNaturalVoice) {
+      // Check the actual waveform before using Gemini for either a live reply
+      // or a paid video. A fluent-sounding read can still change Khmer words.
+      if (preferNaturalVoice || (Number.isFinite(targetSeconds) && targetSeconds >= 4 && targetSeconds <= 8)) {
         const wavPrefix = 'data:audio/wav;base64,';
         if (!generated.audioUrl?.startsWith(wavPrefix)) throw new Error('Expressive voice returned unsupported audio.');
         const transcript = await transcribeAudioWithOpenRouter({
@@ -51,7 +53,7 @@ export async function generateKhmerSpeech({
           model: process.env.OPEN_ROUTER_STT_MODEL || 'google/chirp-3',
         });
         if (!compareKhmerTranscript(spokenInput, transcript).passed) {
-          throw new Error('Expressive voice did not clearly match the Khmer reply.');
+          throw new Error('Gemini voice did not clearly match the Khmer script.');
         }
       }
       return {
@@ -118,4 +120,20 @@ export async function createKhmerNarration(prompt, duration = 8, businessName = 
   }
   if (!/[\u1780-\u17ff]/.test(text || '')) throw new Error('Could not generate a Khmer narration script. Please enter Khmer text.');
   return text.trim();
+}
+
+// The scanner and daily plan create their own scripts. If one is too long or
+// leaves a Latin brand name in Khmer speech, rewrite it before a paid video is
+// submitted. Manual scripts are never changed by this helper.
+export async function shortenGeneratedKhmerNarration(script, businessName = '', maxCharacters = 55) {
+  const text = await generateOpenRouterText({
+    model: process.env.OPEN_ROUTER_CONTENT_PLAN_MODEL || 'google/gemini-3.1-pro-preview',
+    system: `Rewrite one AI-generated narration as a clear, short Cambodian Khmer sentence. Preserve the core claim and company identity, but do not invent claims. Output only the spoken sentence. ${KHMER_SCRIPT_ONLY_INSTRUCTION}`,
+    prompt: `Fit this spoken line naturally into an 8-second video, aiming for at most ${maxCharacters} Khmer characters. If the company name is in Latin letters, write how a Cambodian speaker would pronounce it in Khmer script; never leave Latin letters. Company: ${businessName || 'not specified'}. Original line: ${script}`,
+  });
+  const normalized = normalizeForKhmerSpeech(text || '');
+  if (!/[\u1780-\u17ff]/u.test(normalized) || /[A-Za-z]{2,}/.test(normalized)) {
+    throw new Error('Could not prepare a clear Khmer narration for this video. Shorten the spoken line and try again.');
+  }
+  return normalized;
 }

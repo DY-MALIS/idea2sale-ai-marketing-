@@ -441,8 +441,8 @@ async function runTikTokCron(req, res) {
 // is a plain client-side addDoc, not a server endpoint, so nothing else here
 // would ever get a chance to enqueue precise delivery). Best-effort: the
 // periodic cron/GitHub Action poller still covers this post if QStash
-// scheduling itself fails, so a failure here must never surface as an error
-// to the user -- their post is already scheduled either way.
+// scheduling itself fails. Return queue status so the UI can explain a slower
+// fallback without misreporting the already-saved post as a failed schedule.
 async function handleScheduleQstash(req, res) {
   const authHeader = req.headers.authorization || '';
   const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
@@ -466,11 +466,12 @@ async function handleScheduleQstash(req, res) {
     if (!snap.exists || snap.data()?.userId !== uid) {
       return res.status(404).json({ error: 'Scheduled post not found.' });
     }
-    await scheduleTikTokQStashDelivery(req, postId, scheduledDate);
+    const queued = await scheduleTikTokQStashDelivery(req, postId, scheduledDate);
+    return res.status(200).json({ ok: true, preciseDeliveryQueued: queued === true });
   } catch (error) {
     console.error('Failed to schedule TikTok QStash delivery:', error?.message || error);
   }
-  return res.status(200).json({ ok: true });
+  return res.status(200).json({ ok: true, preciseDeliveryQueued: false });
 }
 
 // QStash's precise per-post callback (see scheduleTikTokQStashDelivery in
