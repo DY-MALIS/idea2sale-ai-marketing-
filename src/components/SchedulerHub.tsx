@@ -12,6 +12,7 @@ import { getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
 import { useLanguage } from '../contexts/LanguageContext';
 import { saveLocalMedia } from '../lib/localMediaStore';
 import { withUploadTimeout } from '../lib/withUploadTimeout';
+import { requireTikTokAutomationConnection } from '../lib/tiktokConnection';
 
 import { useAuth } from '../contexts/AuthContext';
 import { ScheduleHandoffRequest } from '../types';
@@ -47,7 +48,7 @@ interface SchedulerHubProps {
 }
 
 const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffConsumed }) => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const { user, isDemoMode } = useAuth();
   const [activityVersion, setActivityVersion] = useState(0);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -98,6 +99,8 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   // media attached even though the user sees the generated content on screen.
   const [isAttachingHandoffMedia, setIsAttachingHandoffMedia] = useState(false);
   const [youtubeJustConnected, setYoutubeJustConnected] = useState(false);
+  const [tiktokJustConnected, setTiktokJustConnected] = useState(false);
+  const [isConnectingTikTok, setIsConnectingTikTok] = useState(false);
 
   // The "Connect YouTube" button opens api/auth/tiktok/redirect?provider=youtube
   // (reusing that OAuth-start route -- see its comment for why YouTube's own
@@ -105,11 +108,42 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   // this message back before closing itself.
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
       if (event.data?.type === 'YOUTUBE_AUTH_SUCCESS') setYoutubeJustConnected(true);
+      if (event.data?.type === 'TIKTOK_AUTH_SUCCESS') setTiktokJustConnected(true);
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
   }, []);
+
+  useEffect(() => { setTiktokJustConnected(false); }, [user?.uid]);
+
+  const connectTikTok = async () => {
+    if (!user) {
+      setFormError('Sign in before connecting TikTok.');
+      return;
+    }
+    const popup = window.open('about:blank', 'tiktokAuth', 'width=600,height=700');
+    if (!popup) {
+      setFormError('Allow popups to connect TikTok.');
+      return;
+    }
+    setIsConnectingTikTok(true);
+    setFormError(null);
+    try {
+      const response = await fetch('/api/auth/tiktok', {
+        headers: { Authorization: `Bearer ${await user.getIdToken()}` },
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.url) throw new Error(data.error || 'Could not connect TikTok.');
+      popup.location.href = data.url;
+    } catch (error) {
+      popup.close();
+      setFormError(error instanceof Error ? error.message : 'Could not connect TikTok.');
+    } finally {
+      setIsConnectingTikTok(false);
+    }
+  };
 
   // Consumes a "schedule this" handoff from PosterGen/VideoVoice: prefills the
   // create-post form with the generated media + caption and opens the modal,
@@ -404,6 +438,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     try {
       if (!user) throw new Error('Please sign in first.');
       const idToken = await user.getIdToken();
+      if (platforms.includes('TIKTOK')) await requireTikTokAutomationConnection(user);
 
       // TikTok/YouTube use one video upload. Telegram also needs a copy in
       // ImageKit when that upload went to Firebase Storage.
@@ -731,6 +766,16 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                   )}
                   {platforms.includes('TIKTOK') && (
                     <div>
+                      {!isDemoMode && (
+                        <div className="mb-3 rounded-xl border border-brand-200 bg-brand-50 p-3 text-xs text-brand-700 dark:border-brand-800 dark:bg-brand-900/20 dark:text-brand-300">
+                          <p>{tiktokJustConnected
+                            ? (language === 'km' ? 'បានភ្ជាប់ TikTok របស់អ្នករួច។' : 'Your TikTok account is connected.')
+                            : (language === 'km' ? 'ការផុសតាមកាលវិភាគត្រូវការភ្ជាប់ TikTok ផ្ទាល់ខ្លួនរបស់អ្នក។' : 'Scheduled publishing requires your own TikTok connection.')}</p>
+                          <button type="button" onClick={connectTikTok} disabled={isConnectingTikTok} className="mt-2 rounded-lg bg-brand-600 px-3 py-1.5 font-semibold text-white disabled:opacity-50">
+                            {isConnectingTikTok ? 'Connecting...' : (language === 'km' ? 'ភ្ជាប់ TikTok' : 'Connect TikTok')}
+                          </button>
+                        </div>
+                      )}
                       <label htmlFor="tiktok-delivery-mode" className="block text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-2">TikTok delivery</label>
                       <select
                         id="tiktok-delivery-mode"

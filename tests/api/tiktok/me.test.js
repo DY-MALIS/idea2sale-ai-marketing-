@@ -1,17 +1,19 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const { mockVerifyIdToken, mockInitFirebaseAdmin, mockDelete, mockGetCookie, mockDoc } = vi.hoisted(() => ({
+const { mockVerifyIdToken, mockInitFirebaseAdmin, mockDelete, mockGetCookie, mockDoc, mockGetAutomationAccessToken } = vi.hoisted(() => ({
   mockVerifyIdToken: vi.fn(),
   mockInitFirebaseAdmin: vi.fn(),
   mockDelete: vi.fn(),
   mockGetCookie: vi.fn(),
   mockDoc: vi.fn(),
+  mockGetAutomationAccessToken: vi.fn(),
 }));
 vi.mock('../../../api/_firebaseAdmin.js', () => ({
   default: { auth: () => ({ verifyIdToken: mockVerifyIdToken }) },
   initFirebaseAdmin: mockInitFirebaseAdmin,
 }));
 vi.mock('../../../api/_tiktok.js', () => ({
+  getAutomationAccessToken: mockGetAutomationAccessToken,
   getCookie: mockGetCookie,
   sessionCookieAttributes: vi.fn(() => 'HttpOnly; Secure; SameSite=None; Path=/'),
 }));
@@ -72,5 +74,24 @@ describe('POST /api/tiktok/me?action=disconnect', () => {
     await handler({ method: 'POST', query: { action: 'disconnect' }, headers: { authorization: 'Bearer good-token' } }, res);
     expect(res.statusCode).toBe(403);
     expect(mockDelete).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /api/tiktok/me?action=automation', () => {
+  it('checks only the signed-in owner token without returning it', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'company-a' });
+    mockGetAutomationAccessToken.mockResolvedValue('private-access-token');
+    const res = response();
+    await handler({ method: 'GET', query: { action: 'automation' }, headers: { authorization: 'Bearer firebase-token' } }, res);
+    expect(mockGetAutomationAccessToken).toHaveBeenCalledWith(expect.anything(), 'company-a');
+    expect(res.body).toEqual({ connected: true });
+  });
+
+  it('reports an account with no connection as disconnected', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'company-b' });
+    mockGetAutomationAccessToken.mockResolvedValue(null);
+    const res = response();
+    await handler({ method: 'GET', query: { action: 'automation' }, headers: { authorization: 'Bearer firebase-token' } }, res);
+    expect(res.body).toEqual({ connected: false });
   });
 });

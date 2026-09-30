@@ -1,5 +1,5 @@
 import admin, { initFirebaseAdmin } from '../_firebaseAdmin.js';
-import { getCookie, sessionCookieAttributes } from '../_tiktok.js';
+import { getAutomationAccessToken, getCookie, sessionCookieAttributes } from '../_tiktok.js';
 
 // Clears this owner's TikTok connection so a fresh "Connect TikTok" can pick a
 // different account -- TikTok's own login page otherwise reuses whatever
@@ -38,6 +38,30 @@ async function disconnectTikTok(req, res) {
 }
 
 export default async function handler(req, res) {
+  if (req.query?.action === 'automation') {
+    if (req.method !== 'GET') {
+      res.setHeader('Allow', 'GET');
+      return res.status(405).json({ error: 'Method not allowed' });
+    }
+    const idToken = String(req.headers.authorization || '').replace(/^Bearer /, '');
+    if (!idToken) return res.status(401).json({ error: 'Sign in to check your TikTok connection.' });
+    let db;
+    let owner;
+    try {
+      db = initFirebaseAdmin();
+      owner = await admin.auth().verifyIdToken(idToken, true);
+    } catch {
+      return res.status(401).json({ error: 'Sign in again.' });
+    }
+    try {
+      const token = await getAutomationAccessToken(db, owner.uid);
+      return res.status(200).json({ connected: Boolean(token) });
+    } catch (error) {
+      console.error('Could not check TikTok automation connection:', error?.message || error);
+      return res.status(503).json({ error: 'Could not verify your TikTok connection. Please try again.' });
+    }
+  }
+
   if (req.query?.action === 'disconnect') {
     if (req.method !== 'POST') {
       res.setHeader('Allow', 'POST');

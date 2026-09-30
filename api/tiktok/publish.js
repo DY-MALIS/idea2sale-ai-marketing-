@@ -331,6 +331,19 @@ export async function deliverOneScheduledTikTokPost(db, docRef, token) {
 // interrupted mid-upload by a prior cron invocation timing out/crashing -- once
 // claimed it's no longer PENDING, so nothing would ever retry it without this.
 const STALE_PROCESSING_MS = 3 * 60 * 1000;
+const TIKTOK_NOT_CONNECTED_ERROR = 'Connect your own TikTok account in TikTok Activity, then retry this post.';
+
+async function failUnconnectedTikTokPost(db, ref) {
+  const claim = await claimPendingPost(db, ref);
+  if (!claim.post) return false;
+  await ref.update({
+    status: 'FAILED',
+    errorMessage: TIKTOK_NOT_CONNECTED_ERROR,
+    tiktokErrorCode: 'not_connected',
+    failedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+  return true;
+}
 
 // Auto-publishes due TikTok posts created via Smart Scheduler (SchedulerHub.tsx,
 // platform TIKTOK). Unlike the manual button above, there's no browser session to
@@ -395,12 +408,19 @@ async function runTikTokCron(req, res) {
     const results = [];
     for (const doc of dueDocs) {
       const ownerId = doc.data()?.userId;
+      let tokenRefreshFailed = false;
       const token = ownerId ? await getAutomationAccessToken(db, ownerId).catch((error) => {
         console.error('TikTok token refresh failed for post owner:', error?.message);
+        tokenRefreshFailed = true;
         return null;
       }) : null;
+      if (tokenRefreshFailed) {
+        results.push({ id: doc.id, ok: true, skipped: 'token_refresh_failed' });
+        continue;
+      }
       if (!token) {
-        results.push({ id: doc.id, ok: true, skipped: 'owner_not_connected' });
+        const markedFailed = await failUnconnectedTikTokPost(db, doc.ref);
+        results.push({ id: doc.id, ok: false, skipped: markedFailed ? 'owner_not_connected' : 'already_handled' });
         continue;
       }
       const result = await deliverOneScheduledTikTokPost(db, doc.ref, token);
@@ -509,7 +529,8 @@ async function handleDeliverAction(req, res) {
       return res.status(200).json({ ok: true, skipped: 'token_refresh_failed' });
     }
     if (!token) {
-      return res.status(200).json({ ok: true, skipped: 'not_connected' });
+      const markedFailed = await failUnconnectedTikTokPost(db, ref);
+      return res.status(200).json({ ok: false, skipped: markedFailed ? 'not_connected' : 'already_handled' });
     }
 
     const result = await deliverOneScheduledTikTokPost(db, ref, token);

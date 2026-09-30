@@ -13,6 +13,7 @@ import { deleteLocalMedia, getLocalMediaBlob, getLocalMediaDataUrl } from '../li
 import { getStoredScheduledPosts, mergeStoredScheduleHistory, wasDemoModeThisSession } from '../lib/scheduledPosts';
 import { recordAuditEvent } from '../lib/auditClient';
 import { withUploadTimeout } from '../lib/withUploadTimeout';
+import { requireTikTokAutomationConnection } from '../lib/tiktokConnection';
 
 const DEMO_DEFAULT_POST_IDS = ['1', '2'];
 
@@ -442,6 +443,7 @@ const Scheduler: React.FC = () => {
   const uploadFailedTikTokPostToInbox = async (post: SchedulePost) => {
     if (!user || isDemoMode || post.localOnly || post.platform !== 'TIKTOK' || post.status !== 'FAILED') return;
     try {
+      await requireTikTokAutomationConnection(user);
       const scheduledTime = new Date().toISOString();
       const idToken = await user.getIdToken();
       await updateDoc(doc(db, 'scheduled_posts', post.id), {

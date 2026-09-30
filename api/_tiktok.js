@@ -111,7 +111,7 @@ export function getTikTokAuthUrl(req, state) {
   }
 
   const redirectUri = getRedirectUri(req);
-  const scope = (process.env.TIKTOK_SCOPES || 'user.info.basic,user.info.stats').trim();
+  const scope = (process.env.TIKTOK_SCOPES || 'user.info.basic,user.info.stats,video.upload,video.publish').trim();
 
   return `https://www.tiktok.com/v2/auth/authorize/?client_key=${encodeURIComponent(clientKey)}&scope=${encodeURIComponent(scope)}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`;
 }
@@ -163,21 +163,13 @@ export async function getAutomationAccessToken(db, ownerId) {
   if (!snap.exists) return null;
 
   const data = snap.data();
-  // TikTok told us (via webhook) this connection is dead -- surface it the
-  // same way as "never connected" rather than trying to refresh a token TikTok
-  // will just reject, so the cron/QStash callers' existing not-connected
-  // handling (leave PENDING, alert after an hour) takes over automatically.
+  // TikTok told us (via webhook) this connection is dead.
   if (data.revoked) return null;
   const REFRESH_MARGIN_MS = 5 * 60 * 1000;
   if (data.accessToken && data.expiresAt && data.expiresAt - Date.now() > REFRESH_MARGIN_MS) {
     return data.accessToken;
   }
-  if (!data.refreshToken) {
-    // Nothing left to refresh with -- surface the stale token if present so the
-    // caller's TikTok API call fails with TikTok's own "token expired" error
-    // rather than a vaguer one from here.
-    return data.accessToken || null;
-  }
+  if (!data.refreshToken) return data.expiresAt > Date.now() ? data.accessToken || null : null;
 
   // Claim the refresh so two concurrent callers -- the Vercel daily cron and
   // the GitHub Action's 10-minute poller both hit this once the stored token
@@ -203,9 +195,8 @@ export async function getAutomationAccessToken(db, ownerId) {
 
   if (claim.accessToken) return claim.accessToken;
   if (claim.inProgress) {
-    // Someone else is refreshing right now -- surface the pre-refresh token
-    // rather than racing them with the same refresh_token.
-    return data.accessToken || null;
+    // Leave scheduled work pending while another request refreshes the token.
+    throw new Error('TikTok token refresh is in progress.');
   }
 
   const clientKey = (process.env.TIKTOK_CLIENT_KEY || process.env.VITE_TIKTOK_CLIENT_KEY || '').trim();

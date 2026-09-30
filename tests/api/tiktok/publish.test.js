@@ -335,14 +335,20 @@ describe('POST /api/tiktok/publish?action=deliver (QStash callback)', () => {
     expect(res.statusCode).toBe(400);
   });
 
-  it('skips without publishing when TikTok automation was never connected', async () => {
+  it('marks a pending post failed when its owner never connected TikTok', async () => {
     mockVerify.mockResolvedValue(true);
     mockGetAutomationAccessToken.mockResolvedValue(null);
+    mockClaimPendingPost.mockResolvedValue({ post: { userId: 'user-1' } });
+    const update = vi.fn();
+    mockInitFirebaseAdmin.mockReturnValue({
+      collection: () => ({ doc: () => ({ update, get: async () => ({ data: () => ({ userId: 'user-1' }) }) }) }),
+    });
     const res = response();
     await handler(req({ postId: 'post-1' }), res);
     expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({ ok: true, skipped: 'not_connected' });
-    expect(mockClaimPendingPost).not.toHaveBeenCalled();
+    expect(res.body).toEqual({ ok: false, skipped: 'not_connected' });
+    expect(mockClaimPendingPost).toHaveBeenCalledOnce();
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ status: 'FAILED', tiktokErrorCode: 'not_connected' }));
   });
 
   it('delivers the due post via FILE_UPLOAD and marks it PUBLISHED', async () => {
