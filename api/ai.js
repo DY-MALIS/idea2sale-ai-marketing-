@@ -1859,8 +1859,24 @@ Return ONLY a single valid JSON object with this exact structure:
       const expected = String(req.body?.expected || '').trim();
       const audioBase64 = String(req.body?.audioBase64 || '');
       if (!expected || expected.length > 1000 || !audioBase64 || audioBase64.length > 8000000) return res.status(400).json({ error: 'Invalid speech verification input.' });
-      const transcript = await transcribeAudioWithOpenRouter({ audioBase64, format: 'wav', languageHint: 'Khmer' });
-      return res.status(200).json({ ...compareKhmerTranscript(expected, transcript), transcript });
+      // Match the scheduled/scanner path's retry robustness (verifyUploadedVideoSpeech
+      // in api/_videoSpeech.js): re-transcribing the same untouched audio a couple more
+      // times catches a transient STT hallucination instead of surfacing a false
+      // "speech mismatch" to the user on the very first hiccup.
+      const MAX_TRANSCRIPTION_ATTEMPTS = 3;
+      let result;
+      for (let attempt = 1; attempt <= MAX_TRANSCRIPTION_ATTEMPTS; attempt += 1) {
+        let transcript;
+        try {
+          transcript = await transcribeAudioWithOpenRouter({ audioBase64, format: 'wav', languageHint: 'Khmer' });
+        } catch (error) {
+          if (attempt === MAX_TRANSCRIPTION_ATTEMPTS) throw error;
+          continue;
+        }
+        result = { ...compareKhmerTranscript(expected, transcript), transcript };
+        if (result.passed) break;
+      }
+      return res.status(200).json(result);
     }
 
     if (action === 'videoNarration') {
