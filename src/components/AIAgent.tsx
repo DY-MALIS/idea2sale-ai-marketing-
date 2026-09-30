@@ -848,6 +848,11 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           duration: kind === 'video' && [4, 6, 8].includes(Number(data.automation.duration))
             ? Number(data.automation.duration)
             : undefined,
+          voiceGender: kind === 'video' && ['Male', 'Female'].includes(data.automation.voiceGender)
+            ? data.automation.voiceGender
+            : undefined,
+          performanceStyle: kind === 'video' ? String(data.automation.performanceStyle || '').trim() || undefined : undefined,
+          allowScriptShortening: kind === 'video',
         });
       }
     } catch (error: any) {

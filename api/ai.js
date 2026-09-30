@@ -473,7 +473,11 @@ FINAL VIDEO OVERRIDE: Khmer plan videos use a Khmer neural speech track and an a
 // Shared by extractContentPlan and competitor research: turns the raw
 // AI JSON response into the exact PlanItem shape the frontend's plan-review
 // UI and content_plan_items schema expect, with the same field length caps.
-const parseContentPlanItems = (text, businessName = '') => jsonFromText(text, [])
+// Do not prepend a Latin business name to Khmer speech here -- the model is
+// already instructed (businessContentInstruction requireName) to weave the
+// exact name into the script itself. Adding the raw name afterward can switch
+// the Khmer TTS voice to English and overrun the clip.
+const parseContentPlanItems = (text) => jsonFromText(text, [])
   .filter((item) => item && /^\d{4}-\d{2}-\d{2}$/.test(item.date) && item.prompt)
   .map((item) => ({
     date: item.date,
@@ -486,12 +490,7 @@ const parseContentPlanItems = (text, businessName = '') => jsonFromText(text, []
     } : {
       voiceGender: item.voiceGender === 'Male' ? 'Male' : 'Female',
       aspectRatio: '16:9',
-      voiceOverText: (() => {
-        const line = String(item.voiceOverText || '').trim();
-        return businessName && !line.toLocaleLowerCase().includes(businessName.toLocaleLowerCase())
-          ? `${businessName}៖ ${line}`.trim().slice(0, 80)
-          : line.slice(0, 500);
-      })(),
+      voiceOverText: String(item.voiceOverText || '').trim().slice(0, 500),
       performanceStyle: String(item.performanceStyle || '').trim().slice(0, 1000),
     }),
   }))
@@ -666,6 +665,8 @@ Return exactly this JSON shape:
   "duration": 4, 6, or 8 (only relevant when kind="video"; default 8 if not stated),
   "voiceOverWanted": true, false, or null (only relevant when kind="video"; null means not yet settled),
   "voiceOverText": "exact narration/dialogue script to be spoken in the video (any language, usually Khmer). When Khmer, ${KHMER_SCRIPT_ONLY_INSTRUCTION} Empty string if no voice-over was requested.",
+  "voiceGender": "Male" or "Female" (only relevant when kind="video" and voiceOverWanted=true; pick whichever suits the speaker described or defaults to Female if unstated),
+  "performanceStyle": "a short delivery/emotion/emphasis direction for the spoken line, e.g. warm and confident, energetic and upbeat (only relevant when kind=\"video\" and voiceOverWanted=true; empty string otherwise)",
   "missing": "one concise missing detail, or empty string"
 }
 
@@ -702,12 +703,11 @@ Aspect ratio defaults: poster=3:4 unless the user names another format, TikTok/R
       : fallbackRatio;
   const prompt = String(plan.prompt || '').trim().slice(0, 5000);
   const duration = TOTAL_VIDEO_DURATION_OPTIONS.includes(Number(plan.duration)) ? Number(plan.duration) : 8;
-  const generatedVoiceOverText = String(plan.voiceOverText || '').trim().slice(0, 2000);
-  const voiceOverText = plan.kind === 'video' && plan.voiceOverWanted === true
-    && businessContext?.businessName
-    && !generatedVoiceOverText.toLocaleLowerCase().includes(businessContext.businessName.toLocaleLowerCase())
-      ? `${businessContext.businessName}៖ ${generatedVoiceOverText}`.trim().slice(0, 2000)
-      : generatedVoiceOverText;
+  // Do not prepend a Latin business name to Khmer speech here -- the model is
+  // already instructed (businessContentInstruction requireName) to weave the
+  // exact name into the script itself. Adding the raw name afterward can
+  // switch the Khmer TTS voice to English and overrun the clip.
+  const voiceOverText = String(plan.voiceOverText || '').trim().slice(0, 2000);
   // Narration must be an explicit true/false decision for video, never inferred from silence — a video
   // is only ready once that choice is made, and if narration was wanted, the script must be filled in too.
   const narrationSettled = plan.kind !== 'video'
@@ -732,6 +732,12 @@ Aspect ratio defaults: poster=3:4 unless the user names another format, TikTok/R
       : '',
     duration: plan.kind === 'video' ? duration : undefined,
     voiceOverText: plan.kind === 'video' && plan.voiceOverWanted === true ? voiceOverText : '',
+    voiceGender: plan.kind === 'video' && plan.voiceOverWanted === true
+      ? (plan.voiceGender === 'Male' ? 'Male' : 'Female')
+      : undefined,
+    performanceStyle: plan.kind === 'video' && plan.voiceOverWanted === true
+      ? String(plan.performanceStyle || '').trim().slice(0, 1000)
+      : undefined,
     missing: String(plan.missing || '').trim().slice(0, 300),
   };
 };
@@ -1134,7 +1140,7 @@ ${contentPlanItemFieldRules(language, `the date normalized to YYYY-MM-DD (infer 
 Only skip a row if it truly has no date, or has a date but no topic/title/description of any kind, or is clearly a header/blank/totals/KPI row. When in doubt about whether a row qualifies, include it rather than skip it. Return ONLY a valid JSON array of these objects, no markdown, no commentary. Return an empty array only if the text has no calendar-like rows whatsoever.`,
       });
 
-      return res.status(200).json({ items: parseContentPlanItems(text, businessContext.businessName) });
+      return res.status(200).json({ items: parseContentPlanItems(text) });
     }
 
     // Comprehensive Facebook Customer & Competitor Scanner with Video Planning Calendar
