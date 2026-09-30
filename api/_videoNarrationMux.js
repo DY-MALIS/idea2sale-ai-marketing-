@@ -9,6 +9,34 @@ import { getOriginalImageKitUrl } from '../shared/imageKitUrl.js';
 
 const run = promisify(execFile);
 const MAX_BYTES = 48 * 1024 * 1024;
+// The mux command below uses -shortest, which SILENTLY truncates the narration
+// to the video's length instead of failing -- if some upstream caller's own
+// duration check is ever wrong, stale, or skipped, that would ship a video
+// with cut-off speech instead of surfacing a clear error. Probe both files
+// with ffmpeg itself (no separate ffprobe binary needed -- Duration is in the
+// same header ffmpeg prints while opening any input) so this file enforces
+// the invariant on its own, regardless of what any caller already checked.
+const DURATION_GUARD_TOLERANCE_SECONDS = 0.1;
+
+const parseFfmpegDurationSeconds = (output) => {
+  const match = /Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(String(output || ''));
+  if (!match) return null;
+  const [, hours, minutes, seconds] = match;
+  return Number(hours) * 3600 + Number(minutes) * 60 + Number(seconds);
+};
+
+async function probeDurationSeconds(filePath) {
+  try {
+    const { stderr } = await run(ffmpegPath, [
+      '-hide_banner', '-nostdin', '-i', filePath, '-t', '0.01', '-f', 'null', '-',
+    ], { timeout: 15000, windowsHide: true, maxBuffer: 1024 * 1024 });
+    return parseFfmpegDurationSeconds(stderr);
+  } catch (error) {
+    // ffmpeg can exit non-zero for a stub output it still fully opened and
+    // printed Duration for -- the header info is on the error itself.
+    return parseFfmpegDurationSeconds(error?.stderr);
+  }
+}
 
 async function download(url) {
   if (!isImageKitMediaUrl(url)) throw new Error('Narration assembly requires stored ImageKit media.');
@@ -39,6 +67,13 @@ export async function replaceVideoNarration(videoUrl, audioUrl) {
     const audioPath = join(directory, 'narration.audio');
     const outputPath = join(directory, 'output.mp4');
     await Promise.all([writeFile(videoPath, video), writeFile(audioPath, audio)]);
+    const [videoDuration, audioDuration] = await Promise.all([
+      probeDurationSeconds(videoPath),
+      probeDurationSeconds(audioPath),
+    ]);
+    if (videoDuration != null && audioDuration != null && audioDuration > videoDuration + DURATION_GUARD_TOLERANCE_SECONDS) {
+      throw new Error(`Khmer narration (${audioDuration.toFixed(2)}s) is longer than the generated video (${videoDuration.toFixed(2)}s). Regenerate the video instead of shipping cut-off speech.`);
+    }
     await run(ffmpegPath, [
       '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
       '-protocol_whitelist', 'file,pipe', '-i', videoPath,

@@ -46,3 +46,29 @@ it('replaces the generated audio, preserves video length, and pads the narration
     await rm(dir, { recursive: true, force: true });
   }
 }, 20000);
+
+it('rejects narration longer than the video instead of silently truncating it via -shortest', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'mux-overrun-test-'));
+  const originalFetch = global.fetch;
+  vi.stubEnv('IMAGEKIT_URL_ENDPOINT', 'https://ik.imagekit.io/test');
+  vi.stubEnv('IMAGEKIT_PUBLIC_KEY', 'test');
+  vi.stubEnv('IMAGEKIT_PRIVATE_KEY', 'test');
+  try {
+    const video = join(dir, 'video.mp4');
+    const audio = join(dir, 'audio.wav');
+    await run(ffmpeg, ['-v', 'error', '-f', 'lavfi', '-i', 'color=c=blue:s=64x64:r=25:d=2',
+      '-f', 'lavfi', '-i', 'sine=frequency=220:duration=2', '-c:v', 'libx264', '-c:a', 'aac', '-shortest', video], { windowsHide: true });
+    // Narration (3s) deliberately outlasts the 2s video -- this must fail
+    // loudly rather than ship a video whose speech is cut off mid-word.
+    await run(ffmpeg, ['-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=880:duration=3', audio], { windowsHide: true });
+    const videoBytes = await readFile(video);
+    const audioBytes = await readFile(audio);
+    global.fetch = vi.fn(async url => new Response(url.endsWith('video.mp4') ? videoBytes : audioBytes));
+    await expect(replaceVideoNarration('https://ik.imagekit.io/test/video.mp4', 'https://ik.imagekit.io/test/audio.wav'))
+      .rejects.toThrow(/longer than the generated video/);
+  } finally {
+    global.fetch = originalFetch;
+    vi.unstubAllEnvs();
+    await rm(dir, { recursive: true, force: true });
+  }
+}, 20000);
