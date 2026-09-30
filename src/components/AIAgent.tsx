@@ -149,20 +149,22 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const liveVoiceEnabledRef = useRef(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const speakingRef = useRef<HTMLAudioElement | null>(null);
-  // iOS Safari (and some other mobile browsers) only allow audio.play() to succeed
-  // when it runs as a direct consequence of a user gesture -- a play() called later
-  // from an async chain (mic auto-detects silence -> transcribe -> ask agent -> TTS
-  // fetch resolves) has lost that gesture context and gets silently rejected, so the
-  // reply shows as text but is never actually spoken. Playing one silent clip
-  // synchronously inside the Live Voice button's own onClick (a real gesture) unlocks
-  // audio playback for the rest of the page session, so every later programmatic
-  // audio.play() in speakAnswer succeeds too.
+  // iOS Safari only unlocks the EXACT <audio> element that played during a user
+  // gesture -- a brand-new `new Audio(...)` created later (even from the same page
+  // session) is treated as never-unlocked and gets silently blocked again. So the
+  // fix isn't just "play something once during a click", it's "keep reusing that
+  // same element": this one persistent element is unlocked here (synchronously
+  // inside the Live Voice button's onClick) and speakAnswer below reuses it for
+  // every TTS segment by swapping .src instead of constructing a new Audio().
   const audioUnlockedRef = useRef(false);
+  const unlockedAudioElRef = useRef<HTMLAudioElement | null>(null);
   const SILENT_WAV_DATA_URL = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
   const unlockAudioPlayback = () => {
     if (audioUnlockedRef.current) return;
     audioUnlockedRef.current = true;
-    const unlock = new Audio(SILENT_WAV_DATA_URL);
+    const unlock = unlockedAudioElRef.current || new Audio();
+    unlockedAudioElRef.current = unlock;
+    unlock.src = SILENT_WAV_DATA_URL;
     unlock.play().catch(() => { audioUnlockedRef.current = false; });
   };
   const speechTurnRef = useRef(0);
@@ -322,7 +324,12 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         if (!data.audioUrl) throw new Error(data.error || 'Voice playback is unavailable.');
         if (turn !== speechTurnRef.current || !isMountedRef.current) return;
         if (index + 1 < segments.length) pendingSpeech = loadSpeech(segments[index + 1]);
-        const audio = new Audio(data.audioUrl);
+        // Reuse the one element unlocked in the Live Voice button's onClick rather
+        // than `new Audio(...)` -- see unlockAudioPlayback's comment for why a
+        // fresh element would be blocked again on iOS Safari.
+        const audio = unlockedAudioElRef.current || new Audio();
+        unlockedAudioElRef.current = audio;
+        audio.src = data.audioUrl;
         speakingRef.current = audio;
         await new Promise<void>((resolve, reject) => {
           audio.onended = () => resolve();
