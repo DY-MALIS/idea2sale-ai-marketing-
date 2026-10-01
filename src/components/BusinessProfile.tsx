@@ -72,6 +72,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
   const [logoDataUrl, setLogoDataUrl] = useState('');
   const [directory, setDirectory] = useState<BusinessDirectoryEntry[]>([]);
   const [telegramBotToken, setTelegramBotToken] = useState('');
+  const [savedTelegramBotToken, setSavedTelegramBotToken] = useState('');
   const [telegramChatId, setTelegramChatId] = useState('');
   const [telegramChannelUrl, setTelegramChannelUrl] = useState('');
   const [tiktokHandle, setTiktokHandle] = useState('');
@@ -93,6 +94,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
       setLoading(true);
       setBusinessName(''); setBusinessDescription(''); setLogoDataUrl(''); setDirectory([]);
       setTelegramBotToken(''); setTelegramChatId(''); setTelegramChannelUrl('');
+      setSavedTelegramBotToken('');
       setTiktokHandle(''); setFacebookPageUrl(''); setTelegramBotActive(false);
       try {
         if (isDemoMode || !user) {
@@ -103,6 +105,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
           setLogoDataUrl(local.logoDataUrl);
           setDirectory(local.directory || []);
           setTelegramBotToken(local.telegramBotToken || '');
+          setSavedTelegramBotToken(local.telegramBotToken || '');
           setTelegramChatId(local.telegramChatId || '');
           setTelegramChannelUrl(local.telegramChannelUrl || '');
           setTiktokHandle(local.tiktokHandle || '');
@@ -117,6 +120,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
             setLogoDataUrl(data.logoDataUrl || '');
             setDirectory(data.directory || []);
             setTelegramBotToken(data.telegramBotToken || '');
+            setSavedTelegramBotToken(data.telegramBotToken || '');
             setTelegramChatId(data.telegramChatId || '');
             setTelegramChannelUrl(data.telegramChannelUrl || '');
             setTiktokHandle(data.tiktokHandle || '');
@@ -125,6 +129,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
           } else {
             setBusinessName(''); setBusinessDescription(''); setLogoDataUrl(''); setDirectory([]);
             setTelegramBotToken(''); setTelegramChatId(''); setTelegramChannelUrl('');
+            setSavedTelegramBotToken('');
             setTiktokHandle(''); setFacebookPageUrl(''); setTelegramBotActive(false);
           }
         }
@@ -201,6 +206,17 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
       if (isDemoMode || !user) {
         localStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify(profile));
       } else {
+        if (telegramBotActive && profile.telegramBotToken !== savedTelegramBotToken) {
+          const idToken = await user.getIdToken();
+          const response = await fetch('/api/telegram/webhook?action=activate-bot', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+            body: JSON.stringify({ deactivate: true }),
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok || !data.ok) throw new Error(data.error || 'Could not disconnect the previous Telegram bot.');
+          setTelegramBotActive(false);
+        }
         // merge: true -- a plain overwrite here would wipe out telegramBotActive,
         // which the server sets independently (see activateOwnBot in
         // api/telegram/webhook.js) whenever the user activates/deactivates their
@@ -216,6 +232,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
           hasLogo: Boolean(profile.logoDataUrl),
         });
       }
+      setSavedTelegramBotToken(profile.telegramBotToken);
       setSaved(true);
       window.dispatchEvent(new Event('business-profile-updated'));
       setTimeout(() => setSaved(false), 3000);
@@ -229,6 +246,10 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
 
   const handleToggleBotActive = async () => {
     if (!user || isDemoMode) return;
+    if (telegramBotToken.trim() !== savedTelegramBotToken) {
+      setBotStatusMessage('Save the changed Bot Token before activating or deactivating the bot.');
+      return;
+    }
     setActivatingBot(true);
     setBotStatusMessage(null);
     const deactivate = telegramBotActive;
@@ -401,13 +422,20 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
             </div>
 
             <div className="space-y-3">
-              <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest block">TikTok &amp; Facebook</label>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Save your company channels here. TikTok publishing also requires connecting your own TikTok account; a Facebook Page URL is for profile context only.</p>
+              <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest block">
+                {language === 'km' ? 'តំណភ្ជាប់បណ្ដាញសង្គម (ជាជម្រើស)' : 'Social profile details (optional)'}
+              </label>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {language === 'km'
+                  ? 'បើអ្នកបានភ្ជាប់ TikTok តាម TikTok Activity រួច អ្នកមិនចាំបាច់បញ្ចូលឈ្មោះគណនីនៅទីនេះទៀតទេ។ ប្រអប់នេះប្រើសម្រាប់បរិបទ AI ប៉ុណ្ណោះ មិនមែនសម្រាប់អនុញ្ញាតបង្ហោះទេ។'
+                  : 'If you connected TikTok in TikTok Activity, you do not need to enter it again here. This optional handle only gives the AI business context; it does not authorize publishing.'}
+              </p>
               <input
                 type="text"
                 value={tiktokHandle}
                 onChange={(e) => setTiktokHandle(e.target.value)}
-                placeholder="TikTok username, e.g. @mycompany"
+                aria-label={language === 'km' ? 'ឈ្មោះ TikTok សម្រាប់បរិបទ AI (ជាជម្រើស)' : 'TikTok handle for AI context (optional)'}
+                placeholder={language === 'km' ? 'ឈ្មោះ TikTok (ជាជម្រើស)' : 'TikTok handle (optional), e.g. @mycompany'}
                 className="w-full px-4 py-3 bg-brand-50 border border-brand-100 dark:bg-slate-800 dark:border-slate-700 rounded-2xl text-sm text-brand-700 dark:text-slate-100 focus:outline-none focus:ring-2 ring-brand-500/20"
               />
               <input
@@ -468,7 +496,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
                   </span>
                   <button
                     onClick={handleToggleBotActive}
-                    disabled={activatingBot || !telegramBotToken.trim()}
+                    disabled={activatingBot || !savedTelegramBotToken || telegramBotToken.trim() !== savedTelegramBotToken}
                     className={cn(
                       'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
                       telegramBotActive
@@ -480,7 +508,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
                     {telegramBotActive ? t('deactivateMyBot') : t('activateMyBot')}
                   </button>
                 </div>
-                {!telegramBotToken.trim() && (
+                {(!savedTelegramBotToken || telegramBotToken.trim() !== savedTelegramBotToken) && (
                   <p className="text-[11px] text-amber-600 mt-2">{t('saveBotTokenFirst')}</p>
                 )}
                 {botStatusMessage && <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">{botStatusMessage}</p>}
