@@ -10,9 +10,9 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../hooks/useToast';
 import { connectGeminiLive, GeminiLiveSession } from '../lib/geminiLiveClient';
-import { BusinessProfileData, CreativeAutomationRequest } from '../types';
+import { getLatestBusinessBranding } from '../lib/businessBranding';
+import { CreativeAutomationRequest } from '../types';
 
-const DEMO_BUSINESS_PROFILE_STORAGE_KEY = 'demo_business_profile';
 const DEMO_AGENT_CONVERSATION_STORAGE_KEY = 'demo_agent_conversation';
 // Keep recent agent work visible long enough for users to return and reuse it.
 const AGENT_MEMORY_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000;
@@ -118,7 +118,11 @@ const normalizeSessions = (value: unknown): AgentConversationSession[] => (
 
 interface AgentBusinessContext {
   businessName: string;
+  businessDescription: string;
   directory: { name: string; type: string }[];
+  tiktokHandle: string;
+  facebookPageUrl: string;
+  telegramChannelUrl: string;
 }
 
 const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
@@ -342,32 +346,26 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   }, [user, isDemoMode]);
 
   // Business Profile stays mounted alongside AI Agent in this SPA, so a save
-  // there must refresh this tab's cached context too -- otherwise scans and
-  // plans keep using whatever business name/directory was loaded at mount.
+  // there must refresh this tab's cached context too -- otherwise chat, plan
+  // generation, and Live Voice keep using whatever was loaded at mount.
+  // getLatestBusinessBranding (the same helper every other generation surface
+  // uses) carries the full saved profile, not just the name/directory this
+  // used to fetch by hand -- Live Voice and content-plan prompts also fold in
+  // businessDescription and the saved social channels (businessContentInstruction
+  // in api/ai.js), so a partial context silently under-used what was saved.
   useEffect(() => {
     let cancelled = false;
-    const loadBusinessContext = () => {
-      if (isDemoMode || !user) {
-        const savedProfile = JSON.parse(localStorage.getItem(DEMO_BUSINESS_PROFILE_STORAGE_KEY) || 'null');
-        if (savedProfile && !cancelled) {
-          setBusinessContext({ businessName: savedProfile.businessName || '', directory: savedProfile.directory || [] });
-        } else if (!cancelled) {
-          setBusinessContext(null);
-        }
-        return Promise.resolve();
-      }
-      return getDoc(doc(db, 'business_profiles', user.uid)).then((profileSnap) => {
-        if (cancelled) return;
-        if (profileSnap.exists()) {
-          const data = profileSnap.data() as BusinessProfileData;
-          setBusinessContext({ businessName: data.businessName || '', directory: data.directory || [] });
-        } else {
-          setBusinessContext(null);
-        }
-      }).catch((error) => {
-        console.error('Failed to load business context:', error);
+    const loadBusinessContext = () => getLatestBusinessBranding(user, isDemoMode).then((branding) => {
+      if (cancelled) return;
+      setBusinessContext({
+        businessName: branding.businessName,
+        businessDescription: branding.businessDescription,
+        directory: branding.directory,
+        tiktokHandle: branding.tiktokHandle,
+        facebookPageUrl: branding.facebookPageUrl,
+        telegramChannelUrl: branding.telegramChannelUrl,
       });
-    };
+    });
     void loadBusinessContext();
     window.addEventListener('business-profile-updated', loadBusinessContext);
     return () => {
