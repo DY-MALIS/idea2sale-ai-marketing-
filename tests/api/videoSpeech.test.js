@@ -93,7 +93,9 @@ describe('native Khmer video speech', () => {
     expect(prepared.motionPrompt).toContain('natural breathing');
     expect(prepared.motionPrompt).toContain('No pose freezes longer than 0.3 seconds');
     expect(prepared.motionPrompt).toContain('synchronized frame by frame');
-    expect(prepared.prompt.length + prepared.motionPrompt.length).toBeLessThan(1100);
+    expect(prepared.motionPrompt).toContain('LIVELY DELIVERY');
+    expect(prepared.motionPrompt).toContain('never a flat, bored, or mannequin-still stare');
+    expect(prepared.prompt.length + prepared.motionPrompt.length).toBeLessThan(1400);
     expect(mocks.narration).not.toHaveBeenCalled();
   });
   it('does not reject a visually short Khmer script from combining-mark character counts', async () => {
