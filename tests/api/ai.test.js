@@ -179,6 +179,13 @@ describe('resolveCompetitorResearchTarget', () => {
     expect(resolveCompetitorResearchTarget('ស្វែងរកគូប្រកួតប្រជែងរបស់Dating Cafe & Mart', 'DGACADEMY')).toBe('Dating Cafe & Mart');
     expect(resolveCompetitorResearchTarget('competitors of Dating Cafe & Mart', 'DGACADEMY')).toBe('Dating Cafe & Mart');
   });
+
+  it('keeps Khmer subscript consonants and vowel signs in the target name', () => {
+    expect(resolveCompetitorResearchTarget(
+      'ស្វែងរកគូប្រកួតប្រជែងរបស់ MD ស្ក្រាប់ខាត់ស្បែកខ្លួន',
+      'DGACADEMY',
+    )).toBe('MD ស្ក្រាប់ខាត់ស្បែកខ្លួន');
+  });
 });
 
 describe('shouldReuseOwnBusinessCompetitors', () => {
@@ -198,6 +205,10 @@ describe('resolveAudienceResearchTarget', () => {
     expect(resolveAudienceResearchTarget('customers of my competitor')).toBe('');
     expect(resolveAudienceResearchTarget('អតិថិជនរបស់ https://www.facebook.com/ExampleBakery/')).toBe('https://www.facebook.com/ExampleBakery/');
     expect(resolveAudienceResearchTarget('https://facebook.com/ExampleBakery/?ref=share.')).toBe('https://facebook.com/ExampleBakery/?ref=share');
+  });
+
+  it('keeps Khmer subscript consonants and vowel signs in the target name', () => {
+    expect(resolveAudienceResearchTarget('ស្កេងអតិថិជនរបស់ MD ស្ក្រាប់ខាត់ស្បែកខ្លួន')).toBe('MD ស្ក្រាប់ខាត់ស្បែកខ្លួន');
   });
 });
 
