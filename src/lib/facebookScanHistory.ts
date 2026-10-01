@@ -16,6 +16,9 @@ export const normalizeFacebookScanHistoryResult = (
     // now one unified competitor scan with segments and seven-day activity.
     scanMode: raw.scanMode === 'competitor_customers' ? 'competitor_activity' : raw.scanMode,
     researchTarget: typeof raw.researchTarget === 'string' ? raw.researchTarget : undefined,
+    audienceResearch: raw.audienceResearch === true,
+    audienceSourceUrl: typeof raw.audienceSourceUrl === 'string' ? raw.audienceSourceUrl : undefined,
+    audienceSources: Array.isArray(raw.audienceSources) ? raw.audienceSources.filter((source) => source && typeof source.label === 'string' && /^https:\/\//i.test(source.url)).slice(0, 8) : [],
     webBusinessesFound: typeof raw.webBusinessesFound === 'number' ? raw.webBusinessesFound : undefined,
     webSearchAvailable: typeof raw.webSearchAvailable === 'boolean' ? raw.webSearchAvailable : undefined,
     activityWindow: hasValidActivityWindow ? raw.activityWindow : undefined,

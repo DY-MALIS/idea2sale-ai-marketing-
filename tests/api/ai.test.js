@@ -14,6 +14,7 @@ import {
   resolveCreativeImageMode,
   resolveAgentReplyLanguage,
   resolveAudienceResearchTarget,
+  resolveProductAudienceTarget,
   resolveCompetitorResearchTarget,
   resolveFacebookScanMode,
   resolveVideoAspectRatio,
@@ -42,9 +43,9 @@ describe('getVideoCaptionSpec', () => {
 });
 
 describe('resolveVideoAspectRatio', () => {
-  it('keeps standard YouTube video horizontal while social short video stays portrait', () => {
+  it('keeps the requested portrait ratio while defaulting manual video to landscape', () => {
     expect(resolveVideoAspectRatio('16:9')).toBe('16:9');
-    expect(resolveVideoAspectRatio('9:16')).toBe('16:9');
+    expect(resolveVideoAspectRatio('9:16')).toBe('9:16');
     expect(resolveVideoAspectRatio('4:3')).toBe('16:9');
   });
 });
@@ -195,6 +196,23 @@ describe('resolveAudienceResearchTarget', () => {
     expect(resolveAudienceResearchTarget('customers of ABC Cafe')).toBe('ABC Cafe');
     expect(resolveAudienceResearchTarget('អតិថិជនរបស់ Dating Cafe & Mart')).toBe('Dating Cafe & Mart');
     expect(resolveAudienceResearchTarget('customers of my competitor')).toBe('');
+    expect(resolveAudienceResearchTarget('អតិថិជនរបស់ https://www.facebook.com/ExampleBakery/')).toBe('https://www.facebook.com/ExampleBakery/');
+    expect(resolveAudienceResearchTarget('https://facebook.com/ExampleBakery/?ref=share.')).toBe('https://facebook.com/ExampleBakery/?ref=share');
+  });
+});
+
+describe('resolveProductAudienceTarget', () => {
+  const description = 'We make oat body lotion for dry skin and gift sets.';
+  it('uses the saved product description when the query names the owner’s business', () => {
+    expect(resolveProductAudienceTarget('customers of Meadow Care', 'Meadow Care', description)).toBe(description);
+  });
+  it('recognizes a product category already present in the saved description', () => {
+    expect(resolveProductAudienceTarget('customers of body lotion', 'Meadow Care', description)).toBe('body lotion');
+    expect(resolveProductAudienceTarget('body lotion', 'Meadow Care', description)).toBe('body lotion');
+  });
+  it('keeps unrelated companies and direct Page URLs on the exact-business path', () => {
+    expect(resolveProductAudienceTarget('customers of Another Shop', 'Meadow Care', description)).toBe('');
+    expect(resolveProductAudienceTarget('https://facebook.com/MeadowCare', 'Meadow Care', description)).toBe('');
   });
 });
 
@@ -207,6 +225,17 @@ describe('findExactBusiness', () => {
     ];
     expect(findExactBusiness(businesses, 'Dating Cafe & Mart')).toBe(businesses[1]);
     expect(findExactBusiness(businesses, 'Unknown Cafe')).toBeNull();
+  });
+
+  it('matches the official Page name or exact Page URL without accepting a different Page', () => {
+    const businesses = [
+      { businessName: 'River Bakery', facebookPageName: 'River Bakery', facebookPageUrl: 'https://facebook.com/RiverBakery' },
+      { businessName: 'City Bakes Ltd', facebookPageName: 'Example Bakery', facebookPageUrl: 'https://www.facebook.com/ExampleBakery/', sourceUrl: 'https://www.facebook.com/ExampleBakery/' },
+    ];
+    expect(findExactBusiness(businesses, 'Example Bakery')).toBe(businesses[1]);
+    expect(findExactBusiness(businesses, 'https://m.facebook.com/ExampleBakery/?ref=share')).toBe(businesses[1]);
+    expect(findExactBusiness(businesses, 'https://facebook.com/RiverBakery')).toBe(businesses[0]);
+    expect(findExactBusiness(businesses, 'https://facebook.com/ExampleBakeries')).toBeNull();
   });
 });
 

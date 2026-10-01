@@ -385,7 +385,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     noVerifiedLeads: 'មិនទាន់មាន Lead ដែលបានផ្ទៀងផ្ទាត់ទេ។ សូមសាកល្បងស្គេនម្តងទៀត ដើម្បីទទួលបានឈ្មោះអាជីវកម្មពិត។',
     noVerifiedCompetitors: 'ការស្វែងរកលើវេបផ្ទាល់មិនរកឃើញឈ្មោះគូប្រកួតប្រជែងពិតដែលអាចផ្ទៀងផ្ទាត់បានទេ។ ប្រព័ន្ធនឹងមិនស្មានឈ្មោះឡើយ។',
     audienceScope: 'បង្ហាញតែក្រុមអតិថិជនទូទៅពីព័ត៌មានសាធារណៈ។ មិនអាចមើលឈ្មោះអតិថិជនឯកជនបានទេ។',
-    audienceNotFound: 'មិនរកឃើញក្រុមហ៊ុនដែលមានឈ្មោះត្រូវគ្នាពីប្រភពសាធារណៈទេ។ សូមប្រើឈ្មោះ Page ផ្លូវការឱ្យត្រឹមត្រូវ។',
+    audienceNotFound: 'មិនអាចផ្ទៀងផ្ទាត់ Page អាជីវកម្មនេះពីប្រភពសាធារណៈបានទេ។ សូមពិនិត្យអក្ខរាវិរុទ្ធ ឬបញ្ចូលតំណ Facebook Page ផ្លូវការ។',
     researchTarget: 'គោលដៅស្រាវជ្រាវ',
     needSignals: 'សញ្ញាថាត្រូវការ Content/Video',
     recommendedService: 'សេវាកម្មដែលគួរផ្តល់ជូន',
@@ -405,6 +405,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     live: 'ការស្វែងរកលើវេបបានភ្ជាប់',
     socialSearchConnected: 'ស្វែងរកតាមគេហទំព័រសាធារណៈ + Facebook + LinkedIn',
     estimated: 'AI market estimate',
+    noVerifiedPage: 'មិនទាន់ផ្ទៀងផ្ទាត់ Page បាន',
     webBusinesses: 'Lead ពិតដែលបានផ្ទៀងផ្ទាត់',
     viewMap: 'មើលលើ Google Maps',
     call: 'ទូរស័ព្ទ',
@@ -505,7 +506,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     noVerifiedLeads: 'No verified leads yet. Try scanning again to receive real business names.',
     noVerifiedCompetitors: 'Live web search found no real, verifiable competitor names. The system will not guess any.',
     audienceScope: 'Shows aggregate customer groups from public information. Private customer names are not available.',
-    audienceNotFound: 'The exact business was not found in public sources. Try its official Page name.',
+    audienceNotFound: 'The business Page could not be verified in public sources. Check the spelling or enter its official Facebook Page URL.',
     researchTarget: 'Research target',
     needSignals: 'Signals they may need content/video',
     recommendedService: 'Recommended service',
@@ -525,6 +526,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     live: 'Web search connected',
     socialSearchConnected: 'Public websites + Facebook + LinkedIn',
     estimated: 'AI market estimate',
+    noVerifiedPage: 'Page not verified',
     webBusinesses: 'verified leads',
     viewMap: 'View on Google Maps',
     call: 'Call',
@@ -901,7 +903,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
           <div className="flex flex-wrap items-center gap-3">
             <span className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-bold ${result.webSearchAvailable ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300'}`}>
               {result.webSearchAvailable ? <Check size={15} /> : <Sparkles size={15} />}
-              {result.webSearchAvailable ? (resultIsCompetitorScan ? text.socialSearchConnected : text.live) : text.estimated}
+              {result.webSearchAvailable ? (resultIsCompetitorScan ? text.socialSearchConnected : text.live) : result.audienceResearch ? text.noVerifiedPage : text.estimated}
             </span>
             {!!result.webSearchAvailable && !result.audienceResearch && <span className="rounded-full bg-blue-50 px-4 py-2 text-xs font-bold text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">{resultIsCompetitorScan ? result.competitors.length : (result.potentialLeads?.length || 0)} {resultIsCompetitorScan ? text.competitors : text.webBusinesses}</span>}
             {(resultIsCompetitorScan || result.audienceResearch) && result.researchTarget && (
@@ -914,7 +916,11 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
           {result.audienceResearch && (
             <div className="rounded-2xl border border-indigo-200 bg-indigo-50/80 p-4 text-sm text-indigo-900 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-100">
               <p>{result.audienceSourceUrl ? text.audienceScope : text.audienceNotFound}</p>
-              {result.audienceSourceUrl && <a href={result.audienceSourceUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1 font-bold underline"><ExternalLink size={14} />{text.viewEvidence}</a>}
+              {result.audienceSources?.length ? (
+                <div className="mt-3 flex flex-wrap gap-3">
+                  {result.audienceSources.map((source, index) => <a key={`${source.url}-${index}`} href={source.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-bold underline"><ExternalLink size={14} />{source.label}</a>)}
+                </div>
+              ) : result.audienceSourceUrl ? <a href={result.audienceSourceUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1 font-bold underline"><ExternalLink size={14} />{text.viewEvidence}</a> : null}
             </div>
           )}
 

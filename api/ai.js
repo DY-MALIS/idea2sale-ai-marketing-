@@ -23,6 +23,7 @@ import { notifyAdmins } from './_alert.js';
 import { searchBusinessesOnWeb } from './_webBusinessSearch.js';
 import { researchCompetitors } from './_competitorResearch.js';
 import { researchMarketTrends } from './_marketTrendResearch.js';
+import { researchProductAudience } from './_productAudienceResearch.js';
 import { uploadMediaDataUrl } from './_imagekitUpload.js';
 import { sendOutreachEmail } from './_email.js';
 import { createHash } from 'crypto';
@@ -196,15 +197,53 @@ export const shouldReuseOwnBusinessCompetitors = (researchTarget, businessName, 
 
 export const resolveAudienceResearchTarget = (query) => {
   const text = String(query || '').trim();
+  const pageUrl = text.match(/https:\/\/[^\s<>"']+/iu)?.[0]?.replace(/[.,;!?។]+$/u, '');
+  if (facebookPageIdentity(pageUrl)) return pageUrl;
   const matches = [...text.matchAll(/(?:\b(?:clients?|customers?)\s+(?:of|for)\s+(?:my|our|the)?\s*|អតិថិជន(?:របស់|នៃ)\s*)([\p{L}\p{N}][\p{L}\p{N}\s.&'’/-]{1,120})/giu)];
   const target = matches.at(-1)?.[1]?.trim() || '';
   return /^(?:(?:my|our|the|a|an|competitor)\b|គូប្រកួត)/iu.test(target) ? '' : target;
 };
 
+const facebookPageIdentity = (value) => {
+  try {
+    const url = new URL(String(value || ''));
+    if (url.protocol !== 'https:' || !['facebook.com', 'www.facebook.com', 'm.facebook.com', 'fb.com', 'www.fb.com'].includes(url.hostname.toLowerCase())) return '';
+    const parts = url.pathname.split('/').filter(Boolean);
+    if (parts[0]?.toLowerCase() === 'pg') parts.shift();
+    if (!parts.length || /^(?:profile\.php|posts?|photos?|videos?|reels?|share|groups|events|watch)$/i.test(parts[0])) return '';
+    return parts.join('/').toLocaleLowerCase();
+  } catch {
+    return '';
+  }
+};
+
 export const findExactBusiness = (businesses, target) => {
+  const targetPage = facebookPageIdentity(target);
+  if (targetPage) {
+    return (businesses || []).find((business) => [business.facebookPageUrl, business.sourceUrl]
+      .some((url) => facebookPageIdentity(url) === targetPage)) || null;
+  }
   const key = (name) => String(name || '').normalize('NFD').replace(/\p{M}/gu, '').toLocaleLowerCase().replace(/&/g, 'and').replace(/[^\p{L}\p{N}]+/gu, '');
   const targetKey = key(target);
-  return targetKey ? (businesses || []).find((business) => key(business.businessName) === targetKey) || null : null;
+  return targetKey ? (businesses || []).find((business) => [business.businessName, business.facebookPageName]
+    .some((name) => key(name) === targetKey)) || null : null;
+};
+
+// A saved product description is first-party context for audience research.
+// Match it to the query before treating the same words as a public Page name.
+export const resolveProductAudienceTarget = (query, businessName, businessDescription) => {
+  const description = String(businessDescription || '').trim().slice(0, 1000);
+  if (!description) return '';
+  const namedTarget = resolveAudienceResearchTarget(query);
+  if (facebookPageIdentity(namedTarget)) return '';
+  const key = (value) => String(value || '').normalize('NFD').replace(/\p{M}/gu, '').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+  const target = namedTarget || String(query || '').trim();
+  const targetKey = key(target);
+  const businessKey = key(businessName);
+  const descriptionKey = key(description);
+  if (targetKey.length < 4) return '';
+  if (businessKey && (targetKey === businessKey || (targetKey.length > 5 && businessKey.includes(targetKey)))) return description.slice(0, 250);
+  return descriptionKey.includes(targetKey) ? target.slice(0, 250) : '';
 };
 
 const calendarDateInTimeZone = (date, timeZone) => {
@@ -312,10 +351,9 @@ export const getVideoCaptionSpec = (value) => value === 'YouTube'
       instruction: 'Create a catchy TikTok caption with one clear CTA and 3-5 relevant hashtags. Keep it ready to post.',
     };
 
-// Interactive video generation is landscape-only. Enforce this again on the
-// server so stale browser bundles, restored automation requests, or old 9:16
-// client state cannot start another paid portrait job.
-export const resolveVideoAspectRatio = () => '16:9';
+// Manual generation defaults to landscape in the browser. Automation and
+// content intended for short-form platforms can explicitly request portrait.
+export const resolveVideoAspectRatio = (value) => value === '9:16' ? '9:16' : '16:9';
 
 const businessContextFromBody = (body = {}) => {
   const source = body.businessContext && typeof body.businessContext === 'object' ? body.businessContext : body;
@@ -1202,6 +1240,9 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
       const scanModeConfig = scanModeConfigs[scanMode];
       const isCompetitorScan = scanMode === 'competitor_activity';
       const audienceResearchTarget = scanMode === 'customer' ? resolveAudienceResearchTarget(query) : '';
+      const productAudienceTarget = scanMode === 'customer'
+        ? resolveProductAudienceTarget(query, userBusinessName, savedBusinessProfile.businessDescription)
+        : '';
       const entityCap = requestedEntityCap
         || (isCompetitorScan ? DEFAULT_COMPETITOR_ENTITY_CAP : DEFAULT_SCAN_ENTITY_CAP);
       const today = new Date();
@@ -1221,7 +1262,7 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
       // Keep the user's exact search intent separate from the mode objective.
       // Appending generic keywords to the query caused exact company/customer-
       // type searches to drift into unrelated "marketing businesses" results.
-      const searchTerms = (audienceResearchTarget || query).slice(0, 250);
+      const searchTerms = (productAudienceTarget || audienceResearchTarget || query).slice(0, 250);
       const countryNames = { KH: 'Cambodia', TH: 'Thailand', VN: 'Vietnam', US: 'United States' };
       const searchCountry = countries.map((code) => countryNames[code] || code).join(', ');
       const primaryCompetitorResearchTarget = isCompetitorScan
@@ -1239,8 +1280,8 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
       // be another thing to keep in sync); it's derived the same way target/
       // competitor research is, from a live, citation-backed web search on the
       // business's own name.
-      const [webSearchSettled, xContextSettled, competitorResearchSettled, ownBusinessResearchSettled, marketTrendResearchSettled] = await Promise.allSettled([
-        !isCompetitorScan ? searchBusinessesOnWeb({
+      const [webSearchSettled, xContextSettled, competitorResearchSettled, ownBusinessResearchSettled, marketTrendResearchSettled, productAudienceSettled] = await Promise.allSettled([
+        !isCompetitorScan && !productAudienceTarget ? searchBusinessesOnWeb({
           searchTerms,
           searchObjective: audienceResearchTarget
             ? `Find ONLY the exact business named "${audienceResearchTarget}" and its public website or business Page. Do not return customers, competitors, similarly named businesses, or unrelated search suggestions.`
@@ -1282,16 +1323,24 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
               endDate: activityWindow.endDate,
             })
           : Promise.resolve([]),
+        productAudienceTarget
+          ? researchProductAudience({ product: productAudienceTarget, country: searchCountry })
+          : Promise.resolve([]),
       ]);
 
       let rawWebBusinesses = [];
       let audienceBusiness = null;
       let webSearchAvailable = false;
+      const productAudienceSegments = productAudienceSettled.status === 'fulfilled' ? productAudienceSettled.value : [];
+      if (productAudienceSettled.status === 'rejected') {
+        console.warn('Product audience research failed:', productAudienceSettled.reason?.message);
+        return res.status(503).json({ error: 'Product market research is temporarily unavailable. Please try again.' });
+      }
       if (webSearchSettled.status === 'fulfilled') {
         const foundBusinesses = scanMode === 'hiring'
           ? webSearchSettled.value.filter((business) => (business.recentActivities || []).length > 0)
           : webSearchSettled.value;
-        if (audienceResearchTarget) {
+        if (audienceResearchTarget && !productAudienceTarget) {
           audienceBusiness = findExactBusiness(foundBusinesses, audienceResearchTarget);
           webSearchAvailable = !!audienceBusiness;
         } else {
@@ -1300,13 +1349,28 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
         }
       } else {
         console.warn('OpenRouter web business search failed or skipped:', webSearchSettled.reason?.message);
+        if (audienceResearchTarget && !productAudienceTarget) {
+          return res.status(503).json({ error: 'Public business search is temporarily unavailable. Please try again.' });
+        }
       }
       rawWebBusinesses = rawWebBusinesses.slice(0, entityCap);
+      if (productAudienceSegments.length) webSearchAvailable = true;
 
       // An audience request is about aggregate groups, not a list of private
       // customer identities. If the exact business cannot be verified, do not
       // invent a different company or a plausible-sounding audience.
-      if (audienceResearchTarget && !audienceBusiness) {
+      if (productAudienceTarget && !productAudienceSegments.length) {
+        return res.status(200).json({
+          success: true, query, scanMode, researchTarget: productAudienceTarget,
+          audienceResearch: true, webBusinessesFound: 0, webSearchAvailable: false,
+          customerInsights: { whatTheyBought: [], whatTheyLike: [], contentDesires: [], targetPersonas: [] },
+          competitors: [], marketTrends: [], potentialLeads: [], videoPlan: [],
+          summaryReport: isKhmer
+            ? `មិនទាន់រកឃើញប្រភពសាធារណៈគ្រប់គ្រាន់សម្រាប់វាយតម្លៃទីផ្សាររបស់ "${productAudienceTarget}" ទេ។ សូមសាកល្បងពាក្យផលិតផលឱ្យច្បាស់ជាងនេះ។`
+            : `Not enough public evidence was found to assess potential markets for "${productAudienceTarget}". Try a more specific product description.`,
+        });
+      }
+      if (audienceResearchTarget && !audienceBusiness && !productAudienceTarget) {
         return res.status(200).json({
           success: true, query, scanMode, researchTarget: audienceResearchTarget,
           audienceResearch: true, webBusinessesFound: 0, webSearchAvailable: false,
@@ -1379,6 +1443,9 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
             return `[Web Result ${idx + 1}] Name: ${biz.businessName} | Entity kind: ${biz.entityKind || 'company'} | Trade/service/job type: ${biz.serviceOrJobType || biz.businessType} | Type: ${biz.businessType} | Address: ${biz.address || 'not available'} | Phone: ${biz.phone || 'not available'} | Email: ${biz.email || 'not available'} | Telegram: ${biz.telegram || 'not available'} | Website: ${biz.website || 'not available'} | Facebook Page: ${biz.facebookPageName || 'not available'} | Facebook Page URL: ${biz.facebookPageUrl || 'not available'} | Verified public activity/hiring evidence: ${activitySummary} | Source URL: ${biz.sourceUrl}`;
           }).join('\n')
           : 'Live web business search not connected or returned 0 verified businesses.';
+      const productAudienceSummary = productAudienceSegments.map((segment, index) => (
+        `[Product market ${index + 1}] Market: ${segment.market} | Need: ${segment.need} | Public evidence and inference: ${segment.whyRelevant} | Channel: ${segment.channel} | Source: ${segment.sourceUrl}`
+      )).join('\n');
 
       const competitorResearchSummary = verifiedCompetitors.length
         ? verifiedCompetitors.map((c, idx) => (
@@ -1389,7 +1456,7 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
       const contentBusinessName = audienceBusiness?.businessName || userBusinessName;
       const prompt = `You are an elite Facebook social-commerce market researcher, consumer psychologist, and AI video creative director specialized in the Cambodian and Southeast Asian market.
 
-Target Niche / Product / Competitor: "${audienceBusiness?.businessName || query}"
+Target Niche / Product / Competitor: "${productAudienceTarget || audienceBusiness?.businessName || query}"
 Selected Scan Mode: "${scanMode}"
 Mode-specific objective: ${scanModeConfig.instruction}
 Target Market: ${countries.join(', ')}
@@ -1398,11 +1465,13 @@ Competitor Activity Window: ${activityWindow.startDate} through ${activityWindow
 ${contentBusinessName ? `Our Business Name (the business this content is FOR, not a competitor): "${contentBusinessName}"` : ''}
 ${userBusinessName && !audienceBusiness ? `What our own business actually is, per live web search (empty if not found -- never assume from the name alone): ${ownBusinessSummary || '(not found in live search -- proceed using only the target/niche context below)'}` : ''}
 ${audienceBusiness ? `AUDIENCE RESEARCH TARGET: "${audienceBusiness.businessName}". Its public listing below establishes the business type. Describe aggregate customer groups and likely needs as inference from its actual products/services. Never claim to know individual customers, purchases, private messages, or customer lists. Return potentialLeads: [].` : ''}
+${productAudienceTarget ? `PRODUCT AUDIENCE RESEARCH: The owner-provided Business Profile describes this offering as "${savedBusinessProfile.businessDescription}". Find distinct potential buyer markets for the product category, grounded only in the public evidence below. These are likely segments, not confirmed customers of this business. Explain each segment's need, buying trigger, and reachable channel. Do not claim actual purchases, private identities, market size, or exact prices without direct evidence. Return potentialLeads: [] and competitors: [].` : ''}
 
 ${CAMBODIA_MARKET_CONTEXT}
 
 Live Web Search Business Context (each entry is backed by a real search citation URL):
 ${webBusinessSummary}
+${productAudienceTarget ? `Public product-market evidence (cite these direct URLs in the summary report; do not invent other sources):\n${productAudienceSummary}` : ''}
 ${xContext ? `Live social signals: ${xContext.slice(0, 800)}` : ''}
 
 Verified Competitor Research (each competitor is backed by a real, independently-checked source URL -- see section 2 below for how to use this):
@@ -1422,13 +1491,13 @@ RESPONSE LANGUAGE: Write every descriptive/free-text field in ${outputLanguage} 
 MODE SEPARATION — NEVER MIX THE TWO TOOLS:
 ${isCompetitorScan
   ? '- This is a COMPETITOR scan. Return only competitor intelligence. Set "customerInsights" to empty arrays, set "potentialLeads" to [], and do not create outreach/Inbox messages.'
-  : audienceBusiness
-    ? '- This is an AUDIENCE scan of one verified business. Return aggregate customer insights only. Set "competitors" and "potentialLeads" to empty arrays. Do not invent named customers or outreach messages.'
+  : audienceBusiness || productAudienceTarget
+    ? '- This is an AUDIENCE scan. Return aggregate potential customer groups only. Set "competitors" and "potentialLeads" to empty arrays. Do not invent named customers or outreach messages.'
     : '- This is a CUSTOMER scan. Return only customer intelligence and potential customer leads. Set "competitors" to [], and create an Inbox message for every verified customer lead.'}
 
 1. CUSTOMER INTELLIGENCE (ស្វែងរកអតិថិជន):
-   ${audienceBusiness ? '- This is aggregate audience inference from the verified business category. Describe likely customer needs and groups, clearly distinguish them from observed facts, and do not claim actual purchases, private customer identities, or exact prices without direct public evidence.' : ''}
-   - What they bought / need ("គេបានអ្វី / គេទិញអ្វី"): ${audienceBusiness ? 'Describe likely needs tied to the verified business offering. Do not assert actual purchases, prices, or order history without direct public evidence.' : 'Detail concrete products, variations, bundles, and price thresholds (e.g. $10-$25 COD) that customers actually buy, plus specific real-life pain points they solve.'}
+   ${audienceBusiness || productAudienceTarget ? '- This is aggregate audience inference. Describe likely customer needs and groups, clearly distinguish them from observed facts, and do not claim actual purchases, private customer identities, or exact prices without direct public evidence.' : ''}
+   - What they bought / need ("គេបានអ្វី / គេទិញអ្វី"): ${audienceBusiness || productAudienceTarget ? 'Describe likely needs tied to the offering. Do not assert actual purchases, prices, or order history without direct public evidence.' : 'Detail concrete products, variations, bundles, and price thresholds (e.g. $10-$25 COD) that customers actually buy, plus specific real-life pain points they solve.'}
    - What they like / appreciate ("គេចូលចិត្តអ្វី"): Concrete trust and satisfaction drivers (e.g. fast delivery in Phnom Penh, free gifts, genuine unboxing, polite sellers using "បង/អូន", clear pricing, COD reliability).
    - Content they want to see ("គេចង់ឱ្យបង្កើត content ប្រភេទអ្វី"): Exact video formats and angles that customers are likely to value based on the verified website and public business evidence (e.g. real transformation Before/After, honest test demonstrations, price breakdown, live Q&A).
    - Target personas: 2-3 specific customer profiles with demographics and exact buying triggers.
@@ -1727,9 +1796,10 @@ Return ONLY a single valid JSON object with this exact structure:
         success: true,
         query,
         scanMode,
-        researchTarget: isCompetitorScan ? competitorResearchTarget : (audienceBusiness?.businessName || query),
-        audienceResearch: !!audienceBusiness,
-        audienceSourceUrl: audienceBusiness?.sourceUrl || undefined,
+        researchTarget: isCompetitorScan ? competitorResearchTarget : (productAudienceTarget || audienceBusiness?.businessName || query),
+        audienceResearch: !!(audienceBusiness || productAudienceTarget),
+        audienceSourceUrl: productAudienceSegments[0]?.sourceUrl || audienceBusiness?.sourceUrl || undefined,
+        audienceSources: productAudienceSegments.map(({ market, sourceUrl }) => ({ label: market, url: sourceUrl })),
         activityWindow: isCompetitorScan || scanMode === 'market_trends' ? activityWindow : undefined,
         webBusinessesFound: audienceBusiness ? 1 : rawWebBusinesses.length,
         webSearchAvailable,
@@ -2020,6 +2090,9 @@ Return ONLY a single valid JSON object with this exact structure:
           aspectRatio,
         };
         const speech = await preparePlanVideoSpeech(item);
+        if (speech.mode === 'silent') {
+          return res.status(400).json({ error: 'A Khmer script was provided for a silent video. Remove the script or the silent instruction.' });
+        }
         const { uploadMediaDataUrl } = await import('./telegram/run-scheduled.js');
         const { job, narrationAudio } = await startKhmerVideoJob(item, speech, uploadMediaDataUrl, {
           duration,
