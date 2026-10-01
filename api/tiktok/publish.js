@@ -4,9 +4,10 @@ import admin, { initFirebaseAdmin } from '../_firebaseAdmin.js';
 import { logAudit } from '../_audit.js';
 import { getCookie, getAutomationAccessToken, recordTikTokPostSync, scheduleTikTokQStashDelivery, markAutomationTokenRevoked } from '../_tiktok.js';
 import { claimPendingPost, findRecentDuplicateTikTokPost, findRecentDuplicateYouTubePost } from '../_telegramClaim.js';
-import { getYouTubeAutomationAccessToken, publishVideoToYouTube } from '../_youtube.js';
+import { getYouTubeAutomationAccessToken, publishVideoToYouTube, scheduleYouTubeQStashDelivery } from '../_youtube.js';
 import { notifyAdmins } from '../_alert.js';
 import { getUntransformedImageKitVideoUrl } from '../../shared/imageKitUrl.js';
+import { downloadTrustedVideo } from '../_videoDownload.js';
 
 // Vercel's Hobby plan caps a deployment at 12 serverless functions; this file
 // was already one of them, so QStash's per-post delivery callback lives here
@@ -122,17 +123,7 @@ function publicUrlRequest(videoUrl) {
 // that requirement entirely -- TikTok never fetches our URL, so nothing about
 // it needs to be pre-verified.
 async function videoFromUrl(videoUrl) {
-  const response = await fetch(getUntransformedImageKitVideoUrl(videoUrl, process.env.IMAGEKIT_URL_ENDPOINT || ''));
-  if (!response.ok) {
-    const error = new Error(`Could not download the video to publish (HTTP ${response.status}).`);
-    error.status = 502;
-    error.code = 'video_download_failed';
-    throw error;
-  }
-  const contentType = String(response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
-  const mimeType = ['video/mp4', 'video/quicktime', 'video/webm'].includes(contentType) ? contentType : 'video/mp4';
-  const buffer = Buffer.from(await response.arrayBuffer());
-  return { mimeType, buffer };
+  return downloadTrustedVideo(getUntransformedImageKitVideoUrl(videoUrl, process.env.IMAGEKIT_URL_ENDPOINT || ''));
 }
 
 // Shared by the manual "Publish to TikTok" button (handlePublishRequest, cookie
@@ -393,12 +384,12 @@ async function runTikTokCron(req, res) {
     const snapshot = await db.collection('scheduled_posts')
       .where('platform', '==', 'TIKTOK')
       .where('status', '==', 'PENDING')
+      .where('scheduledTime', '<=', nowIso)
+      .orderBy('scheduledTime', 'asc')
       .limit(25)
       .get();
 
     const dueDocs = snapshot.docs
-      .filter((doc) => String(doc.data()?.scheduledTime || '') <= nowIso)
-      .sort((a, b) => String(a.data()?.scheduledTime || '').localeCompare(String(b.data()?.scheduledTime || '')))
       .slice(0, 5); // video uploads/inits are heavy -- keep each tick small
 
     if (dueDocs.length === 0) {
@@ -436,7 +427,7 @@ async function runTikTokCron(req, res) {
   }
 }
 
-// Called by SchedulerHub.tsx right after it writes a TIKTOK scheduled_posts
+// Called by SchedulerHub.tsx right after it writes a TikTok or YouTube scheduled_posts
 // doc directly to Firestore (unlike Telegram scheduling, TikTok's create path
 // is a plain client-side addDoc, not a server endpoint, so nothing else here
 // would ever get a chance to enqueue precise delivery). Best-effort: the
@@ -455,8 +446,7 @@ async function handleScheduleQstash(req, res) {
   }
 
   const postId = String(req.body?.postId || '').trim();
-  const scheduledDate = new Date(String(req.body?.scheduledTime || ''));
-  if (!postId || Number.isNaN(scheduledDate.getTime())) {
+  if (!postId) {
     return res.status(400).json({ error: 'postId and a valid scheduledTime are required.' });
   }
 
@@ -466,10 +456,17 @@ async function handleScheduleQstash(req, res) {
     if (!snap.exists || snap.data()?.userId !== uid) {
       return res.status(404).json({ error: 'Scheduled post not found.' });
     }
-    const queued = await scheduleTikTokQStashDelivery(req, postId, scheduledDate);
+    const post = snap.data();
+    const scheduledDate = new Date(String(post.scheduledTime || ''));
+    if (!['TIKTOK', 'YOUTUBE'].includes(post.platform) || post.status !== 'PENDING' || Number.isNaN(scheduledDate.getTime())) {
+      return res.status(400).json({ error: 'A pending TikTok or YouTube post with a valid scheduled time is required.' });
+    }
+    const queued = post.platform === 'YOUTUBE'
+      ? await scheduleYouTubeQStashDelivery(req, postId, scheduledDate)
+      : await scheduleTikTokQStashDelivery(req, postId, scheduledDate);
     return res.status(200).json({ ok: true, preciseDeliveryQueued: queued === true });
   } catch (error) {
-    console.error('Failed to schedule TikTok QStash delivery:', error?.message || error);
+    console.error('Failed to schedule QStash delivery:', error?.message || error);
   }
   return res.status(200).json({ ok: true, preciseDeliveryQueued: false });
 }
@@ -480,7 +477,7 @@ async function handleScheduleQstash(req, res) {
 // shape; deliberately does NOT disable bodyParser (unlike that file) since
 // this file's other actions above need Vercel's normal JSON-parsed req.body --
 // getRawBody's reconstruction fallback covers signature verification instead.
-async function handleDeliverAction(req, res) {
+async function handleDeliverAction(req, res, platform = 'TIKTOK') {
   const rawBody = await getRawBody(req);
 
   const currentSigningKey = process.env.QSTASH_CURRENT_SIGNING_KEY;
@@ -520,6 +517,14 @@ async function handleDeliverAction(req, res) {
     const ref = db.collection('scheduled_posts').doc(postId);
 
     const postSnap = await ref.get();
+    if (!postSnap.exists || postSnap.data()?.platform !== platform) {
+      return res.status(200).json({ ok: true, skipped: 'wrong_platform_or_missing' });
+    }
+    if (platform === 'YOUTUBE') {
+      const result = await deliverOneScheduledYouTubePost(db, ref);
+      if (!result.ok) await notifyAdmins(`YouTube scheduled post ${postId} failed (QStash): ${result.error}`);
+      return res.status(200).json(result);
+    }
     const ownerId = postSnap.data()?.userId;
     let token;
     try {
@@ -652,15 +657,13 @@ async function deliverOneScheduledYouTubePost(db, docRef) {
   }
 
   try {
-    const accessToken = await getYouTubeAutomationAccessToken(db);
+    const accessToken = post.userId ? await getYouTubeAutomationAccessToken(db, post.userId) : null;
     if (!accessToken) {
-      throw Object.assign(new Error('YouTube is not connected. Connect it from TikTok Analytics.'), { code: 'not_connected' });
+      throw Object.assign(new Error('YouTube is not connected. Connect it from Smart Scheduler.'), { code: 'not_connected' });
     }
     if (!post.videoUrl) throw new Error('This scheduled post has no video to upload.');
 
-    const videoResponse = await fetch(getUntransformedImageKitVideoUrl(post.videoUrl, process.env.IMAGEKIT_URL_ENDPOINT || ''), { signal: AbortSignal.timeout(60000) });
-    if (!videoResponse.ok) throw new Error(`Could not download the video to upload (HTTP ${videoResponse.status}).`);
-    const videoBuffer = Buffer.from(await videoResponse.arrayBuffer());
+    const { buffer: videoBuffer } = await downloadTrustedVideo(getUntransformedImageKitVideoUrl(post.videoUrl, process.env.IMAGEKIT_URL_ENDPOINT || ''));
 
     const { videoId } = await publishVideoToYouTube(accessToken, {
       videoBuffer,
@@ -727,12 +730,12 @@ async function runYouTubeCron(req, res) {
     const snapshot = await db.collection('scheduled_posts')
       .where('platform', '==', 'YOUTUBE')
       .where('status', '==', 'PENDING')
+      .where('scheduledTime', '<=', nowIso)
+      .orderBy('scheduledTime', 'asc')
       .limit(10)
       .get();
 
     const dueDocs = snapshot.docs
-      .filter((doc) => String(doc.data()?.scheduledTime || '') <= nowIso)
-      .sort((a, b) => String(a.data()?.scheduledTime || '').localeCompare(String(b.data()?.scheduledTime || '')))
       .slice(0, 3); // video downloads/uploads are heavy -- keep each tick small
 
     const results = [];
@@ -760,6 +763,10 @@ export default async function handler(req, res) {
 
   if (req.query?.action === 'deliver') {
     return handleDeliverAction(req, res);
+  }
+
+  if (req.query?.action === 'youtubeDeliver') {
+    return handleDeliverAction(req, res, 'YOUTUBE');
   }
 
   if (req.query?.action === 'webhook') {

@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { FieldValue } from 'firebase-admin/firestore';
 import { Client as QStashClient } from '@upstash/qstash';
 import { notifyAdmins } from './_alert.js';
+import { getScheduledCallbackBaseUrl } from './_callbackUrl.js';
 
 const OAUTH_STATE_COOKIE = 'tiktok_oauth_state';
 const AUTOMATION_TOKEN_COLLECTION = 'tiktok_automation_tokens';
@@ -266,9 +267,8 @@ export async function scheduleTikTokQStashDelivery(req, postId, scheduledDate) {
 
   try {
     const client = new QStashClient({ token, baseUrl: process.env.QSTASH_URL });
-    const host = req.headers['x-forwarded-host'] || req.headers.host;
     await client.publishJSON({
-      url: `https://${host}/api/tiktok/publish?action=deliver`,
+      url: `${getScheduledCallbackBaseUrl()}/api/tiktok/publish?action=deliver`,
       body: { postId },
       notBefore: Math.floor(scheduledDate.getTime() / 1000),
     });

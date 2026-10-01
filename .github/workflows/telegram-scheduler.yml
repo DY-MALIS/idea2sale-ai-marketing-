@@ -21,6 +21,11 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           curl -sf -X POST -H "Authorization: Bearer $CRON_SECRET" "https://aime.angkorgate.ai/api/tiktok/publish?action=cron"
+      - name: Trigger due YouTube posts
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -sf -X POST -H "Authorization: Bearer $CRON_SECRET" "https://aime.angkorgate.ai/api/tiktok/publish?action=youtubeCron"
 
   usage-check:
     # OpenRouter credit balance and ImageKit's monthly video-transformation

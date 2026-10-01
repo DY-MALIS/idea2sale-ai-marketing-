@@ -123,8 +123,8 @@ export const processContentPlanVideo = async (db, itemId, req) => {
       const uploadedLogo = await uploadMediaDataUrl({ mediaDataUrl: logoDataUrl, mediaType: 'photo' });
       uploaded.mediaUrl = applyImageKitLogoOverlay(uploaded.mediaUrl, uploadedLogo.filePath);
     }
+    await ref.update({ resultMediaUrl: uploaded.mediaUrl });
     if (item.voiceOverWanted !== false && item.voiceOverMode !== 'silent' && item.prompt && !wantsSilentVideo(item.prompt)) {
-      await ref.update({ resultMediaUrl: uploaded.mediaUrl });
       try {
         const speechVerification = await verifyUploadedVideoSpeech(uploaded.mediaUrl, item.voiceOverText);
         await ref.update({ speechVerification });
@@ -141,36 +141,50 @@ export const processContentPlanVideo = async (db, itemId, req) => {
     if (!(await claimDelivery(db, ref))) {
       return { ok: true, skipped: 'already-sending' };
     }
-    const { token, chatId } = await resolveTelegramDestination(db, item.userId);
-    if (!token || !chatId) {
+    let deliveredChatId = '';
+    try {
+      const { token, chatId } = await resolveTelegramDestination(db, item.userId);
+      if (!token || !chatId) {
+        await ref.update({
+          status: 'READY',
+          errorMessage: 'Video ready. Connect a Telegram chat in Business Profile to send it.',
+          deliveryClaimedAt: null,
+        });
+        return { ok: true, videoReady: true, deliveryPending: 'telegram_chat_not_connected' };
+      }
+
+      const caption = formatTelegramHtml(truncateForTelegram(item.topic || '', TELEGRAM_CAPTION_LIMIT));
+      const telegramResponse = await fetch(`https://api.telegram.org/bot${token}/sendVideo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          video: uploaded.mediaUrl,
+          caption: caption || undefined,
+          parse_mode: caption ? 'HTML' : undefined,
+        }),
+      });
+      const telegramData = await telegramResponse.json().catch(() => ({}));
+      if (!telegramResponse.ok || !telegramData.ok) {
+        throw new Error(telegramData?.description || 'Telegram could not deliver this video.');
+      }
+      deliveredChatId = chatId;
+    } catch (deliveryError) {
+      const message = deliveryError?.message || 'Telegram could not deliver this video.';
       await ref.update({
         status: 'READY',
-        errorMessage: 'Video ready. Connect a Telegram chat in Business Profile to send it.',
+        resultMediaUrl: uploaded.mediaUrl,
+        errorMessage: `Video ready, but Telegram delivery failed: ${message}`,
         deliveryClaimedAt: null,
       });
-      return { ok: true, videoReady: true, deliveryPending: 'telegram_chat_not_connected' };
-    }
-
-    const caption = formatTelegramHtml(truncateForTelegram(item.topic || '', TELEGRAM_CAPTION_LIMIT));
-    const telegramResponse = await fetch(`https://api.telegram.org/bot${token}/sendVideo`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        video: uploaded.mediaUrl,
-        caption: caption || undefined,
-        parse_mode: caption ? 'HTML' : undefined,
-      }),
-    });
-    const telegramData = await telegramResponse.json().catch(() => ({}));
-    if (!telegramResponse.ok || !telegramData.ok) {
-      throw new Error(telegramData?.description || 'Telegram could not deliver this video.');
+      await notifyAdmins(`Content plan video item ${itemId} is ready but Telegram delivery failed: ${message}`);
+      return { ok: false, videoReady: true, deliveryPending: 'telegram_send_failed', error: message };
     }
 
     await ref.update({
       status: 'DONE',
       resultMediaUrl: uploaded.mediaUrl,
-      deliveredChatId: chatId,
+      deliveredChatId,
       completedAt: FieldValue.serverTimestamp(),
       errorMessage: null,
     });

@@ -13,7 +13,7 @@ import { deleteLocalMedia, getLocalMediaBlob, getLocalMediaDataUrl } from '../li
 import { getStoredScheduledPosts, mergeStoredScheduleHistory, wasDemoModeThisSession } from '../lib/scheduledPosts';
 import { recordAuditEvent } from '../lib/auditClient';
 import { withUploadTimeout } from '../lib/withUploadTimeout';
-import { requireTikTokAutomationConnection } from '../lib/tiktokConnection';
+import { requireTikTokAutomationConnection, requireYouTubeAutomationConnection } from '../lib/tiktokConnection';
 
 const DEMO_DEFAULT_POST_IDS = ['1', '2'];
 
@@ -464,6 +464,24 @@ const Scheduler: React.FC = () => {
     }
   };
 
+  const retryFailedYouTubePost = async (post: SchedulePost) => {
+    if (!user || isDemoMode || post.localOnly || post.platform !== 'YOUTUBE' || post.status !== 'FAILED') return;
+    try {
+      await requireYouTubeAutomationConnection(user);
+      const scheduledTime = new Date().toISOString();
+      const idToken = await user.getIdToken();
+      await updateDoc(doc(db, 'scheduled_posts', post.id), { status: 'PENDING', scheduledTime });
+      void recordAuditEvent('scheduled_post_retried', { postId: post.id, platform: 'YOUTUBE' });
+      await fetch('/api/tiktok/publish?action=scheduleQstash', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ postId: post.id, scheduledTime }),
+      });
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Could not retry the YouTube upload.');
+    }
+  };
+
   const handleDelete = async (id: string) => {
     try {
       const postToDelete = posts.find(p => p.id === id);
@@ -613,7 +631,8 @@ const Scheduler: React.FC = () => {
                     </div>
 
                     <div className="flex items-center gap-2 transition-opacity">
-                      {post.platform !== 'TELEGRAM' && (post.platform !== 'TIKTOK' || post.status === 'UPLOADED') && (
+                      {(['INSTAGRAM', 'TWITTER', 'FACEBOOK'].includes(post.platform)
+                        || (post.platform === 'TIKTOK' && post.status === 'UPLOADED')) && (
                         <motion.button
                           whileHover={{ scale: 1.1 }}
                           whileTap={{ scale: 0.9 }}
@@ -659,6 +678,19 @@ const Scheduler: React.FC = () => {
                         >
                           <RotateCcw size={16} />
                           <span className="text-xs font-semibold">Upload to TikTok</span>
+                        </motion.button>
+                      )}
+                      {post.platform === 'YOUTUBE' && post.status === 'FAILED' && !post.localOnly && (
+                        <motion.button
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.9 }}
+                          onClick={() => retryFailedYouTubePost(post)}
+                          className="flex items-center gap-1 rounded-md p-2 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30 transition-colors"
+                          title="Retry YouTube upload"
+                          aria-label="Retry YouTube upload"
+                        >
+                          <RotateCcw size={16} />
+                          <span className="text-xs font-semibold">Retry YouTube</span>
                         </motion.button>
                       )}
                       <motion.button

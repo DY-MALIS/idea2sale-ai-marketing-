@@ -44,6 +44,16 @@ it('allows the owner to manually approve when automatic transcription was unavai
   expect(res.statusCode).toBe(200);
   expect(tx.set).toHaveBeenCalledWith({ name: 'scheduled_posts', id: 'review-abcdefghijk' }, expect.objectContaining({ mediaUrl: 'https://video', status: 'PENDING' }));
 });
+it('queues a ready silent video after the owner connects Telegram', async () => {
+  const tx = setup({ userId: 'owner', type: 'video', status: 'READY', voiceOverMode: 'silent', resultMediaUrl: 'https://video' });
+  const res = response(); await handler(request(), res);
+  expect(res.statusCode).toBe(200);
+  expect(tx.set).toHaveBeenCalledWith(
+    { name: 'scheduled_posts', id: 'review-abcdefghijk' },
+    expect.objectContaining({ mediaUrl: 'https://video', status: 'PENDING' }),
+  );
+  expect(tx.update).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ status: 'DONE', reviewedBy: 'owner' }));
+});
 it('recovers a retained legacy video whose audio extraction was previously marked failed', async () => {
   const tx = setup({
     userId: 'owner', type: 'video', status: 'FAILED', resultMediaUrl: 'https://video',

@@ -4,6 +4,7 @@ const {
   mockGetCookie, mockRecordTikTokPostSync, mockVerifyIdToken, mockLogAudit, mockScheduleQstash,
   mockInitFirebaseAdmin, mockGetAutomationAccessToken, mockClaimPendingPost, mockFindRecentDuplicate,
   mockNotifyAdmins, mockVerify,
+  mockScheduleYouTube, mockGetYouTubeToken, mockPublishYouTube,
 } = vi.hoisted(() => ({
   mockGetCookie: vi.fn(),
   mockRecordTikTokPostSync: vi.fn(),
@@ -16,6 +17,9 @@ const {
   mockFindRecentDuplicate: vi.fn(),
   mockNotifyAdmins: vi.fn(),
   mockVerify: vi.fn(),
+  mockScheduleYouTube: vi.fn(),
+  mockGetYouTubeToken: vi.fn(),
+  mockPublishYouTube: vi.fn(),
 }));
 vi.mock('@upstash/qstash', () => ({
   // Vitest requires a constructible function here (arrow functions can't be
@@ -39,8 +43,14 @@ vi.mock('../../../api/_audit.js', () => ({ logAudit: mockLogAudit }));
 vi.mock('../../../api/_telegramClaim.js', () => ({
   claimPendingPost: mockClaimPendingPost,
   findRecentDuplicateTikTokPost: mockFindRecentDuplicate,
+  findRecentDuplicateYouTubePost: mockFindRecentDuplicate,
 }));
 vi.mock('../../../api/_alert.js', () => ({ notifyAdmins: mockNotifyAdmins }));
+vi.mock('../../../api/_youtube.js', () => ({
+  scheduleYouTubeQStashDelivery: mockScheduleYouTube,
+  getYouTubeAutomationAccessToken: mockGetYouTubeToken,
+  publishVideoToYouTube: mockPublishYouTube,
+}));
 
 const { default: handler, publishVideoToTikTok, deliverOneScheduledTikTokPost } = await import('../../../api/tiktok/publish.js');
 
@@ -56,6 +66,7 @@ beforeEach(() => {
   mockGetCookie.mockImplementation((_req, name) => name === 'tiktok_owner' ? 'owner-1' : 'cookie-token');
   mockVerifyIdToken.mockResolvedValue({ uid: 'owner-1' });
   mockInitFirebaseAdmin.mockReturnValue({});
+  vi.stubEnv('IMAGEKIT_URL_ENDPOINT', 'https://cdn.example.com');
 });
 
 afterEach(() => {
@@ -138,7 +149,7 @@ describe('POST /api/tiktok/publish', () => {
     const videoBytes = new Uint8Array([1, 2, 3, 4]);
     const fetchMock = vi.fn(async (url, options) => {
       const target = String(url);
-      if (target === 'https://cdn.example.com/video.mp4') {
+      if (target.startsWith('https://cdn.example.com/video.mp4')) {
         return {
           ok: true,
           headers: { get: (name) => (name === 'content-type' ? 'video/mp4' : null) },
@@ -267,7 +278,7 @@ describe('POST /api/tiktok/publish?action=scheduleQstash', () => {
     mockScheduleQstash.mockResolvedValue(true);
     mockVerifyIdToken.mockResolvedValue({ uid: 'user-1' });
     mockInitFirebaseAdmin.mockReturnValue({
-      collection: () => ({ doc: () => ({ get: async () => ({ exists: true, data: () => ({ userId: 'user-1' }) }) }) }),
+      collection: () => ({ doc: () => ({ get: async () => ({ exists: true, data: () => ({ userId: 'user-1', platform: 'TIKTOK', status: 'PENDING', scheduledTime: '2026-09-24T00:00:00.000Z' }) }) }) }),
     });
     const res = response();
     await handler(req({ postId: 'post-1', scheduledTime: '2026-09-24T00:00:00.000Z' }), res);
@@ -276,13 +287,25 @@ describe('POST /api/tiktok/publish?action=scheduleQstash', () => {
     expect(mockScheduleQstash).toHaveBeenCalledWith(expect.anything(), 'post-1', new Date('2026-09-24T00:00:00.000Z'));
   });
 
+  it('queues a YouTube post using its stored time and channel owner', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'user-1' });
+    mockScheduleYouTube.mockResolvedValue(true);
+    mockInitFirebaseAdmin.mockReturnValue({
+      collection: () => ({ doc: () => ({ get: async () => ({ exists: true, data: () => ({ userId: 'user-1', platform: 'YOUTUBE', status: 'PENDING', scheduledTime: '2026-09-24T00:00:00.000Z' }) }) }) }),
+    });
+    const res = response();
+    await handler(req({ postId: 'post-1', scheduledTime: '2099-01-01T00:00:00.000Z' }), res);
+    expect(res.body).toEqual({ ok: true, preciseDeliveryQueued: true });
+    expect(mockScheduleYouTube).toHaveBeenCalledWith(expect.anything(), 'post-1', new Date('2026-09-24T00:00:00.000Z'));
+  });
+
   it('still confirms success to the client even if QStash enqueueing itself throws', async () => {
     // The post is already safely scheduled via the plain Firestore write the
     // client made just before calling this -- a QStash hiccup here must never
     // surface as a scheduling failure; the periodic poller still covers it.
     mockVerifyIdToken.mockResolvedValue({ uid: 'user-1' });
     mockInitFirebaseAdmin.mockReturnValue({
-      collection: () => ({ doc: () => ({ get: async () => ({ exists: true, data: () => ({ userId: 'user-1' }) }) }) }),
+      collection: () => ({ doc: () => ({ get: async () => ({ exists: true, data: () => ({ userId: 'user-1', platform: 'TIKTOK', status: 'PENDING', scheduledTime: '2026-09-24T00:00:00.000Z' }) }) }) }),
     });
     mockScheduleQstash.mockRejectedValue(new Error('QStash is down'));
     const res = response();
@@ -305,7 +328,7 @@ describe('POST /api/tiktok/publish?action=deliver (QStash callback)', () => {
     process.env.QSTASH_CURRENT_SIGNING_KEY = 'current';
     process.env.QSTASH_NEXT_SIGNING_KEY = 'next';
     mockInitFirebaseAdmin.mockReturnValue({
-      collection: () => ({ doc: () => ({ update: async () => {}, get: async () => ({ data: () => ({ userId: 'user-1' }) }) }) }),
+      collection: () => ({ doc: () => ({ update: async () => {}, get: async () => ({ exists: true, data: () => ({ userId: 'user-1', platform: 'TIKTOK' }) }) }) }),
     });
   });
 
@@ -342,7 +365,7 @@ describe('POST /api/tiktok/publish?action=deliver (QStash callback)', () => {
     mockClaimPendingPost.mockResolvedValue({ post: { userId: 'user-1' } });
     const update = vi.fn();
     mockInitFirebaseAdmin.mockReturnValue({
-      collection: () => ({ doc: () => ({ update, get: async () => ({ data: () => ({ userId: 'user-1' }) }) }) }),
+      collection: () => ({ doc: () => ({ update, get: async () => ({ exists: true, data: () => ({ userId: 'user-1', platform: 'TIKTOK' }) }) }) }),
     });
     const res = response();
     await handler(req({ postId: 'post-1' }), res);
@@ -360,7 +383,7 @@ describe('POST /api/tiktok/publish?action=deliver (QStash callback)', () => {
     const videoBytes = new Uint8Array([1, 2, 3, 4]);
     vi.stubGlobal('fetch', vi.fn(async (url) => {
       const target = String(url);
-      if (target === 'https://cdn.example.com/video.mp4') {
+      if (target.startsWith('https://cdn.example.com/video.mp4')) {
         return { ok: true, headers: { get: () => 'video/mp4' }, arrayBuffer: async () => videoBytes.buffer };
       }
       if (target.includes('publish/inbox/video/init')) {
@@ -388,5 +411,27 @@ describe('POST /api/tiktok/publish?action=deliver (QStash callback)', () => {
     expect(res.statusCode).toBe(200);
     expect(res.body.ok).toBe(false);
     expect(mockNotifyAdmins).toHaveBeenCalledWith(expect.stringContaining('post-1'));
+  });
+
+  it('delivers a signed YouTube job using its owner connection', async () => {
+    mockVerify.mockResolvedValue(true);
+    mockClaimPendingPost.mockResolvedValue({ post: { videoUrl: 'https://cdn.example.com/video.mp4', content: 'A video', userId: 'user-one' } });
+    mockFindRecentDuplicate.mockResolvedValue(null);
+    mockGetYouTubeToken.mockResolvedValue('owner-token');
+    mockPublishYouTube.mockResolvedValue({ videoId: 'youtube-1' });
+    const update = vi.fn();
+    mockInitFirebaseAdmin.mockReturnValue({
+      collection: () => ({ doc: () => ({ update, get: async () => ({ exists: true, data: () => ({ userId: 'user-one', platform: 'YOUTUBE' }) }) }) }),
+    });
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      headers: { get: (name) => name === 'content-type' ? 'video/mp4' : null },
+      arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+    })));
+    const res = response();
+    await handler({ ...req({ postId: 'post-1' }), query: { action: 'youtubeDeliver' } }, res);
+    expect(res.body).toEqual({ ok: true, videoId: 'youtube-1' });
+    expect(mockGetYouTubeToken).toHaveBeenCalledWith(expect.anything(), 'user-one');
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ status: 'PUBLISHED', youtubeVideoId: 'youtube-1' }));
   });
 });

@@ -56,7 +56,7 @@ const okTelegramResponse = () => ({
 });
 
 it('counts videos waiting for human review against the daily generation quota', () => {
-  expect(GENERATED_VIDEO_STATUSES).toEqual(['DONE', 'PROCESSING', 'REVIEW']);
+  expect(GENERATED_VIDEO_STATUSES).toEqual(['DONE', 'PROCESSING', 'REVIEW', 'READY']);
 });
 
 describe('truncateForTelegram', () => {

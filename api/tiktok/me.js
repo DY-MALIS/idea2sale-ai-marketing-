@@ -1,5 +1,6 @@
 import admin, { initFirebaseAdmin } from '../_firebaseAdmin.js';
 import { getAutomationAccessToken, getCookie, sessionCookieAttributes } from '../_tiktok.js';
+import { getYouTubeAutomationAccessToken } from '../_youtube.js';
 
 // Clears this owner's TikTok connection so a fresh "Connect TikTok" can pick a
 // different account -- TikTok's own login page otherwise reuses whatever
@@ -38,6 +39,20 @@ async function disconnectTikTok(req, res) {
 }
 
 export default async function handler(req, res) {
+  if (req.query?.action === 'youtubeAutomation') {
+    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+    const idToken = String(req.headers.authorization || '').replace(/^Bearer /, '');
+    if (!idToken) return res.status(401).json({ error: 'Sign in to check your YouTube connection.' });
+    try {
+      const db = initFirebaseAdmin();
+      const owner = await admin.auth().verifyIdToken(idToken, true);
+      const token = await getYouTubeAutomationAccessToken(db, owner.uid);
+      return res.status(200).json({ connected: Boolean(token) });
+    } catch (error) {
+      console.error('Could not check YouTube automation connection:', error?.message || error);
+      return res.status(503).json({ error: 'Could not verify your YouTube connection. Please try again.' });
+    }
+  }
   if (req.query?.action === 'automation') {
     if (req.method !== 'GET') {
       res.setHeader('Allow', 'GET');

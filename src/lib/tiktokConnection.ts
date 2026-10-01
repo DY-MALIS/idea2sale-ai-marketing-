@@ -14,3 +14,13 @@ export async function requireTikTokAutomationConnection(user: User): Promise<voi
     throw new Error('Connect your own TikTok account in TikTok Activity before scheduling or retrying a TikTok post.');
   }
 }
+
+export async function requireYouTubeAutomationConnection(user: User): Promise<void> {
+  const idToken = await user.getIdToken();
+  const response = await fetch('/api/tiktok/me?action=youtubeAutomation', {
+    headers: { Authorization: `Bearer ${idToken}` },
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || 'Could not check your YouTube connection.');
+  if (!data.connected) throw new Error('Connect your own YouTube channel before scheduling a YouTube post.');
+}

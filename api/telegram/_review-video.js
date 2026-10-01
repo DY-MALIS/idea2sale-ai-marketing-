@@ -41,7 +41,8 @@ export default async function reviewVideoHandler(req, res) {
         && item.type === 'video'
         && Boolean(item.resultMediaUrl)
         && /Could not extract video audio for verification|Invalid verification audio size/i.test(String(item.errorMessage || ''));
-      const verificationAllowsManualReview = item.speechVerification?.passed === true
+      const verificationAllowsManualReview = item.status === 'READY'
+        || item.speechVerification?.passed === true
         || item.speechVerification?.unavailable === true
         || legacyExtractionReview;
       if (!(['REVIEW', 'READY'].includes(item.status) || legacyExtractionReview) || item.type !== 'video' || !verificationAllowsManualReview || !mediaUrl || mediaUrl !== item.resultMediaUrl) {
@@ -54,18 +55,19 @@ export default async function reviewVideoHandler(req, res) {
         scheduledTime: new Date().toISOString(), publishMode: 'TELEGRAM_AUTO_POST',
         createdAt: FieldValue.serverTimestamp(), aiSuggested: false,
       });
+      const speechReviewPatch = legacyExtractionReview
+        ? { speechVerification: {
+          passed: false,
+          unavailable: true,
+          expected: item.voiceOverText || '',
+          method: 'legacy-audio-extraction-unavailable',
+          naturalnessReviewed: true,
+        } }
+        : item.speechVerification ? { 'speechVerification.naturalnessReviewed': true } : {};
       transaction.update(ref, {
         status: 'DONE', reviewedAt: FieldValue.serverTimestamp(), reviewedBy: user.uid,
         approvedPostId: post.id,
-        ...(legacyExtractionReview
-          ? { speechVerification: {
-            passed: false,
-            unavailable: true,
-            expected: item.voiceOverText || '',
-            method: 'legacy-audio-extraction-unavailable',
-            naturalnessReviewed: true,
-          } }
-          : { 'speechVerification.naturalnessReviewed': true }),
+        ...speechReviewPatch,
       });
     });
     return res.status(200).json({ ok: true, queued: action === 'approve' });

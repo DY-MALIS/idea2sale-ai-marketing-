@@ -142,6 +142,7 @@ export interface FacebookScanResult {
   researchTarget?: string;
   audienceResearch?: boolean;
   audienceSourceUrl?: string;
+  audienceSources?: { label: string; url: string }[];
   activityWindow?: { startDate: string; endDate: string };
   customerInsights: FacebookCustomerInsights;
   competitors: FacebookCompetitorInsight[];

@@ -88,13 +88,45 @@ service cloud.firestore {
         && incoming().content is string
         && incoming().content.size() <= 2000
         && incoming().platform in ['TIKTOK', 'YOUTUBE', 'INSTAGRAM', 'TWITTER', 'TELEGRAM', 'FACEBOOK']
+        && incoming().scheduledTime is string
+        && incoming().scheduledTime.matches('^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$')
+        && (!(incoming().platform in ['TIKTOK', 'YOUTUBE']) || (incoming().videoUrl is string && incoming().videoUrl.size() <= 2000))
         && incoming().status == 'PENDING';
         
       allow update: if isAdmin() || (isSignedIn()
         && existing().userId == request.auth.uid
         && incoming().userId == request.auth.uid
         && (
-          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'processingAt', 'publishedAt', 'duplicateSkipped', 'scheduledTime', 'content', 'mediaUrl', 'mediaName', 'mediaType', 'videoUrl', 'videoName', 'publishMode'])
+          (existing().platform in ['INSTAGRAM', 'TWITTER', 'FACEBOOK']
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status'])
+            && incoming().status in ['PENDING', 'PUBLISHED'])
+          || (existing().platform == 'TIKTOK'
+            && ((existing().status == 'UPLOADED'
+                && incoming().status == 'PUBLISHED'
+                && incoming().diff(existing()).affectedKeys().hasOnly(['status']))
+              || (existing().status == 'FAILED'
+                && incoming().status == 'PENDING'
+                && incoming().publishMode == 'TIKTOK_UPLOAD_DRAFT'
+                && incoming().scheduledTime is string
+                && incoming().scheduledTime.matches('^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$')
+                && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'scheduledTime', 'publishMode']))))
+          || (existing().platform == 'YOUTUBE'
+            && existing().status == 'FAILED'
+            && incoming().status == 'PENDING'
+            && incoming().scheduledTime is string
+            && incoming().scheduledTime.matches('^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$')
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'scheduledTime']))
+          || (existing().platform == 'TELEGRAM'
+            && ((existing().status == 'PENDING'
+                && incoming().status == 'PROCESSING'
+                && incoming().processingAt == request.time
+                && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'processingAt']))
+              || (existing().status == 'PROCESSING'
+                && incoming().status in ['PUBLISHED', 'FAILED']
+                && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'publishedAt', 'duplicateSkipped']))
+              || (existing().status == 'FAILED'
+                && incoming().status == 'PENDING'
+                && incoming().diff(existing()).affectedKeys().hasOnly(['status']))))
         ));
         
       allow delete: if isAdmin() || (isSignedIn() && existing().userId == request.auth.uid);
@@ -303,14 +335,10 @@ service cloud.firestore {
         && (!('telegramChannelUrl' in incoming()) || (incoming().telegramChannelUrl is string && incoming().telegramChannelUrl.size() <= 200))
         && (!('tiktokHandle' in incoming()) || (incoming().tiktokHandle is string && incoming().tiktokHandle.size() <= 100))
         && (!('facebookPageUrl' in incoming()) || (incoming().facebookPageUrl is string && incoming().facebookPageUrl.size() <= 300))
-        && (!('telegramBotActive' in incoming()) || incoming().telegramBotActive is bool);
+        && !incoming().keys().hasAny(['telegramBotActive', 'telegramBotUsername']);
 
-      // telegramBotActive is set server-side only (activateOwnBot in
-      // api/telegram/webhook.js, via the Admin SDK, which bypasses these rules
-      // entirely) -- allowed here only so a client's merge write that happens to
-      // carry the existing value forward still validates; a client can't set it
-      // to anything the Admin SDK didn't already put there since Admin SDK
-      // writes never go through this rule at all.
+      // Bot activation and username are set only by the authenticated server
+      // endpoint. A client may save profile fields but cannot forge that state.
       allow update: if isSignedIn()
         && profileId == request.auth.uid
         && existing().userId == request.auth.uid
@@ -326,7 +354,7 @@ service cloud.firestore {
         && (!('telegramChannelUrl' in incoming()) || (incoming().telegramChannelUrl is string && incoming().telegramChannelUrl.size() <= 200))
         && (!('tiktokHandle' in incoming()) || (incoming().tiktokHandle is string && incoming().tiktokHandle.size() <= 100))
         && (!('facebookPageUrl' in incoming()) || (incoming().facebookPageUrl is string && incoming().facebookPageUrl.size() <= 300))
-        && (!('telegramBotActive' in incoming()) || incoming().telegramBotActive is bool);
+        && !incoming().diff(existing()).affectedKeys().hasAny(['telegramBotActive', 'telegramBotUsername']);
 
       allow delete: if isSignedIn() && profileId == request.auth.uid;
     }

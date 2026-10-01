@@ -1,11 +1,58 @@
+import crypto from 'crypto';
 import { FieldValue } from 'firebase-admin/firestore';
+import { Client as QStashClient } from '@upstash/qstash';
+import { getCookie, sessionCookieAttributes } from './_tiktok.js';
+import { getScheduledCallbackBaseUrl } from './_callbackUrl.js';
 
-// YouTube's OAuth + upload helpers, mirroring api/_tiktok.js's shape (shared
-// automation connection stored in Firestore, refreshed on demand) but for
+// YouTube's OAuth + upload helpers, mirroring api/_tiktok.js's owner-scoped
+// automation connection stored in Firestore, refreshed on demand, but for
 // Google's OAuth2 + YouTube Data API v3 instead of TikTok's Login Kit.
 const AUTOMATION_TOKEN_COLLECTION = 'youtube_automation_tokens';
-const AUTOMATION_TOKEN_DOC = 'default';
+const AUTOMATION_TOKEN_DOC = (ownerId) => {
+  if (!ownerId || !/^[A-Za-z0-9_-]{1,128}$/.test(ownerId)) throw new Error('YouTube connection requires a signed-in owner.');
+  return ownerId;
+};
+const OAUTH_OWNER_COOKIE = 'youtube_oauth_owner';
 const YOUTUBE_UPLOAD_SCOPE = 'https://www.googleapis.com/auth/youtube.upload';
+
+export function youtubeOwnerCookieHeader(ownerId, state, req) {
+  const secret = (process.env.YOUTUBE_CLIENT_SECRET || '').trim();
+  if (!secret) throw new Error('YOUTUBE_CLIENT_SECRET is not configured.');
+  const signature = crypto.createHmac('sha256', secret).update(`${state}:${ownerId}`).digest('hex');
+  return `${OAUTH_OWNER_COOKIE}=${encodeURIComponent(`${AUTOMATION_TOKEN_DOC(ownerId)}.${signature}`)}; ${sessionCookieAttributes(req)}; Max-Age=600`;
+}
+
+export function readYouTubeOAuthOwner(req, res) {
+  const value = getCookie(req, OAUTH_OWNER_COOKIE);
+  const existing = res.getHeader('Set-Cookie');
+  res.setHeader('Set-Cookie', [].concat(existing || [], `${OAUTH_OWNER_COOKIE}=; ${sessionCookieAttributes(req)}; Max-Age=0`));
+  const [ownerId, signature] = value.split('.');
+  const state = String(req.query?.state || '');
+  const secret = (process.env.YOUTUBE_CLIENT_SECRET || '').trim();
+  if (!ownerId || !signature || !state || !secret) return null;
+  const expected = crypto.createHmac('sha256', secret).update(`${state}:${ownerId}`).digest('hex');
+  const supplied = Buffer.from(signature, 'hex');
+  const actual = Buffer.from(expected, 'hex');
+  return supplied.length === actual.length && crypto.timingSafeEqual(supplied, actual)
+    ? AUTOMATION_TOKEN_DOC(ownerId) : null;
+}
+
+export async function scheduleYouTubeQStashDelivery(req, postId, scheduledDate) {
+  const token = (process.env.QSTASH_TOKEN || '').trim();
+  if (!token) return false;
+  try {
+    const client = new QStashClient({ token, baseUrl: process.env.QSTASH_URL });
+    await client.publishJSON({
+      url: `${getScheduledCallbackBaseUrl()}/api/tiktok/publish?action=youtubeDeliver`,
+      body: { postId },
+      notBefore: Math.floor(scheduledDate.getTime() / 1000),
+    });
+    return true;
+  } catch (error) {
+    console.error('QStash YouTube scheduling failed:', error?.message || error);
+    return false;
+  }
+}
 
 export function getYouTubeRedirectUri(req) {
   const configured = process.env.YOUTUBE_REDIRECT_URI;
@@ -72,9 +119,10 @@ export async function exchangeYouTubeCode(req, code) {
   return data;
 }
 
-export async function saveYouTubeAutomationTokens(db, { accessToken, refreshToken, expiresIn, channelId, channelTitle }) {
+export async function saveYouTubeAutomationTokens(db, { ownerId, accessToken, refreshToken, expiresIn, channelId, channelTitle }) {
   const now = Date.now();
-  await db.collection(AUTOMATION_TOKEN_COLLECTION).doc(AUTOMATION_TOKEN_DOC).set({
+  await db.collection(AUTOMATION_TOKEN_COLLECTION).doc(AUTOMATION_TOKEN_DOC(ownerId)).set({
+    ownerId,
     accessToken,
     refreshToken: refreshToken || null,
     expiresAt: now + (Number(expiresIn) || 0) * 1000,
@@ -86,11 +134,11 @@ export async function saveYouTubeAutomationTokens(db, { accessToken, refreshToke
   }, { merge: true });
 }
 
-// Same shared-connection pattern as getAutomationAccessToken in _tiktok.js:
+// Same owner-scoped connection pattern as getAutomationAccessToken in _tiktok.js:
 // returns null (not a throw) when nothing has ever been connected, so cron
 // callers can treat "not connected" as a normal, retryable state.
-export async function getYouTubeAutomationAccessToken(db) {
-  const ref = db.collection(AUTOMATION_TOKEN_COLLECTION).doc(AUTOMATION_TOKEN_DOC);
+export async function getYouTubeAutomationAccessToken(db, ownerId) {
+  const ref = db.collection(AUTOMATION_TOKEN_COLLECTION).doc(AUTOMATION_TOKEN_DOC(ownerId));
   const snap = await ref.get();
   if (!snap.exists) return null;
 
@@ -100,7 +148,7 @@ export async function getYouTubeAutomationAccessToken(db) {
   if (data.accessToken && data.expiresAt && data.expiresAt - Date.now() > REFRESH_MARGIN_MS) {
     return data.accessToken;
   }
-  if (!data.refreshToken) return data.accessToken || null;
+  if (!data.refreshToken) return data.expiresAt > Date.now() ? data.accessToken || null : null;
 
   const clientId = (process.env.YOUTUBE_CLIENT_ID || '').trim();
   const clientSecret = (process.env.YOUTUBE_CLIENT_SECRET || '').trim();
@@ -128,6 +176,7 @@ export async function getYouTubeAutomationAccessToken(db) {
   }
 
   await saveYouTubeAutomationTokens(db, {
+    ownerId,
     accessToken: refreshed.access_token,
     refreshToken: data.refreshToken,
     expiresIn: refreshed.expires_in,

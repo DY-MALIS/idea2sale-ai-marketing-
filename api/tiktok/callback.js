@@ -1,5 +1,5 @@
 import { getRedirectUri, sessionCookieAttributes, verifyAndClearOAuthState, readOAuthOwner, saveAutomationTokens } from '../_tiktok.js';
-import { getYouTubeRedirectUri, exchangeYouTubeCode, saveYouTubeAutomationTokens } from '../_youtube.js';
+import { getYouTubeRedirectUri, exchangeYouTubeCode, saveYouTubeAutomationTokens, readYouTubeOAuthOwner } from '../_youtube.js';
 import { initFirebaseAdmin } from '../_firebaseAdmin.js';
 
 // Also handles YouTube's OAuth callback (?provider=youtube, matching the
@@ -10,6 +10,8 @@ async function handleYouTubeCallback(req, res, code) {
   if (!verifyAndClearOAuthState(req, res)) {
     return res.status(400).send('Invalid or expired YouTube login attempt. Please try connecting again.');
   }
+  const ownerId = readYouTubeOAuthOwner(req, res);
+  if (!ownerId) return res.status(400).send('YouTube connection is not linked to a signed-in profile. Please connect again.');
   try {
     const data = await exchangeYouTubeCode(req, String(code));
     let channelId = null;
@@ -26,18 +28,15 @@ async function handleYouTubeCallback(req, res, code) {
       console.error('Failed to fetch YouTube channel info:', channelError?.message || channelError);
     }
 
-    try {
-      const db = initFirebaseAdmin();
-      await saveYouTubeAutomationTokens(db, {
-        accessToken: data.access_token,
-        refreshToken: data.refresh_token,
-        expiresIn: data.expires_in,
-        channelId,
-        channelTitle,
-      });
-    } catch (persistError) {
-      console.error('Failed to persist YouTube automation tokens:', persistError?.message || persistError);
-    }
+    const db = initFirebaseAdmin();
+    await saveYouTubeAutomationTokens(db, {
+      ownerId,
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token,
+      expiresIn: data.expires_in,
+      channelId,
+      channelTitle,
+    });
 
     const openerOrigin = new URL(getYouTubeRedirectUri(req)).origin;
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -45,7 +44,7 @@ async function handleYouTubeCallback(req, res, code) {
       <!doctype html>
       <html>
         <body>
-          <h1>YouTube connected${channelTitle ? ` (${channelTitle})` : ''}</h1>
+          <h1>YouTube connected${channelTitle ? ` (${String(channelTitle).replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character])})` : ''}</h1>
           <p>You can close this window and return to aime.angkorgate.</p>
           <script>
             if (window.opener) {

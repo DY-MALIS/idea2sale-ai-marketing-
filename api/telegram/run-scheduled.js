@@ -7,6 +7,7 @@ import { Client as QStashClient } from '@upstash/qstash';
 import sharp from 'sharp';
 import { logAudit } from '../_audit.js';
 import { claimPendingPost, findRecentDuplicateTelegramPost } from '../_telegramClaim.js';
+import { getScheduledCallbackBaseUrl } from '../_callbackUrl.js';
 import { notifyAdmins } from '../_alert.js';
 import { runUsageChecks } from '../_usageMonitor.js';
 import { checkRateLimit, getClientIp } from '../_rateLimit.js';
@@ -27,7 +28,7 @@ import {
 
 export { applyImageKitDeliveryTransform, applyImageKitLogoOverlay, initFirebaseAdmin };
 
-export const GENERATED_VIDEO_STATUSES = Object.freeze(['DONE', 'PROCESSING', 'REVIEW']);
+export const GENERATED_VIDEO_STATUSES = Object.freeze(['DONE', 'PROCESSING', 'REVIEW', 'READY']);
 
 // Server-side equivalent of PosterGen.tsx's applyLogoWatermark (that one uses
 // the browser Canvas API, unavailable here) -- same top-left placement/ratios,
@@ -288,7 +289,7 @@ const startPlanVideoJob = (item, speech) => {
   return startKhmerVideoJob(item, speech, uploadMediaDataUrl, {
     duration,
     generateAudio: false,
-    allowScriptShortening: true,
+    allowScriptShortening: item.scriptEditedByUser !== true,
     aspectRatio: item.aspectRatio || '9:16',
   });
 };
@@ -306,9 +307,8 @@ const scheduleQStashDelivery = async (req, postId, scheduledDate) => {
 
   try {
     const client = new QStashClient({ token, baseUrl: process.env.QSTASH_URL });
-    const host = req.headers['x-forwarded-host'] || req.headers.host;
     await client.publishJSON({
-      url: `https://${host}/api/telegram/deliver`,
+      url: `${getScheduledCallbackBaseUrl()}/api/telegram/deliver`,
       body: { postId },
       notBefore: Math.floor(scheduledDate.getTime() / 1000),
     });
@@ -335,9 +335,8 @@ export const scheduleContentPlanPoll = async (req, itemId, delaySeconds = 20) =>
   if (!token) throw new Error('QSTASH_TOKEN is not configured, so video generation cannot be polled to completion.');
 
   const client = new QStashClient({ token, baseUrl: process.env.QSTASH_URL });
-  const host = req.headers['x-forwarded-host'] || req.headers.host;
   await client.publishJSON({
-    url: `https://${host}/api/telegram/deliver`,
+    url: `${getScheduledCallbackBaseUrl()}/api/telegram/deliver`,
     body: { contentPlanItemId: itemId },
     delay: delaySeconds,
   });
@@ -810,15 +809,17 @@ export default async function handler(req, res) {
       .collection('content_plan_items')
       .where('status', '==', 'PROCESSING')
       .where('type', '==', 'video')
-      .limit(10)
       .get();
-    for (const processingDoc of processingVideoSnapshot.docs) {
-      const processingVideo = processingDoc.data();
-      if (!processingVideo?.videoJobId) continue;
-      const lastScheduledMs = processingVideo?.pollScheduledAt?.toMillis?.()
-        || processingVideo?.processingAt?.toMillis?.()
-        || 0;
-      if (lastScheduledMs >= videoPollRecoveryCutoff) continue;
+    const staleProcessingVideos = processingVideoSnapshot.docs
+      .filter((doc) => {
+        const video = doc.data();
+        const lastScheduledMs = video?.pollScheduledAt?.toMillis?.()
+          || video?.processingAt?.toMillis?.()
+          || 0;
+        return Boolean(video?.videoJobId) && lastScheduledMs < videoPollRecoveryCutoff;
+      })
+      .slice(0, 10);
+    for (const processingDoc of staleProcessingVideos) {
       try {
         await scheduleContentPlanPoll(req, processingDoc.id);
         await processingDoc.ref.update({
@@ -842,9 +843,11 @@ export default async function handler(req, res) {
       .collection('content_plan_items')
       .where('status', '==', 'REVIEW')
       .where('type', '==', 'video')
-      .limit(10)
       .get();
-    for (const reviewDoc of verifiedReviewSnapshot.docs) {
+    const verifiedReviewDocs = verifiedReviewSnapshot.docs
+      .filter((doc) => doc.data()?.speechVerification?.passed === true && doc.data()?.resultMediaUrl)
+      .slice(0, 10);
+    for (const reviewDoc of verifiedReviewDocs) {
       let queued = false;
       await db.runTransaction(async (tx) => {
         const freshSnap = await tx.get(reviewDoc.ref);
@@ -879,12 +882,12 @@ export default async function handler(req, res) {
       .collection('scheduled_posts')
       .where('platform', '==', 'TELEGRAM')
       .where('status', '==', 'PENDING')
+      .where('scheduledTime', '<=', nowIso)
+      .orderBy('scheduledTime', 'asc')
       .limit(25)
       .get();
 
     const dueDocs = snapshot.docs
-      .filter((doc) => String(doc.data()?.scheduledTime || '') <= nowIso)
-      .sort((a, b) => String(a.data()?.scheduledTime || '').localeCompare(String(b.data()?.scheduledTime || '')))
       .slice(0, 10);
 
     for (const doc of dueDocs) {
@@ -961,10 +964,11 @@ export default async function handler(req, res) {
       .collection('content_plan_items')
       .where('status', '==', 'PENDING')
       .where('type', '==', 'image')
+      .where('scheduledDate', '<=', todayStr)
+      .orderBy('scheduledDate', 'asc')
       .limit(20)
       .get();
     const duePlanItems = planSnapshot.docs
-      .filter((planDoc) => String(planDoc.data()?.scheduledDate || '') <= todayStr)
       .slice(0, remainingImageCap);
 
     for (const planDoc of duePlanItems) {
@@ -1042,10 +1046,11 @@ export default async function handler(req, res) {
       .collection('content_plan_items')
       .where('status', '==', 'PENDING')
       .where('type', '==', 'video')
+      .where('scheduledDate', '<=', todayStr)
+      .orderBy('scheduledDate', 'asc')
       .limit(10)
       .get();
     const dueVideoPlanItems = videoPlanSnapshot.docs
-      .filter((planDoc) => String(planDoc.data()?.scheduledDate || '') <= todayStr)
       .slice(0, remainingVideoCap);
 
     for (const planDoc of dueVideoPlanItems) {

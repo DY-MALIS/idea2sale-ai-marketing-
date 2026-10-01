@@ -284,5 +284,29 @@ describe('processContentPlanVideo', () => {
 
     expect(result).toMatchObject({ ok: true, videoReady: true });
     expect(updates.at(-1).status).toBe('READY');
+    expect(updates).toContainEqual({ resultMediaUrl: 'https://ik.imagekit.io/demo/telegram-media/foo.mp4' });
+  });
+  it('keeps a finished video ready after a Telegram send error without regenerating it', async () => {
+    mockPollOpenRouterVideo.mockResolvedValue({ videoUrl: 'raw-video' });
+    mockUploadMediaDataUrl.mockResolvedValue({ mediaUrl: 'https://ik.imagekit.io/demo/telegram-media/foo.mp4' });
+    mockResolveTelegramDestination.mockResolvedValue({ token: 'bot-token', chatId: 'chat' });
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, json: async () => ({ description: 'Telegram temporarily unavailable' }) });
+    const updates = [];
+    const result = await processContentPlanVideo(fakeDb({ status: 'PROCESSING', videoJobId: 'job', userId: 'owner' }, patch => updates.push(patch)), 'item', {});
+    expect(result).toMatchObject({ ok: false, videoReady: true, deliveryPending: 'telegram_send_failed' });
+    expect(updates.at(-1)).toMatchObject({ status: 'READY', resultMediaUrl: 'https://ik.imagekit.io/demo/telegram-media/foo.mp4', deliveryClaimedAt: null });
+    expect(updates).not.toContainEqual(expect.objectContaining({ status: 'FAILED' }));
+  });
+  it('keeps a finished video ready when Telegram destination lookup fails', async () => {
+    mockPollOpenRouterVideo.mockResolvedValue({ videoUrl: 'raw-video' });
+    mockUploadMediaDataUrl.mockResolvedValue({ mediaUrl: 'https://ik.imagekit.io/demo/telegram-media/foo.mp4' });
+    mockResolveTelegramDestination.mockRejectedValueOnce(new Error('Destination lookup unavailable'));
+    global.fetch = vi.fn();
+    const updates = [];
+    const result = await processContentPlanVideo(fakeDb({ status: 'PROCESSING', videoJobId: 'job', userId: 'owner' }, patch => updates.push(patch)), 'item', {});
+    expect(result).toMatchObject({ ok: false, videoReady: true, deliveryPending: 'telegram_send_failed' });
+    expect(updates.at(-1)).toMatchObject({ status: 'READY', resultMediaUrl: 'https://ik.imagekit.io/demo/telegram-media/foo.mp4', deliveryClaimedAt: null });
+    expect(updates).not.toContainEqual(expect.objectContaining({ status: 'FAILED' }));
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 });
