@@ -34,6 +34,8 @@ it('uses the same measured audio and supplied portrait for manual video lip sync
   expect(mocks.video.mock.calls[0][0].prompt).toContain('Complete each gesture in 0.35 to 0.55 seconds');
   expect(mocks.video.mock.calls[0][0].prompt).toContain('synchronized frame by frame');
   expect(mocks.video.mock.calls[0][0].prompt).toContain('Never freeze, stretch, ease or slow any movement');
+  expect(mocks.video.mock.calls[0][0].prompt).toContain('ZERO-LATENCY LIP SYNC');
+  expect(mocks.video.mock.calls[0][0].prompt).toContain('Do not let the lips lag, trail, drift behind, catch up to, or echo the audio');
   expect(result.narrationAudio.mediaUrl).toBe('https://audio');
   expect(result.narrationAudio.provider).toBe('gemini');
 });
