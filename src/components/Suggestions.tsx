@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Clock, Check, Plus, Zap, AlertCircle } from 'lucide-react';
 import { geminiService, PostingSuggestion, ActivityData } from '../lib/geminiService';
@@ -6,6 +6,9 @@ import { db, auth } from '../lib/firebase';
 import { collection, query, where, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
 import { useLanguage } from '../contexts/LanguageContext';
 import { recordAuditEvent } from '../lib/auditClient';
+import { withUploadTimeout } from '../lib/withUploadTimeout';
+
+const UPLOAD_TIMEOUT_MESSAGE = 'Upload is taking too long. Please check your internet connection or use a smaller video.';
 
 interface SuggestionsProps {
   activityVersion: number;
@@ -16,6 +19,9 @@ const Suggestions: React.FC<SuggestionsProps> = ({ activityVersion }) => {
   const [suggestions, setSuggestions] = useState<PostingSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
   const [addingPost, setAddingPost] = useState<string | null>(null);
+  const [addError, setAddError] = useState<{ id: string; message: string } | null>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
+  const pendingSuggestionRef = useRef<PostingSuggestion | null>(null);
 
   const fetchSuggestions = async (uid: string) => {
     setLoading(true);
@@ -44,10 +50,54 @@ const Suggestions: React.FC<SuggestionsProps> = ({ activityVersion }) => {
     return () => unsub();
   }, [activityVersion, language]);
 
-  const handleApplySuggestion = async (suggestion: PostingSuggestion) => {
+  // TikTok never accepts a text-only post -- a real video must exist before
+  // this scheduled_posts doc satisfies firestore.rules' videoUrl requirement
+  // for the TIKTOK/YOUTUBE platforms, let alone actually publish later.
+  const uploadVideoViaImageKit = async (file: File, idToken: string): Promise<string> => {
+    let signatureResponse: Response;
+    try {
+      signatureResponse = await withUploadTimeout(fetch('/api/telegram/run-scheduled?action=sign-upload', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${idToken}` },
+      }), UPLOAD_TIMEOUT_MESSAGE);
+    } catch {
+      throw new Error('Could not reach the app server to prepare the upload. Check your internet connection and try again.');
+    }
+    const signatureText = await signatureResponse.text();
+    let signatureData: any = {};
+    try {
+      signatureData = signatureText ? JSON.parse(signatureText) : {};
+    } catch {
+      throw new Error(`Upload service returned HTTP ${signatureResponse.status} instead of JSON.`);
+    }
+    if (!signatureResponse.ok || !signatureData.ok) {
+      throw new Error(signatureData.error || 'Could not prepare the video upload.');
+    }
+
+    const form = new FormData();
+    form.set('file', file);
+    form.set('fileName', file.name || `suggested-post-${Date.now()}`);
+    form.set('publicKey', signatureData.publicKey);
+    form.set('token', signatureData.token);
+    form.set('expire', String(signatureData.expire));
+    form.set('signature', signatureData.signature);
+    form.set('folder', signatureData.folder);
+    const uploadResponse = await withUploadTimeout(fetch(signatureData.uploadUrl, {
+      method: 'POST',
+      body: form,
+    }), UPLOAD_TIMEOUT_MESSAGE);
+    const uploadData = await uploadResponse.json().catch(() => ({}));
+    if (!uploadResponse.ok || !uploadData.url) {
+      throw new Error(uploadData?.message || uploadData?.error?.message || 'Video upload failed.');
+    }
+    return String(uploadData.url);
+  };
+
+  const handleApplySuggestion = async (suggestion: PostingSuggestion, videoFile: File) => {
     if (!auth.currentUser) return;
     const suggestionId = `${suggestion.dayOfWeek}-${suggestion.hour}`;
     setAddingPost(suggestionId);
+    setAddError(null);
 
     try {
       // Find the next occurrence of this day and hour
@@ -64,10 +114,18 @@ const Suggestions: React.FC<SuggestionsProps> = ({ activityVersion }) => {
 
       // Generate AI Content Draft
       const aiContentDraft = await geminiService.generateContentDraft("TIKTOK", suggestion.reason, language);
+      const idToken = await auth.currentUser.getIdToken();
+      const videoUrl = await uploadVideoViaImageKit(videoFile, idToken);
 
       await addDoc(collection(db, 'scheduled_posts'), {
         content: aiContentDraft,
         platform: "TIKTOK",
+        videoUrl,
+        videoName: videoFile.name || null,
+        // Inbox draft, not direct post -- an AI-suggested quick-add should
+        // never auto-publish to a live TikTok account without the creator
+        // reviewing it first.
+        publishMode: 'TIKTOK_UPLOAD_DRAFT',
         scheduledTime: scheduledDate.toISOString(),
         status: "PENDING",
         userId: auth.currentUser.uid,
@@ -82,7 +140,7 @@ const Suggestions: React.FC<SuggestionsProps> = ({ activityVersion }) => {
 
       // Temporary success state would be nice, but for now just clear addingPost
     } catch (err) {
-      console.error(err);
+      setAddError({ id: suggestionId, message: err instanceof Error ? err.message : 'Could not schedule this post.' });
     } finally {
       setAddingPost(null);
     }
@@ -153,23 +211,45 @@ const Suggestions: React.FC<SuggestionsProps> = ({ activityVersion }) => {
                 </div>
               </div>
 
-              <motion.button
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.9 }}
-                onClick={() => handleApplySuggestion(s)}
-                disabled={isProcessing}
-                className="p-2 bg-brand-50 dark:bg-slate-800 text-brand-600 dark:text-brand-400 border border-brand-100 dark:border-slate-700 rounded-full hover:bg-brand-600 hover:text-white transition-colors disabled:opacity-50"
-              >
-                {isProcessing ? (
-                   <div className="w-5 h-5 border-2 border-brand-200 border-t-brand-600 rounded-full animate-spin" />
-                ) : (
-                  <Plus size={20} />
+              <div className="flex flex-col items-end gap-1">
+                <motion.button
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                  onClick={() => {
+                    pendingSuggestionRef.current = s;
+                    videoInputRef.current?.click();
+                  }}
+                  disabled={isProcessing}
+                  title={language === 'km' ? 'Upload វីដេអូ ដើម្បីកំណត់ពេលផុសទៅ TikTok' : 'Upload a video to schedule this TikTok post'}
+                  className="p-2 bg-brand-50 dark:bg-slate-800 text-brand-600 dark:text-brand-400 border border-brand-100 dark:border-slate-700 rounded-full hover:bg-brand-600 hover:text-white transition-colors disabled:opacity-50"
+                >
+                  {isProcessing ? (
+                     <div className="w-5 h-5 border-2 border-brand-200 border-t-brand-600 rounded-full animate-spin" />
+                  ) : (
+                    <Plus size={20} />
+                  )}
+                </motion.button>
+                {addError?.id === suggestionId && (
+                  <p className="text-[10px] text-red-500 max-w-[160px] text-right">{addError.message}</p>
                 )}
-              </motion.button>
+              </div>
             </motion.div>
           );
         })}
       </AnimatePresence>
+      <input
+        ref={videoInputRef}
+        type="file"
+        accept="video/*"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = '';
+          const suggestion = pendingSuggestionRef.current;
+          pendingSuggestionRef.current = null;
+          if (file && suggestion) void handleApplySuggestion(suggestion, file);
+        }}
+      />
     </div>
   );
 };
