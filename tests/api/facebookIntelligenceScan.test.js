@@ -337,3 +337,32 @@ it('runs a grounded lead search, not an exact-verification dead end, when a cust
   })]);
   expect(res.body.audienceResearch).toBeFalsy();
 });
+
+it('looks up the owner\'s own business on the live web when no description was saved, instead of a dead end', async () => {
+  const req = {
+    method: 'POST',
+    headers: {},
+    socket: { remoteAddress: '127.0.0.1' },
+    body: {
+      action: 'facebookIntelligenceScan',
+      query: 'ស្វែងរកអតិថិជនរបស់ក្រុម DGACADEMY',
+      businessName: 'DGACADEMY',
+      businessDescription: '',
+      scanMode: 'customer',
+      countries: ['KH'],
+      days: 7,
+      language: 'km',
+    },
+  };
+  const res = responseRecorder();
+
+  await handler(req, res);
+
+  expect(res.statusCode).toBe(200);
+  const searchCall = mocks.searchBusinesses.mock.calls[0][0];
+  expect(searchCall.targetCount).toBe(DEFAULT_SCAN_ENTITY_CAP);
+  expect(searchCall.searchObjective).toContain('first determine what "DGACADEMY" actually sells or does');
+  expect(searchCall.searchObjective).not.toContain('Find ONLY the exact business named');
+  expect(res.body.potentialLeads).toEqual([expect.objectContaining({ businessName: 'Sokha Painting Service' })]);
+  expect(res.body.audienceResearch).toBeFalsy();
+});

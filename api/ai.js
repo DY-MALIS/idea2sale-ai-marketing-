@@ -1360,8 +1360,16 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
       const [webSearchSettled, xContextSettled, competitorResearchSettled, ownBusinessResearchSettled, marketTrendResearchSettled, productAudienceSettled] = await Promise.allSettled([
         !isCompetitorScan && !productAudienceTarget ? searchBusinessesOnWeb({
           searchTerms,
-          searchObjective: ownBusinessLeadSearchTarget
-            ? `Find real businesses and organizations in the target market that are strong potential customers for "${userBusinessName}", described by its owner as: "${ownBusinessLeadSearchTarget}". Prioritize organizations with a concrete, plausible need for exactly what is described, not a generic or loosely related audience.`
+          searchObjective: searchingOwnBusinessLeads
+            ? (ownBusinessLeadSearchTarget
+              ? `Find real businesses and organizations in the target market that are strong potential customers for "${userBusinessName}", described by its owner as: "${ownBusinessLeadSearchTarget}". Prioritize organizations with a concrete, plausible need for exactly what is described, not a generic or loosely related audience.`
+              // No saved description to ground this in -- the owner never filled in "What
+              // does your business sell?" -- so the search itself must first establish what
+              // the business actually is (its own website, Facebook Page, or a business
+              // listing) before it can judge who its real customers are. Never guess the
+              // business type from the name alone, and fall back to a general customer
+              // search rather than returning nothing if that first step finds nothing.
+              : `Search the live web to first determine what "${userBusinessName}" actually sells or does, from its own website, Facebook Page, or a public business listing. Then find real businesses and organizations in the target market that are strong potential customers for that specific offering. Do not guess "${userBusinessName}"'s business type from its name alone -- ground it only in what you actually find. If nothing reliable can be found about "${userBusinessName}" itself, fall back to finding businesses likely to need marketing content or sales support in general.`)
             : audienceResearchTarget
               ? `Find ONLY the exact business named "${audienceResearchTarget}" and its public website or business Page. Do not return customers, competitors, similarly named businesses, or unrelated search suggestions.`
               : `${scanModeConfig.searchHint}. ${scanModeConfig.instruction}`,
