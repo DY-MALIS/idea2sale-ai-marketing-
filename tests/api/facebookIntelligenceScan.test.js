@@ -288,3 +288,52 @@ it('uses the Business Profile as the target for a generic competitor-activity in
     }],
   });
 });
+
+it('runs a grounded lead search, not an exact-verification dead end, when a customer scan names the owner\'s own business', async () => {
+  mocks.searchBusinesses.mockResolvedValue([{
+    businessName: 'Chamber of Professionals and Microenterprises of Cambodia (CPMEC)',
+    entityKind: 'association',
+    businessType: 'Professional association',
+    sourceUrl: 'https://cpmec.example.com',
+  }]);
+  mocks.text.mockResolvedValue(JSON.stringify({
+    customerInsights: { whatTheyBought: [], whatTheyLike: [], contentDesires: [], targetPersonas: [] },
+    competitors: [],
+    potentialLeads: [{
+      businessName: 'Chamber of Professionals and Microenterprises of Cambodia (CPMEC)',
+      businessType: 'Professional association',
+      recommendedService: 'AI skills training for members',
+    }],
+    videoPlan: [],
+    summaryReport: 'Found real potential customers for DGACADEMY.',
+  }));
+
+  const req = {
+    method: 'POST',
+    headers: {},
+    socket: { remoteAddress: '127.0.0.1' },
+    body: {
+      action: 'facebookIntelligenceScan',
+      query: 'ស្វែងរកអតិថិជនរបស់ក្រុមហ៊ុន DGACADEMY',
+      businessName: 'DGACADEMY',
+      businessDescription: 'An AI skills training academy in Phnom Penh.',
+      scanMode: 'customer',
+      countries: ['KH'],
+      days: 7,
+      language: 'km',
+    },
+  };
+  const res = responseRecorder();
+
+  await handler(req, res);
+
+  expect(res.statusCode).toBe(200);
+  const searchCall = mocks.searchBusinesses.mock.calls[0][0];
+  expect(searchCall.targetCount).toBe(DEFAULT_SCAN_ENTITY_CAP);
+  expect(searchCall.searchObjective).toContain('AI skills training academy in Phnom Penh');
+  expect(searchCall.searchObjective).not.toContain('Find ONLY the exact business named');
+  expect(res.body.potentialLeads).toEqual([expect.objectContaining({
+    businessName: 'Chamber of Professionals and Microenterprises of Cambodia (CPMEC)',
+  })]);
+  expect(res.body.audienceResearch).toBeFalsy();
+});

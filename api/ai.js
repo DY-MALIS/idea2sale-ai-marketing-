@@ -240,18 +240,38 @@ export const findExactBusiness = (businesses, target) => {
 
 // A saved product description is first-party context for audience research.
 // Match it to the query before treating the same words as a public Page name.
+const normalizeMatchKey = (value) => String(value || '').normalize('NFD').replace(/\p{M}/gu, '').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+
+// Naming your own saved business ("customers of DGACADEMY") asks for real
+// potential customer leads, not an aggregate market-segment summary and not
+// "verify DGACADEMY as if it were someone else's business" (a self-lookup can
+// never satisfy that). Independent of whether a saved description exists --
+// this only decides which search path runs, not what grounds it.
+export const isOwnBusinessNamedTarget = (query, businessName) => {
+  const ownBusiness = String(businessName || '').trim();
+  if (!ownBusiness) return false;
+  const namedTarget = resolveAudienceResearchTarget(query);
+  if (facebookPageIdentity(namedTarget)) return false;
+  const target = namedTarget || String(query || '').trim();
+  const targetKey = normalizeMatchKey(target);
+  const businessKey = normalizeMatchKey(ownBusiness);
+  if (targetKey.length < 4) return false;
+  return targetKey === businessKey || (targetKey.length > 5 && businessKey.includes(targetKey));
+};
+
 export const resolveProductAudienceTarget = (query, businessName, businessDescription) => {
   const description = String(businessDescription || '').trim().slice(0, 1000);
   if (!description) return '';
+  // A named self-reference is handled by the normal lead-search path instead
+  // (see isOwnBusinessNamedTarget) -- only a loose product/category
+  // description with no business actually named reaches aggregate research.
+  if (isOwnBusinessNamedTarget(query, businessName)) return '';
   const namedTarget = resolveAudienceResearchTarget(query);
   if (facebookPageIdentity(namedTarget)) return '';
-  const key = (value) => String(value || '').normalize('NFD').replace(/\p{M}/gu, '').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
   const target = namedTarget || String(query || '').trim();
-  const targetKey = key(target);
-  const businessKey = key(businessName);
-  const descriptionKey = key(description);
+  const targetKey = normalizeMatchKey(target);
+  const descriptionKey = normalizeMatchKey(description);
   if (targetKey.length < 4) return '';
-  if (businessKey && (targetKey === businessKey || (targetKey.length > 5 && businessKey.includes(targetKey)))) return description.slice(0, 250);
   return descriptionKey.includes(targetKey) ? target.slice(0, 250) : '';
 };
 
@@ -1277,10 +1297,17 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
       const scanMode = resolveFacebookScanMode(req.body?.scanMode, query);
       const scanModeConfig = scanModeConfigs[scanMode];
       const isCompetitorScan = scanMode === 'competitor_activity';
-      const audienceResearchTarget = scanMode === 'customer' ? resolveAudienceResearchTarget(query) : '';
-      const productAudienceTarget = scanMode === 'customer'
+      // Naming your own saved business ("customers of DGACADEMY") means "find
+      // my real customer leads," not "verify my own listing" -- treat it as if
+      // no specific target were named so the exact-verification dead end below
+      // never applies to it; ownBusinessLeadSearchTarget grounds the lead
+      // search in the saved description instead.
+      const searchingOwnBusinessLeads = scanMode === 'customer' && isOwnBusinessNamedTarget(query, userBusinessName);
+      const audienceResearchTarget = scanMode === 'customer' && !searchingOwnBusinessLeads ? resolveAudienceResearchTarget(query) : '';
+      const productAudienceTarget = scanMode === 'customer' && !searchingOwnBusinessLeads
         ? resolveProductAudienceTarget(query, userBusinessName, savedBusinessProfile.businessDescription)
         : '';
+      const ownBusinessLeadSearchTarget = searchingOwnBusinessLeads ? savedBusinessProfile.businessDescription : '';
       const entityCap = requestedEntityCap
         || (isCompetitorScan ? DEFAULT_COMPETITOR_ENTITY_CAP : DEFAULT_SCAN_ENTITY_CAP);
       const today = new Date();
@@ -1321,9 +1348,11 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
       const [webSearchSettled, xContextSettled, competitorResearchSettled, ownBusinessResearchSettled, marketTrendResearchSettled, productAudienceSettled] = await Promise.allSettled([
         !isCompetitorScan && !productAudienceTarget ? searchBusinessesOnWeb({
           searchTerms,
-          searchObjective: audienceResearchTarget
-            ? `Find ONLY the exact business named "${audienceResearchTarget}" and its public website or business Page. Do not return customers, competitors, similarly named businesses, or unrelated search suggestions.`
-            : `${scanModeConfig.searchHint}. ${scanModeConfig.instruction}`,
+          searchObjective: ownBusinessLeadSearchTarget
+            ? `Find real businesses and organizations in the target market that are strong potential customers for "${userBusinessName}", described by its owner as: "${ownBusinessLeadSearchTarget}". Prioritize organizations with a concrete, plausible need for exactly what is described, not a generic or loosely related audience.`
+            : audienceResearchTarget
+              ? `Find ONLY the exact business named "${audienceResearchTarget}" and its public website or business Page. Do not return customers, competitors, similarly named businesses, or unrelated search suggestions.`
+              : `${scanModeConfig.searchHint}. ${scanModeConfig.instruction}`,
           targetCount: audienceResearchTarget ? 1 : entityCap,
           requiredSignal: scanMode === 'hiring' ? 'hiring' : '',
           entityScope: scanMode === 'workers' ? 'workers' : 'businesses',

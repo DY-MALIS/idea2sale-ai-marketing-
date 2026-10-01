@@ -13,6 +13,7 @@ import {
   googleSheetsUrlToCsvExportUrl,
   resolveCreativeImageMode,
   resolveAgentReplyLanguage,
+  isOwnBusinessNamedTarget,
   resolveAudienceResearchTarget,
   resolveProductAudienceTarget,
   resolveCompetitorResearchTarget,
@@ -224,10 +225,23 @@ describe('resolveAudienceResearchTarget', () => {
   });
 });
 
+describe('isOwnBusinessNamedTarget', () => {
+  it('recognizes the owner naming their own saved business, with or without a leading "company" word', () => {
+    expect(isOwnBusinessNamedTarget('customers of Meadow Care', 'Meadow Care')).toBe(true);
+    expect(isOwnBusinessNamedTarget('ស្វែងរកអតិថិជនរបស់ក្រុមហ៊ុន DGACADEMY', 'DGACADEMY')).toBe(true);
+    expect(isOwnBusinessNamedTarget('DGACADEMY', 'DGACADEMY')).toBe(true);
+  });
+  it('does not match an unrelated company, a Page URL, or a missing business name', () => {
+    expect(isOwnBusinessNamedTarget('customers of Another Shop', 'Meadow Care')).toBe(false);
+    expect(isOwnBusinessNamedTarget('https://facebook.com/MeadowCare', 'Meadow Care')).toBe(false);
+    expect(isOwnBusinessNamedTarget('customers of Meadow Care', '')).toBe(false);
+  });
+});
+
 describe('resolveProductAudienceTarget', () => {
   const description = 'We make oat body lotion for dry skin and gift sets.';
-  it('uses the saved product description when the query names the owner’s business', () => {
-    expect(resolveProductAudienceTarget('customers of Meadow Care', 'Meadow Care', description)).toBe(description);
+  it('leaves a named self-reference for the lead-search path instead of aggregate research', () => {
+    expect(resolveProductAudienceTarget('customers of Meadow Care', 'Meadow Care', description)).toBe('');
   });
   it('recognizes a product category already present in the saved description', () => {
     expect(resolveProductAudienceTarget('customers of body lotion', 'Meadow Care', description)).toBe('body lotion');
