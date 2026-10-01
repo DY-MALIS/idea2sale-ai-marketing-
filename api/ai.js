@@ -26,6 +26,7 @@ import { researchMarketTrends } from './_marketTrendResearch.js';
 import { researchProductAudience } from './_productAudienceResearch.js';
 import { uploadMediaDataUrl } from './_imagekitUpload.js';
 import { sendOutreachEmail } from './_email.js';
+import { extractDocumentText } from './_documentExtract.js';
 import { createHash } from 'crypto';
 
 // Most actions remain available to guest/demo traffic, so the shared endpoint
@@ -1136,6 +1137,35 @@ Response rules:
         prompt: brandSentimentPrompt(brand, outputLanguage, xContext),
       });
       return res.status(200).json({ report: report || 'No report generated.' });
+    }
+
+    // Business Profile's "upload an introduction" control: a user hands over
+    // a company brochure/profile document (.txt/.pdf/.docx) instead of typing
+    // a description by hand. Extracted raw text is condensed into the same
+    // concise, owner-in-their-own-words style the businessDescription field
+    // expects -- not pasted in verbatim, since a multi-page brochure would
+    // blow past the field's 1000-character limit and read as marketing copy
+    // rather than the plain self-description every other AI feature here
+    // (see businessContentInstruction) is written to consume.
+    if (action === 'extractBusinessIntro') {
+      const fileDataUrl = String(req.body?.fileDataUrl || '');
+      const fileName = String(req.body?.fileName || '');
+      if (!fileDataUrl) return res.status(400).json({ error: 'Please choose a file to upload.' });
+      let documentText;
+      try {
+        documentText = await extractDocumentText({ dataUrl: fileDataUrl, fileName });
+      } catch (error) {
+        return res.status(error?.status || 400).json({ error: error?.message || 'Could not read this file.' });
+      }
+      const outputLanguageCode = containsKhmerScript(documentText) ? 'km' : languageCode;
+      const businessDescription = await generateOpenRouterText({
+        system: 'You distill a business document into one short, plain self-description for the business owner to review and save, written in the exact words a busy owner would actually use.',
+        prompt: `Read this document (from a file named "${fileName || 'uploaded document'}") and summarize, in ${outputLanguageCode === 'km' ? 'Khmer' : 'English'}, what the business actually sells or does. Write 1-3 plain sentences, under 280 characters total, first person or neutral ("We sell..." / "A cafe that..."), no headings, no markdown, no quotation marks around the whole answer. State only what the document actually supports -- do not invent products, locations, or claims it doesn't mention.\n\nDOCUMENT TEXT:\n${documentText}`,
+        maxTokens: 400,
+      });
+      const cleaned = String(businessDescription || '').trim().replace(/^["']|["']$/g, '').slice(0, 1000);
+      if (!cleaned) return res.status(502).json({ error: 'Could not summarize this file into a business description. Please try again.' });
+      return res.status(200).json({ businessDescription: cleaned });
     }
 
     if (action === 'extractContentPlan') {

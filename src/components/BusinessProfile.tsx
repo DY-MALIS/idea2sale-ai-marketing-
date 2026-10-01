@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Upload, Building2, User, Plus, Trash2, Save, CheckCircle2, Loader2, Send, Bot } from 'lucide-react';
+import { X, Upload, FileText, Building2, User, Plus, Trash2, Save, CheckCircle2, Loader2, Send, Bot } from 'lucide-react';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { cn } from '../lib/utils';
@@ -8,6 +8,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { BusinessDirectoryEntry, BusinessProfileData } from '../types';
 import { recordAuditEvent } from '../lib/auditClient';
+import { withUploadTimeout } from '../lib/withUploadTimeout';
 import { channelUsernameFromProfile } from '../../shared/telegramDestination.js';
 
 const DEMO_STORAGE_KEY = 'demo_business_profile';
@@ -50,6 +51,16 @@ const resizeImageToDataUrl = (file: File): Promise<string> =>
     reader.readAsDataURL(file);
   });
 
+const INTRO_FILE_MAX_BYTES = 8 * 1024 * 1024;
+
+const readFileAsDataUrl = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Could not read this file.'));
+    reader.onload = () => resolve(reader.result as string);
+    reader.readAsDataURL(file);
+  });
+
 interface BusinessProfileProps {
   onClose: () => void;
 }
@@ -58,9 +69,11 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
   const { t, language } = useLanguage();
   const { user, isDemoMode, loading: authLoading } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const introFileInputRef = useRef<HTMLInputElement>(null);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [introUploading, setIntroUploading] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [telegramBotActive, setTelegramBotActive] = useState(false);
@@ -154,6 +167,33 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
       setLogoDataUrl(dataUrl);
     } catch (err: any) {
       setError(err.message || t('businessProfileLoadError'));
+    }
+  };
+
+  const handleIntroFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (file.size > INTRO_FILE_MAX_BYTES) {
+      setError(language === 'km' ? 'ឯកសារនេះធំពេក (កំណត់ត្រឹម ៨MB)។' : 'That file is too large (8 MB limit).');
+      return;
+    }
+    setIntroUploading(true);
+    setError(null);
+    try {
+      const fileDataUrl = await readFileAsDataUrl(file);
+      const response = await withUploadTimeout(fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'extractBusinessIntro', fileDataUrl, fileName: file.name, language }),
+      }));
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Could not read this file.');
+      setBusinessDescription(String(data.businessDescription || ''));
+    } catch (err: any) {
+      setError(err.message || t('businessProfileLoadError'));
+    } finally {
+      setIntroUploading(false);
     }
   };
 
@@ -355,6 +395,18 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
                 placeholder={language === 'km' ? 'ឧទាហរណ៍៖ ហាងកាហ្វេ និងម៉ាត លក់ភេសជ្ជៈ និងទំនិញប្រចាំថ្ងៃ' : 'For example: a cafe and mini mart selling drinks and everyday goods'}
                 className="w-full px-4 py-3 bg-brand-50 border border-brand-100 dark:bg-slate-800 dark:border-slate-700 rounded-2xl text-sm text-brand-700 dark:text-slate-100 focus:outline-none focus:ring-2 ring-brand-500/20"
               />
+              <input ref={introFileInputRef} type="file" accept=".txt,.pdf,.docx,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" className="hidden" onChange={handleIntroFileChange} />
+              <button
+                type="button"
+                onClick={() => introFileInputRef.current?.click()}
+                disabled={introUploading}
+                className="mt-2 flex items-center gap-2 px-3 py-1.5 bg-brand-50 hover:bg-brand-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-brand-600 dark:text-brand-400 rounded-xl text-xs font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {introUploading ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
+                {introUploading
+                  ? (language === 'km' ? 'កំពុងអាន...' : 'Reading file...')
+                  : (language === 'km' ? 'ឬ Upload ឯកសារណែនាំក្រុមហ៊ុន (.txt, .pdf, .docx)' : 'Or upload a company intro file (.txt, .pdf, .docx)')}
+              </button>
             </div>
 
             <div>
