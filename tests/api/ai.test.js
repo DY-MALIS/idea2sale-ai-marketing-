@@ -186,6 +186,13 @@ describe('resolveCompetitorResearchTarget', () => {
       'DGACADEMY',
     )).toBe('MD ស្ក្រាប់ខាត់ស្បែកខ្លួន');
   });
+
+  it('strips a leading generic "company" word so the bare name matches the saved business name', () => {
+    expect(resolveCompetitorResearchTarget(
+      'ស្វែងរកគូប្រកួតប្រជែងរបស់ក្រុមហ៊ុន DGACADEMY',
+      'DGACADEMY',
+    )).toBe('DGACADEMY');
+  });
 });
 
 describe('shouldReuseOwnBusinessCompetitors', () => {
@@ -209,6 +216,11 @@ describe('resolveAudienceResearchTarget', () => {
 
   it('keeps Khmer subscript consonants and vowel signs in the target name', () => {
     expect(resolveAudienceResearchTarget('ស្កេងអតិថិជនរបស់ MD ស្ក្រាប់ខាត់ស្បែកខ្លួន')).toBe('MD ស្ក្រាប់ខាត់ស្បែកខ្លួន');
+  });
+
+  it('strips a leading generic "company" word so the bare name matches the saved business name', () => {
+    expect(resolveAudienceResearchTarget('ស្វែងរកអតិថិជនរបស់ក្រុមហ៊ុន DGACADEMY')).toBe('DGACADEMY');
+    expect(resolveAudienceResearchTarget('customers of the company DGACADEMY')).toBe('DGACADEMY');
   });
 });
 

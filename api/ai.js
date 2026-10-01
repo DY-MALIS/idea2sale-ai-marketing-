@@ -169,6 +169,14 @@ export const resolveFacebookScanMode = (value, query = '') => {
   return classifyScanMode(query);
 };
 
+// Natural Khmer (and English) phrasing often puts a generic business-type
+// word directly in front of the actual proper name -- "ក្រុមហ៊ុន DGACADEMY"
+// literally means "[the] company DGACADEMY". Left in, that generic word
+// breaks both exact web-verification (a real Page/listing is named
+// "DGACADEMY", not "ក្រុមហ៊ុន DGACADEMY") and any comparison against the
+// bare saved business name, so strip it before the target is used for either.
+const stripGenericBusinessWord = (value) => String(value || '').replace(/^(?:ក្រុមហ៊ុន|ហាង|អាជីវកម្ម|the\s+company|company)\s+/iu, '').trim();
+
 export const resolveCompetitorResearchTarget = (query, businessName) => {
   const requested = String(query || '').trim();
   const ownBusiness = String(businessName || '').trim();
@@ -177,7 +185,7 @@ export const resolveCompetitorResearchTarget = (query, businessName) => {
   // company name, e.g. "ស្វែងរកគូប្រកួតប្រជែងរបស់ Dating Cafe & Mart".
   // Search the named business, not the whole instruction. The latter makes
   // web search latch onto one word in a brand ("Dating" -> dating apps).
-  const namedTarget = requested.match(/(?:របស់|នៃ|\b(?:of|for)\b)\s*([\p{L}\p{N}\p{M}][\p{L}\p{N}\p{M}\s.&'’/-]{1,100})\s*$/iu)?.[1]?.trim();
+  const namedTarget = stripGenericBusinessWord(requested.match(/(?:របស់|នៃ|\b(?:of|for)\b)\s*([\p{L}\p{N}\p{M}][\p{L}\p{N}\p{M}\s.&'’/-]{1,100})\s*$/iu)?.[1]?.trim());
   if (namedTarget && !/^(?:គូប្រកួត|ប្រកួតប្រជែង|competitor|my|our|ខ្ញុំ|យើង)/iu.test(namedTarget)) {
     return namedTarget;
   }
@@ -201,7 +209,7 @@ export const resolveAudienceResearchTarget = (query) => {
   const pageUrl = text.match(/https:\/\/[^\s<>"']+/iu)?.[0]?.replace(/[.,;!?។]+$/u, '');
   if (facebookPageIdentity(pageUrl)) return pageUrl;
   const matches = [...text.matchAll(/(?:\b(?:clients?|customers?)\s+(?:of|for)\s+(?:my|our|the)?\s*|អតិថិជន(?:របស់|នៃ)\s*)([\p{L}\p{N}\p{M}][\p{L}\p{N}\p{M}\s.&'’/-]{1,120})/giu)];
-  const target = matches.at(-1)?.[1]?.trim() || '';
+  const target = stripGenericBusinessWord(matches.at(-1)?.[1]?.trim() || '');
   return /^(?:(?:my|our|the|a|an|competitor)\b|គូប្រកួត)/iu.test(target) ? '' : target;
 };
 
