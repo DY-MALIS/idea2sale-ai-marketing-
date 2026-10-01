@@ -236,6 +236,13 @@ describe('isOwnBusinessNamedTarget', () => {
     expect(isOwnBusinessNamedTarget('https://facebook.com/MeadowCare', 'Meadow Care')).toBe(false);
     expect(isOwnBusinessNamedTarget('customers of Meadow Care', '')).toBe(false);
   });
+  it('falls back to trailing-word matching for a generic word not on the known list, without false-matching a short name', () => {
+    // "ក្រុម" (group) alone, not "ក្រុមហ៊ុន" (company) -- a real variant a user
+    // typed that stripGenericBusinessWord's fixed word list does not cover.
+    expect(isOwnBusinessNamedTarget('ស្វែងរកអតិថិជនរបស់ក្រុម DGACADEMY', 'DGACADEMY')).toBe(true);
+    expect(isOwnBusinessNamedTarget('customers of City Mart', 'Mart')).toBe(false);
+    expect(isOwnBusinessNamedTarget('customers of Another DGACADEMY Clone', 'DGACADEMY')).toBe(false);
+  });
 });
 
 describe('resolveProductAudienceTarget', () => {

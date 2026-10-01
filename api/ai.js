@@ -175,7 +175,7 @@ export const resolveFacebookScanMode = (value, query = '') => {
 // breaks both exact web-verification (a real Page/listing is named
 // "DGACADEMY", not "ក្រុមហ៊ុន DGACADEMY") and any comparison against the
 // bare saved business name, so strip it before the target is used for either.
-const stripGenericBusinessWord = (value) => String(value || '').replace(/^(?:ក្រុមហ៊ុន|ហាង|អាជីវកម្ម|the\s+company|company)\s+/iu, '').trim();
+const stripGenericBusinessWord = (value) => String(value || '').replace(/^(?:ក្រុមហ៊ុន|ក្រុម|ហាង|អាជីវកម្ម|សហគ្រាស|the\s+company|company)\s+/iu, '').trim();
 
 export const resolveCompetitorResearchTarget = (query, businessName) => {
   const requested = String(query || '').trim();
@@ -256,7 +256,19 @@ export const isOwnBusinessNamedTarget = (query, businessName) => {
   const targetKey = normalizeMatchKey(target);
   const businessKey = normalizeMatchKey(ownBusiness);
   if (targetKey.length < 4) return false;
-  return targetKey === businessKey || (targetKey.length > 5 && businessKey.includes(targetKey));
+  if (targetKey === businessKey || (targetKey.length > 5 && businessKey.includes(targetKey))) return true;
+  // stripGenericBusinessWord only catches the specific descriptor words it
+  // lists; natural phrasing has many more ("ក្រុម", "សាខា", a qualifier
+  // nobody anticipated). Rather than chase every variant one at a time,
+  // accept the saved business name as a whole trailing word/phrase of the
+  // target -- the actual proper name is almost always last -- gated to names
+  // long enough that a short one (e.g. "Mart") can't false-match an unrelated
+  // longer phrase that merely happens to end the same way.
+  if (businessKey.length > 5) {
+    const escaped = ownBusiness.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (new RegExp(`(?:^|\\s)${escaped}\\s*$`, 'iu').test(target)) return true;
+  }
+  return false;
 };
 
 export const resolveProductAudienceTarget = (query, businessName, businessDescription) => {
