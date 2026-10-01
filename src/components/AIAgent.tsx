@@ -282,20 +282,19 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   }, [messages, loading]);
 
   useEffect(() => () => requestControllerRef.current?.abort(), []);
-  // Long-term memory: reload the saved conversation and business profile so the
-  // agent keeps context across page reloads and sessions instead of forgetting
-  // everything the moment the tab closes.
+  // Long-term memory: reload the saved conversation so the agent keeps context
+  // across page reloads and sessions instead of forgetting everything the
+  // moment the tab closes.
   useEffect(() => {
     let cancelled = false;
     memoryLoadedRef.current = false;
     // Reset immediately, before the async load resolves — this is an SPA where
     // logging out or switching accounts doesn't reload the page, so without this
-    // the previous user's conversation/profile would stay visible (or race with
-    // and get clobbered onto) the newly-signed-in user's data.
+    // the previous user's conversation would stay visible (or race with and get
+    // clobbered onto) the newly-signed-in user's data.
     setMessages([]);
     setConversationSessions([]);
     setActiveSessionId(newSessionId());
-    setBusinessContext(null);
 
     const loadMemory = async () => {
       try {
@@ -313,15 +312,8 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           } else if (savedMessages?.length) {
             localStorage.removeItem(DEMO_AGENT_CONVERSATION_STORAGE_KEY);
           }
-          const savedProfile = JSON.parse(localStorage.getItem(DEMO_BUSINESS_PROFILE_STORAGE_KEY) || 'null');
-          if (savedProfile && !cancelled) {
-            setBusinessContext({ businessName: savedProfile.businessName || '', directory: savedProfile.directory || [] });
-          }
         } else {
-          const [conversationSnap, profileSnap] = await Promise.all([
-            getDoc(doc(db, 'agent_conversations', user.uid)),
-            getDoc(doc(db, 'business_profiles', user.uid)),
-          ]);
+          const conversationSnap = await getDoc(doc(db, 'agent_conversations', user.uid));
           if (cancelled) return;
           if (conversationSnap.exists()) {
             const data = conversationSnap.data();
@@ -335,10 +327,6 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
               setActiveSessionId(String(data?.activeSessionId || newSessionId()));
             }
           }
-          if (profileSnap.exists()) {
-            const data = profileSnap.data() as BusinessProfileData;
-            setBusinessContext({ businessName: data.businessName || '', directory: data.directory || [] });
-          }
         }
       } catch (error) {
         console.error('Failed to load agent memory:', error);
@@ -350,6 +338,41 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
 
     return () => {
       cancelled = true;
+    };
+  }, [user, isDemoMode]);
+
+  // Business Profile stays mounted alongside AI Agent in this SPA, so a save
+  // there must refresh this tab's cached context too -- otherwise scans and
+  // plans keep using whatever business name/directory was loaded at mount.
+  useEffect(() => {
+    let cancelled = false;
+    const loadBusinessContext = () => {
+      if (isDemoMode || !user) {
+        const savedProfile = JSON.parse(localStorage.getItem(DEMO_BUSINESS_PROFILE_STORAGE_KEY) || 'null');
+        if (savedProfile && !cancelled) {
+          setBusinessContext({ businessName: savedProfile.businessName || '', directory: savedProfile.directory || [] });
+        } else if (!cancelled) {
+          setBusinessContext(null);
+        }
+        return Promise.resolve();
+      }
+      return getDoc(doc(db, 'business_profiles', user.uid)).then((profileSnap) => {
+        if (cancelled) return;
+        if (profileSnap.exists()) {
+          const data = profileSnap.data() as BusinessProfileData;
+          setBusinessContext({ businessName: data.businessName || '', directory: data.directory || [] });
+        } else {
+          setBusinessContext(null);
+        }
+      }).catch((error) => {
+        console.error('Failed to load business context:', error);
+      });
+    };
+    void loadBusinessContext();
+    window.addEventListener('business-profile-updated', loadBusinessContext);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('business-profile-updated', loadBusinessContext);
     };
   }, [user, isDemoMode]);
 
