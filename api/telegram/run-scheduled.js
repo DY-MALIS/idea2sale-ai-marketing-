@@ -809,6 +809,12 @@ export default async function handler(req, res) {
       .collection('content_plan_items')
       .where('status', '==', 'PROCESSING')
       .where('type', '==', 'video')
+      // Firestore can't express "pollScheduledAt OR processingAt is stale" as
+      // a single indexed clause, so staleness is still filtered in memory below
+      // -- but an unbounded read here would scale with the whole PROCESSING
+      // backlog (worst case during an outage, exactly when it's most expensive).
+      // 200 is far above any normal backlog while still bounding that worst case.
+      .limit(200)
       .get();
     const staleProcessingVideos = processingVideoSnapshot.docs
       .filter((doc) => {
@@ -843,6 +849,9 @@ export default async function handler(req, res) {
       .collection('content_plan_items')
       .where('status', '==', 'REVIEW')
       .where('type', '==', 'video')
+      // See the same note on processingVideoSnapshot above -- bounded well
+      // above any normal REVIEW backlog, just not unbounded.
+      .limit(200)
       .get();
     const verifiedReviewDocs = verifiedReviewSnapshot.docs
       .filter((doc) => doc.data()?.speechVerification?.passed === true && doc.data()?.resultMediaUrl)

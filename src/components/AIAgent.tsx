@@ -355,6 +355,11 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   // in api/ai.js), so a partial context silently under-used what was saved.
   useEffect(() => {
     let cancelled = false;
+    // Reset synchronously, before the async load resolves -- this is an SPA
+    // where switching accounts or toggling demo mode doesn't reload the page,
+    // so without this a message sent in that gap would still be grounded in
+    // the previous account's business name, description, and social channels.
+    setBusinessContext(null);
     const loadBusinessContext = () => getLatestBusinessBranding(user, isDemoMode).then((branding) => {
       if (cancelled) return;
       setBusinessContext({

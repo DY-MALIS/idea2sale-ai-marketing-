@@ -628,10 +628,22 @@ const attemptGenerateVideoClip = async (
   if (!idToken || !userId) throw new Error('Sign in before generating a video.');
   const fingerprint = videoRequestFingerprint(prompt, images, duration, khmerSpeech?.script || '', aspectRatio);
   let pending = readPendingVideoJobs().find((job) => job.userId === userId && job.fingerprint === fingerprint);
-  if (pending && resumeOptions && (pending.silentRequested === undefined || (!pending.resumeNarration && resumeOptions.resumeNarration))) {
-    pending.silentRequested = resumeOptions.silentRequested;
-    pending.resumeNarration = resumeOptions.resumeNarration;
-    savePendingVideoJob(pending);
+  // Each field is filled in independently, exactly once, the first time it
+  // becomes known -- never overwritten afterward. These two fields used to be
+  // updated together as a pair, so a later call that only newly supplied
+  // resumeNarration could silently clobber an already-locked-in silentRequested
+  // with this call's value, which is not necessarily the same job's answer.
+  if (pending && resumeOptions) {
+    let pendingChanged = false;
+    if (pending.silentRequested === undefined && resumeOptions.silentRequested !== undefined) {
+      pending.silentRequested = resumeOptions.silentRequested;
+      pendingChanged = true;
+    }
+    if (!pending.resumeNarration && resumeOptions.resumeNarration) {
+      pending.resumeNarration = resumeOptions.resumeNarration;
+      pendingChanged = true;
+    }
+    if (pendingChanged) savePendingVideoJob(pending);
   }
   if (!pending) {
     const response = await fetchAiWithTimeout({ action: 'videoGenerate', prompt, images, duration, aspectRatio, khmerSpeech }, VIDEO_STATUS_FETCH_TIMEOUT_MS, idToken);
