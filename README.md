@@ -47,11 +47,10 @@ npm run dev
 ## Firebase Setup
 
 1. Create a Firebase project with Authentication and Firestore enabled.
-2. Deploy `firestore.rules` to the project.
+2. Deploy `firestore.rules` and `firestore.indexes.json` to the project. The scheduled-post pollers need the composite index for platform, status, and scheduled time before the updated cron queries can run.
 3. Fill in the `VITE_FIREBASE_*` client config values from the Firebase console.
 4. For server-side Firestore Admin access on Vercel, set `FIREBASE_CLIENT_EMAIL` and `FIREBASE_PRIVATE_KEY` from a
-   service account key (Project Settings → Service Accounts). Without these, the server falls back to Application
-   Default Credentials, which only works in environments that provide them.
+   service account key (Project Settings → Service Accounts). The server rejects Admin SDK operations if these are missing.
 5. Grant a user admin rights to delete `tiktok_posts` records and inspect cross-account or legacy shared-bot
    Telegram CRM data by running:
 
@@ -88,6 +87,12 @@ npm run dev
    which the Hobby plan rejects). Subscribe to `authorization.removed`: the app verifies the `Tiktok-Signature`
    header with `TIKTOK_CLIENT_SECRET` and, on that event, marks the stored automation token revoked and alerts
    admins immediately instead of only discovering the disconnect from a string of failed scheduled posts.
+
+## YouTube Setup
+
+1. Set `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET`, and `YOUTUBE_REDIRECT_URI` for the Google OAuth app. The redirect URI must end with `/api/tiktok/callback?provider=youtube`.
+2. Each signed-in user connects their own YouTube channel from Smart Scheduler. YouTube tokens are stored by Firebase UID. Connections created before this owner-scoped change used a shared `default` token and must reconnect.
+3. YouTube schedules use QStash for precise delivery, the GitHub Action poller every 10 minutes as a fallback, and the daily Vercel cron as a further fallback. Configure `QSTASH_TOKEN`, both QStash signing keys, and `CRON_SECRET` for those paths.
 
 ## ImageKit Setup
 
