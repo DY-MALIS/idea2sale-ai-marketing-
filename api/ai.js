@@ -1309,17 +1309,25 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
       const scanMode = resolveFacebookScanMode(req.body?.scanMode, query);
       const scanModeConfig = scanModeConfigs[scanMode];
       const isCompetitorScan = scanMode === 'competitor_activity';
-      // Naming your own saved business ("customers of DGACADEMY") means "find
-      // my real customer leads," not "verify my own listing" -- treat it as if
-      // no specific target were named so the exact-verification dead end below
-      // never applies to it; ownBusinessLeadSearchTarget grounds the lead
-      // search in the saved description instead.
-      const searchingOwnBusinessLeads = scanMode === 'customer' && isOwnBusinessNamedTarget(query, userBusinessName);
-      const audienceResearchTarget = scanMode === 'customer' && !searchingOwnBusinessLeads ? resolveAudienceResearchTarget(query) : '';
-      const productAudienceTarget = scanMode === 'customer' && !searchingOwnBusinessLeads
+      const isSelfBusinessTarget = scanMode === 'customer' && isOwnBusinessNamedTarget(query, userBusinessName);
+      // A "customers of X" request -- whether X is the user's own saved
+      // business or someone else's -- means "find real customer leads for X,"
+      // not "verify X as if it might not be real." Both now go through the
+      // same lenient flow below: look the named business up live (or use the
+      // saved description, for the user's own business), then find real
+      // potential customers for it, falling back to a general customer search
+      // instead of a dead end when that lookup finds nothing -- a named
+      // business can be real even when it can't be matched to one exact
+      // search result (different Page name formatting, thin web presence).
+      const audienceResearchTarget = scanMode === 'customer'
+        ? (isSelfBusinessTarget ? userBusinessName : resolveAudienceResearchTarget(query))
+        : '';
+      // A product/category description with no business actually named is
+      // the only case left that goes to aggregate market-segment research.
+      const productAudienceTarget = scanMode === 'customer' && !audienceResearchTarget
         ? resolveProductAudienceTarget(query, userBusinessName, savedBusinessProfile.businessDescription)
         : '';
-      const ownBusinessLeadSearchTarget = searchingOwnBusinessLeads ? savedBusinessProfile.businessDescription : '';
+      const namedBusinessDescription = isSelfBusinessTarget ? savedBusinessProfile.businessDescription : '';
       const entityCap = requestedEntityCap
         || (isCompetitorScan ? DEFAULT_COMPETITOR_ENTITY_CAP : DEFAULT_SCAN_ENTITY_CAP);
       const today = new Date();
@@ -1360,20 +1368,19 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
       const [webSearchSettled, xContextSettled, competitorResearchSettled, ownBusinessResearchSettled, marketTrendResearchSettled, productAudienceSettled] = await Promise.allSettled([
         !isCompetitorScan && !productAudienceTarget ? searchBusinessesOnWeb({
           searchTerms,
-          searchObjective: searchingOwnBusinessLeads
-            ? (ownBusinessLeadSearchTarget
-              ? `Find real businesses and organizations in the target market that are strong potential customers for "${userBusinessName}", described by its owner as: "${ownBusinessLeadSearchTarget}". Prioritize organizations with a concrete, plausible need for exactly what is described, not a generic or loosely related audience.`
-              // No saved description to ground this in -- the owner never filled in "What
-              // does your business sell?" -- so the search itself must first establish what
-              // the business actually is (its own website, Facebook Page, or a business
-              // listing) before it can judge who its real customers are. Never guess the
-              // business type from the name alone, and fall back to a general customer
-              // search rather than returning nothing if that first step finds nothing.
-              : `Search the live web to first determine what "${userBusinessName}" actually sells or does, from its own website, Facebook Page, or a public business listing. Then find real businesses and organizations in the target market that are strong potential customers for that specific offering. Do not guess "${userBusinessName}"'s business type from its name alone -- ground it only in what you actually find. If nothing reliable can be found about "${userBusinessName}" itself, fall back to finding businesses likely to need marketing content or sales support in general.`)
-            : audienceResearchTarget
-              ? `Find ONLY the exact business named "${audienceResearchTarget}" and its public website or business Page. Do not return customers, competitors, similarly named businesses, or unrelated search suggestions.`
-              : `${scanModeConfig.searchHint}. ${scanModeConfig.instruction}`,
-          targetCount: audienceResearchTarget ? 1 : entityCap,
+          searchObjective: audienceResearchTarget
+            ? (namedBusinessDescription
+              ? `Find real businesses and organizations in the target market that are strong potential customers for "${audienceResearchTarget}", described by its owner as: "${namedBusinessDescription}". Prioritize organizations with a concrete, plausible need for exactly what is described, not a generic or loosely related audience.`
+              // No saved description to ground this in (either a different business
+              // entirely, or the owner's own but "What does your business sell?" was
+              // never filled in) -- so the search itself must first establish what the
+              // named business actually is (its own website, Facebook Page, or a
+              // business listing) before it can judge who its real customers are. Never
+              // guess the business type from the name alone, and fall back to a general
+              // customer search rather than returning nothing if that first step fails.
+              : `Search the live web to first determine what "${audienceResearchTarget}" actually sells or does, from its own website, Facebook Page, or a public business listing. Then find real businesses and organizations in the target market that are strong potential customers for that specific offering. Do not guess "${audienceResearchTarget}"'s business type from its name alone -- ground it only in what you actually find. If nothing reliable can be found about "${audienceResearchTarget}" itself, fall back to finding businesses likely to need marketing content or sales support in general.`)
+            : `${scanModeConfig.searchHint}. ${scanModeConfig.instruction}`,
+          targetCount: entityCap,
           requiredSignal: scanMode === 'hiring' ? 'hiring' : '',
           entityScope: scanMode === 'workers' ? 'workers' : 'businesses',
           country: searchCountry,
@@ -1427,25 +1434,24 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
         const foundBusinesses = scanMode === 'hiring'
           ? webSearchSettled.value.filter((business) => (business.recentActivities || []).length > 0)
           : webSearchSettled.value;
+        rawWebBusinesses = foundBusinesses;
+        webSearchAvailable = !isCompetitorScan && foundBusinesses.length > 0;
         if (audienceResearchTarget && !productAudienceTarget) {
+          // Opportunistic: an exact match lets the report name and link this
+          // one business precisely, but is no longer required to proceed --
+          // the searchObjective above already asked the search to ground
+          // itself in whatever real evidence it could find either way.
           audienceBusiness = findExactBusiness(foundBusinesses, audienceResearchTarget);
-          webSearchAvailable = !!audienceBusiness;
-        } else {
-          rawWebBusinesses = foundBusinesses;
-          webSearchAvailable = !isCompetitorScan;
         }
       } else {
         console.warn('OpenRouter web business search failed or skipped:', webSearchSettled.reason?.message);
-        if (audienceResearchTarget && !productAudienceTarget) {
-          return res.status(503).json({ error: 'Public business search is temporarily unavailable. Please try again.' });
-        }
       }
       rawWebBusinesses = rawWebBusinesses.slice(0, entityCap);
       if (productAudienceSegments.length) webSearchAvailable = true;
 
-      // An audience request is about aggregate groups, not a list of private
-      // customer identities. If the exact business cannot be verified, do not
-      // invent a different company or a plausible-sounding audience.
+      // A loose product/category description with no business actually named
+      // is still aggregate-only: there is no specific entity to return leads
+      // for, so zero public evidence means zero segments, not an invented one.
       if (productAudienceTarget && !productAudienceSegments.length) {
         return res.status(200).json({
           success: true, query, scanMode, researchTarget: productAudienceTarget,
@@ -1455,17 +1461,6 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
           summaryReport: isKhmer
             ? `មិនទាន់រកឃើញប្រភពសាធារណៈគ្រប់គ្រាន់សម្រាប់វាយតម្លៃទីផ្សាររបស់ "${productAudienceTarget}" ទេ។ សូមសាកល្បងពាក្យផលិតផលឱ្យច្បាស់ជាងនេះ។`
             : `Not enough public evidence was found to assess potential markets for "${productAudienceTarget}". Try a more specific product description.`,
-        });
-      }
-      if (audienceResearchTarget && !audienceBusiness && !productAudienceTarget) {
-        return res.status(200).json({
-          success: true, query, scanMode, researchTarget: audienceResearchTarget,
-          audienceResearch: true, webBusinessesFound: 0, webSearchAvailable: false,
-          customerInsights: { whatTheyBought: [], whatTheyLike: [], contentDesires: [], targetPersonas: [] },
-          competitors: [], marketTrends: [], potentialLeads: [], videoPlan: [],
-          summaryReport: isKhmer
-            ? `មិនរកឃើញអាជីវកម្មសាធារណៈដែលមានឈ្មោះត្រូវនឹង "${audienceResearchTarget}" ទេ។ សូមសាកល្បងឈ្មោះ Page ផ្លូវការ។ មិនអាចយកឈ្មោះអតិថិជនឯកជនពីការស្វែងរកលើវេបបានទេ។`
-            : `No verified public business was found for "${audienceResearchTarget}". Try its exact public Page name. Private customer identities are not available from public web research.`,
         });
       }
 
@@ -1543,7 +1538,7 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
       const contentBusinessName = audienceBusiness?.businessName || userBusinessName;
       const prompt = `You are an elite Facebook social-commerce market researcher, consumer psychologist, and AI video creative director specialized in the Cambodian and Southeast Asian market.
 
-Target Niche / Product / Competitor: "${productAudienceTarget || audienceBusiness?.businessName || query}"
+Target Niche / Product / Competitor: "${productAudienceTarget || audienceBusiness?.businessName || audienceResearchTarget || query}"
 Selected Scan Mode: "${scanMode}"
 Mode-specific objective: ${scanModeConfig.instruction}
 Target Market: ${countries.join(', ')}
@@ -1883,7 +1878,7 @@ Return ONLY a single valid JSON object with this exact structure:
         success: true,
         query,
         scanMode,
-        researchTarget: isCompetitorScan ? competitorResearchTarget : (productAudienceTarget || audienceBusiness?.businessName || query),
+        researchTarget: isCompetitorScan ? competitorResearchTarget : (productAudienceTarget || audienceBusiness?.businessName || audienceResearchTarget || query),
         audienceResearch: !!(audienceBusiness || productAudienceTarget),
         audienceSourceUrl: productAudienceSegments[0]?.sourceUrl || audienceBusiness?.sourceUrl || undefined,
         audienceSources: productAudienceSegments.map(({ market, sourceUrl }) => ({ label: market, url: sourceUrl })),

@@ -366,3 +366,36 @@ it('looks up the owner\'s own business on the live web when no description was s
   expect(res.body.potentialLeads).toEqual([expect.objectContaining({ businessName: 'Sokha Painting Service' })]);
   expect(res.body.audienceResearch).toBeFalsy();
 });
+
+it('also looks up a named business that is not the owner\'s own, instead of a dead end when no exact match is found', async () => {
+  const req = {
+    method: 'POST',
+    headers: {},
+    socket: { remoteAddress: '127.0.0.1' },
+    body: {
+      action: 'facebookIntelligenceScan',
+      query: 'customers of Sabay Digital',
+      businessName: 'DGACADEMY',
+      businessDescription: 'An AI skills training academy in Phnom Penh.',
+      scanMode: 'customer',
+      countries: ['KH'],
+      days: 7,
+      language: 'en',
+    },
+  };
+  const res = responseRecorder();
+
+  await handler(req, res);
+
+  expect(res.statusCode).toBe(200);
+  const searchCall = mocks.searchBusinesses.mock.calls[0][0];
+  expect(searchCall.targetCount).toBe(DEFAULT_SCAN_ENTITY_CAP);
+  expect(searchCall.searchObjective).toContain('first determine what "Sabay Digital" actually sells or does');
+  expect(searchCall.searchObjective).not.toContain('Find ONLY the exact business named');
+  // mocks.searchBusinesses (from beforeEach) never returns a business named
+  // "Sabay Digital" -- findExactBusiness won't match -- yet this must still
+  // return the real leads the search found, not the old "not verified" dead end.
+  expect(res.body.potentialLeads).toEqual([expect.objectContaining({ businessName: 'Sokha Painting Service' })]);
+  expect(res.body.audienceResearch).toBeFalsy();
+  expect(res.body.summaryReport).not.toMatch(/not verified|could not be verified/i);
+});
