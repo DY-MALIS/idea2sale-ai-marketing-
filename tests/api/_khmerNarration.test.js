@@ -8,7 +8,7 @@ vi.mock('../../api/_openrouter.js', () => ({
   transcribeAudioWithOpenRouter: mocks.transcribe,
   normalizeForKhmerSpeech: (text) => String(text).normalize('NFC').trim(),
 }));
-import { createKhmerNarration, generateKhmerConversationSpeech, generateKhmerSpeech, shortenGeneratedKhmerNarration } from '../../api/_khmerNarration.js';
+import { createKhmerNarration, expandGeneratedKhmerNarration, generateKhmerConversationSpeech, generateKhmerSpeech, shortenGeneratedKhmerNarration } from '../../api/_khmerNarration.js';
 afterEach(() => { vi.unstubAllEnvs(); vi.resetAllMocks(); });
 describe('Khmer narration', () => {
   beforeEach(() => { vi.stubEnv('KHMER_TTS_PROVIDER', 'gemini'); });
@@ -138,6 +138,13 @@ describe('Khmer narration', () => {
     }));
     expect(mocks.text.mock.calls[0][0].prompt).toContain('two connected short clauses');
     expect(mocks.text.mock.calls[0][0].prompt).toContain('DGACADEMY');
+  });
+  it('rewrites a measured short content-plan line for most of an eight-second clip', async () => {
+    const fuller = 'សួស្តី មកមើលវិធីប្រើផលិតផលនេះឱ្យងាយស្រួលជាងមុន។';
+    mocks.text.mockResolvedValue(fuller);
+    expect(await expandGeneratedKhmerNarration('សួស្តី', 'ហាងសាកល្បង', 3.2)).toBe(fuller);
+    expect(mocks.text.mock.calls[0][0].prompt).toContain('spoken in 3.2 seconds');
+    expect(mocks.text.mock.calls[0][0].prompt).toContain('6.5 to 7.5 seconds');
   });
   it('rewrites an AI plan line with a Latin brand into spoken Khmer', async () => {
     mocks.text.mockResolvedValue('សូមមកហាងកាហ្វេរបស់យើង។');

@@ -45,6 +45,7 @@ interface PlanItem {
   cta?: string;
   voiceGender?: 'Male' | 'Female';
   voiceOverText?: string;
+  scriptEditedByUser?: boolean;
   performanceStyle?: string;
   aspectRatio?: '9:16' | '16:9' | '1:1' | '3:4';
   selected: boolean;
@@ -623,10 +624,18 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     setPlanItems((items) => items.map((item, i) => (i === index ? { ...item, selected: !item.selected } : item)));
   };
 
+  const updatePlanNarration = (index: number, voiceOverText: string) => {
+    setPlanItems((items) => items.map((item, i) => (i === index ? { ...item, voiceOverText, scriptEditedByUser: true } : item)));
+  };
+
   const handleSavePlan = async () => {
     if (!user || isDemoMode) return;
     const selectedItems = planItems.filter((item) => item.selected);
     if (!selectedItems.length) return;
+    if (selectedItems.some((item) => item.type === 'video' && !/[\u1780-\u17ff]/u.test(item.voiceOverText || ''))) {
+      setPlanError(language === 'km' ? 'សូមដាក់អត្ថបទនិយាយជាភាសាខ្មែរសម្រាប់វីដេអូ ៨ វិនាទី។' : 'Add Khmer narration for each 8-second video before saving.');
+      return;
+    }
     setPlanSaving(true);
     setPlanError(null);
     if (replaceOldPlan) {
@@ -666,7 +675,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           businessName: businessContext?.businessName || '',
           ...(item.type === 'image'
             ? { headline: item.headline || '', cta: item.cta || '' }
-            : { voiceGender: item.voiceGender || 'Female', voiceOverText: item.voiceOverText || '', performanceStyle: item.performanceStyle || '', aspectRatio: item.aspectRatio || '9:16', voiceOverWanted: true, voiceOverMode: 'edge-seedance' }),
+            : { voiceGender: item.voiceGender || 'Female', voiceOverText: item.voiceOverText || '', scriptEditedByUser: item.scriptEditedByUser === true, duration: 8, performanceStyle: item.performanceStyle || '', aspectRatio: item.aspectRatio || '9:16', voiceOverWanted: true, voiceOverMode: 'edge-seedance' }),
           status: 'PENDING',
           createdAt: serverTimestamp(),
         });
@@ -1037,14 +1046,15 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                   <div className="space-y-3">
                     <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
                       {planItems.map((item, index) => (
-                        <label
+                        <div
                           key={`${item.date}-${index}`}
-                          className="flex cursor-pointer items-start gap-3 rounded-xl border border-brand-100 bg-brand-50/50 p-3 dark:border-slate-700 dark:bg-slate-800/50"
+                          className="flex items-start gap-3 rounded-xl border border-brand-100 bg-brand-50/50 p-3 dark:border-slate-700 dark:bg-slate-800/50"
                         >
                           <input
                             type="checkbox"
                             checked={item.selected}
                             onChange={() => togglePlanItem(index)}
+                            aria-label={`${item.date} ${item.topic}`}
                             className="mt-1 h-4 w-4 accent-brand-600"
                           />
                           <div className="min-w-0 flex-1">
@@ -1055,8 +1065,23 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                               </span>
                             </div>
                             <p className="mt-1 truncate text-sm font-bold text-brand-700 dark:text-brand-300">{item.topic}</p>
+                            {item.type === 'video' && (
+                              <div className="mt-2 space-y-1">
+                                <label htmlFor={`plan-narration-${index}`} className="text-xs font-bold text-brand-600 dark:text-brand-300">
+                                  {language === 'km' ? 'ពាក្យនិយាយក្នុងវីដេអូ ៨ វិនាទី' : 'Spoken words for the 8-second video'}
+                                </label>
+                                <textarea
+                                  id={`plan-narration-${index}`}
+                                  value={item.voiceOverText || ''}
+                                  onChange={(event) => updatePlanNarration(index, event.target.value)}
+                                  rows={2}
+                                  maxLength={500}
+                                  className="w-full rounded-lg border border-brand-200 bg-white p-2 text-sm text-brand-800 outline-none focus:ring-2 focus:ring-brand-500/20 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                                />
+                              </div>
+                            )}
                           </div>
-                        </label>
+                        </div>
                       ))}
                     </div>
                     <label className="flex cursor-pointer items-center gap-2 text-xs font-bold text-brand-600 dark:text-brand-300">

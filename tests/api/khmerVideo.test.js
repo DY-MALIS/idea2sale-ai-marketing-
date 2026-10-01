@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ image: vi.fn(), video: vi.fn(), speech: vi.fn(), shorten: vi.fn() }));
+const mocks = vi.hoisted(() => ({ image: vi.fn(), video: vi.fn(), speech: vi.fn(), shorten: vi.fn(), expand: vi.fn() }));
 vi.mock('../../api/_openrouter.js', () => ({ generateOpenRouterImage: mocks.image, startOpenRouterVideo: mocks.video }));
-vi.mock('../../api/_khmerNarration.js', () => ({ generateKhmerSpeech: mocks.speech, shortenGeneratedKhmerNarration: mocks.shorten }));
+vi.mock('../../api/_khmerNarration.js', () => ({ generateKhmerSpeech: mocks.speech, shortenGeneratedKhmerNarration: mocks.shorten, expandGeneratedKhmerNarration: mocks.expand }));
 import { fitKhmerClipDurationToNarration, startKhmerVideoJob } from '../../api/_khmerVideo.js';
 afterEach(() => { vi.resetAllMocks(); vi.unstubAllEnvs(); });
 const uploadStub = ({ audioDuration = 3.4, audioUrl = 'https://audio', imageUrl = 'https://image' } = {}) => vi.fn(async ({ mediaType }) => (
@@ -105,6 +105,46 @@ it('rewrites a Latin brand in AI scanner speech before synthesis', async () => {
     { duration: 8, images: [{ mimeType: 'image/png', base64: 'AAAA' }], allowScriptShortening: true },
   );
   expect(mocks.speech).toHaveBeenCalledWith(expect.objectContaining({ input: 'ហាងកាហ្វេរបស់យើង' }));
+  expect(mocks.shorten).toHaveBeenCalledWith(expect.any(String), 'Dating Cafe & Mart', 85);
+});
+
+it('expands a short AI content-plan narration before paying for an eight-second video', async () => {
+  const original = 'សួស្តី';
+  const expanded = 'សួស្តី មកមើលវិធីប្រើផលិតផលនេះឱ្យងាយស្រួលជាងមុន។';
+  mocks.expand.mockResolvedValue(expanded);
+  mocks.speech
+    .mockResolvedValueOnce({ audioUrl: 'short-audio', duration: 3.2, provider: 'edge' })
+    .mockResolvedValueOnce({ audioUrl: 'full-audio', duration: 7.1, provider: 'edge', spokenText: expanded });
+  mocks.video.mockResolvedValue({ jobId: 'job' });
+  const upload = vi.fn(async ({ mediaDataUrl, mediaType }) => ({ mediaUrl: mediaType === 'audio' ? `https://${mediaDataUrl}` : 'https://image' }));
+
+  const result = await startKhmerVideoJob(
+    { businessName: 'Example Shop' },
+    { script: original, prompt: 'Product demonstration' },
+    upload,
+    { duration: 8, images: [{ mimeType: 'image/png', base64: 'AAAA' }], allowScriptShortening: true },
+  );
+
+  expect(mocks.expand).toHaveBeenCalledWith(original, 'Example Shop', 3.2);
+  expect(mocks.video).toHaveBeenCalledWith(expect.objectContaining({ duration: 8, audioReferenceUrls: ['https://full-audio'] }));
+  expect(result.narrationAudio).toMatchObject({ duration: 7.1, spokenText: expanded, mediaUrl: 'https://full-audio' });
+});
+
+it('keeps the original content-plan narration when the expanded read exceeds eight seconds', async () => {
+  mocks.expand.mockResolvedValue('វីដេអូនេះបង្ហាញផលិតផល និងព័ត៌មានលម្អិតបន្ថែមសម្រាប់អតិថិជន។');
+  mocks.speech
+    .mockResolvedValueOnce({ audioUrl: 'short-audio', duration: 3.2, provider: 'edge' })
+    .mockResolvedValueOnce({ audioUrl: 'overlong-audio', duration: 8.7, provider: 'edge' });
+  mocks.video.mockResolvedValue({ jobId: 'job' });
+  const upload = vi.fn(async ({ mediaDataUrl, mediaType }) => ({ mediaUrl: mediaType === 'audio' ? `https://${mediaDataUrl}` : 'https://image' }));
+
+  const result = await startKhmerVideoJob(
+    {}, { script: 'សួស្តី', prompt: 'Product' }, upload,
+    { duration: 8, images: [{ mimeType: 'image/png', base64: 'AAAA' }], allowScriptShortening: true },
+  );
+
+  expect(mocks.video).toHaveBeenCalledWith(expect.objectContaining({ duration: 8, audioReferenceUrls: ['https://short-audio'] }));
+  expect(result.narrationAudio.duration).toBe(3.2);
 });
 
 it('retries an overlong expressive read at a measured Edge rate without changing the script', async () => {
@@ -130,11 +170,13 @@ it('retries an overlong expressive read at a measured Edge rate without changing
   expect(result.narrationAudio.duration).toBe(7.7);
 });
 
-it('fits the generated clip to the measured narration instead of stretching motion', async () => {
-  expect(fitKhmerClipDurationToNarration(2.5, 8)).toBe(4);
-  expect(fitKhmerClipDurationToNarration(4.8, 8)).toBe(5);
-  expect(fitKhmerClipDurationToNarration(6.8, 8)).toBe(7);
-  expect(fitKhmerClipDurationToNarration(5.928, 8)).toBe(6);
+it('keeps the selected clip length and expands only when narration requires it', async () => {
+  expect(fitKhmerClipDurationToNarration(2.5, 8)).toBe(8);
+  expect(fitKhmerClipDurationToNarration(4.8, 8)).toBe(8);
+  expect(fitKhmerClipDurationToNarration(6.8, 8)).toBe(8);
+  expect(fitKhmerClipDurationToNarration(5.928, 8)).toBe(8);
+  expect(fitKhmerClipDurationToNarration(4.8, 4)).toBe(5);
+  expect(fitKhmerClipDurationToNarration(6.8, 6)).toBe(7);
 
   mocks.speech.mockResolvedValue({ audioUrl: 'audio-data', duration: 2.5, provider: 'gemini' });
   mocks.video.mockResolvedValue({ jobId: 'job' });
@@ -147,9 +189,10 @@ it('fits the generated clip to the measured narration instead of stretching moti
     { duration: 8, images: [{ mimeType: 'image/png', base64: 'AAAA' }] },
   );
 
-  expect(mocks.video).toHaveBeenCalledWith(expect.objectContaining({ duration: 4 }));
-  expect(mocks.video.mock.calls[0][0].prompt).toContain('4-second clip');
-  expect(result.job.outputDuration).toBe(4);
+  expect(mocks.video).toHaveBeenCalledWith(expect.objectContaining({ duration: 8 }));
+  expect(mocks.video.mock.calls[0][0].prompt).toContain('8-second clip');
+  expect(mocks.video.mock.calls[0][0].prompt).toContain('until the full clip ends');
+  expect(result.job.outputDuration).toBe(8);
 });
 
 it('rejects an over-budget duration before any paid preparation starts', async () => {

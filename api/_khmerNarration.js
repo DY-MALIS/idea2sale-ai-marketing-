@@ -137,3 +137,19 @@ export async function shortenGeneratedKhmerNarration(script, businessName = '', 
   }
   return normalized;
 }
+
+// An AI content-plan line can satisfy a character target yet finish several
+// seconds early when spoken. Rewrite only generated lines after measuring the
+// actual waveform; the caller keeps the original if the second read does not fit.
+export async function expandGeneratedKhmerNarration(script, businessName = '', measuredSeconds = 0) {
+  const text = await generateOpenRouterText({
+    model: process.env.OPEN_ROUTER_CONTENT_PLAN_MODEL || 'google/gemini-3.1-pro-preview',
+    system: `Rewrite one AI-generated narration as natural conversational Cambodian Khmer. Preserve its factual claims, topic and company identity. Add a useful related detail, not a slogan or invented offer. Output only one spoken sentence with two connected clauses. ${KHMER_SCRIPT_ONLY_INSTRUCTION}`,
+    prompt: `The original line was spoken in ${Number(measuredSeconds).toFixed(1)} seconds, but this video lasts 8 seconds. Expand it enough to speak naturally for about 6.5 to 7.5 seconds, leaving a short ending beat. Aim for 80-100 total Khmer characters, but keep the words clear and never rush. If the company name uses Latin letters, spell its pronunciation in Khmer script. Company: ${businessName || 'not specified'}. Original line: ${script}`,
+  });
+  const normalized = normalizeForKhmerSpeech(text || '');
+  if (!/[\u1780-\u17ff]/u.test(normalized) || /[A-Za-z]{2,}/.test(normalized)) {
+    throw new Error('Could not expand the Khmer content-plan narration.');
+  }
+  return normalized;
+}

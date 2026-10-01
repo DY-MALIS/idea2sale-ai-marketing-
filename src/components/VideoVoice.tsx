@@ -89,6 +89,8 @@ interface PendingVideoJob {
   outputDuration?: number;
   narrationFallbackReason?: string;
   expectedScript?: string;
+  silentRequested?: boolean;
+  resumeNarration?: { text: string; voice: string; languageHint: 'Khmer' | 'English'; performanceStyle: string };
   aspectRatio?: VideoAspectRatio;
   createdAt: number;
 }
@@ -143,10 +145,7 @@ const removePendingVideoJob = (userId: string, fingerprint: string) => {
 };
 
 const latestPendingVideoJob = (userId: string) => readPendingVideoJobs()
-  // The generator is now landscape-only. Do not surface a legacy portrait job
-  // as the current resumable result: that was the path that let an old 9:16
-  // job replace a newly requested 16:9 generation on screen.
-  .filter((job) => job.userId === userId && job.aspectRatio === '16:9')
+  .filter((job) => job.userId === userId)
   .sort((left, right) => right.createdAt - left.createdAt)[0] || null;
 
 const uploadVideoDirectly = async (videoDataUrl: string, idToken: string): Promise<string> => {
@@ -258,14 +257,28 @@ const GeneratedVideoPlayer: React.FC<{ src: string; language: 'km' | 'en'; aspec
   const [playbackSrc, setPlaybackSrc] = useState(normalizedSrc);
   const [recovering, setRecovering] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [stalled, setStalled] = useState(false);
+  const stallTimer = React.useRef<number | null>(null);
+
+  const clearStallTimer = () => {
+    if (stallTimer.current !== null) window.clearTimeout(stallTimer.current);
+    stallTimer.current = null;
+    setStalled(false);
+  };
+
+  React.useEffect(() => () => {
+    if (stallTimer.current !== null) window.clearTimeout(stallTimer.current);
+  }, []);
 
   React.useEffect(() => {
+    clearStallTimer();
     setPlaybackSrc(normalizeImageKitVideoUrl(src));
     setRecovering(false);
     setFailed(false);
   }, [src]);
 
   const handlePlaybackError = () => {
+    clearStallTimer();
     const originalSrc = getOriginalImageKitUrl(normalizedSrc);
     if (playbackSrc !== originalSrc) {
       // A transformation can be unavailable while ImageKit is preparing it, or
@@ -280,6 +293,14 @@ const GeneratedVideoPlayer: React.FC<{ src: string; language: 'km' | 'en'; aspec
     setFailed(true);
   };
 
+  const handleWaiting = () => {
+    if (stallTimer.current !== null) return;
+    stallTimer.current = window.setTimeout(() => {
+      stallTimer.current = null;
+      setStalled(true);
+    }, 12000);
+  };
+
   return (
     <div className={cn(
       'relative mx-auto w-full overflow-hidden rounded-3xl border border-brand-200 bg-black shadow-2xl',
@@ -291,7 +312,9 @@ const GeneratedVideoPlayer: React.FC<{ src: string; language: 'km' | 'en'; aspec
         controls
         playsInline
         preload="metadata"
-        onCanPlay={() => { setRecovering(false); setFailed(false); }}
+        onCanPlay={() => { clearStallTimer(); setRecovering(false); setFailed(false); }}
+        onPlaying={clearStallTimer}
+        onWaiting={handleWaiting}
         onError={handlePlaybackError}
         className={cn('h-full w-full bg-black object-contain', failed && 'invisible')}
       />
@@ -302,6 +325,16 @@ const GeneratedVideoPlayer: React.FC<{ src: string; language: 'km' | 'en'; aspec
             {language === 'km' ? 'កំពុងបើកវីដេអូដើម…' : 'Loading original video…'}
           </div>
         </div>
+      )}
+      {stalled && !failed && (
+        <a
+          href={getOriginalImageKitUrl(normalizedSrc)}
+          target="_blank"
+          rel="noreferrer"
+          className="absolute right-3 top-3 rounded-lg bg-black/80 px-3 py-2 text-xs font-bold text-white underline"
+        >
+          {language === 'km' ? 'បើកវីដេអូដើម' : 'Open original video'}
+        </a>
       )}
       {failed && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-950 px-6 text-center text-white">
@@ -590,10 +623,16 @@ const attemptGenerateVideoClip = async (
   khmerSpeech?: { script: string; voiceGender: string; businessName?: string; performanceStyle?: string; allowScriptShortening?: boolean },
   idToken?: string,
   userId?: string,
+  resumeOptions?: Pick<PendingVideoJob, 'silentRequested' | 'resumeNarration'>,
 ): Promise<{ videoUrl: string; narrationFallbackReason?: string; pendingFingerprint: string; expectedScript?: string; outputAspectRatio: VideoAspectRatio }> => {
   if (!idToken || !userId) throw new Error('Sign in before generating a video.');
   const fingerprint = videoRequestFingerprint(prompt, images, duration, khmerSpeech?.script || '', aspectRatio);
   let pending = readPendingVideoJobs().find((job) => job.userId === userId && job.fingerprint === fingerprint);
+  if (pending && resumeOptions && (pending.silentRequested === undefined || (!pending.resumeNarration && resumeOptions.resumeNarration))) {
+    pending.silentRequested = resumeOptions.silentRequested;
+    pending.resumeNarration = resumeOptions.resumeNarration;
+    savePendingVideoJob(pending);
+  }
   if (!pending) {
     const response = await fetchAiWithTimeout({ action: 'videoGenerate', prompt, images, duration, aspectRatio, khmerSpeech }, VIDEO_STATUS_FETCH_TIMEOUT_MS, idToken);
     const data = await response.json();
@@ -608,6 +647,8 @@ const attemptGenerateVideoClip = async (
       outputDuration: Number(data.outputDuration) || undefined,
       narrationFallbackReason: data.narrationFallbackReason || undefined,
       expectedScript: data.spokenScript || khmerSpeech?.script || undefined,
+      silentRequested: resumeOptions?.silentRequested,
+      resumeNarration: resumeOptions?.resumeNarration,
       aspectRatio: normalizeVideoAspectRatio(data.outputAspectRatio || aspectRatio),
       createdAt: Date.now(),
     };
@@ -939,6 +980,19 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         resetFFmpeg(),
       ]);
       let video = await pollPendingVideoJob(resumableVideoJob, idToken);
+      if (resumableVideoJob.resumeNarration) {
+        const narration = resumableVideoJob.resumeNarration;
+        const ttsResponse = await fetchAiWithTimeout({
+          action: 'ttsGenerate',
+          input: narration.text,
+          voice: narration.voice,
+          languageHint: narration.languageHint,
+          performanceStyle: narration.performanceStyle,
+        });
+        const ttsData = await ttsResponse.json();
+        if (!ttsResponse.ok || !ttsData.audioUrl) throw new Error(ttsData.error || 'Could not restore video narration.');
+        video = await applyVoiceOver(video, ttsData.audioUrl, 1);
+      }
       let speechNeedsReview = false;
       if (resumableVideoJob.expectedScript) {
         try {
@@ -959,6 +1013,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         }
       }
       video = await uploadVideoDirectly(video, idToken);
+      if (resumableVideoJob.silentRequested) video = applyImageKitMuteTransform(video);
       const resumedAspectRatio = normalizeVideoAspectRatio(resumableVideoJob.aspectRatio);
       setGeneratedVideoAspectRatio(resumedAspectRatio);
       setVideoAspectRatio(resumedAspectRatio);
@@ -1091,7 +1146,18 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
             allowScriptShortening: allowScriptShorteningOverride === true,
           } : undefined,
           idToken,
-          user.uid);
+          user.uid,
+          {
+            silentRequested,
+            resumeNarration: voiceOverContent && !nativeKhmerSpeech
+              ? {
+                text: voiceOverContent,
+                voice: voicePersonas[voicePersona].openRouterVoice,
+                languageHint: /[\u1780-\u17FF]/u.test(voiceOverContent) ? 'Khmer' : 'English',
+                performanceStyle: `${voicePersonas[voicePersona].style} Read the exact provided text like you are speaking in a real conversation, not reading a script. Use human emotion, natural rhythm, clear consonants, natural pacing. Avoid robotic or AI narration.`,
+              }
+              : undefined,
+          });
         if (allowScriptShorteningOverride && segments.length === 1 && generatedClip.expectedScript
           && generatedClip.expectedScript !== spokenSegments?.[i]) {
           voiceOverContent = generatedClip.expectedScript;
@@ -2057,7 +2123,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                     </button>
                     <button
                       onClick={handlePrepareYouTubeVideo}
-                      disabled={isGeneratingCaption || (generatedVideoAspectRatio === '16:9' && (videoNeedsReview || performanceNeedsReview))}
+                      disabled={isGeneratingCaption}
                       className="flex items-center justify-center gap-2 rounded-2xl bg-red-600 px-5 py-4 font-bold text-white shadow-xl transition-all hover:bg-red-700 disabled:opacity-50"
                       title={generatedVideoAspectRatio === '16:9'
                         ? (language === 'km' ? 'រៀបចំវីដេអូផ្ដេក 16:9 និងអត្ថបទសម្រាប់ YouTube' : 'Prepare this 16:9 landscape video and copy for YouTube')

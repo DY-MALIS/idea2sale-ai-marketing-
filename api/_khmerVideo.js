@@ -1,5 +1,5 @@
 import { generateOpenRouterImage, startOpenRouterVideo } from './_openrouter.js';
-import { generateKhmerSpeech, shortenGeneratedKhmerNarration } from './_khmerNarration.js';
+import { expandGeneratedKhmerNarration, generateKhmerSpeech, shortenGeneratedKhmerNarration } from './_khmerNarration.js';
 import { trimVideoNarrationSilence } from './_videoNarrationTiming.js';
 import {
   assertVideoGenerationWithinBudget,
@@ -18,12 +18,11 @@ const visualPrompt = (prompt = '') => `${prompt}\nVISUAL TEXT RULE: Do not gener
 export const fitKhmerClipDurationToNarration = (narrationDuration, requestedDuration) => {
   const requested = [4, 6, 8].includes(Number(requestedDuration)) ? Number(requestedDuration) : 8;
   // Seedance supports every whole-second duration from 4 through 15, unlike
-  // Veo's fixed 4/6/8 choices. Size the clip from the measured waveform: this
-  // preserves the user's exact words, leaves a short settling beat, and avoids
-  // stretching a short read across an unnecessarily long requested clip.
+  // Veo's fixed 4/6/8 choices. Honor the user's chosen length; only expand a
+  // shorter choice when the measured narration needs more room.
   const measured = Number(narrationDuration);
   if (!Number.isFinite(measured) || measured <= 0) return requested;
-  const fitted = Math.max(MIN_KHMER_CLIP_DURATION, Math.ceil(measured + 0.05));
+  const fitted = Math.max(requested, MIN_KHMER_CLIP_DURATION, Math.ceil(measured + 0.05));
   return Math.min(MAX_KHMER_CLIP_DURATION, fitted);
 };
 
@@ -46,8 +45,10 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
   let spokenScript = speech.script;
   let scriptShortened = false;
   if (allowScriptShortening && /[A-Za-z]{2,}/.test(spokenScript)) {
-    spokenScript = await shortenGeneratedKhmerNarration(spokenScript, item.businessName);
-    scriptShortened = true;
+    spokenScript = await shortenGeneratedKhmerNarration(spokenScript, item.businessName, duration === 8 ? 85 : 55);
+    // The 8-second rewrite transliterates the brand without forcing a short
+    // line; leave the overlong-audio retry available after measuring it.
+    scriptShortened = duration !== 8;
   }
   const speechOptions = {
     input: spokenScript,
@@ -63,6 +64,34 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
   if (!(measuredDuration > 0) || measuredDuration <= MAX_KHMER_CLIP_DURATION) {
     uploadedNarration = await uploadMediaDataUrl({ mediaDataUrl: audio.audioUrl, mediaType: 'audio' });
     measuredDuration = Number(audio.duration || uploadedNarration.duration);
+  }
+
+  // Content-plan and scanner scripts are AI-authored. If the first read ends
+  // well before an 8-second clip, try one fuller script before paying for the
+  // video. Never rewrite manually supplied narration or replace a usable read
+  // with a second take that is too long or no fuller than the first.
+  if (allowScriptShortening && duration === 8 && measuredDuration > 0 && measuredDuration < 6) {
+    try {
+      const expandedScript = await expandGeneratedKhmerNarration(spokenScript, item.businessName, measuredDuration);
+      if (expandedScript && expandedScript !== spokenScript) {
+        const expandedAudio = await trimVideoNarrationSilence(await generateKhmerSpeech({ ...speechOptions, input: expandedScript }));
+        let expandedDuration = Number(expandedAudio.duration);
+        let expandedUpload;
+        if (!(expandedDuration > 0) || expandedDuration <= MAX_KHMER_CLIP_DURATION) {
+          expandedUpload = await uploadMediaDataUrl({ mediaDataUrl: expandedAudio.audioUrl, mediaType: 'audio' });
+          expandedDuration = Number(expandedAudio.duration || expandedUpload.duration);
+        }
+        if (expandedDuration > measuredDuration + 0.5 && expandedDuration <= MAX_KHMER_CLIP_DURATION) {
+          spokenScript = expandedScript;
+          speechOptions.input = expandedScript;
+          audio = expandedAudio;
+          uploadedNarration = expandedUpload;
+          measuredDuration = expandedDuration;
+        }
+      }
+    } catch (error) {
+      console.warn('Could not expand short content-plan narration; keeping the verified original:', error?.message || error);
+    }
   }
 
   if (measuredDuration > MAX_KHMER_CLIP_DURATION && allowScriptShortening && !scriptShortened) {
@@ -110,7 +139,7 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
     // Khmer presenter video (including avatar + narration reserve) under $0.80.
     model: KHMER_VIDEO_MODEL,
     khmerSpeech: true,
-    prompt: `${visualPrompt(speech.prompt)}\n${speech.motionPrompt}\nLANGUAGE LOCK: The English wording in these production directions describes visuals only. Never infer, invent, speak, or visibly articulate any English word. The only speech and mouth movement is Cambodian Khmer from the supplied audio waveform. KHMER PHONEME TRANSCRIPT (exact, never translate or paraphrase): ${JSON.stringify(exactKhmerTranscript)}. AUDIO MASTER CLOCK: ${narrationAudio.duration.toFixed(2)} seconds inside a ${fittedDuration}-second clip. The supplied waveform is authoritative: start the matching visible mouth shape on every Khmer phoneme and stop precisely on the last phoneme. Speech, lips, jaw, tongue and cheeks remain synchronized frame by frame at natural 1x. Do not use generic talking-mouth animation. Keep the lips closed before the first phoneme and after the final phoneme. Keep the head mostly forward and stable. Body and hand reactions use crisp fast-natural 1.1x energy without motion blur. Complete each gesture in 0.35 to 0.55 seconds. After speech, continue one compact task action without pausing. Never freeze, stretch, ease or slow any movement.`,
+    prompt: `${visualPrompt(speech.prompt)}\n${speech.motionPrompt}\nLANGUAGE LOCK: The English wording in these production directions describes visuals only. Never infer, invent, speak, or visibly articulate any English word. The only speech and mouth movement is Cambodian Khmer from the supplied audio waveform. KHMER PHONEME TRANSCRIPT (exact, never translate or paraphrase): ${JSON.stringify(exactKhmerTranscript)}. AUDIO MASTER CLOCK: ${narrationAudio.duration.toFixed(2)} seconds inside a ${fittedDuration}-second clip. The supplied waveform is authoritative: start the matching visible mouth shape on every Khmer phoneme and stop precisely on the last phoneme. Speech, lips, jaw, tongue and cheeks remain synchronized frame by frame at natural 1x. Do not use generic talking-mouth animation. Keep the lips closed before the first phoneme and after the final phoneme. Keep the head mostly forward and stable. Body and hand reactions use crisp fast-natural 1.1x energy without motion blur. Complete each gesture in 0.35 to 0.55 seconds. After speech, continue natural task actions at a normal pace until the full clip ends. Never freeze, stretch, ease or slow any movement.`,
     duration: fittedDuration,
     aspectRatio,
     referenceUrls: [avatarReferenceUrl],
