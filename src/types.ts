@@ -76,6 +76,7 @@ export interface FacebookCompetitorInsight {
   counterStrategy: string;
   sourceUrl?: string;
   facebookUrl?: string;
+  websiteUrl?: string;
   tiktokUrl?: string;
   linkedinUrl?: string;
   publicActivitySignals?: string[];

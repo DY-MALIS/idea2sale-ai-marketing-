@@ -282,7 +282,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
         phone: '',
         email: '',
         telegram: '',
-        website: '',
+        website: competitor.websiteUrl || '',
         linkedinUrl: competitor.linkedinUrl || '',
         facebookPageName: competitor.pageName || '',
         facebookPageUrl: competitor.facebookUrl || '',
@@ -1258,6 +1258,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
                       {!!competitor.customerSegments?.length && <div><dt className="font-bold text-slate-400">{text.customerSegments}</dt><dd className="mt-1 text-slate-700 dark:text-slate-200">{competitor.customerSegments.join(' • ')}</dd></div>}
                       <div className="flex flex-wrap gap-3">
                         {competitor.facebookUrl && <a href={competitor.facebookUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 font-bold text-blue-600 hover:underline"><Facebook size={14} />Facebook</a>}
+                        {competitor.websiteUrl && <a href={competitor.websiteUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 font-bold text-blue-600 hover:underline"><ExternalLink size={14} />Website</a>}
                         {competitor.linkedinUrl && <a href={competitor.linkedinUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 font-bold text-sky-700 hover:underline dark:text-sky-300"><ExternalLink size={14} />LinkedIn</a>}
                         {competitor.sourceUrl && <a href={competitor.sourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 font-bold text-blue-600 hover:underline"><ExternalLink size={14} />{text.viewEvidence}</a>}
                       </div>

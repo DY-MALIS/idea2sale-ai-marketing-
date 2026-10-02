@@ -77,12 +77,16 @@ const jsonFromText = (text) => {
 
 const competitorKey = (value) => String(value || '').trim().toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
 const normalizedIdentityUrl = (value) => String(value || '').trim().replace(/\/$/, '').toLowerCase();
+const businessWebsiteUrl = (value) => {
+  const url = String(value || '').trim().slice(0, 300);
+  return /^https?:\/\//i.test(url) && socialPlatformFromUrl(url) === 'Web' ? url : '';
+};
 const sharesPublicIdentity = (left, right) => {
-  if (['facebookUrl', 'linkedinUrl'].some((field) => (
+  if (['facebookUrl', 'linkedinUrl', 'websiteUrl'].some((field) => (
     normalizedIdentityUrl(left[field]) && normalizedIdentityUrl(right[field])
     && normalizedIdentityUrl(left[field]) !== normalizedIdentityUrl(right[field])
   ))) return false;
-  return ['sourceUrl', 'facebookUrl', 'linkedinUrl'].some((field) => (
+  return ['sourceUrl', 'facebookUrl', 'linkedinUrl', 'websiteUrl'].some((field) => (
     normalizedIdentityUrl(left[field]) && normalizedIdentityUrl(left[field]) === normalizedIdentityUrl(right[field])
   ));
 };
@@ -312,6 +316,7 @@ Return ONLY a single valid JSON object, no markdown:
       "marketPresence": "stronger, similar, or weaker, relative to the target",
       "positioning": "only if directly supported by the source, else empty string",
       "facebookUrl": "official public Facebook business Page URL if found, else empty string",
+      "websiteUrl": "official business website URL if found, else empty string; never a directory or marketplace listing",
       "tiktokUrl": "",
       "linkedinUrl": "official LinkedIn company/school/showcase page URL if found, else empty string",
       "sourceUrl": "the exact URL this came from"
@@ -356,6 +361,7 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
       marketPresence: ['stronger', 'similar', 'weaker'].includes(marketPresence) ? marketPresence : '',
       positioning: String(item?.positioning || '').trim().slice(0, 300),
       facebookUrl: validFacebookUrl(facebookUrl) ? facebookUrl : facebookPageUrlFromSource(item?.sourceUrl),
+      websiteUrl: businessWebsiteUrl(item?.websiteUrl),
       tiktokUrl: '',
       linkedinUrl: validLinkedInUrl(linkedinUrl) ? linkedinUrl : '',
       sourceUrl: String(item?.sourceUrl || '').trim().slice(0, 300),
@@ -385,6 +391,7 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
       marketPresence: existing.marketPresence || candidate.marketPresence,
       positioning: existing.positioning || candidate.positioning,
       facebookUrl: existing.facebookUrl || candidate.facebookUrl,
+      websiteUrl: existing.websiteUrl || candidate.websiteUrl,
       tiktokUrl: existing.tiktokUrl || candidate.tiktokUrl,
       linkedinUrl: existing.linkedinUrl || candidate.linkedinUrl,
     });
@@ -621,6 +628,32 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
     }
   }
 
+  if (hasActivityWindow) {
+    const missingWebsites = candidates.slice(0, ACTIVITY_LOOKUP_LIST_CAP).filter((candidate) => !candidate.websiteUrl);
+    const websiteBatches = [];
+    for (let i = 0; i < missingWebsites.length; i += SOCIAL_LOOKUP_BATCH_SIZE) {
+      websiteBatches.push(missingWebsites.slice(i, i + SOCIAL_LOOKUP_BATCH_SIZE));
+    }
+    const websiteSearches = await Promise.allSettled(websiteBatches.map(async (batch) => {
+      const identities = batch.map((candidate) => `- ${candidate.name} | known source: ${candidate.sourceUrl}${candidate.facebookUrl ? ` | Facebook: ${candidate.facebookUrl}` : ''}`).join('\n');
+      const response = await generateOpenRouterWebSearch({
+        prompt: `Find the official business website for EACH of these verified competitors in ${country}:\n${identities}\nSearch each exact name and alternate public name. Match the website's business description, location, contact details, logo when visible, or official cross-links to the known source. This website lookup is independent of recent posts. Return only a company's own website, never a directory, marketplace, news article, social Page, or another company's site. Do not construct a domain from its name. Omit a business if no official website is supported by public search results. Return only JSON: {"websites":[{"competitorName":"exact name from list","knownSourceUrl":"exact known source from list","websiteUrl":"observed official website URL"}]}.`,
+        maxResults: ACTIVITY_MAX_RESULTS,
+        maxTokens: 4000,
+      });
+      return jsonFromText(response?.content)?.websites;
+    }));
+    websiteSearches.forEach((settled) => {
+      if (settled.status !== 'fulfilled') return;
+      (Array.isArray(settled.value) ? settled.value : []).forEach((entry) => {
+        const candidate = candidateForEvidence(entry?.competitorName, entry?.knownSourceUrl);
+        const websiteUrl = businessWebsiteUrl(entry?.websiteUrl);
+        if (candidate && normalizedIdentityUrl(entry?.knownSourceUrl) === normalizedIdentityUrl(candidate.sourceUrl)
+          && !candidate.websiteUrl && websiteUrl) candidate.websiteUrl = websiteUrl;
+      });
+    });
+  }
+
   // Same real-HTTP-check pattern as _webBusinessSearch.js: a fabricated or
   // dead source URL is the actual failure mode worth guarding against here.
   // Activity URLs are checked sequentially within each worker, keeping total
@@ -671,7 +704,10 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
     const linkedinUrl = await verifiedSocialUrl(item.linkedinUrl);
     const tiktokUrl = '';
     const facebookUrl = item.facebookUrl || derivedFacebookPageUrl(activityChecks) || '';
-    return hasActivityWindow ? { ...item, facebookUrl, tiktokUrl, linkedinUrl, recentActivities: activityChecks.filter(Boolean), lastKnownActivity } : { name: item.name, matchReason: item.matchReason, marketPresence: item.marketPresence, positioning: item.positioning, facebookUrl, tiktokUrl, linkedinUrl, sourceUrl: item.sourceUrl };
+    const websiteUrl = item.websiteUrl && (item.websiteUrl === item.sourceUrl || await urlIsReachable(item.websiteUrl)) ? item.websiteUrl : '';
+    const verifiedItem = { ...item };
+    delete verifiedItem.websiteUrl;
+    return hasActivityWindow ? { ...verifiedItem, ...(websiteUrl ? { websiteUrl } : {}), facebookUrl, tiktokUrl, linkedinUrl, recentActivities: activityChecks.filter(Boolean), lastKnownActivity } : { name: item.name, matchReason: item.matchReason, marketPresence: item.marketPresence, positioning: item.positioning, ...(websiteUrl ? { websiteUrl } : {}), facebookUrl, tiktokUrl, linkedinUrl, sourceUrl: item.sourceUrl };
   })).filter(Boolean);
 
   return {

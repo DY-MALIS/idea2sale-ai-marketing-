@@ -365,7 +365,7 @@ it('keeps only reachable, explicitly dated activity inside the requested 7-day w
     activityEndDate: '2026-09-14',
   });
 
-  expect(mocks.webSearch).toHaveBeenCalledTimes(6);
+  expect(mocks.webSearch).toHaveBeenCalledTimes(7);
   expect(result.competitors[0].recentActivities).toEqual([
     { date: '2026-09-14', activity: 'Published a new course offer', sourceUrl: 'https://competitor.example.com/current', platform: 'Web' },
   ]);
@@ -403,7 +403,7 @@ it('looks up Facebook/TikTok/LinkedIn activity by exact name only once competito
     activityEndDate: '2026-09-18',
   });
 
-  expect(mocks.webSearch).toHaveBeenCalledTimes(4);
+  expect(mocks.webSearch).toHaveBeenCalledTimes(5);
   const [discoveryRequest] = mocks.webSearch.mock.calls[0];
   const [activityRequest] = mocks.webSearch.mock.calls[3];
   expect(discoveryRequest.prompt).toContain('Step 1');
@@ -517,7 +517,7 @@ it('retries the activity search once when it returns unparseable data, then find
     activityEndDate: '2026-09-22',
   });
 
-  expect(mocks.webSearch).toHaveBeenCalledTimes(7);
+  expect(mocks.webSearch).toHaveBeenCalledTimes(8);
   expect(result.competitors[0].recentActivities).toEqual([
     expect.objectContaining({
       date: '2026-09-22',
@@ -554,8 +554,8 @@ it('keeps the verified competitor list even if the activity search fails every a
     activityEndDate: '2026-09-18',
   });
 
-  // 3 discovery passes + 2 activity attempts + Facebook activity and Page passes.
-  expect(mocks.webSearch).toHaveBeenCalledTimes(7);
+  // 3 discovery passes + 2 activity attempts + Facebook activity, Page, and website passes.
+  expect(mocks.webSearch).toHaveBeenCalledTimes(8);
   expect(mocks.webSearch.mock.calls[5][0].prompt).toContain('Search ONLY Facebook');
   expect(result.competitors).toHaveLength(1);
   expect(result.competitors[0].recentActivities).toEqual([]);
@@ -592,7 +592,7 @@ it('searches Facebook even when LinkedIn activity was already found', async () =
     activityEndDate: '2026-09-18',
   });
 
-  expect(mocks.webSearch).toHaveBeenCalledTimes(6);
+  expect(mocks.webSearch).toHaveBeenCalledTimes(7);
   const facebookPrompt = mocks.webSearch.mock.calls[4][0].prompt;
   expect(facebookPrompt).toContain('Bean Society');
   expect(facebookPrompt).toContain('Rival Cafe');
@@ -693,7 +693,7 @@ it('uses direct Facebook activity and website evidence without a social-search f
     startDate: '2026-09-12',
     endDate: '2026-09-18',
   }));
-  expect(mocks.webSearch).toHaveBeenCalledTimes(4);
+  expect(mocks.webSearch).toHaveBeenCalledTimes(5);
   expect(result.competitors[0].recentActivities).toEqual([
     expect.objectContaining({ date: '2026-09-18', platform: 'Facebook' }),
     expect.objectContaining({ date: '2026-09-16', platform: 'Web' }),
@@ -736,7 +736,7 @@ it('merges Meta Ad Library results without spending an extra OpenRouter call, wh
 
   // The extra Page lookup runs because the Facebook activity pass found no
   // profile. Meta Ad Library itself adds no OpenRouter call.
-  expect(mocks.webSearch).toHaveBeenCalledTimes(6);
+  expect(mocks.webSearch).toHaveBeenCalledTimes(7);
   expect(mocks.fetchMetaAdLibraryActivity).toHaveBeenCalledWith(expect.objectContaining({
     businessName: 'Rival Cafe',
     countryCode: 'DE',
@@ -807,7 +807,7 @@ it('reports the most recent verified post when nothing falls inside the activity
     activityEndDate: '2026-09-18',
   });
 
-  expect(mocks.webSearch).toHaveBeenCalledTimes(7);
+  expect(mocks.webSearch).toHaveBeenCalledTimes(8);
   expect(result.competitors[0].recentActivities).toEqual([]);
   expect(result.competitors[0].lastKnownActivity).toEqual({
     date: '2026-07-02',
@@ -947,10 +947,60 @@ it('looks up a Facebook Page separately when the activity search finds no posts 
     query: 'cafes Phnom Penh', activityStartDate: '2026-09-12', activityEndDate: '2026-09-18',
   });
 
-  expect(mocks.webSearch.mock.calls.at(-1)[0].prompt).toContain('independent of whether the business posted recently');
+  expect(mocks.webSearch.mock.calls.some(([request]) => request.prompt.includes('independent of whether the business posted recently'))).toBe(true);
   expect(result.competitors[0]).toMatchObject({
     facebookUrl: 'https://www.facebook.com/rivalcafe.kh/', recentActivities: [],
   });
+});
+
+it('finds an official website from a separate lookup even when no posts were found', async () => {
+  queueDiscoveryTimes({ content: JSON.stringify({ competitors: [{
+    name: 'Training Academy', isDirectCompetitor: true, matchConfidence: 'high',
+    matchReason: 'Offers the same training to Phnom Penh professionals',
+    facebookUrl: 'https://www.facebook.com/trainingacademy',
+    sourceUrl: 'https://www.linkedin.com/school/training-academy/',
+  }] }) });
+  mocks.webSearch
+    .mockResolvedValueOnce({ content: JSON.stringify({ activities: [{
+      competitorName: 'Unrelated Business', date: '2026-09-17', activity: 'Unrelated post', sourceUrl: 'https://example.com/post',
+    }] }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({ activities: [], profiles: [] }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({ websites: [{
+      competitorName: 'Training Academy',
+      knownSourceUrl: 'https://www.linkedin.com/school/another-academy/',
+      websiteUrl: 'https://wrong-academy.example.com/',
+    }, {
+      competitorName: 'Training Academy',
+      knownSourceUrl: 'https://www.linkedin.com/school/training-academy/',
+      websiteUrl: 'https://training-academy.example.com/',
+    }] }) });
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+
+  const result = await researchCompetitors({
+    query: 'training academies Phnom Penh', activityStartDate: '2026-09-12', activityEndDate: '2026-09-18',
+  });
+
+  expect(mocks.webSearch.mock.calls.at(-1)[0].prompt).toContain('independent of recent posts');
+  expect(result.competitors[0]).toMatchObject({
+    websiteUrl: 'https://training-academy.example.com/',
+    facebookUrl: 'https://www.facebook.com/trainingacademy',
+    recentActivities: [],
+  });
+});
+
+it('omits an unreachable URL supplied as an official website', async () => {
+  queueDiscoveryTimes({ content: JSON.stringify({ competitors: [{
+    name: 'Training Academy', isDirectCompetitor: true, matchConfidence: 'high',
+    matchReason: 'Offers the same training to Phnom Penh professionals',
+    sourceUrl: 'https://www.linkedin.com/school/training-academy/',
+    websiteUrl: 'https://dead-training.example.com/',
+  }] }) });
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404 })));
+
+  const result = await researchCompetitors({ query: 'training academies Phnom Penh' });
+
+  expect(result.competitors).toHaveLength(1);
+  expect(result.competitors[0].websiteUrl).toBeUndefined();
 });
 
 it('never derives a Facebook Page link from a reel-only URL (no Page slug in the path)', async () => {
@@ -1040,8 +1090,8 @@ it('batches the Facebook/TikTok profile lookup instead of listing every missing-
     activityEndDate: '2026-09-18',
   });
 
-  // 3 discovery + 1 main activity + 2 Facebook activity batches + 1 Page batch.
-  expect(mocks.webSearch).toHaveBeenCalledTimes(7);
+  // 3 discovery + 1 main activity + 2 Facebook activity batches + 1 Page batch + 2 website batches.
+  expect(mocks.webSearch).toHaveBeenCalledTimes(9);
   const facebookBatch1 = mocks.webSearch.mock.calls[4][0].prompt;
   const facebookBatch2 = mocks.webSearch.mock.calls[5][0].prompt;
   expect(facebookBatch1).toContain('Academy 1');

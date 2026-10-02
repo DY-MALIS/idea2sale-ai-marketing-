@@ -2025,6 +2025,7 @@ Return ONLY a single valid JSON object with this exact structure:
           lastKnownActivity: isCompetitorScan ? (verified.lastKnownActivity || undefined) : undefined,
           customerSegments: asList(match.customerSegments),
           facebookUrl: verified.facebookUrl || '',
+          websiteUrl: verified.websiteUrl || '',
           tiktokUrl: verified.tiktokUrl || '',
           linkedinUrl: verified.linkedinUrl || '',
           sourceUrl: verified.sourceUrl,

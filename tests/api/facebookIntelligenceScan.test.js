@@ -228,7 +228,7 @@ it('does not reuse ambiguous strategy text across same-name competitor Pages', a
   mocks.researchCompetitors.mockResolvedValue({
     entitySummary: 'Local coffee shops',
     competitors: [
-      { name: 'Kafe', positioning: 'Coffee shop one', facebookUrl: 'https://www.facebook.com/kafe-one', sourceUrl: 'https://www.facebook.com/kafe-one', recentActivities: [] },
+      { name: 'Kafe', positioning: 'Coffee shop one', facebookUrl: 'https://www.facebook.com/kafe-one', websiteUrl: 'https://kafe-one.example.com', sourceUrl: 'https://www.facebook.com/kafe-one', recentActivities: [] },
       { name: 'Kafe', positioning: 'Coffee shop two', facebookUrl: 'https://www.facebook.com/kafe-two', sourceUrl: 'https://www.facebook.com/kafe-two', recentActivities: [] },
     ],
   });
@@ -248,6 +248,7 @@ it('does not reuse ambiguous strategy text across same-name competitor Pages', a
   expect(res.body.competitors.map(({ facebookUrl }) => facebookUrl)).toEqual([
     'https://www.facebook.com/kafe-one', 'https://www.facebook.com/kafe-two',
   ]);
+  expect(res.body.competitors.map(({ websiteUrl }) => websiteUrl)).toEqual(['https://kafe-one.example.com', '']);
   expect(res.body.competitors.map(({ topAngle }) => topAngle)).toEqual(['Coffee shop one', 'Coffee shop two']);
 });
 
