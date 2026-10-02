@@ -81,6 +81,10 @@ describe('Gemini Live browser connection', () => {
     expect(onPlaybackComplete).not.toHaveBeenCalled();
     sources[0].onended();
     expect(onPlaybackComplete).toHaveBeenCalledOnce();
+    processor.onaudioprocess({ inputBuffer: { getChannelData: () => new Float32Array([0.25, -0.25]) } });
+    vi.advanceTimersByTime(200);
+    expect(sent[2].realtimeInput.audio).toMatchObject({ mimeType: 'audio/pcm;rate=16000', data: expect.any(String) });
+    expect(socket.readyState).toBe(FakeWebSocket.OPEN);
     socket.onmessage({ data: JSON.stringify({ serverContent: { modelTurn: { parts: [{ inlineData: { mimeType: 'audio/pcm;rate=24000', data: audioData } }] } } }) });
     await Promise.resolve();
     expect(onAudioStart).toHaveBeenCalledTimes(2);

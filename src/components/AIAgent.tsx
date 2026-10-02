@@ -10,6 +10,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../hooks/useToast';
 import { connectGeminiLive, GeminiLiveSession } from '../lib/geminiLiveClient';
+import { startVoiceConversationFallback, type VoiceConversationFallback } from '../lib/voiceConversationFallback';
 import { getLatestBusinessBranding } from '../lib/businessBranding';
 import { CreativeAutomationRequest } from '../types';
 
@@ -70,6 +71,7 @@ const MAX_MESSAGES = 40;
 const HISTORY_MESSAGES = 20;
 const MAX_SESSIONS = 20;
 const MAX_IMAGES = 4;
+const SILENT_WAV_DATA_URL = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
 
 // A plain `session-${Date.now()}` id collides whenever two sessions are created
 // within the same millisecond (e.g. a fast click, or automation firing right after
@@ -150,17 +152,41 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   useEffect(() => { attachedImagesRef.current = attachedImages; }, [attachedImages]);
   const [liveVoiceEnabled, setLiveVoiceEnabled] = useState(false);
   const liveVoiceEnabledRef = useRef(false);
-  const [singleVoiceEnabled, setSingleVoiceEnabled] = useState(false);
-  const singleVoiceEnabledRef = useRef(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [voiceConnecting, setVoiceConnecting] = useState(false);
+  const [voiceProcessing, setVoiceProcessing] = useState(false);
   const [voiceRetryAt, setVoiceRetryAt] = useState(0);
   const voiceRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const voiceActiveRef = useRef(false);
-  // Both voice buttons use one direct audio connection; typed chat stays separate.
+  // Both voice buttons control the same continuing conversation.
   const geminiLiveSessionRef = useRef<GeminiLiveSession | null>(null);
   const geminiLiveActiveRef = useRef(false);
   const liveConnectionControllerRef = useRef<AbortController | null>(null);
+  const fallbackSessionRef = useRef<VoiceConversationFallback | null>(null);
+  const fallbackAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  const startFallbackVoice = (session: number) => {
+    if (session !== voiceSessionRef.current || !voiceActiveRef.current) return;
+    if (fallbackSessionRef.current) return;
+    geminiLiveActiveRef.current = false;
+    geminiLiveSessionRef.current = null;
+    const audioElement = fallbackAudioRef.current || new Audio();
+    fallbackAudioRef.current = audioElement;
+    fallbackSessionRef.current = startVoiceConversationFallback({
+      audioElement,
+      languageHint: () => voiceInputLanguageRef.current,
+      onListening: () => { setVoiceConnecting(false); setVoiceProcessing(false); setIsSpeaking(false); },
+      onThinking: () => setVoiceProcessing(true),
+      onSpeaking: () => { setVoiceProcessing(false); setIsSpeaking(true); },
+      onReplyComplete: () => setIsSpeaking(false),
+      onTranscript: (transcript) => askAgent(transcript, true),
+      onError: (error) => {
+        if (session !== voiceSessionRef.current || !voiceActiveRef.current) return;
+        stopLiveVoice();
+        notify(error.message, 'error');
+      },
+    });
+  };
 
   const startGeminiLive = async (session: number, playbackContext: AudioContext): Promise<boolean> => {
     const controller = new AbortController();
@@ -185,21 +211,14 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         return false;
       }
 
-      const endFailedLiveSession = (reason: string) => {
-        if (session !== voiceSessionRef.current || !voiceActiveRef.current) return;
-        stopLiveVoice();
-        notify(reason, 'error');
-      };
-
       const geminiSession = await connectGeminiLive(data.token, data.model, playbackContext, {
         onAudioStart: () => setIsSpeaking(true),
         onInterrupted: () => setIsSpeaking(false),
         onPlaybackComplete: () => {
           setIsSpeaking(false);
-          if (singleVoiceEnabledRef.current && session === voiceSessionRef.current) stopLiveVoice();
         },
-        onError: (error) => endFailedLiveSession(error.message),
-        onClose: () => endFailedLiveSession('Live Voice connection closed. Please start it again.'),
+        onError: () => startFallbackVoice(session),
+        onClose: () => startFallbackVoice(session),
       }, { voiceName: data.voiceName, systemInstruction: data.systemInstruction }, controller.signal);
 
       if (session !== voiceSessionRef.current || !voiceActiveRef.current) {
@@ -210,11 +229,10 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       geminiLiveSessionRef.current = geminiSession;
       setVoiceConnecting(false);
       return true;
-    } catch (error) {
+    } catch {
       void playbackContext.close().catch(() => {});
       if (session === voiceSessionRef.current && voiceActiveRef.current && !controller.signal.aborted) {
-        stopLiveVoice();
-        notify(error instanceof Error ? error.message : 'Live Voice is unavailable.', 'error');
+        startFallbackVoice(session);
       }
       return false;
     } finally {
@@ -451,7 +469,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       : 'When the brief is complete, the agent opens the right generator and starts creating.',
     attachImage: language === 'km' ? 'ភ្ជាប់រូបភាព' : 'Attach image',
     removeImage: language === 'km' ? 'ដកចេញ' : 'Remove',
-    voiceInput: language === 'km' ? 'និយាយសំណួរ' : 'Voice input',
+    voiceInput: language === 'km' ? 'សន្ទនាសំឡេង' : 'Voice conversation',
     listening: language === 'km' ? 'កំពុងស្តាប់...' : 'Listening...',
   }), [language]);
 
@@ -756,12 +774,18 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     voiceSessionRef.current += 1;
     voiceActiveRef.current = false;
     liveVoiceEnabledRef.current = false;
-    singleVoiceEnabledRef.current = false;
     setLiveVoiceEnabled(false);
-    setSingleVoiceEnabled(false);
     setVoiceConnecting(false);
+    setVoiceProcessing(false);
     liveConnectionControllerRef.current?.abort();
     liveConnectionControllerRef.current = null;
+    fallbackSessionRef.current?.close();
+    fallbackSessionRef.current = null;
+    if (fallbackAudioRef.current) {
+      fallbackAudioRef.current.pause();
+      fallbackAudioRef.current.src = '';
+    }
+    requestControllerRef.current?.abort();
     // Clear the active flag before close() so the session's own onClose handler
     // (which also runs for this intentional close, not just a dropped
     // connection) sees Live Voice is already off.
@@ -773,23 +797,27 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     setIsSpeaking(false);
   };
 
-  const startVoice = (mode: 'single' | 'live') => {
+  const startVoice = () => {
     if (!voiceActiveRef.current && Date.now() < voiceRetryAt) return;
     if (voiceActiveRef.current) {
-      const wasLive = liveVoiceEnabledRef.current;
       stopLiveVoice();
-      if (mode === 'single' || wasLive) return;
+      return;
     }
     voiceSessionRef.current += 1;
     const session = voiceSessionRef.current;
     voiceActiveRef.current = true;
-    liveVoiceEnabledRef.current = mode === 'live';
-    singleVoiceEnabledRef.current = mode === 'single';
-    setLiveVoiceEnabled(mode === 'live');
-    setSingleVoiceEnabled(mode === 'single');
+    liveVoiceEnabledRef.current = true;
+    setLiveVoiceEnabled(true);
     setVoiceConnecting(true);
+    setVoiceProcessing(false);
     setIsSpeaking(false);
     try {
+      // Unlock this exact element during the click so fallback speech can play
+      // after async transcription, including on browsers with strict autoplay.
+      const fallbackAudio = fallbackAudioRef.current || new Audio();
+      fallbackAudioRef.current = fallbackAudio;
+      fallbackAudio.src = SILENT_WAV_DATA_URL;
+      void fallbackAudio.play().catch(() => {});
       const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
       if (!AudioContextCtor) throw new Error('Live audio is not supported by this browser.');
       const playbackContext: AudioContext = new AudioContextCtor({ sampleRate: 24000 });
@@ -806,30 +834,33 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     voiceActiveRef.current = false;
     liveConnectionControllerRef.current?.abort();
     geminiLiveSessionRef.current?.close();
+    fallbackSessionRef.current?.close();
     if (voiceRetryTimerRef.current) clearTimeout(voiceRetryTimerRef.current);
   }, []);
 
-  const askAgent = async () => {
-    if (voiceActiveRef.current) return;
-    const message = input.trim();
-    const imagesForRequest = attachedImagesRef.current;
-    if ((!message && !imagesForRequest.length) || agentRequestActiveRef.current) return;
+  const askAgent = async (messageOverride?: string, spoken = false): Promise<string> => {
+    if (voiceActiveRef.current && !spoken) return '';
+    const message = (messageOverride ?? input).trim();
+    const imagesForRequest = spoken ? [] : attachedImagesRef.current;
+    if ((!message && !imagesForRequest.length) || agentRequestActiveRef.current) return '';
     agentRequestActiveRef.current = true;
 
     const history = messagesRef.current.slice(-HISTORY_MESSAGES);
     const userMessage: AgentMessage = {
       role: 'user',
       content: message || (language === 'km' ? '(រូបភាពភ្ជាប់)' : '(Attached image)'),
-      modality: 'text',
+      modality: spoken ? 'voice' : 'text',
       imageDataUrls: imagesForRequest.length
         ? imagesForRequest.map((image) => `data:${image.mimeType};base64,${image.base64}`)
         : undefined,
     };
     const pendingMessages = [...messagesRef.current, userMessage].slice(-MAX_MESSAGES);
     updateMessages(pendingMessages);
-    setInput('');
-    setAttachedImages([]);
-    attachedImagesRef.current = [];
+    if (!spoken) {
+      setInput('');
+      setAttachedImages([]);
+      attachedImagesRef.current = [];
+    }
     setLoading(true);
 
     requestControllerRef.current?.abort();
@@ -846,7 +877,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           message,
           platform: 'Auto',
           mode: 'auto',
-          liveVoice: false,
+          liveVoice: spoken,
           language,
           detectedLanguage: message ? detectMessageLanguage(message) : language,
           history,
@@ -856,10 +887,11 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'AI Agent failed.');
+      const answer = String(data.text || 'No response generated.').trim();
 
       updateMessages([
         ...pendingMessages,
-        { role: 'assistant', content: String(data.text || 'No response generated.').trim(), modality: 'text' },
+        { role: 'assistant', content: answer, modality: spoken ? 'voice' : 'text' },
       ]);
 
       if (autoCreateEnabledRef.current && data.automation?.ready) {
@@ -890,11 +922,14 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           allowScriptShortening: kind === 'video',
         });
       }
+      return answer;
     } catch (error: any) {
       if (error?.name !== 'AbortError') {
         const errorMessage = error?.message || (language === 'km' ? 'Agent មិនអាចឆ្លើយបាននៅពេលនេះ។' : 'The agent could not respond right now.');
-        updateMessages([...pendingMessages, { role: 'assistant', content: errorMessage, modality: 'text' }]);
+        if (spoken) notify(errorMessage, 'error');
+        else updateMessages([...pendingMessages, { role: 'assistant', content: errorMessage, modality: 'text' }]);
       }
+      return '';
     } finally {
       if (requestControllerRef.current === controller) {
         requestControllerRef.current = null;
@@ -1254,7 +1289,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           <div className="space-y-2">
             <label className="text-[10px] font-bold text-brand-700 dark:text-brand-300 uppercase tracking-widest">{text.prompt}</label>
             <textarea
-              disabled={liveVoiceEnabled || singleVoiceEnabled}
+              disabled={liveVoiceEnabled}
               value={input}
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={(event) => {
@@ -1281,21 +1316,21 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
               {micSupported && (
                 <button
                   type="button"
-                  onClick={() => startVoice('single')}
-                  disabled={liveVoiceEnabled || loading || voiceRetryAt > Date.now()}
-                  aria-pressed={singleVoiceEnabled}
-                  title={singleVoiceEnabled ? text.listening : text.voiceInput}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-bold transition-all disabled:opacity-60 ${singleVoiceEnabled ? 'bg-red-500 border-red-500 text-white animate-pulse' : 'bg-white/70 dark:bg-slate-800/70 border-brand-200 text-brand-600 hover:bg-brand-50 dark:hover:bg-slate-700'}`}
+                  onClick={startVoice}
+                  disabled={!liveVoiceEnabled && (loading || voiceRetryAt > Date.now())}
+                  aria-pressed={liveVoiceEnabled}
+                  title={liveVoiceEnabled ? text.listening : text.voiceInput}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-bold transition-all disabled:opacity-60 ${liveVoiceEnabled ? 'bg-red-500 border-red-500 text-white animate-pulse' : 'bg-white/70 dark:bg-slate-800/70 border-brand-200 text-brand-600 hover:bg-brand-50 dark:hover:bg-slate-700'}`}
                 >
-                  {voiceConnecting && singleVoiceEnabled ? <Loader2 size={16} className="animate-spin" /> : singleVoiceEnabled ? <MicOff size={16} /> : <Mic size={16} />}
-                  {singleVoiceEnabled ? (isSpeaking ? (language === 'km' ? 'កំពុងឆ្លើយ...' : 'Speaking...') : text.listening) : text.voiceInput}
+                  {(voiceConnecting || voiceProcessing) && liveVoiceEnabled ? <Loader2 size={16} className="animate-spin" /> : liveVoiceEnabled ? <MicOff size={16} /> : <Mic size={16} />}
+                  {liveVoiceEnabled ? (isSpeaking ? (language === 'km' ? 'កំពុងឆ្លើយ...' : 'Speaking...') : text.listening) : text.voiceInput}
                 </button>
               )}
 
               {micSupported && (
                 <button
                   type="button"
-                  onClick={() => startVoice('live')}
+                  onClick={startVoice}
                   aria-pressed={liveVoiceEnabled}
                   disabled={!liveVoiceEnabled && (loading || voiceRetryAt > Date.now())}
                   className={`px-3 py-2 rounded-xl border text-xs font-bold disabled:opacity-50 ${liveVoiceEnabled ? 'bg-brand-600 border-brand-600 text-white' : 'bg-white/70 dark:bg-slate-800/70 border-brand-200 text-brand-600'}`}
@@ -1400,7 +1435,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
 
           <button
             onClick={() => void askAgent()}
-            disabled={loading || liveVoiceEnabled || singleVoiceEnabled || (!input.trim() && !attachedImages.length)}
+            disabled={loading || liveVoiceEnabled || (!input.trim() && !attachedImages.length)}
             className="w-full bg-gradient-to-r from-brand-600 to-crab-shell hover:from-brand-700 hover:to-crab-shell/90 disabled:from-brand-200 disabled:to-brand-300 text-white font-bold py-5 rounded-2xl flex items-center justify-center gap-3 transition-all shadow-xl shadow-brand-500/20"
           >
             {loading ? <Loader2 className="animate-spin" /> : <Send size={20} />}
@@ -1413,10 +1448,10 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
             <h3 className="text-xl font-bold text-brand-700 dark:text-brand-300 flex items-center gap-2">
               <span className="w-2 h-6 bg-brand-500 rounded-full" />
-              {liveVoiceEnabled || singleVoiceEnabled ? (language === 'km' ? 'សន្ទនាសំឡេង' : 'Voice conversation') : text.result}
+              {liveVoiceEnabled ? (language === 'km' ? 'សន្ទនាសំឡេង' : 'Voice conversation') : text.result}
             </h3>
             <div className="flex items-center gap-2">
-              {!liveVoiceEnabled && !singleVoiceEnabled && <>
+              {!liveVoiceEnabled && <>
               {messages.length > 0 && (
                 <button
                   onClick={startNewChat}
@@ -1442,14 +1477,16 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           </div>
 
           <div className="flex-1 max-h-[720px] overflow-y-auto pr-2 space-y-4">
-            {(liveVoiceEnabled || singleVoiceEnabled) ? (
+            {liveVoiceEnabled ? (
               <div className="h-full min-h-[500px] flex flex-col items-center justify-center text-center" role="status" aria-live="polite">
                 <div className={`w-24 h-24 rounded-full flex items-center justify-center mb-5 ${isSpeaking ? 'bg-brand-600 text-white animate-pulse' : 'bg-brand-50 text-brand-600'}`}>
-                  {voiceConnecting ? <Loader2 size={42} className="animate-spin" /> : isSpeaking ? <Bot size={42} /> : <Mic size={42} />}
+                  {voiceConnecting || voiceProcessing ? <Loader2 size={42} className="animate-spin" /> : isSpeaking ? <Bot size={42} /> : <Mic size={42} />}
                 </div>
                 <p className="text-xl font-bold text-brand-700 dark:text-brand-300">
                   {voiceConnecting
                     ? (language === 'km' ? 'កំពុងភ្ជាប់សំឡេង...' : 'Connecting voice...')
+                    : voiceProcessing
+                      ? (language === 'km' ? 'កំពុងរៀបចំចម្លើយ...' : 'Preparing reply...')
                     : isSpeaking
                       ? (language === 'km' ? 'Agent កំពុងឆ្លើយជាសំឡេង...' : 'Agent is speaking...')
                       : (language === 'km' ? 'កំពុងស្តាប់អ្នក...' : 'Listening to you...')}
