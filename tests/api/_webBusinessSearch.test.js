@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => ({ webSearch: vi.fn(), lookup: vi.fn() }));
 vi.mock('../../api/_openrouter.js', () => ({ generateOpenRouterWebSearch: mocks.webSearch }));
 vi.mock('node:dns/promises', () => ({ lookup: mocks.lookup }));
 
-import { searchBusinessesOnWeb, urlIsReachable } from '../../api/_webBusinessSearch.js';
+import { fetchPublicPageIdentity, searchBusinessesOnWeb, urlIsReachable } from '../../api/_webBusinessSearch.js';
 
 beforeEach(() => {
   mocks.lookup.mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
@@ -13,6 +13,39 @@ beforeEach(() => {
 afterEach(() => {
   vi.resetAllMocks();
   vi.unstubAllGlobals();
+});
+
+it('reads the Page logo placement separately from cover and preview images', async () => {
+  const html = `<html><head>
+    <meta content="A public cafe" property="og:description">
+    <meta content="/preview.png" property="og:image">
+    <link href="/favicon.png" rel="icon">
+    <title>Kafe Dating</title></head><body>
+    <img src="/cover.png" class="cover-banner" alt="Cover photo">
+    <img src="/avatar.png" class="profile-avatar" alt="Kafe profile photo">
+    </body></html>`;
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(html, { headers: { 'content-type': 'text/html' } })));
+
+  const page = await fetchPublicPageIdentity('https://public.example.com/');
+
+  expect(page.description).toBe('A public cafe');
+  expect(page.imageCandidates).toEqual([
+    { url: 'https://public.example.com/avatar.png', placement: 'profile photo' },
+    { url: 'https://public.example.com/cover.png', placement: 'cover photo' },
+    { url: 'https://public.example.com/favicon.png', placement: 'site icon' },
+    { url: 'https://public.example.com/preview.png', placement: 'page preview' },
+  ]);
+});
+
+it('marks a social avatar as belonging to the Page only when its label names that Page', async () => {
+  const html = '<title>Kafe Dating | Facebook</title><img alt="Other Cafe profile photo" src="/other.png"><img alt="Kafe Dating profile photo" src="/owner.png"><img alt="Profile photo" src="/generic.png">';
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(html, { headers: { 'content-type': 'text/html' } })));
+  const page = await fetchPublicPageIdentity('https://www.facebook.com/kafe.dating/');
+  expect(page.imageCandidates).toEqual([
+    { url: 'https://www.facebook.com/other.png', placement: 'profile photo', ownerImage: false },
+    { url: 'https://www.facebook.com/owner.png', placement: 'profile photo', ownerImage: true },
+    { url: 'https://www.facebook.com/generic.png', placement: 'profile photo', ownerImage: true },
+  ]);
 });
 
 it('keeps official LinkedIn organization pages found by live search', async () => {
@@ -63,6 +96,17 @@ it('drops personal LinkedIn profiles from business results', async () => {
   expect(business.linkedinUrl).toBe('');
 });
 
+it('rejects a LinkedIn organization URL with no organization identifier', async () => {
+  mocks.webSearch.mockResolvedValue({ content: JSON.stringify({ businesses: [
+    { name: 'Unidentified organization', sourceUrl: 'https://www.linkedin.com/company/' },
+  ] }) });
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+
+  const businesses = await searchBusinessesOnWeb({ searchTerms: 'training companies' });
+
+  expect(businesses).toEqual([]);
+});
+
 it('merges complementary search passes and keeps more than twelve verified businesses', async () => {
   const batches = Array.from({ length: 4 }, (_, batch) => ({
     businesses: Array.from({ length: 6 }, (_, index) => ({
@@ -95,6 +139,33 @@ it('deduplicates a business found by several passes and merges its public contac
   expect(businesses[0]).toMatchObject({ phone: '012 345 678', email: 'hello@same-cafe.example' });
 });
 
+it('keeps same-name businesses at different public sources separate', async () => {
+  mocks.webSearch.mockResolvedValue({ content: JSON.stringify({ businesses: [
+    { name: 'Kafe', phone: '012 111 111', sourceUrl: 'https://kafe-one.example.com' },
+    { name: 'Kafe', phone: '012 222 222', sourceUrl: 'https://kafe-two.example.com' },
+  ] }) });
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+
+  const businesses = await searchBusinessesOnWeb({ searchTerms: 'cafes' });
+
+  expect(businesses).toHaveLength(2);
+  expect(businesses.map(({ phone }) => phone)).toEqual(['012 111 111', '012 222 222']);
+});
+
+it('does not merge distinct Pages merely because a directory URL is shared', async () => {
+  mocks.webSearch.mockResolvedValue({ content: JSON.stringify({ businesses: [
+    { name: 'Kafe', facebookPageUrl: 'https://www.facebook.com/kafe-one', sourceUrl: 'https://directory.example.com/cafes' },
+    { name: 'Kafe', facebookPageUrl: 'https://www.facebook.com/kafe-two', sourceUrl: 'https://directory.example.com/cafes' },
+  ] }) });
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+
+  const businesses = await searchBusinessesOnWeb({ searchTerms: 'cafes' });
+
+  expect(businesses.map((business) => business.facebookPageUrl)).toEqual([
+    'https://www.facebook.com/kafe-one', 'https://www.facebook.com/kafe-two',
+  ]);
+});
+
 it('keeps the user query and scan objective separate in every search pass', async () => {
   mocks.webSearch.mockResolvedValue({ content: JSON.stringify({ businesses: [] }) });
 
@@ -107,6 +178,78 @@ it('keeps the user query and scan objective separate in every search pass', asyn
     expect(request.prompt).toContain('exact request: "Phnom Penh dental clinics"');
     expect(request.prompt).toContain('SCAN OBJECTIVE: Find organizations likely to need video marketing.');
   }
+});
+
+it('grounds an own-business customer search in its saved introduction, page, and logo', async () => {
+  mocks.webSearch.mockResolvedValue({ content: JSON.stringify({ businesses: [] }) });
+  const logoDataUrl = 'data:image/jpeg;base64,aGVsbG8=';
+
+  await searchBusinessesOnWeb({
+    searchTerms: 'customers of Kafe Dating',
+    targetBusinessProfile: {
+      businessName: 'Kafe Dating',
+      businessDescription: 'Neighborhood coffee shop in Phnom Penh',
+      facebookPageUrl: 'https://www.facebook.com/kafe.kh',
+      logoDataUrl,
+    },
+  });
+
+  for (const [request] of mocks.webSearch.mock.calls) {
+    expect(request.imageDataUrl).toBe(logoDataUrl);
+    expect(request.prompt).toContain('Neighborhood coffee shop in Phnom Penh');
+    expect(request.prompt).toContain('https://www.facebook.com/kafe.kh');
+    expect(request.prompt).toContain('A similar name or logo alone is insufficient');
+  }
+});
+
+it('does not return the owner or its differently named Page as a customer lead', async () => {
+  mocks.webSearch.mockResolvedValue({ content: JSON.stringify({ businesses: [
+    { name: 'DJ Academy', sourceUrl: 'https://www.facebook.com/djacademy' },
+    { name: 'AI Academy Cambodia', sourceUrl: 'https://www.facebook.com/djacademy' },
+    { name: 'Local Training Buyer', sourceUrl: 'https://buyer.example.com' },
+  ] }) });
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+
+  const businesses = await searchBusinessesOnWeb({
+    searchTerms: 'DJ Academy',
+    targetBusinessProfile: {
+      businessName: 'DJ Academy',
+      businessDescription: 'AI skills training',
+      facebookPageUrl: 'https://www.facebook.com/djacademy',
+    },
+  });
+
+  expect(businesses.map(({ businessName }) => businessName)).toEqual(['Local Training Buyer']);
+  expect(mocks.webSearch.mock.calls[0][0].prompt).toContain('not a customer lead itself');
+});
+
+it('can retain the verified owner only as offering evidence when its introduction is missing', async () => {
+  mocks.webSearch.mockResolvedValue({ content: JSON.stringify({ businesses: [
+    { name: 'DJ Academy', businessType: 'AI skills training', sourceUrl: 'https://www.facebook.com/djacademy' },
+  ] }) });
+
+  const businesses = await searchBusinessesOnWeb({
+    searchTerms: 'potential customers for DJ Academy',
+    targetBusinessProfile: { businessName: 'DJ Academy', facebookPageUrl: 'https://www.facebook.com/djacademy' },
+    includeTargetBusiness: true,
+  });
+
+  expect(businesses).toEqual([expect.objectContaining({ businessName: 'DJ Academy', businessType: 'AI skills training' })]);
+  expect(mocks.webSearch.mock.calls[0][0].prompt).toContain('include its verified public listing and actual offering as grounding');
+});
+
+it('continues a profile-grounded search when the text model rejects images', async () => {
+  mocks.webSearch.mockImplementation(({ imageDataUrl }) => imageDataUrl
+    ? Promise.reject(new Error('image input unsupported'))
+    : Promise.resolve({ content: JSON.stringify({ businesses: [] }) }));
+
+  await searchBusinessesOnWeb({
+    searchTerms: 'customers of Kafe',
+    targetBusinessProfile: { businessName: 'Kafe', logoDataUrl: 'data:image/jpeg;base64,aGVsbG8=' },
+  });
+
+  expect(mocks.webSearch).toHaveBeenCalledTimes(8);
+  expect(mocks.webSearch.mock.calls.filter(([request]) => !request.imageDataUrl)).toHaveLength(4);
 });
 
 it('asks every search pass for more than five matches when no smaller limit is supplied', async () => {
@@ -228,6 +371,22 @@ it('keeps a business whose Facebook Page is its only source even when the page b
 
   expect(businesses).toHaveLength(1);
   expect(businesses[0].businessName).toBe('Small Shop');
+});
+
+it('does not treat an opaque reel as a business Page or attach a conflicting Page', async () => {
+  mocks.webSearch.mockResolvedValue({ content: JSON.stringify({ businesses: [
+    { name: 'Unknown Cafe', sourceUrl: 'https://www.facebook.com/reel/123' },
+    { name: 'Real Cafe', facebookPageUrl: 'https://www.facebook.com/another-cafe', sourceUrl: 'https://www.facebook.com/real-cafe' },
+  ] }) });
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 403 })));
+
+  const businesses = await searchBusinessesOnWeb({ searchTerms: 'local cafes' });
+
+  expect(businesses).toEqual([expect.objectContaining({
+    businessName: 'Real Cafe',
+    sourceUrl: 'https://www.facebook.com/real-cafe',
+    facebookPageUrl: '',
+  })]);
 });
 
 it('still drops an ordinary website that fails its HTTP check', async () => {

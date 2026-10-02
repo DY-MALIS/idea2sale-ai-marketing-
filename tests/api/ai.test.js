@@ -11,6 +11,7 @@ import {
   getAiRateLimitPolicy,
   getVideoCaptionSpec,
   googleSheetsUrlToCsvExportUrl,
+  isGenericOwnCustomerRequest,
   resolveCreativeImageMode,
   resolveAgentReplyLanguage,
   isOwnBusinessNamedTarget,
@@ -242,6 +243,20 @@ describe('isOwnBusinessNamedTarget', () => {
     expect(isOwnBusinessNamedTarget('ស្វែងរកអតិថិជនរបស់ក្រុម DGACADEMY', 'DGACADEMY')).toBe(true);
     expect(isOwnBusinessNamedTarget('customers of City Mart', 'Mart')).toBe(false);
     expect(isOwnBusinessNamedTarget('customers of Another DGACADEMY Clone', 'DGACADEMY')).toBe(false);
+  });
+});
+
+describe('isGenericOwnCustomerRequest', () => {
+  it('uses the saved provider for an unqualified customer request', () => {
+    expect(isGenericOwnCustomerRequest('ស្វែងរកអតិថិជន', 'DGACADEMY')).toBe(true);
+    expect(isGenericOwnCustomerRequest('រកអតិថិជនសក្តានុពល', 'DGACADEMY')).toBe(true);
+    expect(isGenericOwnCustomerRequest('find customers for my business', 'DGACADEMY')).toBe(true);
+    expect(isGenericOwnCustomerRequest('find 20 leads', 'DGACADEMY')).toBe(true);
+  });
+  it('does not replace a specified market or run without a saved provider', () => {
+    expect(isGenericOwnCustomerRequest('restaurants Phnom Penh', 'DGACADEMY')).toBe(false);
+    expect(isGenericOwnCustomerRequest('customers of Another Shop', 'DGACADEMY')).toBe(false);
+    expect(isGenericOwnCustomerRequest('find customers', '')).toBe(false);
   });
 });
 

@@ -330,8 +330,10 @@ export async function generateOpenRouterText(options) {
 // callers needing to verify a specific claim (e.g. a business's URL is real)
 // should independently check it themselves rather than depend on this array
 // being populated -- see _webBusinessSearch.js for that pattern.
-export async function generateOpenRouterWebSearch({ prompt, system = 'You are a careful research assistant. Only state facts you can find in the search results.', model, maxResults = 8, maxTokens = 12000, timeoutMs = 90_000 }) {
+export async function generateOpenRouterWebSearch({ prompt, system = 'You are a careful research assistant. Only state facts you can find in the search results.', model, maxResults = 8, maxTokens = 12000, timeoutMs = 90_000, imageDataUrl = '' }) {
   const apiKey = getApiKey();
+  const referenceImage = /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/i.test(imageDataUrl)
+    && imageDataUrl.length <= 500_000 ? imageDataUrl : '';
 
   const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
     method: 'POST',
@@ -347,7 +349,10 @@ export async function generateOpenRouterWebSearch({ prompt, system = 'You are a 
       plugins: [{ id: 'web', max_results: maxResults }],
       messages: [
         { role: 'system', content: system },
-        { role: 'user', content: prompt },
+        { role: 'user', content: referenceImage ? [
+          { type: 'text', text: prompt },
+          { type: 'image_url', image_url: { url: referenceImage } },
+        ] : prompt },
       ],
       // Web results are short structured research, so a bounded allowance is
       // ample and prevents credit checks from pricing the full model maximum.

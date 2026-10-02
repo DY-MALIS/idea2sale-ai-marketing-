@@ -12,6 +12,13 @@ export const normalizeFacebookScanHistoryResult = (
   return {
     success: true,
     query: typeof raw.query === 'string' ? raw.query : '',
+    businessPresence: raw.businessPresence && typeof raw.businessPresence.businessName === 'string'
+      ? {
+          businessName: raw.businessPresence.businessName,
+          matches: Array.isArray(raw.businessPresence.matches) ? raw.businessPresence.matches.filter((item) => /^https:\/\//i.test(item?.url || '')).slice(0, 12) : [],
+          candidates: Array.isArray(raw.businessPresence.candidates) ? raw.businessPresence.candidates.filter((item) => /^https:\/\//i.test(item?.url || '')).slice(0, 12) : [],
+        }
+      : null,
     // Older history entries used a separate competitor-customer mode. It is
     // now one unified competitor scan with segments and seven-day activity.
     scanMode: raw.scanMode === 'competitor_customers' ? 'competitor_activity' : raw.scanMode,

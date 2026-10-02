@@ -21,6 +21,8 @@ import admin from './_firebaseAdmin.js';
 import { checkRateLimit, getClientIp } from './_rateLimit.js';
 import { notifyAdmins } from './_alert.js';
 import { searchBusinessesOnWeb } from './_webBusinessSearch.js';
+import { findBusinessPresence } from './_businessPresence.js';
+import { facebookBusinessPageKey } from './_socialUrls.js';
 import { researchCompetitors } from './_competitorResearch.js';
 import { researchMarketTrends } from './_marketTrendResearch.js';
 import { researchProductAudience } from './_productAudienceResearch.js';
@@ -271,6 +273,17 @@ export const isOwnBusinessNamedTarget = (query, businessName) => {
   return false;
 };
 
+// A request that only says "find customers" has no separate target business.
+// In that case the saved Business Profile supplies the provider and offering.
+export const isGenericOwnCustomerRequest = (query, businessName) => {
+  if (!String(businessName || '').trim()) return false;
+  const text = toArabicDigits(query).trim().replace(/[.!?។]+$/u, '').trim()
+    .replace(/\b\d{1,2}\s+(?=(?:leads?|customers?|clients?|businesses?)\b)/iu, '')
+    .replace(/\s+\d{1,2}\s*(?:នាក់|ក្រុមហ៊ុន|leads?|customers?|clients?|businesses?)?$/iu, '').trim();
+  return /^(?:(?:please\s+)?(?:find|search(?:\s+for)?|show(?:\s+me)?|scan)\s+)?(?:potential\s+)?(?:customers?|clients?|leads?)(?:\s+for\s+(?:(?:my|our)\s+(?:business|company)|me))?$/iu.test(text)
+    || /^(?:(?:ស្វែងរក|រក|ស្កេន|ស្កែន|បង្ហាញ)\s*)?អតិថិជន(?:សក្តានុពល)?(?:\s*(?:សម្រាប់|ឱ្យ|អោយ|របស់)\s*(?:(?:ក្រុមហ៊ុន|អាជីវកម្ម)\s*)?(?:ខ្ញុំ|យើង))?$/u.test(text);
+};
+
 export const resolveProductAudienceTarget = (query, businessName, businessDescription) => {
   const description = String(businessDescription || '').trim().slice(0, 1000);
   if (!description) return '';
@@ -400,6 +413,9 @@ const businessContextFromBody = (body = {}) => {
   const source = body.businessContext && typeof body.businessContext === 'object' ? body.businessContext : body;
   const businessName = String(source?.businessName || '').trim().slice(0, 120);
   const businessDescription = String(source?.businessDescription || '').trim().slice(0, 1000);
+  const rawLogo = String(source?.logoDataUrl || '');
+  const logoDataUrl = rawLogo.length <= 500_000 && /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/i.test(rawLogo)
+    ? rawLogo : '';
   const tiktokHandle = String(source?.tiktokHandle || '').trim().replace(/^@/, '').slice(0, 100);
   const facebookPageUrl = String(source?.facebookPageUrl || '').trim().slice(0, 300);
   const telegramChannelUrl = String(source?.telegramChannelUrl || '').trim().slice(0, 300);
@@ -409,7 +425,7 @@ const businessContextFromBody = (body = {}) => {
         type: entry.type === 'INDIVIDUAL' ? 'individual' : 'company',
       }))
     : [];
-  return { businessName, businessDescription, directory, tiktokHandle, facebookPageUrl, telegramChannelUrl };
+  return { businessName, businessDescription, logoDataUrl, directory, tiktokHandle, facebookPageUrl, telegramChannelUrl };
 };
 
 const businessContentInstruction = ({ businessName, businessDescription, directory, tiktokHandle, facebookPageUrl, telegramChannelUrl }, { requireName = false } = {}) => {
@@ -483,21 +499,36 @@ const productImageAnalysisPrompt = (language, sourceType = 'image') => `You are 
 ${sourceType === 'video'
   ? 'The attached image is a single representative frame extracted from an uploaded product video. Analyze it as a still frame only — do not invent details about motion, pacing, transitions, voiceover, or audio that cannot be seen in a still image.'
   : 'The attached image is a single product photo.'}
-Analyze the attached image and produce a structured report covering four areas:
+Analyze the attached image and produce a structured report covering four areas. Use the following section headings exactly:
 
-1. Visual & Technical Quality — composition/framing, lighting and color tone, background and staging, image sharpness, product angle and presentation.
+${language === 'Khmer'
+  ? `1. គុណភាពរូបភាព និងបច្ចេកទេស — សមាសភាព ពន្លឺ ពណ៌ ផ្ទៃខាងក្រោយ ភាពច្បាស់ និងមុំថតផលិតផល។
+2. ខ្លឹមសារ និងសារដែលរូបភាពបង្ហាញ — ប្រភេទផលិតផល លក្ខណៈដែលមើលឃើញ និងអារម្មណ៍ដែលរូបភាពបញ្ជូន។
+3. អតិថិជនគោលដៅ និងគោលបំណង — អ្នកទិញដែលសមស្រប ហេតុផលដែលអាចជំរុញការទិញ និងអារម្មណ៍ដែលរូបភាពបង្កើត។
+4. សក្តានុពលផ្សាយពាណិជ្ជកម្ម — ចំណុចខ្លាំង ចំណុចដែលត្រូវកែលម្អ និងគំនិតសម្រាប់ការផ្សាយពាណិជ្ជកម្ម។`
+  : `1. Visual & Technical Quality — composition/framing, lighting and color tone, background and staging, image sharpness, product angle and presentation.
 2. Content & Message — what the product appears to be (likely name/category, materials, key visible features), styling cues, symbolism or mood, overall impression it creates.
 3. Target Audience & Purpose — likely target audience (age, gender, interests, lifestyle), the buying intent this photo triggers, emotional appeal.
-4. Marketing & Performance Potential — strengths of this photo for paid ads, weaknesses or fixes needed, recommended hook/CTA angle, and 2-3 ad hook ideas suited to this product.
+4. Marketing & Performance Potential — strengths of this photo for paid ads, weaknesses or fixes needed, recommended hook/CTA angle, and 2-3 ad hook ideas suited to this product.`}
 
 Write the "analysis" field entirely in ${language}.
 ${language === 'Khmer'
-  ? 'Write like a native Cambodian digital-marketing professional speaking naturally to a colleague — not a literal, word-for-word translation from English. Use natural Khmer sentence structure and everyday marketing phrasing. Keep universally-used terms that Khmer marketers normally say in English as-is (e.g., CTA, ads, hook, TikTok, Facebook, brand names), but every explanation and full sentence must read as fluent, natural Khmer, not stiff or awkward machine-translated Khmer.'
+  ? 'Write all four headings and every explanatory sentence in Khmer. The English wording in any input image is evidence, not the output language. Write like a native Cambodian digital-marketing professional speaking naturally to a colleague. Keep universally-used terms that Khmer marketers normally say in English as-is (e.g., CTA, ads, hook, TikTok, Facebook, brand names), but every explanation and full sentence must read as fluent, natural Khmer. Do not copy English section headings into the analysis.'
   : 'Write in clear, natural, professional English.'}
-Use short bold section headings with concise bullet points. Be specific and practical, not generic filler.
+Use short section headings and concise bullet points. Do not include Markdown bold markers such as **; this report is displayed as plain text. Be specific and practical, not generic filler.
 
 Respond with ONLY valid JSON, no markdown code fences, in exactly this shape:
 {"productSummary": "short product/category name, max 8 words, in ${language}", "analysis": "the full structured report described above, formatted as plain text with line breaks"}`;
+
+const productImageLanguageMismatch = (analysis, language) => {
+  const khmerCount = (String(analysis).match(/[\u1780-\u17FF]/g) || []).length;
+  const latinCount = (String(analysis).match(/[A-Za-z]/g) || []).length;
+  if (language === 'Khmer') {
+    return khmerCount < 40 || khmerCount * 3 < latinCount
+      || /Visual & Technical Quality|Content & Message|Target Audience & Purpose|Marketing & Performance Potential/i.test(analysis);
+  }
+  return khmerCount > 40 && khmerCount > latinCount;
+};
 
 // Placed as a hard constraint right after the scene description (a single mention
 // embedded only among the later style bullets was not enough to stop the model from
@@ -1129,14 +1160,33 @@ Response rules:
       const sourceType = req.body?.sourceType === 'video' ? 'video' : 'image';
       if (!imageBase64) return res.status(400).json({ error: 'Product image is required.' });
       const text = await generateOpenRouterText({
-        system: 'You are a precise visual product analyst. Always respond with valid JSON only.',
+        system: `You are a precise visual product analyst. The requested output language is ${language}. Every report section and product summary must use that language. Always respond with valid JSON only.`,
         prompt: productImageAnalysisPrompt(language, sourceType),
         images: [{ base64: imageBase64, mimeType: imageMimeType }],
       });
       const parsed = jsonFromText(text, {});
-      const analysis = String(parsed.analysis || text || '').trim();
-      const productSummary = String(parsed.productSummary || '').trim();
+      let analysis = String(parsed.analysis || text || '').trim();
+      let productSummary = String(parsed.productSummary || '').trim();
       if (!analysis) return res.status(502).json({ error: 'No analysis generated.' });
+      const summaryNeedsLocalization = !!productSummary && (language === 'Khmer'
+        ? /[A-Za-z]/.test(productSummary) && !containsKhmerScript(productSummary)
+        : containsKhmerScript(productSummary) && !/[A-Za-z]/.test(productSummary));
+      if (productImageLanguageMismatch(analysis, language) || summaryNeedsLocalization) {
+        const localizedText = await generateOpenRouterText({
+          system: `You are a careful bilingual editor. Rewrite the supplied product-image analysis entirely in ${language}. Preserve all visible observations, uncertainties, and the four-section structure. Do not add claims. Return only valid JSON with "productSummary" and "analysis".`,
+          prompt: `Requested language: ${language}. ${language === 'Khmer' ? 'Use Khmer headings: គុណភាពរូបភាព និងបច្ចេកទេស; ខ្លឹមសារ និងសារដែលរូបភាពបង្ហាញ; អតិថិជនគោលដៅ និងគោលបំណង; សក្តានុពលផ្សាយពាណិជ្ជកម្ម. Keep only brand names and common marketing terms in English.' : 'Use English headings and sentences.'}\nRewrite this JSON faithfully:\n${JSON.stringify({ productSummary, analysis })}`,
+          maxTokens: 5500,
+          reasoningEffort: 'low',
+        });
+        const localized = jsonFromText(localizedText, {});
+        analysis = String(localized.analysis || '').trim();
+        productSummary = String(localized.productSummary || productSummary).trim();
+        if (!analysis || productImageLanguageMismatch(analysis, language)) {
+          return res.status(502).json({ error: language === 'Khmer'
+            ? 'មិនអាចបង្កើតការវិភាគជាភាសាខ្មែរបានទេ។ សូមសាកល្បងម្តងទៀត។'
+            : 'Could not generate the analysis in English. Please try again.' });
+        }
+      }
       return res.status(200).json({ analysis, productSummary });
     }
 
@@ -1306,19 +1356,29 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
           instruction: 'Find public service providers, contractor teams, skilled workers, freelancers, and explicit public job-seeking listings matching the exact requested trade. Never use private profiles or infer that a person is seeking work.',
         },
       };
-      const scanMode = resolveFacebookScanMode(req.body?.scanMode, query);
+      const requestedScanMode = String(req.body?.scanMode || '').trim();
+      const inferredScanMode = resolveFacebookScanMode(requestedScanMode, query);
+      const ownBusinessNamed = isOwnBusinessNamedTarget(query, userBusinessName);
+      const mentionsCustomerIntent = /(?:អតិថិជន|\b(?:customers?|clients?|leads?|prospects?)\b)/iu.test(query);
+      const ownCustomerIntent = isGenericOwnCustomerRequest(query, userBusinessName)
+        || (ownBusinessNamed && (mentionsCustomerIntent
+          || normalizeMatchKey(query) === normalizeMatchKey(userBusinessName)));
+      // An auto-classified query such as "customers of AI Academy" contains
+      // "AI", but its explicit customer intent takes precedence over the
+      // business-name keyword. Respect a mode the user selected manually.
+      const scanMode = !FACEBOOK_SCAN_MODES.includes(requestedScanMode)
+        && inferredScanMode !== 'competitor_activity' && ownCustomerIntent
+        ? 'customer' : inferredScanMode;
       const scanModeConfig = scanModeConfigs[scanMode];
       const isCompetitorScan = scanMode === 'competitor_activity';
-      const isSelfBusinessTarget = scanMode === 'customer' && isOwnBusinessNamedTarget(query, userBusinessName);
+      const isSelfBusinessTarget = scanMode === 'customer' && ownCustomerIntent;
       // A "customers of X" request -- whether X is the user's own saved
       // business or someone else's -- means "find real customer leads for X,"
       // not "verify X as if it might not be real." Both now go through the
-      // same lenient flow below: look the named business up live (or use the
-      // saved description, for the user's own business), then find real
-      // potential customers for it, falling back to a general customer search
-      // instead of a dead end when that lookup finds nothing -- a named
-      // business can be real even when it can't be matched to one exact
-      // search result (different Page name formatting, thin web presence).
+      // same flow below: use the saved description or establish the named
+      // business's offering from public evidence, then search for prospective
+      // customers. A result for the provider itself only grounds the search;
+      // it must never be returned as a customer.
       const audienceResearchTarget = scanMode === 'customer'
         ? (isSelfBusinessTarget ? userBusinessName : resolveAudienceResearchTarget(query))
         : '';
@@ -1344,15 +1404,18 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
         startDate: dateDaysBefore(todayStr, 30),
         endDate: todayStr,
       };
-      // Keep the user's exact search intent separate from the mode objective.
-      // Appending generic keywords to the query caused exact company/customer-
-      // type searches to drift into unrelated "marketing businesses" results.
-      const searchTerms = (productAudienceTarget || audienceResearchTarget || query).slice(0, 250);
+      // A named business is the provider, not the lead to return. State the
+      // customer intent in the search terms so name-only queries do not resolve
+      // exclusively to the provider's own Page.
+      const searchTerms = (productAudienceTarget || (audienceResearchTarget
+        ? `potential customer businesses for ${audienceResearchTarget}${namedBusinessDescription ? ` offering ${namedBusinessDescription.slice(0, 100)}` : ''}` : query)).slice(0, 250);
       const countryNames = { KH: 'Cambodia', TH: 'Thailand', VN: 'Vietnam', US: 'United States' };
       const searchCountry = countries.map((code) => countryNames[code] || code).join(', ');
       const primaryCompetitorResearchTarget = isCompetitorScan
         ? resolveCompetitorResearchTarget(query, userBusinessName)
         : query;
+      const scansOwnBusiness = isCompetitorScan && !!userBusinessName
+        && primaryCompetitorResearchTarget.toLocaleLowerCase() === userBusinessName.toLocaleLowerCase();
 
       // Web search, X/social context, and competitor research are independent,
       // so they run concurrently rather than one-after-another -- this scan
@@ -1365,9 +1428,18 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
       // be another thing to keep in sync); it's derived the same way target/
       // competitor research is, from a live, citation-backed web search on the
       // business's own name.
-      const [webSearchSettled, xContextSettled, competitorResearchSettled, ownBusinessResearchSettled, marketTrendResearchSettled, productAudienceSettled] = await Promise.allSettled([
+      const [webSearchSettled, xContextSettled, competitorResearchSettled, ownBusinessResearchSettled, marketTrendResearchSettled, productAudienceSettled, businessPresenceSettled] = await Promise.allSettled([
         !isCompetitorScan && !productAudienceTarget ? searchBusinessesOnWeb({
           searchTerms,
+          includeTargetBusiness: isSelfBusinessTarget && !namedBusinessDescription,
+          ...(isSelfBusinessTarget ? {
+            targetBusinessProfile: {
+              businessName: userBusinessName,
+              businessDescription: savedBusinessProfile.businessDescription,
+              facebookPageUrl: savedBusinessProfile.facebookPageUrl,
+              logoDataUrl: savedBusinessProfile.logoDataUrl,
+            },
+          } : {}),
           searchObjective: audienceResearchTarget
             ? (namedBusinessDescription
               ? `Find real businesses and organizations in the target market that are strong potential customers for "${audienceResearchTarget}", described by its owner as: "${namedBusinessDescription}". Prioritize organizations with a concrete, plausible need for exactly what is described, not a generic or loosely related audience.`
@@ -1376,9 +1448,9 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
               // never filled in) -- so the search itself must first establish what the
               // named business actually is (its own website, Facebook Page, or a
               // business listing) before it can judge who its real customers are. Never
-              // guess the business type from the name alone, and fall back to a general
-              // customer search rather than returning nothing if that first step fails.
-              : `Search the live web to first determine what "${audienceResearchTarget}" actually sells or does, from its own website, Facebook Page, or a public business listing. Then find real businesses and organizations in the target market that are strong potential customers for that specific offering. Do not guess "${audienceResearchTarget}"'s business type from its name alone -- ground it only in what you actually find. If nothing reliable can be found about "${audienceResearchTarget}" itself, fall back to finding businesses likely to need marketing content or sales support in general.`)
+              // guess the business type from the name alone; unrelated generic
+              // prospects would misrepresent the user's specific target.
+              : `Search the live web to first determine what "${audienceResearchTarget}" actually sells or does, from its own website, Facebook Page, or a public business listing. Then find real businesses and organizations in the target market that are strong potential customers for that specific offering. Do not guess "${audienceResearchTarget}"'s business type from its name alone. Do not return "${audienceResearchTarget}" itself as a customer. If its offering cannot be established from public evidence, return no leads instead of unrelated businesses.`)
             : `${scanModeConfig.searchHint}. ${scanModeConfig.instruction}`,
           targetCount: entityCap,
           requiredSignal: scanMode === 'hiring' ? 'hiring' : '',
@@ -1390,8 +1462,9 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
         fetchXContextForEntity(isCompetitorScan ? primaryCompetitorResearchTarget : searchTerms),
         isCompetitorScan ? researchCompetitors({
           query: primaryCompetitorResearchTarget,
-          targetDescription: primaryCompetitorResearchTarget.toLocaleLowerCase() === userBusinessName.toLocaleLowerCase()
-            ? savedBusinessProfile.businessDescription : '',
+          targetDescription: scansOwnBusiness ? savedBusinessProfile.businessDescription : '',
+          targetFacebookPageUrl: scansOwnBusiness ? savedBusinessProfile.facebookPageUrl : '',
+          targetLogoDataUrl: scansOwnBusiness ? savedBusinessProfile.logoDataUrl : '',
           country: searchCountry,
           countryCode: countries[0],
           targetCount: entityCap,
@@ -1402,6 +1475,8 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
           ? researchCompetitors({
               query: userBusinessName,
               targetDescription: savedBusinessProfile.businessDescription,
+              targetFacebookPageUrl: savedBusinessProfile.facebookPageUrl,
+              targetLogoDataUrl: savedBusinessProfile.logoDataUrl,
               country: searchCountry,
               countryCode: countries[0],
               targetCount: entityCap,
@@ -1420,11 +1495,36 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
         productAudienceTarget
           ? researchProductAudience({ product: productAudienceTarget, country: searchCountry })
           : Promise.resolve([]),
+        userBusinessName
+          ? findBusinessPresence({ ...savedBusinessProfile, country: searchCountry })
+          : Promise.resolve(null),
       ]);
+
+      const businessPresence = businessPresenceSettled.status === 'fulfilled' ? businessPresenceSettled.value : null;
+      if (businessPresenceSettled.status === 'rejected') {
+        console.warn('Own-business public presence lookup failed:', businessPresenceSettled.reason?.message);
+      }
 
       let rawWebBusinesses = [];
       let audienceBusiness = null;
       let webSearchAvailable = false;
+      const ownPresencePages = isSelfBusinessTarget ? (businessPresence?.matches || []) : [];
+      const targetFacebookKeys = new Set([
+        audienceResearchTarget,
+        ...(isSelfBusinessTarget ? [savedBusinessProfile.facebookPageUrl] : []),
+        ...ownPresencePages.filter((page) => page.platform === 'Facebook').map((page) => page.url),
+      ].map(facebookBusinessPageKey).filter(Boolean));
+      const targetWebsiteHosts = new Set(ownPresencePages.filter((page) => page.platform === 'Website').map((page) => {
+        try { return new URL(page.url).hostname.toLowerCase(); } catch { return ''; }
+      }).filter(Boolean));
+      const isTargetBusinessResult = (business) => {
+        if (!audienceResearchTarget) return false;
+        if (findExactBusiness([business], audienceResearchTarget)) return true;
+        if ([business.sourceUrl, business.facebookPageUrl].some((url) => targetFacebookKeys.has(facebookBusinessPageKey(url)))) return true;
+        return [business.sourceUrl, business.website].some((url) => {
+          try { return targetWebsiteHosts.has(new URL(url).hostname.toLowerCase()); } catch { return false; }
+        });
+      };
       const productAudienceSegments = productAudienceSettled.status === 'fulfilled' ? productAudienceSettled.value : [];
       if (productAudienceSettled.status === 'rejected') {
         console.warn('Product audience research failed:', productAudienceSettled.reason?.message);
@@ -1434,19 +1534,41 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
         const foundBusinesses = scanMode === 'hiring'
           ? webSearchSettled.value.filter((business) => (business.recentActivities || []).length > 0)
           : webSearchSettled.value;
-        rawWebBusinesses = foundBusinesses;
-        webSearchAvailable = !isCompetitorScan && foundBusinesses.length > 0;
         if (audienceResearchTarget && !productAudienceTarget) {
-          // Opportunistic: an exact match lets the report name and link this
-          // one business precisely, but is no longer required to proceed --
-          // the searchObjective above already asked the search to ground
-          // itself in whatever real evidence it could find either way.
-          audienceBusiness = findExactBusiness(foundBusinesses, audienceResearchTarget);
+          // A provider returned by search is useful grounding, never a lead.
+          audienceBusiness = findExactBusiness(foundBusinesses, audienceResearchTarget)
+            || foundBusinesses.find((business) => isTargetBusinessResult(business)) || null;
         }
+        rawWebBusinesses = foundBusinesses.filter((business) => !isTargetBusinessResult(business));
       } else {
         console.warn('OpenRouter web business search failed or skipped:', webSearchSettled.reason?.message);
       }
+      const providerOffering = [namedBusinessDescription, audienceBusiness?.serviceOrJobType, audienceBusiness?.businessType]
+        .map((value) => String(value || '').trim())
+        .find((value) => value && !/^(?:business|company|organization|service)$/iu.test(value)) || '';
+      if (audienceResearchTarget && !rawWebBusinesses.length) {
+        if (providerOffering) {
+          try {
+            const secondPass = await searchBusinessesOnWeb({
+              searchTerms: `businesses likely to buy ${String(providerOffering).slice(0, 140)} in ${searchCountry}`,
+              searchObjective: `Find named, publicly verifiable businesses that are plausible prospective customers for ${audienceResearchTarget}, which offers ${providerOffering}. Return each customer's own source URL and public contact details. Exclude ${audienceResearchTarget} itself and unrelated businesses.`,
+              country: searchCountry,
+              targetCount: entityCap,
+              ...(isSelfBusinessTarget ? { targetBusinessProfile: {
+                businessName: userBusinessName,
+                businessDescription: savedBusinessProfile.businessDescription,
+                facebookPageUrl: savedBusinessProfile.facebookPageUrl,
+                logoDataUrl: savedBusinessProfile.logoDataUrl,
+              } } : {}),
+            });
+            rawWebBusinesses = secondPass.filter((business) => !isTargetBusinessResult(business));
+          } catch (error) {
+            console.warn('Customer lead follow-up search failed:', error?.message);
+          }
+        }
+      }
       rawWebBusinesses = rawWebBusinesses.slice(0, entityCap);
+      webSearchAvailable = !isCompetitorScan && rawWebBusinesses.length > 0;
       if (productAudienceSegments.length) webSearchAvailable = true;
 
       // A loose product/category description with no business actually named
@@ -1454,7 +1576,7 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
       // for, so zero public evidence means zero segments, not an invented one.
       if (productAudienceTarget && !productAudienceSegments.length) {
         return res.status(200).json({
-          success: true, query, scanMode, researchTarget: productAudienceTarget,
+          success: true, query, scanMode, researchTarget: productAudienceTarget, businessPresence,
           audienceResearch: true, webBusinessesFound: 0, webSearchAvailable: false,
           customerInsights: { whatTheyBought: [], whatTheyLike: [], contentDesires: [], targetPersonas: [] },
           competitors: [], marketTrends: [], potentialLeads: [], videoPlan: [],
@@ -1517,14 +1639,12 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
         console.warn('Market trend research failed or skipped:', marketTrendResearchSettled.reason?.message);
       }
 
-      const webBusinessSummary = audienceBusiness
-        ? `[Exact audience-research business] Name: ${audienceBusiness.businessName} | Type: ${audienceBusiness.businessType} | Service: ${audienceBusiness.serviceOrJobType} | Website: ${audienceBusiness.website || 'not available'} | Facebook Page: ${audienceBusiness.facebookPageUrl || 'not available'} | Source: ${audienceBusiness.sourceUrl}`
-        : rawWebBusinesses.length
-          ? rawWebBusinesses.map((biz, idx) => {
-            const activitySummary = (biz.recentActivities || []).map((activity) => `${activity.date}: ${activity.jobTitle ? `[Job: ${activity.jobTitle}] ` : ''}${activity.activity} (${activity.sourceUrl})`).join(' ; ') || 'none required for this scan mode';
-            return `[Web Result ${idx + 1}] Name: ${biz.businessName} | Entity kind: ${biz.entityKind || 'company'} | Trade/service/job type: ${biz.serviceOrJobType || biz.businessType} | Type: ${biz.businessType} | Address: ${biz.address || 'not available'} | Phone: ${biz.phone || 'not available'} | Email: ${biz.email || 'not available'} | Telegram: ${biz.telegram || 'not available'} | Website: ${biz.website || 'not available'} | Facebook Page: ${biz.facebookPageName || 'not available'} | Facebook Page URL: ${biz.facebookPageUrl || 'not available'} | Verified public activity/hiring evidence: ${activitySummary} | Source URL: ${biz.sourceUrl}`;
-          }).join('\n')
-          : 'Live web business search not connected or returned 0 verified businesses.';
+      const webBusinessSummary = rawWebBusinesses.length
+        ? rawWebBusinesses.map((biz, idx) => {
+          const activitySummary = (biz.recentActivities || []).map((activity) => `${activity.date}: ${activity.jobTitle ? `[Job: ${activity.jobTitle}] ` : ''}${activity.activity} (${activity.sourceUrl})`).join(' ; ') || 'none required for this scan mode';
+          return `[Web Result ${idx + 1}] Name: ${biz.businessName} | Entity kind: ${biz.entityKind || 'company'} | Trade/service/job type: ${biz.serviceOrJobType || biz.businessType} | Type: ${biz.businessType} | Address: ${biz.address || 'not available'} | Phone: ${biz.phone || 'not available'} | Email: ${biz.email || 'not available'} | Telegram: ${biz.telegram || 'not available'} | Website: ${biz.website || 'not available'} | Facebook Page: ${biz.facebookPageName || 'not available'} | Facebook Page URL: ${biz.facebookPageUrl || 'not available'} | Verified public activity/hiring evidence: ${activitySummary} | Source URL: ${biz.sourceUrl}`;
+        }).join('\n')
+        : 'Live web business search not connected or returned 0 verified businesses.';
       const productAudienceSummary = productAudienceSegments.map((segment, index) => (
         `[Product market ${index + 1}] Market: ${segment.market} | Need: ${segment.need} | Public evidence and inference: ${segment.whyRelevant} | Channel: ${segment.channel} | Source: ${segment.sourceUrl}`
       )).join('\n');
@@ -1546,7 +1666,7 @@ Video Schedule Length: ${requestedDays} days starting ${todayStr}
 Competitor Activity Window: ${activityWindow.startDate} through ${activityWindow.endDate}, inclusive (exactly 7 calendar days ending today)
 ${contentBusinessName ? `Our Business Name (the business this content is FOR, not a competitor): "${contentBusinessName}"` : ''}
 ${userBusinessName && !audienceBusiness ? `What our own business actually is, per live web search (empty if not found -- never assume from the name alone): ${ownBusinessSummary || '(not found in live search -- proceed using only the target/niche context below)'}` : ''}
-${audienceBusiness ? `AUDIENCE RESEARCH TARGET: "${audienceBusiness.businessName}". Its public listing below establishes the business type. Describe aggregate customer groups and likely needs as inference from its actual products/services. Never claim to know individual customers, purchases, private messages, or customer lists. Return potentialLeads: [].` : ''}
+${audienceBusiness ? `NAMED PROVIDER: "${audienceBusiness.businessName}". Its own public listing establishes that it offers ${audienceBusiness.serviceOrJobType || audienceBusiness.businessType}. Source: ${audienceBusiness.sourceUrl}. This provider is NOT a customer lead. Find prospective customer businesses for this specific offering from the separate Live Web Search Business Context below.` : ''}
 ${productAudienceTarget ? `PRODUCT AUDIENCE RESEARCH: The owner-provided Business Profile describes this offering as "${savedBusinessProfile.businessDescription}". Find distinct potential buyer markets for the product category, grounded only in the public evidence below. These are likely segments, not confirmed customers of this business. Explain each segment's need, buying trigger, and reachable channel. Do not claim actual purchases, private identities, market size, or exact prices without direct evidence. Return potentialLeads: [] and competitors: [].` : ''}
 
 ${CAMBODIA_MARKET_CONTEXT}
@@ -1573,13 +1693,13 @@ RESPONSE LANGUAGE: Write every descriptive/free-text field in ${outputLanguage} 
 MODE SEPARATION — NEVER MIX THE TWO TOOLS:
 ${isCompetitorScan
   ? '- This is a COMPETITOR scan. Return only competitor intelligence. Set "customerInsights" to empty arrays, set "potentialLeads" to [], and do not create outreach/Inbox messages.'
-  : audienceBusiness || productAudienceTarget
+  : productAudienceTarget
     ? '- This is an AUDIENCE scan. Return aggregate potential customer groups only. Set "competitors" and "potentialLeads" to empty arrays. Do not invent named customers or outreach messages.'
     : '- This is a CUSTOMER scan. Return only customer intelligence and potential customer leads. Set "competitors" to [], and create an Inbox message for every verified customer lead.'}
 
 1. CUSTOMER INTELLIGENCE (ស្វែងរកអតិថិជន):
-   ${audienceBusiness || productAudienceTarget ? '- This is aggregate audience inference. Describe likely customer needs and groups, clearly distinguish them from observed facts, and do not claim actual purchases, private customer identities, or exact prices without direct public evidence.' : ''}
-   - What they bought / need ("គេបានអ្វី / គេទិញអ្វី"): ${audienceBusiness || productAudienceTarget ? 'Describe likely needs tied to the offering. Do not assert actual purchases, prices, or order history without direct public evidence.' : 'Detail concrete products, variations, bundles, and price thresholds (e.g. $10-$25 COD) that customers actually buy, plus specific real-life pain points they solve.'}
+   ${productAudienceTarget ? '- This is aggregate audience inference. Describe likely customer needs and groups, clearly distinguish them from observed facts, and do not claim actual purchases, private customer identities, or exact prices without direct public evidence.' : ''}
+   - What they bought / need ("គេបានអ្វី / គេទិញអ្វី"): ${productAudienceTarget ? 'Describe likely needs tied to the offering. Do not assert actual purchases, prices, or order history without direct public evidence.' : 'Describe likely needs from public evidence. Do not assert actual purchases, prices, or order history without direct public evidence.'}
    - What they like / appreciate ("គេចូលចិត្តអ្វី"): Concrete trust and satisfaction drivers (e.g. fast delivery in Phnom Penh, free gifts, genuine unboxing, polite sellers using "បង/អូន", clear pricing, COD reliability).
    - Content they want to see ("គេចង់ឱ្យបង្កើត content ប្រភេទអ្វី"): Exact video formats and angles that customers are likely to value based on the verified website and public business evidence (e.g. real transformation Before/After, honest test demonstrations, price breakdown, live Q&A).
    - Target personas: 2-3 specific customer profiles with demographics and exact buying triggers.
@@ -1592,15 +1712,19 @@ ${isCompetitorScan
    - Ground "counterStrategy" in what our own business actually is, per the "What our own business actually is" line above, when it was found -- do not propose a counter-strategy that only makes sense for a generic/different kind of business than ours. If it was not found, keep the counter-strategy general enough to fit any business in this niche rather than inventing specifics about ours.
    - For a competitor scan, "publicActivitySignals" must contain ONLY the explicitly dated, source-linked activities supplied above within ${activityWindow.startDate} through ${activityWindow.endDate}. Never present positioning, old/undated content, or inference as activity in this 7-day window. Use an empty array when none was verified. "customerSegments" must describe aggregate audience groups, never named individuals or private followers.
 
-3. POTENTIAL CLIENT LEADS (អាជីវកម្មដែលអាចត្រូវការសេវាផលិត Content/Video):
+3. POTENTIAL CLIENT LEADS (អាជីវកម្មដែលអាចក្លាយជាអតិថិជន):
    - Use ONLY real businesses explicitly present in the Live Web Search Business Context above. Never invent a business, Page, URL, phone number, email address, or contact identity.
-   - If that context says it is not connected or contains 0 results, return an empty "potentialLeads" array. Otherwise include a "potentialLeads" entry for EVERY SINGLE business listed in that context, with no exceptions and none skipped. The list is real and pre-verified; do not omit a business even if its specific need signal has to stay generic (e.g. "this business type typically relies on photo/video content to attract customers online").
-   - For each real business, infer its business type and identify concrete signals suggesting it may benefit from professional content, video production, or digital marketing. Only cite a signal you can actually support from the given context (the fact that this business type in Cambodia typically relies on visual content to sell, or that a small independent business rarely has in-house video production). NEVER claim specific unverifiable facts about the business itself that are not present in its context entry, such as "currently hiring for a marketing role," "actively expanding its team," or anything about its finances, staff, or internal plans -- the web search context only ever gives a name, category, address, phone, email, Telegram, website, and Facebook Page -- nothing about hiring or internal operations.
-   - Prefer small and mid-sized independent businesses (a single shop, cafe, clinic, small chain) over large corporations or franchises when both are present in the context -- they are the most realistic clients for affordable content/video services.
-   - Rate leadLevel as "Hot" only for strong active-spend or strong demand signals plus clear creative-need signals, "Warm" for moderate signals, or "Cold" for weak signals.
+   - If that context says it is not connected or contains 0 results, return an empty "potentialLeads" array. Otherwise include a "potentialLeads" entry for EVERY SINGLE business listed in that context, with no exceptions and none skipped. Keep unsupported need signals empty rather than inventing evidence.
+   - ${audienceResearchTarget
+     ? `This is a prospect search for ${audienceResearchTarget}. ${providerOffering ? `Its owner-provided or publicly established offering is: ${providerOffering}.` : 'Its exact offering has not been established; do not invent one.'} Assess each prospective business against that offering, not against generic content/video production. Describe a plausible need as an inference unless a public source directly proves it. Never present a prospect as a confirmed past buyer.`
+     : 'For each real business, identify supported signals suggesting it may benefit from professional content, video production, or digital marketing. Separate public facts from inference.'}
+   - NEVER claim specific unverifiable facts about a business, such as a current hiring plan, internal budget, staff count, or purchase history, unless the supplied public context directly supports them.
+   - Rate leadLevel as "Hot" only for strong public demand signals and a clear fit with ${audienceResearchTarget ? 'the provider offering' : 'the scan objective'}, "Warm" for moderate signals, or "Cold" for weak signals.
    - Set "opportunityType" to exactly "${scanMode}" and score "fitScore" from 0-100 for fit with the selected scan objective.
    - Fill "interestSignals", "spendingSignals", "hiringSignals", and "competitorSignals" with short evidence-aware observations relevant to this lead. Use an empty array when the supplied public context does not support a category. Spending signals are estimates of commercial fit, never claims about wealth or budget. Hiring signals must never assert an active vacancy without public source support.
-   - "recommendedService" MUST name a CONCRETE content format/deliverable fitted to that specific business type, not a generic "digital marketing"/"technology" pitch that could apply to any business. Ground it in what that kind of business actually sells and how customers decide to buy from it -- e.g. a restaurant/cafe: real food/ambiance video tours or menu-highlight reels; a clinic/spa: before/after or real-client testimonial videos; a training/consulting academy: authority-building talking-head or course-preview videos; a fashion/retail shop: lookbook or try-on/product-demo reels; a real estate agency: property walkthrough videos. Vary the wording across leads in the same list even when their business type repeats -- never let every entry converge on the same generic "digital marketing"/"technology" phrase.
+   - ${audienceResearchTarget
+     ? `"recommendedService" MUST relate to ${audienceResearchTarget}'s actual offering${providerOffering ? ` (${providerOffering})` : ''}, tailored to the prospect's publicly established business type. Do not pitch content/video production unless that is the provider's offering. Do not invent a course title, price, or program the provider has not offered publicly.`
+     : '"recommendedService" MUST name a concrete content format or deliverable fitted to that business type, such as a food demonstration for a restaurant or a property walkthrough for a real estate agency.'}
    - Write one concise, polite, personalized Inbox message in ${outputLanguage}. Do not claim we inspected private data. ${isKhmer
       ? `The message MUST start with the exact fixed opening "សួស្តី! " (a plain, standard-spelling greeting) -- never invent a different or embellished opening greeting word, since that is where malformed/garbled Khmer spelling has actually occurred before. Write the rest of the message in simple, correctly-spelled, natural conversational Khmer; re-read it before returning and fix any word that is not a real, standard Khmer word.${userBusinessName ? ` Immediately after the opening greeting, EVERY Inbox message MUST introduce the sender using the exact sentence "ខ្ញុំមកពី ${userBusinessName}។" Never write an anonymous outreach message.` : ''}`
       : `The message MUST start with a plain "Hello! " opening.${userBusinessName ? ` Immediately after it, EVERY Inbox message MUST introduce the sender using the exact sentence "I'm reaching out from ${userBusinessName}." Never write an anonymous outreach message.` : ''}`}
@@ -1773,13 +1897,22 @@ Return ONLY a single valid JSON object with this exact structure:
         const key = String(lead?.businessName || '').trim().toLocaleLowerCase();
         if (key && !parsedLeadsByName.has(key)) parsedLeadsByName.set(key, lead);
       });
+      const sourceNameCounts = new Map();
+      rawWebBusinesses.forEach((business) => {
+        const key = String(business.businessName || '').trim().toLocaleLowerCase();
+        sourceNameCounts.set(key, (sourceNameCounts.get(key) || 0) + 1);
+      });
       // Build from the verified web list (not from the model's response) so a
       // long result set cannot silently lose valid businesses when the model
       // omits an enrichment object near the end of its output.
       const potentialLeads = (isCompetitorScan ? [] : rawWebBusinesses)
         .map((sourceWebBiz) => {
           const key = String(sourceWebBiz.businessName || '').trim().toLocaleLowerCase();
-          const lead = parsedLeadsByName.get(key) || {};
+          // The synthesis model identifies leads by display name only. When
+          // two distinct source URLs share that name, its analysis cannot be
+          // assigned to either company safely; keep each source's own contact
+          // fields and use the evidence-neutral fallback pitch instead.
+          const lead = sourceNameCounts.get(key) === 1 ? (parsedLeadsByName.get(key) || {}) : {};
           // The model is instructed to return an entry for every business, but
           // when it still misses one, "lead" is {} here -- ensureBusinessInInboxMessage
           // only ensures the sender is named, it does not invent pitch content,
@@ -1789,9 +1922,14 @@ Return ONLY a single valid JSON object with this exact structure:
           // resolved to English for an empty string regardless of the scan's
           // actual language. Build a real, correctly-languaged fallback body
           // here so both problems are fixed together.
-          const recommendedService = String(lead?.recommendedService || (isKhmer
-            ? `មាតិកា Photo/Video ខ្លីៗសមស្របនឹង ${sourceWebBiz.businessType || 'អាជីវកម្មនេះ'}។`
-            : `Short-form photo and video content tailored to ${sourceWebBiz.businessType || 'this business'}.`)).slice(0, 300);
+          const fallbackService = audienceResearchTarget
+            ? (isKhmer
+              ? `${providerOffering ? `សេវា ${providerOffering}` : `សេវាកម្មរបស់ ${audienceResearchTarget}`} ដែលអាចសមនឹង ${sourceWebBiz.businessName}។`
+              : `${providerOffering || `Services from ${audienceResearchTarget}`} that may fit ${sourceWebBiz.businessName}.`)
+            : (isKhmer
+              ? `មាតិកា Photo/Video ខ្លីៗសមស្របនឹង ${sourceWebBiz.businessType || 'អាជីវកម្មនេះ'}។`
+              : `Short-form photo and video content tailored to ${sourceWebBiz.businessType || 'this business'}.`);
+          const recommendedService = String(lead?.recommendedService || fallbackService).slice(0, 300);
           const fallbackInboxMessage = isKhmer
             ? `ខ្ញុំឃើញថា ${sourceWebBiz.businessName || 'អាជីវកម្មរបស់អ្នក'} អាចនឹងទទួលបានផលប្រយោជន៍ពី${recommendedService} សូមទាក់ទងមកខ្ញុំបើចាប់អារម្មណ៍។`
             : `I noticed ${sourceWebBiz.businessName || 'your business'} could benefit from ${recommendedService} Feel free to reach out if you're interested.`;
@@ -1845,10 +1983,19 @@ Return ONLY a single valid JSON object with this exact structure:
       // research list. The strategy model may enrich those entries, but it
       // cannot introduce a new company or source URL.
       const parsedCompetitors = Array.isArray(parsed?.competitors) ? parsed.competitors : [];
+      const verifiedCompetitorNameCounts = new Map();
+      verifiedCompetitors.forEach((competitor) => {
+        const key = String(competitor.name || '').trim().toLocaleLowerCase();
+        verifiedCompetitorNameCounts.set(key, (verifiedCompetitorNameCounts.get(key) || 0) + 1);
+      });
       const competitors = (isCompetitorScan ? verifiedCompetitors : []).map((verified) => {
-        const match = parsedCompetitors.find((candidate) => (
-          String(candidate?.pageName || '').trim().toLocaleLowerCase() === String(verified.name || '').trim().toLocaleLowerCase()
-        )) || {};
+        const nameKey = String(verified.name || '').trim().toLocaleLowerCase();
+        // Strategy output identifies a competitor only by its display name.
+        // When distinct public Pages share that name, its analysis is
+        // ambiguous; retain each Page's own evidence without reusing it.
+        const match = verifiedCompetitorNameCounts.get(nameKey) === 1
+          ? (parsedCompetitors.find((candidate) => String(candidate?.pageName || '').trim().toLocaleLowerCase() === nameKey) || {})
+          : {};
         const asList = (value) => (Array.isArray(value) ? value : [])
           .map((item) => String(item).slice(0, 260))
           .filter(Boolean)
@@ -1878,12 +2025,13 @@ Return ONLY a single valid JSON object with this exact structure:
         success: true,
         query,
         scanMode,
+        businessPresence,
         researchTarget: isCompetitorScan ? competitorResearchTarget : (productAudienceTarget || audienceBusiness?.businessName || audienceResearchTarget || query),
-        audienceResearch: !!(audienceBusiness || productAudienceTarget),
-        audienceSourceUrl: productAudienceSegments[0]?.sourceUrl || audienceBusiness?.sourceUrl || undefined,
+        audienceResearch: !!productAudienceTarget,
+        audienceSourceUrl: productAudienceSegments[0]?.sourceUrl || undefined,
         audienceSources: productAudienceSegments.map(({ market, sourceUrl }) => ({ label: market, url: sourceUrl })),
         activityWindow: isCompetitorScan || scanMode === 'market_trends' ? activityWindow : undefined,
-        webBusinessesFound: audienceBusiness ? 1 : rawWebBusinesses.length,
+        webBusinessesFound: rawWebBusinesses.length,
         webSearchAvailable,
         customerInsights: {
           whatTheyBought: !isCompetitorScan && Array.isArray(parsed?.customerInsights?.whatTheyBought) ? parsed.customerInsights.whatTheyBought : [],

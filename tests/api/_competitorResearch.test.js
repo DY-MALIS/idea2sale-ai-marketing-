@@ -54,6 +54,82 @@ it('uses the saved business description to disambiguate a brand name', async () 
   ))).toBe(true);
 });
 
+it('uses only the current owner profile as identity evidence for its target', async () => {
+  queueDiscoveryTimes({ content: JSON.stringify({ isSpecificEntity: true, entitySummary: '', competitors: [] }) });
+  const logoDataUrl = 'data:image/png;base64,aGVsbG8=';
+  await researchCompetitors({
+    query: 'DJ Academy',
+    targetDescription: 'AI skills training in Phnom Penh',
+    targetFacebookPageUrl: 'https://www.facebook.com/djacademy',
+    targetLogoDataUrl: logoDataUrl,
+  });
+  for (const [request] of mocks.webSearch.mock.calls.slice(0, 3)) {
+    expect(request.imageDataUrl).toBe(logoDataUrl);
+    expect(request.prompt).toContain('AI skills training in Phnom Penh');
+    expect(request.prompt).toContain('https://www.facebook.com/djacademy');
+    expect(request.prompt).toContain('Record no link based on a shared word, logo alone');
+  }
+});
+
+it('does not return the target or its alternate Page name as a competitor', async () => {
+  mocks.webSearch.mockResolvedValue({ content: JSON.stringify({
+    isSpecificEntity: true,
+    competitors: [
+      { name: 'DJ Academy', isDirectCompetitor: true, matchConfidence: 'high', matchReason: 'Same AI courses', sourceUrl: 'https://www.facebook.com/djacademy' },
+      { name: 'AI Academy Cambodia', isDirectCompetitor: true, matchConfidence: 'high', matchReason: 'Same AI courses', facebookUrl: 'https://www.facebook.com/djacademy', sourceUrl: 'https://www.facebook.com/djacademy' },
+      { name: 'Independent AI School', isDirectCompetitor: true, matchConfidence: 'high', matchReason: 'Same AI courses and customers', sourceUrl: 'https://www.facebook.com/independent-ai-school' },
+    ],
+  }) });
+
+  const result = await researchCompetitors({
+    query: 'DJ Academy', targetDescription: 'AI skills training',
+    targetFacebookPageUrl: 'https://www.facebook.com/djacademy',
+  });
+
+  expect(result.competitors.map(({ name }) => name)).toEqual(['Independent AI School']);
+});
+
+it('retries discovery without the logo if the configured model rejects images', async () => {
+  mocks.webSearch.mockImplementation(({ imageDataUrl }) => imageDataUrl
+    ? Promise.reject(new Error('image input unsupported'))
+    : Promise.resolve({ content: JSON.stringify({ isSpecificEntity: true, competitors: [] }) }));
+
+  const result = await researchCompetitors({
+    query: 'Kafe', targetDescription: 'Coffee shop', targetLogoDataUrl: 'data:image/jpeg;base64,aGVsbG8=',
+  });
+
+  expect(result.competitors).toEqual([]);
+  expect(mocks.webSearch).toHaveBeenCalledTimes(6);
+  expect(mocks.webSearch.mock.calls.filter(([request]) => !request.imageDataUrl)).toHaveLength(3);
+});
+
+it('does not attach a different Facebook Page post to a known competitor', async () => {
+  queueDiscoveryTimes({ content: JSON.stringify({
+    isSpecificEntity: true,
+    competitors: [{
+      name: 'Kafe Dating',
+      isDirectCompetitor: true,
+      matchConfidence: 'high',
+      matchReason: 'Same coffee products and Phnom Penh customers',
+      facebookUrl: 'https://www.facebook.com/kafe.kh',
+      sourceUrl: 'https://kafe.example.com',
+    }],
+  }) });
+  mocks.webSearch.mockResolvedValue({ content: JSON.stringify({ activities: [
+    { competitorName: 'Kafe Dating', date: '2026-09-30', activity: 'A coffee offer.', sourceUrl: 'https://www.facebook.com/another-cafe/posts/123' },
+    { competitorName: 'Kafe Dating', date: '2026-09-30', activity: 'A real coffee offer.', sourceUrl: 'https://www.facebook.com/kafe.kh/posts/456' },
+  ] }) });
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+
+  const result = await researchCompetitors({
+    query: 'DJ Academy', activityStartDate: '2026-09-26', activityEndDate: '2026-10-02',
+  });
+
+  expect(result.competitors[0].recentActivities.map(({ sourceUrl }) => sourceUrl)).toEqual([
+    'https://www.facebook.com/kafe.kh/posts/456',
+  ]);
+});
+
 it('returns only competitors whose source URL is real and reachable', async () => {
   mocks.webSearch.mockResolvedValue({
     content: JSON.stringify({
@@ -104,7 +180,7 @@ it('splits discovery into focused search passes and dedupes entries found across
   mocks.webSearch
     .mockResolvedValueOnce({ content: JSON.stringify({
       competitors: [
-        { name: 'Academy A', isDirectCompetitor: true, matchConfidence: 'high', matchReason: 'Same courses and city', positioning: '', sourceUrl: 'https://directory.example.com/academy-a' },
+        { name: 'Academy A', isDirectCompetitor: true, matchConfidence: 'high', matchReason: 'Same courses and city', positioning: '', linkedinUrl: 'https://www.linkedin.com/company/academy-a/', sourceUrl: 'https://directory.example.com/academy-a' },
       ],
     }) })
     .mockResolvedValueOnce({ content: JSON.stringify({
@@ -123,7 +199,7 @@ it('splits discovery into focused search passes and dedupes entries found across
 
   expect(mocks.webSearch).toHaveBeenCalledTimes(3);
   const prompts = mocks.webSearch.mock.calls.map(([request]) => request.prompt);
-  expect(prompts.some((prompt) => prompt.includes('WEBSITES:') && prompt.includes('FACEBOOK:') && prompt.includes('LINKEDIN:'))).toBe(true);
+  expect(prompts.some((prompt) => prompt.includes('PUBLIC PAGES:') && prompt.includes('site:facebook.com') && prompt.includes('site:linkedin.com'))).toBe(true);
   expect(result.competitors).toHaveLength(2);
   expect(result.competitors.find((c) => c.name === 'Academy A')).toMatchObject({
     matchReason: 'Same courses and city',
@@ -131,6 +207,32 @@ it('splits discovery into focused search passes and dedupes entries found across
     linkedinUrl: 'https://www.linkedin.com/company/academy-a/',
   });
   expect(result.competitors.find((c) => c.name === 'Academy B')).toBeTruthy();
+});
+
+it('keeps same-name competitors with a shared directory URL and their posts separate', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+  mocks.webSearch.mockResolvedValue({ content: JSON.stringify({
+    competitors: [
+      { name: 'Kafe', isDirectCompetitor: true, matchConfidence: 'high', matchReason: 'Same coffee offer and local market', marketPresence: 'weaker', facebookUrl: 'https://www.facebook.com/kafe-one', sourceUrl: 'https://directory.example.com/cafes' },
+      { name: 'Kafe', isDirectCompetitor: true, matchConfidence: 'high', matchReason: 'Same coffee offer and local market', marketPresence: 'weaker', facebookUrl: 'https://www.facebook.com/kafe-two', sourceUrl: 'https://directory.example.com/cafes' },
+    ],
+    activities: [
+      { competitorName: 'Kafe', date: '2026-10-01', activity: 'First Page offer', sourceUrl: 'https://www.facebook.com/kafe-one/posts/11' },
+      { competitorName: 'Kafe', date: '2026-10-01', activity: 'Second Page offer', sourceUrl: 'https://www.facebook.com/kafe-two/posts/22' },
+    ],
+  }) });
+
+  const result = await researchCompetitors({
+    query: 'coffee shops', activityStartDate: '2026-09-26', activityEndDate: '2026-10-02',
+  });
+
+  expect(result.competitors).toHaveLength(2);
+  expect(result.competitors.map((candidate) => candidate.facebookUrl)).toEqual([
+    'https://www.facebook.com/kafe-one', 'https://www.facebook.com/kafe-two',
+  ]);
+  expect(result.competitors.map((candidate) => candidate.recentActivities.map((post) => post.activity))).toEqual([
+    ['First Page offer'], ['Second Page offer'],
+  ]);
 });
 
 it('keeps more than twelve verified competitors when broad discovery finds them', async () => {
@@ -231,7 +333,7 @@ it('drops a competitor entry missing a source URL instead of keeping it unverifi
 
 it('keeps only reachable, explicitly dated activity inside the requested 7-day window', async () => {
   queueDiscoveryTimes({ content: JSON.stringify({
-    isSpecificEntity: true,
+    isSpecificEntity: false,
     entitySummary: '',
     competitors: [{
       name: 'Competitor A',
@@ -258,7 +360,7 @@ it('keeps only reachable, explicitly dated activity inside the requested 7-day w
   })));
 
   const result = await researchCompetitors({
-    query: 'Competitor A',
+    query: 'training schools',
     activityStartDate: '2026-09-08',
     activityEndDate: '2026-09-14',
   });
@@ -287,7 +389,7 @@ it('looks up Facebook/TikTok/LinkedIn activity by exact name only once competito
     activities: [
       { competitorName: 'Social Academy', date: '2026-09-18', activity: 'Posted a course promotion', sourceUrl: 'https://www.facebook.com/socialacademy/posts/123' },
       { competitorName: 'Social Academy', date: '2026-09-17', activity: 'Published a short training video', sourceUrl: 'https://www.tiktok.com/@socialacademy/video/456' },
-      { competitorName: 'Social Academy', date: '2026-09-16', activity: 'Announced a workshop', sourceUrl: 'https://www.linkedin.com/posts/socialacademy_workshop-activity-789' },
+      { competitorName: 'Social Academy', date: '2026-09-16', activity: 'Announced a workshop', publisherPageUrl: 'https://www.linkedin.com/company/socialacademy/', sourceUrl: 'https://www.linkedin.com/posts/socialacademy_workshop-activity-789' },
     ],
   }) });
   vi.stubGlobal('fetch', vi.fn(async (url) => ({
@@ -462,14 +564,14 @@ it('keeps the verified competitor list even if the activity search fails every a
 it('searches Facebook even when LinkedIn activity was already found', async () => {
   queueDiscoveryTimes({ content: JSON.stringify({
     competitors: [
-      { name: 'Rival Cafe', isDirectCompetitor: true, matchConfidence: 'high', matchReason: 'Serves the same cafe customers in Phnom Penh', positioning: '', sourceUrl: 'https://rival-cafe.example.com' },
+      { name: 'Rival Cafe', isDirectCompetitor: true, matchConfidence: 'high', matchReason: 'Serves the same cafe customers in Phnom Penh', positioning: '', linkedinUrl: 'https://www.linkedin.com/company/rival-cafe/', sourceUrl: 'https://rival-cafe.example.com' },
       { name: 'Bean Society', isDirectCompetitor: true, matchConfidence: 'high', matchReason: 'Serves the same cafe customers in Phnom Penh', positioning: '', sourceUrl: 'https://bean-society.example.com' },
     ],
   }) });
   mocks.webSearch
     .mockResolvedValueOnce({ content: JSON.stringify({
       activities: [
-        { competitorName: 'Rival Cafe', date: '2026-09-16', activity: 'Posted a weekend offer', sourceUrl: 'https://www.linkedin.com/posts/rival-cafe_offer-123' },
+        { competitorName: 'Rival Cafe', date: '2026-09-16', activity: 'Posted a weekend offer', publisherPageUrl: 'https://www.linkedin.com/company/rival-cafe/', sourceUrl: 'https://www.linkedin.com/posts/rival-cafe_offer-123' },
       ],
     }) })
     .mockResolvedValueOnce({ content: JSON.stringify({
@@ -525,7 +627,7 @@ it('keeps newly discovered social profiles and directly enriches them', async ()
   }) });
   mocks.webSearch
     .mockResolvedValueOnce({ content: JSON.stringify({ activities: [
-      { competitorName: 'Rival Cafe', date: '2026-09-16', activity: 'Announced a class.', sourceUrl: 'https://www.linkedin.com/posts/rival-cafe_class-123' },
+      { competitorName: 'Rival Cafe', date: '2026-09-16', activity: 'Announced a class.', publisherPageUrl: 'https://www.linkedin.com/company/rival-cafe/', sourceUrl: 'https://www.linkedin.com/posts/rival-cafe_class-123' },
     ] }) })
     .mockResolvedValueOnce({ content: JSON.stringify({
       profiles: [{ competitorName: 'Rival Cafe', profileUrl: 'https://www.facebook.com/rivalcafe' }],
@@ -834,6 +936,28 @@ it('never derives a Facebook Page link from a reel-only URL (no Page slug in the
   });
 
   expect(result.competitors[0].facebookUrl).toBe('');
+  expect(result.competitors[0].recentActivities).toEqual([]);
+});
+
+it('keeps an opaque reel only when its publisher matches the known Page', async () => {
+  queueDiscoveryTimes({ content: JSON.stringify({
+    competitors: [{
+      name: 'Rival Cafe', isDirectCompetitor: true, matchConfidence: 'high',
+      matchReason: 'Sells coffee to the same local customers',
+      facebookUrl: 'https://www.facebook.com/rivalcafe',
+      sourceUrl: 'https://www.facebook.com/rivalcafe',
+    }],
+  }) });
+  mocks.webSearch.mockResolvedValue({ content: JSON.stringify({ activities: [
+    { competitorName: 'Rival Cafe', date: '2026-09-19', activity: 'Own reel', sourceUrl: 'https://www.facebook.com/reel/111', publisherPageUrl: 'https://www.facebook.com/rivalcafe' },
+    { competitorName: 'Rival Cafe', date: '2026-09-19', activity: 'Other reel', sourceUrl: 'https://www.facebook.com/reel/222', publisherPageUrl: 'https://www.facebook.com/anothercafe' },
+  ] }) });
+
+  const result = await researchCompetitors({
+    query: 'cafes Phnom Penh', activityStartDate: '2026-09-12', activityEndDate: '2026-09-23',
+  });
+
+  expect(result.competitors[0].recentActivities.map(({ activity }) => activity)).toEqual(['Own reel']);
 });
 
 it('batches the Facebook/TikTok profile lookup instead of listing every missing-platform competitor in one call', async () => {
@@ -888,17 +1012,32 @@ it('batches the Facebook/TikTok profile lookup instead of listing every missing-
   expect(result.competitors.find((c) => c.name === 'Academy 8').facebookUrl).toBe('https://www.facebook.com/academy8');
 });
 
-it('excludes weaker-presence competitors from the results while keeping stronger and similar ones', async () => {
+it('keeps verified smaller competitors and public-Page-only shops regardless of market presence', async () => {
   mocks.webSearch.mockResolvedValue({ content: JSON.stringify({
     competitors: [
       { name: 'Big Rival', isDirectCompetitor: true, matchConfidence: 'high', matchReason: 'Same category, customers, and market', marketPresence: 'stronger', positioning: '', sourceUrl: 'https://big-rival.example.com' },
       { name: 'Peer Rival', isDirectCompetitor: true, matchConfidence: 'high', matchReason: 'Same category, customers, and market', marketPresence: 'similar', positioning: '', sourceUrl: 'https://peer-rival.example.com' },
-      { name: 'Small Rival', isDirectCompetitor: true, matchConfidence: 'high', matchReason: 'Same category, customers, and market', marketPresence: 'weaker', positioning: '', sourceUrl: 'https://small-rival.example.com' },
+      { name: 'Small Rival', isDirectCompetitor: true, matchConfidence: 'high', matchReason: 'Same category, customers, and market', marketPresence: 'weaker', positioning: '', facebookUrl: 'https://www.facebook.com/small-rival-kh', sourceUrl: 'https://www.facebook.com/small-rival-kh' },
     ],
   }) });
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
 
   const result = await researchCompetitors({ query: 'cafes Phnom Penh' });
 
-  expect(result.competitors.map((c) => c.name)).toEqual(['Big Rival', 'Peer Rival']);
+  expect(result.competitors.map((c) => c.name)).toEqual(['Big Rival', 'Peer Rival', 'Small Rival']);
+  expect(result.competitors[2].facebookUrl).toBe('https://www.facebook.com/small-rival-kh');
+  expect(mocks.webSearch.mock.calls[1][0].prompt).toContain('Formal company registration');
+});
+
+it('rejects an opaque reel as the sole competitor source and clears a mismatched Page link', async () => {
+  mocks.webSearch.mockResolvedValue({ content: JSON.stringify({ competitors: [
+    { name: 'Unknown Cafe', isDirectCompetitor: true, matchConfidence: 'high', matchReason: 'Same coffee customers', sourceUrl: 'https://www.facebook.com/reel/123' },
+    { name: 'Real Cafe', isDirectCompetitor: true, matchConfidence: 'high', matchReason: 'Same coffee customers', facebookUrl: 'https://www.facebook.com/another-cafe', sourceUrl: 'https://www.facebook.com/real-cafe' },
+  ] }) });
+
+  const result = await researchCompetitors({ query: 'cafes Phnom Penh' });
+
+  expect(result.competitors).toEqual([expect.objectContaining({
+    name: 'Real Cafe', sourceUrl: 'https://www.facebook.com/real-cafe', facebookUrl: '',
+  })]);
 });

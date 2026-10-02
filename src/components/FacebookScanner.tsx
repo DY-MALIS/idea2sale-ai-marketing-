@@ -387,7 +387,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     audienceScope: 'បង្ហាញតែក្រុមអតិថិជនទូទៅពីព័ត៌មានសាធារណៈ។ មិនអាចមើលឈ្មោះអតិថិជនឯកជនបានទេ។',
     audienceNotFound: 'មិនអាចផ្ទៀងផ្ទាត់ Page អាជីវកម្មនេះពីប្រភពសាធារណៈបានទេ។ សូមពិនិត្យអក្ខរាវិរុទ្ធ ឬបញ្ចូលតំណ Facebook Page ផ្លូវការ។',
     researchTarget: 'គោលដៅស្រាវជ្រាវ',
-    needSignals: 'សញ្ញាថាត្រូវការ Content/Video',
+    needSignals: 'សញ្ញាតម្រូវការដែលអាចផ្ទៀងផ្ទាត់បាន',
     recommendedService: 'សេវាកម្មដែលគួរផ្តល់ជូន',
     publicContact: 'ព័ត៌មានទំនាក់ទំនងសាធារណៈ',
     viewPage: 'បើក Facebook Page',
@@ -493,7 +493,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     content: 'Content they want to see',
     personas: 'Target customer groups',
     competitors: 'Competitor intelligence',
-    leads: 'Potential content-production clients',
+    leads: 'Potential business customers',
     leadSource: 'Discovered via web search (OpenRouter)',
     exportContacts: 'Export to Excel',
     chatViaBot: 'Chat via Bot',
@@ -508,7 +508,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     audienceScope: 'Shows aggregate customer groups from public information. Private customer names are not available.',
     audienceNotFound: 'The business Page could not be verified in public sources. Check the spelling or enter its official Facebook Page URL.',
     researchTarget: 'Research target',
-    needSignals: 'Signals they may need content/video',
+    needSignals: 'Public need signals',
     recommendedService: 'Recommended service',
     publicContact: 'Public contact',
     viewPage: 'Open Facebook Page',
@@ -589,6 +589,11 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
   const resultIsCompetitorScan = competitorModeIds.includes(result?.scanMode || scanMode);
   const resultIsActivityScan = (result?.scanMode || scanMode) === 'competitor_activity';
   const resultIsTrendScan = (result?.scanMode || scanMode) === 'market_trends';
+  // A scan with named leads belongs in the existing customer cards, even if
+  // an older saved result incorrectly marked it as aggregate audience research.
+  const resultHasCustomerLeads = !resultIsCompetitorScan && !!result?.potentialLeads?.length;
+  const resultIsAudienceOnly = !resultIsCompetitorScan && !!result?.audienceResearch && !resultHasCustomerLeads;
+  const resultHasLiveWebData = !!result?.webSearchAvailable || resultHasCustomerLeads;
   // The user's selected scan category is authoritative for the whole result.
   // An AI-generated per-row opportunityType can occasionally be mislabeled;
   // using it here hid customer-only actions such as Chat via Bot from a real
@@ -900,20 +905,48 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
 
       {result && (
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="space-y-8">
+          {result.businessPresence?.businessName && (
+            <section className="glass rounded-3xl p-5">
+              <h3 className="flex items-center gap-2 text-lg font-black text-slate-800 dark:text-white">
+                <Building2 size={20} className="text-blue-600" />
+                {isKm ? 'Page និង website របស់ក្រុមហ៊ុនក្នុង Business Profile' : 'Business Profile pages and website'}
+              </h3>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{result.businessPresence.businessName}</p>
+              {result.businessPresence.matches.length ? (
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  {result.businessPresence.matches.map((page) => (
+                    <article key={page.url} className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-900 dark:bg-emerald-950/20">
+                      <div className="flex items-center gap-2 text-xs font-bold text-emerald-700 dark:text-emerald-300"><ShieldCheck size={15} />{page.platform} · {isKm ? 'មានភស្តុតាងផ្គូផ្គង' : 'Corroborated match'}</div>
+                      <a href={page.url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1 break-all font-bold text-blue-700 hover:underline dark:text-blue-300">{page.publicName || page.url}<ExternalLink size={14} className="shrink-0" /></a>
+                      <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">{page.evidence.join(' · ')}</p>
+                    </article>
+                  ))}
+                </div>
+              ) : <p className="mt-4 text-sm text-amber-700 dark:text-amber-300">{isKm ? 'មិនទាន់រកឃើញ Page ឬ website ដែលមានភស្តុតាងគ្រប់គ្រាន់ទេ។' : 'No page or website has enough evidence to confirm the match yet.'}</p>}
+              {!!result.businessPresence.candidates.length && (
+                <details open={!result.businessPresence.matches.length} className="mt-4 text-sm">
+                  <summary className="cursor-pointer font-semibold text-amber-700 dark:text-amber-300">{isKm ? 'តំណដែលត្រូវពិនិត្យបន្ថែម' : 'Links needing review'} ({result.businessPresence.candidates.length})</summary>
+                  <ul className="mt-2 space-y-2">
+                    {result.businessPresence.candidates.map((page) => <li key={page.url}><a href={page.url} target="_blank" rel="noopener noreferrer" className="font-medium text-blue-700 hover:underline dark:text-blue-300">{page.platform}: {page.publicName || page.url} <ExternalLink size={12} className="inline" /></a><span className="ml-2 text-xs text-slate-500">{page.evidence.join(' · ')}</span></li>)}
+                  </ul>
+                </details>
+              )}
+            </section>
+          )}
           <div className="flex flex-wrap items-center gap-3">
-            <span className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-bold ${result.webSearchAvailable ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300'}`}>
-              {result.webSearchAvailable ? <Check size={15} /> : <Sparkles size={15} />}
-              {result.webSearchAvailable ? (resultIsCompetitorScan ? text.socialSearchConnected : text.live) : result.audienceResearch ? text.noVerifiedPage : text.estimated}
+            <span className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-bold ${resultHasLiveWebData ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300'}`}>
+              {resultHasLiveWebData ? <Check size={15} /> : <Sparkles size={15} />}
+              {resultHasLiveWebData ? (resultIsCompetitorScan ? text.socialSearchConnected : text.live) : resultIsAudienceOnly ? text.noVerifiedPage : text.estimated}
             </span>
-            {!!result.webSearchAvailable && !result.audienceResearch && <span className="rounded-full bg-blue-50 px-4 py-2 text-xs font-bold text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">{resultIsCompetitorScan ? result.competitors.length : (result.potentialLeads?.length || 0)} {resultIsCompetitorScan ? text.competitors : text.webBusinesses}</span>}
-            {(resultIsCompetitorScan || result.audienceResearch) && result.researchTarget && (
+            {resultHasLiveWebData && !resultIsAudienceOnly && <span className="rounded-full bg-blue-50 px-4 py-2 text-xs font-bold text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">{resultIsCompetitorScan ? result.competitors.length : (result.potentialLeads?.length || 0)} {resultIsCompetitorScan ? text.competitors : text.webBusinesses}</span>}
+            {(resultIsCompetitorScan || resultIsAudienceOnly) && result.researchTarget && (
               <span className="rounded-full bg-indigo-50 px-4 py-2 text-xs font-bold text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300">
                 {text.researchTarget}: {result.researchTarget}
               </span>
             )}
           </div>
 
-          {result.audienceResearch && (
+          {resultIsAudienceOnly && (
             <div className="rounded-2xl border border-indigo-200 bg-indigo-50/80 p-4 text-sm text-indigo-900 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-100">
               <p>{result.audienceSourceUrl ? text.audienceScope : text.audienceNotFound}</p>
               {result.audienceSources?.length ? (
@@ -924,7 +957,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
             </div>
           )}
 
-          {!resultIsCompetitorScan && (!result.audienceResearch || result.audienceSourceUrl) && <div className="grid gap-5 xl:grid-cols-3">
+          {!resultIsCompetitorScan && (!resultIsAudienceOnly || result.audienceSourceUrl) && <div className="grid gap-5 xl:grid-cols-3">
             {insightCards.map(({ title, icon: Icon, items, iconClass }) => (
               <article key={title} className="glass rounded-[2rem] p-6">
                 <div className="mb-5 flex items-center gap-3">
@@ -1256,7 +1289,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
             )}
           </section>}
 
-          {!resultIsCompetitorScan && !result.audienceResearch && <section>
+          {!resultIsCompetitorScan && !resultIsAudienceOnly && <section>
             <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h3 className="flex items-center gap-2 text-xl font-black text-slate-800 dark:text-white"><BriefcaseBusiness className="text-emerald-500" />{text.leads}</h3>

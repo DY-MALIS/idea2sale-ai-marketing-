@@ -136,6 +136,11 @@ export interface FacebookVideoPlanItem {
 export interface FacebookScanResult {
   success: boolean;
   query: string;
+  businessPresence?: {
+    businessName: string;
+    matches: { platform: 'Website' | 'Facebook' | 'LinkedIn'; url: string; publicName: string; evidence: string[]; sourceUrl?: string }[];
+    candidates: { platform: 'Website' | 'Facebook' | 'LinkedIn'; url: string; publicName: string; evidence: string[]; sourceUrl?: string }[];
+  } | null;
   webBusinessesFound?: number;
   webSearchAvailable?: boolean;
   scanMode?: FacebookPotentialLead['opportunityType'];

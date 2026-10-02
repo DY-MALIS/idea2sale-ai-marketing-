@@ -43,6 +43,7 @@ const AdsManager: React.FC = () => {
   const [imageAnalysis, setImageAnalysis] = useState<string | null>(null);
   const [imageAnalysisError, setImageAnalysisError] = useState<string | null>(null);
   const [scanLanguage, setScanLanguage] = useState<'km' | 'en'>(language);
+  const scanLanguageRef = useRef<'km' | 'en'>(language);
   // Guards against a stale analysis response (from an earlier image/video, or an
   // earlier scan-language selection) landing after a newer one and overwriting
   // imageAnalysis/targetQuery with data tied to the wrong upload.
@@ -166,6 +167,15 @@ const AdsManager: React.FC = () => {
     }
   };
 
+  useEffect(() => {
+    if (scanLanguageRef.current === language) return;
+    scanLanguageRef.current = language;
+    setScanLanguage(language);
+    if (productImageBase64 && productImageMimeType) {
+      void handleAnalyzeImage(productImageBase64, productImageMimeType, productMediaSource || 'image', language);
+    }
+  }, [language]);
+
   const handleProductImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -180,7 +190,7 @@ const AdsManager: React.FC = () => {
           setProductImageBase64(base64);
           setProductImageMimeType(mimeType);
           setProductMediaSource('video');
-          handleAnalyzeImage(base64, mimeType, 'video', scanLanguage);
+          handleAnalyzeImage(base64, mimeType, 'video', scanLanguageRef.current);
         })
         .catch((error: any) => {
           setIsAnalyzingImage(false);
@@ -195,12 +205,14 @@ const AdsManager: React.FC = () => {
       setProductImageBase64(base64);
       setProductImageMimeType(file.type);
       setProductMediaSource('image');
-      handleAnalyzeImage(base64, file.type, 'image', scanLanguage);
+      handleAnalyzeImage(base64, file.type, 'image', scanLanguageRef.current);
     };
     reader.readAsDataURL(file);
   };
 
   const handleRemoveProductImage = () => {
+    analysisRequestIdRef.current += 1;
+    setIsAnalyzingImage(false);
     setProductImageBase64(null);
     setProductImageMimeType(null);
     setProductMediaSource(null);
@@ -323,8 +335,8 @@ const AdsManager: React.FC = () => {
                       <button
                         key={lang}
                         type="button"
-                        disabled={isAnalyzingImage}
                         onClick={() => {
+                          scanLanguageRef.current = lang;
                           setScanLanguage(lang);
                           if (productImageBase64 && productImageMimeType) {
                             handleAnalyzeImage(productImageBase64, productImageMimeType, productMediaSource || 'image', lang);

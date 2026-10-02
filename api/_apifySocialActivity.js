@@ -34,11 +34,6 @@ const dateOnly = (isoValue, unixValue) => {
   return Number.isNaN(date.getTime()) ? '' : date.toISOString().slice(0, 10);
 };
 
-const comparableName = (value) => String(value || '')
-  .trim()
-  .toLocaleLowerCase()
-  .replace(/[^\p{L}\p{N}]+/gu, '');
-
 const socialUrlKey = (value, platform) => {
   try {
     const url = new URL(String(value || '').trim());
@@ -93,10 +88,14 @@ const runActor = async (actorId, input) => {
   }
 };
 
-const facebookPageName = (item) => {
-  const pageName = item?.user?.pageName;
-  if (typeof pageName === 'string') return pageName;
-  return pageName?.name || item?.pageName || item?.user?.name || '';
+const facebookPostPageKey = (value) => {
+  try {
+    const url = new URL(value);
+    const slug = url.pathname.match(/^\/([^/]+)\/(?:posts|videos)\//i)?.[1];
+    return slug ? socialUrlKey(`https://facebook.com/${slug}`, 'Facebook') : '';
+  } catch {
+    return '';
+  }
 };
 
 const facebookActivities = async (candidates, startDate, endDate) => {
@@ -104,7 +103,6 @@ const facebookActivities = async (candidates, startDate, endDate) => {
   if (!pages.length) return [];
 
   const byUrl = new Map(pages.map((candidate) => [socialUrlKey(candidate.facebookUrl, 'Facebook'), candidate]));
-  const byName = new Map(pages.map((candidate) => [comparableName(candidate.name), candidate]));
   const items = await runActor(actorApiId(process.env.APIFY_FACEBOOK_POSTS_ACTOR, DEFAULT_FACEBOOK_ACTOR), {
     startUrls: pages.map((candidate) => ({ url: candidate.facebookUrl })),
     resultsLimit: RESULTS_PER_PROFILE,
@@ -114,10 +112,14 @@ const facebookActivities = async (candidates, startDate, endDate) => {
   });
 
   return items.map((item) => {
-    const candidate = byUrl.get(socialUrlKey(item?.facebookUrl, 'Facebook'))
-      || byName.get(comparableName(facebookPageName(item)));
     const date = dateOnly(item?.time || item?.timeCreated, item?.timestamp || item?.timestampCreated);
     const sourceUrl = truncate(item?.url, 300);
+    const providedPageKey = socialUrlKey(item?.facebookUrl, 'Facebook');
+    const postPageKey = facebookPostPageKey(sourceUrl);
+    // Page display names can collide. Accept only a Page URL supplied by the
+    // actor or encoded in the direct post URL, and reject conflicting URLs.
+    if (providedPageKey && postPageKey && providedPageKey !== postPageKey) return null;
+    const candidate = byUrl.get(providedPageKey || postPageKey);
     if (!candidate || !date || date < startDate || date > endDate || !socialUrlKey(sourceUrl, 'Facebook')) return null;
     const text = truncate(item?.text || item?.previewTitle || item?.previewDescription, 1200);
     const isVideo = item?.isVideo === true || Number(item?.viewsCount || item?.videoPostViewCount) > 0;
@@ -136,6 +138,7 @@ const facebookActivities = async (candidates, startDate, endDate) => {
         ['Views', item?.viewsCount ?? item?.videoPostViewCount],
       ]),
       sourceUrl,
+      publisherPageUrl: candidate.facebookUrl,
     };
   }).filter(Boolean);
 };

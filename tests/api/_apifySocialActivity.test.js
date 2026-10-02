@@ -112,6 +112,32 @@ it('batches exact public profiles and normalizes direct Facebook and TikTok evid
   ]);
 });
 
+it('attributes same-name Page posts by Page URL and drops name-only or conflicting evidence', async () => {
+  process.env.APIFY_API_TOKEN = 'private-token';
+  vi.stubGlobal('fetch', vi.fn(async () => ({
+    ok: true,
+    json: async () => [
+      { facebookUrl: 'https://www.facebook.com/kafe-one', pageName: 'Kafe', url: 'https://www.facebook.com/kafe-one/posts/11', time: '2026-10-01T08:00:00Z', text: 'First offer' },
+      { pageName: 'Kafe', url: 'https://www.facebook.com/kafe-two/posts/22', time: '2026-10-01T08:00:00Z', text: 'Second offer' },
+      { pageName: 'Kafe', url: 'https://www.facebook.com/reel/33', time: '2026-10-01T08:00:00Z', text: 'Unknown owner' },
+      { facebookUrl: 'https://www.facebook.com/kafe-one', pageName: 'Kafe', url: 'https://www.facebook.com/kafe-two/posts/44', time: '2026-10-01T08:00:00Z', text: 'Conflicting owner' },
+    ],
+  })));
+
+  const activities = await fetchApifySocialActivity({
+    candidates: [
+      { name: 'Kafe', facebookUrl: 'https://www.facebook.com/kafe-one' },
+      { name: 'Kafe', facebookUrl: 'https://www.facebook.com/kafe-two' },
+    ],
+    startDate: '2026-09-26', endDate: '2026-10-02',
+  });
+
+  expect(activities.map(({ sourceUrl }) => sourceUrl)).toEqual([
+    'https://www.facebook.com/kafe-one/posts/11',
+    'https://www.facebook.com/kafe-two/posts/22',
+  ]);
+});
+
 it('fails open when either actor is unavailable or returns invalid data', async () => {
   process.env.APIFY_API_TOKEN = 'private-token';
   vi.stubGlobal('fetch', vi.fn(async (url) => {

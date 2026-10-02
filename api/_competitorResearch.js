@@ -7,7 +7,7 @@
 // come from an actual, independently-checked source URL.
 import { generateOpenRouterWebSearch } from './_openrouter.js';
 import { urlIsReachable } from './_webBusinessSearch.js';
-import { socialPlatformFromUrl, validFacebookUrl, validLinkedInUrl, isSupportedPublicSocialUrl } from './_socialUrls.js';
+import { facebookBusinessPageKey, socialPlatformFromUrl, validFacebookUrl, validLinkedInUrl, isSupportedPublicSocialUrl } from './_socialUrls.js';
 import { fetchMetaAdLibraryActivity, isMetaAdLibraryConfigured } from './_metaAdLibrary.js';
 import { fetchApifySocialActivity, isApifySocialActivityConfigured } from './_apifySocialActivity.js';
 
@@ -76,6 +76,65 @@ const jsonFromText = (text) => {
 };
 
 const competitorKey = (value) => String(value || '').trim().toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+const normalizedIdentityUrl = (value) => String(value || '').trim().replace(/\/$/, '').toLowerCase();
+const sharesPublicIdentity = (left, right) => {
+  if (['facebookUrl', 'linkedinUrl'].some((field) => (
+    normalizedIdentityUrl(left[field]) && normalizedIdentityUrl(right[field])
+    && normalizedIdentityUrl(left[field]) !== normalizedIdentityUrl(right[field])
+  ))) return false;
+  return ['sourceUrl', 'facebookUrl', 'linkedinUrl'].some((field) => (
+    normalizedIdentityUrl(left[field]) && normalizedIdentityUrl(left[field]) === normalizedIdentityUrl(right[field])
+  ));
+};
+
+// A model can put another company's post under a familiar competitor name.
+// When an official Page is known, require a matching Page slug in the post URL
+// or an explicit matching publisher URL for opaque reel/feed URLs.
+const socialEntityPath = (value, platform) => {
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase().replace(/^www\.|^m\./g, '');
+    const parts = url.pathname.split('/').filter(Boolean);
+    if (platform === 'Facebook' && ['facebook.com', 'fb.com'].includes(host)) {
+      if (!parts[0] || ['reel', 'watch', 'groups', 'events', 'photo.php', 'permalink.php', 'story.php'].includes(parts[0].toLowerCase())) return '';
+      if (parts[0].toLowerCase() === 'pages') return parts[2] ? `pages/${parts[2].toLowerCase()}` : '';
+      return parts[0].toLowerCase();
+    }
+    if (platform === 'LinkedIn' && (host === 'linkedin.com' || host.endsWith('.linkedin.com'))
+      && ['company', 'school', 'showcase'].includes(parts[0]?.toLowerCase())) {
+      return `${parts[0].toLowerCase()}/${(parts[1] || '').toLowerCase()}`;
+    }
+  } catch {
+    return '';
+  }
+  return '';
+};
+
+const activityBelongsToCandidate = (candidate, sourceUrl, publisherPageUrl = '') => {
+  const platform = socialPlatformFromUrl(sourceUrl);
+  if (platform !== 'Facebook' && platform !== 'LinkedIn') return true;
+  const officialUrl = platform === 'Facebook' ? candidate.facebookUrl : candidate.linkedinUrl;
+  const officialPath = socialEntityPath(officialUrl, platform);
+  const sourcePath = socialEntityPath(sourceUrl, platform);
+  if (sourcePath && officialPath) return sourcePath === officialPath;
+  if (sourcePath) return true;
+  const publisherPath = socialEntityPath(publisherPageUrl, platform);
+  return !!(officialPath && publisherPath && officialPath === publisherPath);
+};
+
+const sourceIdentifiesCandidate = (candidate, sourceUrl) => {
+  const normalizedSource = normalizedIdentityUrl(sourceUrl);
+  if (!normalizedSource) return false;
+  if ([candidate.sourceUrl, candidate.facebookUrl, candidate.linkedinUrl]
+    .some((url) => normalizedIdentityUrl(url) && (
+      normalizedSource === normalizedIdentityUrl(url)
+      || normalizedSource.startsWith(`${normalizedIdentityUrl(url)}/`)
+    ))) return true;
+  const platform = socialPlatformFromUrl(sourceUrl);
+  const official = platform === 'Facebook' ? candidate.facebookUrl : platform === 'LinkedIn' ? candidate.linkedinUrl : '';
+  const sourcePath = socialEntityPath(sourceUrl, platform);
+  return !!(official && sourcePath && sourcePath === socialEntityPath(official, platform));
+};
 
 // A brand can contain a word from an unrelated industry. In particular,
 // "Dating Cafe & Mart" has been misread as a matchmaking service and returned
@@ -122,6 +181,7 @@ const normalizeRecentActivities = (value, activityStartDate, activityEndDate) =>
         date: String(activity?.date || '').trim(),
         activity: String(activity?.activity || '').trim().slice(0, 400),
         sourceUrl: String(activity?.sourceUrl || '').trim().slice(0, 300),
+        ...(activity?.publisherPageUrl ? { publisherPageUrl: String(activity.publisherPageUrl).trim().slice(0, 300) } : {}),
         platform: socialPlatformFromUrl(activity?.sourceUrl),
         ...(ACTIVITY_CONTENT_TYPES.has(contentType) ? { contentType } : {}),
         ...(title ? { title } : {}),
@@ -153,6 +213,9 @@ const normalizeRecentActivities = (value, activityStartDate, activityEndDate) =>
       date: existing.date,
       activity: longerText(existing.activity, activity.activity),
       sourceUrl: existing.sourceUrl,
+      ...(existing.publisherPageUrl || activity.publisherPageUrl
+        ? { publisherPageUrl: existing.publisherPageUrl || activity.publisherPageUrl }
+        : {}),
       platform: existing.platform,
       ...(contentType ? { contentType } : {}),
       ...(title ? { title } : {}),
@@ -169,12 +232,12 @@ const normalizeRecentActivities = (value, activityStartDate, activityEndDate) =>
 // parsed response counts as real data (vs. an empty/malformed non-answer); a
 // call that throws on both attempts propagates as a failure to `onFailure`,
 // which lets discovery hard-fail while activity lookup degrades gracefully.
-const searchWithRetry = async (prompt, { maxResults, maxTokens, isUsable, onFailure }) => {
+const searchWithRetry = async (prompt, { maxResults, maxTokens, isUsable, onFailure, imageDataUrl = '' }) => {
   let parsed = null;
   let lastError = null;
   for (let attempt = 0; attempt < MAX_SEARCH_ATTEMPTS; attempt += 1) {
     try {
-      const response = await generateOpenRouterWebSearch({ prompt, maxResults, maxTokens });
+      const response = await generateOpenRouterWebSearch({ prompt, maxResults, maxTokens, ...(imageDataUrl && attempt === 0 ? { imageDataUrl } : {}) });
       parsed = jsonFromText(response.content);
       if (isUsable(parsed)) return parsed;
     } catch (error) {
@@ -186,8 +249,10 @@ const searchWithRetry = async (prompt, { maxResults, maxTokens, isUsable, onFail
   return parsed;
 };
 
-export async function researchCompetitors({ query, targetDescription = '', country = 'Cambodia', countryCode = 'KH', activityStartDate = '', activityEndDate = '', targetCount = 50 }) {
+export async function researchCompetitors({ query, targetDescription = '', targetFacebookPageUrl = '', targetLogoDataUrl = '', country = 'Cambodia', countryCode = 'KH', activityStartDate = '', activityEndDate = '', targetCount = 50 }) {
   const requestedTargetCount = Math.min(50, Math.max(1, Math.round(Number(targetCount) || 50)));
+  const profileLogo = String(targetLogoDataUrl || '');
+  const validProfileLogo = profileLogo.length <= 500_000 && /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/i.test(profileLogo);
   const hasActivityWindow = /^\d{4}-\d{2}-\d{2}$/.test(activityStartDate)
     && /^\d{4}-\d{2}-\d{2}$/.test(activityEndDate)
 
@@ -202,26 +267,28 @@ export async function researchCompetitors({ query, targetDescription = '', count
   // not ask for activity yet (see the note on searchWithRetry below for why
   // that has to wait).
   const discoveryFocuses = [
-    'Official company websites, Google/Apple map results, and local business directories: search the exact category plus the target city, province, and country.',
-    'WEBSITES: prioritize official company websites, contact pages, news, and public business directories. FACEBOOK: site:facebook.com for real public business Pages. LINKEDIN: site:linkedin.com/company, site:linkedin.com/school, and public organization pages. Never search TikTok or personal profiles.',
+    'Google/Apple map results, local business directories, and public marketplace listings: search the exact category plus the target city, province, and country. Include independent shops and service providers without a registered company website.',
+    'PUBLIC PAGES: search site:facebook.com for real public business Pages and site:linkedin.com/company or /school for organization pages. A small business may use a public Page as its only online presence. Also check websites and contact pages when they exist. Never search TikTok or personal profiles.',
     'Customer review platforms, industry associations, credible local news, comparison lists, event exhibitor lists, marketplaces, and professional directories, to find direct competitors the other source groups miss.',
   ];
-  const buildDiscoveryPrompt = (focus) => `Search the live web about "${query}" in ${country}.
-${targetDescription ? `The owner supplied this Business Profile description of the target: "${String(targetDescription).slice(0, 1000)}". Use it to identify the target's industry, but independently verify every competitor and its source URL.` : ''}
+const buildDiscoveryPrompt = (focus) => `Search the live web about "${query}" in ${country}.
+${targetDescription ? `The owner supplied this Business Profile description of the target: "${String(targetDescription).slice(0, 1000)}". Treat it as the target's own description of its offering. Independently verify every competitor and its source URL.` : ''}
+${validFacebookUrl(targetFacebookPageUrl) ? `The Business Profile lists this public Facebook Page as its own: ${targetFacebookPageUrl}. Check its visible description and links before associating any differently named website or social page with the target.` : ''}
+${validProfileLogo ? 'A reference image may be attached: it is the logo saved in this user\'s Business Profile. When visible public search evidence includes a Page or website logo, compare it visually if possible. A matching logo is a clue to investigate an alternate name, never proof by itself. Require corroborating description, contact details, or cross-links; reject a different company even if its name is similar.' : ''}
 
-Step 1 -- Identify the target: determine whether "${query}" is the name of one specific real business/brand/organization, or a general product niche/category (e.g. "skincare", "women's fashion shop"). Base this only on what real search results show -- never guess. For a named business, search the FULL exact name and establish what it actually sells before discovering competitors. Do not reinterpret a brand word as the business category: "Dating Cafe & Mart" is not a dating app unless a source explicitly says it sells matchmaking; a cafe or mart competes with other cafes or marts serving the same local customers.
+Step 1 -- Identify the target: determine whether "${query}" is the name of one specific real business/brand/organization, or a general product niche/category (e.g. "skincare", "women's fashion shop"). For a named business, use its FULL name and the saved Business Profile evidence above when supplied. A differently named Page or website can be the same business only when public descriptions, matching contact details, official cross-links, or a visually matching logo corroborated by another signal establish that connection. Record no link based on a shared word, logo alone, or visual similarity alone. Do not reinterpret a brand word as the business category: "Dating Cafe & Mart" is not a dating app unless a source explicitly says it sells matchmaking; a cafe or mart competes with other cafes or marts serving the same local customers.
 
 Step 2 -- Find real competitors. SEARCH PASS FOCUS: ${focus}
 
 A business only counts as a competitor if it meets ALL of these:
   (a) Same core industry/category -- it sells the same or a directly substitutable product/service as the target (from Step 1) or the stated niche.
   (b) Overlapping customers -- it targets a similar customer segment in the same geographic market (${country}, and the same city/region when the target is a local business).
-  (c) Currently active and real -- found via an actual, live search result (its own website, a business directory listing, a comparison article, a news mention, a real Facebook Page, or an official LinkedIn company/school page), not a defunct business or an unrelated mention of the same words.
+  (c) Real and currently operating -- found via an actual public search result (its own website when it has one, a business directory or map listing, a marketplace listing, a real public Facebook business Page, or a LinkedIn organization page), not a defunct business or an unrelated mention of the same words. Formal company registration, a legal certificate, a LinkedIn page, and an official website are NOT requirements. A verifiable small shop or service provider with only a public business Page is eligible.
 Every competitor you list MUST satisfy all three and come with a real source URL backing it. Explicitly exclude suppliers, distributors that do not sell a substitute, agencies serving the target, partners, customers, parent/sister companies, businesses that merely share a broad industry, and companies outside the real geographic/customer market. Include competitors at every size, not only ones as big as or bigger than the target -- a smaller or newer real competitor is still a valid entry, just labeled accordingly (see "marketPresence" below). Return up to ${requestedTargetCount} matches actually found; never target a quota and never pad the list. Search alternate spellings and local-language names so legitimate local businesses are not missed. Never invent a competitor name and never list one you cannot support with a real source URL.
-If the exact target's product/service cannot be established from search evidence, return no competitors. Never substitute a similarly named business or the category suggested by one word of the target's name. A business with a strong, easy-to-find web presence is never a shortcut for verification: if the target is a small or local business with thin search coverage, that means few or zero real competitors should be returned, not that a prominent, well-indexed, but unrelated business should fill the gap. Before including any competitor, state specifically how its own real product/service is interchangeable with the target's from a customer's perspective -- a shared broad label like "education", "services", "academy", or "marketing" is not itself a match.
+If the target's product/service cannot be established from either the saved owner description (when provided) or live search evidence, return no competitors. Never substitute a similarly named business or the category suggested by one word of the target's name. A business with a strong, easy-to-find web presence is never a shortcut for verification: if the target is a small or local business with thin search coverage, that means few or zero real competitors should be returned, not that a prominent, well-indexed, but unrelated business should fill the gap. Before including any competitor, state specifically how its own real product/service is interchangeable with the target's from a customer's perspective -- a shared broad label like "education", "services", "academy", or "marketing" is not itself a match.
 Every entry you return already met all three criteria above, so always set "isDirectCompetitor": true and "matchConfidence": "high" for it -- these are not separate judgment calls. If you are not fully confident a business satisfies all three, omit it entirely rather than listing it with a lower confidence; there is no "medium" or "low" tier, only include or exclude.
 
-For each verified competitor, provide a short factual "matchReason" stating the exact overlapping product/service, customer group, and location supported by the search evidence. Also classify "marketPresence" relative to the target -- "stronger" (clearly bigger public footprint: more followers/engagement, more locations, more active marketing), "similar" (comparable scale and visibility), or "weaker" (smaller or less visible, but still a real, active, verifiable competitor) -- based only on what the search evidence actually shows, never a guess. Rank the list strongest presence first, but never drop a "weaker" entry just for being weaker. Search its official website first, then its official Facebook Page and LinkedIn organization page. Never search TikTok. Only return URLs explicitly found in live results; never return a personal profile and never construct a URL from the company name. Only fill in "positioning" if the source actually supports it; otherwise leave it as an empty string rather than inferring.
+For each verified competitor, provide a short factual "matchReason" stating the exact overlapping product/service, customer group, and location supported by the search evidence. Also classify "marketPresence" relative to the target -- "stronger" (clearly bigger public footprint: more followers/engagement, more locations, more active marketing), "similar" (comparable scale and visibility), or "weaker" (smaller or less visible, but still a real, active, verifiable competitor) -- based only on what the search evidence actually shows, never a guess. Rank the list strongest presence first, but never drop a "weaker" entry just for being weaker. Search the public presence each business actually has: its business Page or map/directory listing may be the primary source when there is no website. Check a website or LinkedIn organization page when one exists. Never search TikTok. Only return URLs explicitly found in live results; never return a personal profile and never construct a URL from the company name. Only fill in "positioning" if the source actually supports it; otherwise leave it as an empty string rather than inferring.
 
 Return ONLY a single valid JSON object, no markdown:
 {
@@ -247,6 +314,7 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
   const discoverySettled = await Promise.allSettled(discoveryFocuses.map((focus) => searchWithRetry(buildDiscoveryPrompt(focus), {
     maxResults: DISCOVERY_MAX_RESULTS,
     maxTokens: DISCOVERY_MAX_TOKENS,
+    imageDataUrl: validProfileLogo ? profileLogo : '',
     isUsable: (parsed) => parsed?.isSpecificEntity !== undefined
       || (Array.isArray(parsed?.competitors) && parsed.competitors.length > 0),
     onFailure: (lastError) => { throw lastError || new Error('Competitor search failed.'); },
@@ -263,6 +331,8 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
   // for it, so just take the first one with real content instead of
   // reconciling three separate judgments of the same question.
   const discoveryParsed = discoveryResults.find((parsed) => parsed?.entitySummary) || discoveryResults[0];
+  const isNamedTarget = Boolean(targetDescription || targetFacebookPageUrl || validProfileLogo)
+    || discoveryResults.some((parsed) => parsed?.isSpecificEntity === true);
 
   const mergedCandidates = new Map();
   discoveryResults.flatMap((parsed) => (Array.isArray(parsed?.competitors) ? parsed.competitors : [])).forEach((item) => {
@@ -286,9 +356,16 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
     if (!isDirectCompetitor || matchConfidence !== 'high' || !candidate.matchReason) return;
     if (isClearlyDifferentIndustry(query, candidate)) return;
     if (!candidate.name || !/^https?:\/\//i.test(candidate.sourceUrl) || socialPlatformFromUrl(candidate.sourceUrl) === 'TikTok') return;
-    const key = competitorKey(candidate.name);
-    if (!key) return;
-    const existing = mergedCandidates.get(key);
+    if (isNamedTarget && competitorKey(candidate.name) === competitorKey(query)) return;
+    const targetPage = facebookBusinessPageKey(targetFacebookPageUrl);
+    if (targetPage && [candidate.sourceUrl, candidate.facebookUrl].some((url) => facebookBusinessPageKey(url) === targetPage)) return;
+    const nameKey = competitorKey(candidate.name);
+    if (!nameKey) return;
+    const matched = [...mergedCandidates.entries()].find(([, previous]) => (
+      competitorKey(previous.name) === nameKey && sharesPublicIdentity(previous, candidate)
+    ));
+    const key = matched?.[0] || `${nameKey}|${mergedCandidates.size}`;
+    const existing = matched?.[1];
     if (!existing) {
       mergedCandidates.set(key, candidate);
       return;
@@ -306,6 +383,12 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
   // Keep broad discovery useful while bounding outbound requests so a large or
   // malformed model response cannot exhaust a serverless invocation.
   const candidates = [...mergedCandidates.values()].slice(0, MAX_COMPETITOR_CANDIDATES);
+  const candidateForEvidence = (name, sourceUrl) => {
+    const matches = candidates.filter((candidate) => competitorKey(candidate.name) === competitorKey(name));
+    if (matches.length === 1) return matches[0];
+    const sourced = matches.filter((candidate) => sourceIdentifiesCandidate(candidate, sourceUrl));
+    return sourced.length === 1 ? sourced[0] : null;
+  };
 
   // STAGE 2 -- activity, only once the exact names are known. This has to be
   // its own call: a search plugin resolves its queries from the prompt before
@@ -324,7 +407,7 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
       }).join('\n');
       const searchScope = platformOnly === 'Facebook'
         ? 'Search ONLY Facebook for each business. First locate its exact official public business Page with a site:facebook.com query, then inspect that Page for dated posts, reels, videos, offers, events, or announcements. Do not search or return TikTok, LinkedIn, websites, directories, or personal Facebook profiles. A result is valid only when its URL is on facebook.com or fb.com.'
-        : 'For EACH business listed above, individually search its official website, Facebook Page, and LinkedIn company/organization Updates for a dated post, offer, event, launch, article, or campaign. Never search TikTok.';
+        : 'For EACH business listed above, individually search its known public sources and any discoverable official website, Facebook business Page, or LinkedIn organization Updates for a dated post, offer, event, launch, article, or campaign. A Page-only business remains eligible. Never search TikTok.';
       const emptyResultRule = platformOnly
         ? `Return an empty activities array only after checking ${platformOnly} separately for every listed business. Still return an official profile in profiles when one is found, even when it has no dated activity in this exact window.`
         : 'Return {"activities": []} only after checking the official website, Facebook, and LinkedIn for every listed business and finding no dated activity in this exact window.';
@@ -344,7 +427,7 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
       // say "last posted on <date>" instead, without spending search budget
       // chasing a full history for businesses that already have in-window hits.
       const lastActivityRule = `For every listed business that has NO dated activity inside the window above, ALSO search the same source(s) for that business's single most recent dated post/video/update of any age (it will normally fall before ${activityStartDate}) and report it in "lastActivity" so we can state exactly when they last posted. Include at most one "lastActivity" entry per business -- the most recent one you can verify -- grounded in a real dated source. Omit a business from "lastActivity" entirely if it already has an entry in "activities", or if no dated post can be verified at all.`;
-      return `Search the live public web for activity posted by ONLY these exact businesses in ${country}:\n${businessList}\n\nDATE WINDOW: ${activityStartDate} through ${activityEndDate}, inclusive. Treat ${activityEndDate} as the current local calendar date. A source label such as "6h", "1d", "2d", or "5 days ago" is valid dated evidence: normalize it to YYYY-MM-DD by counting back from ${activityEndDate}.\n\n${searchScope} Check every requested source for every single business before moving on -- do not stop early after finding activity for only the first few names. ${fallbackEvidenceRule}\n\n${lastActivityRule}\n\nGROUNDING RULES: describe only facts visible in the public source, search-result extract, caption, title, description, or indexed transcript. For a video/reel, explain what it discusses or demonstrates only when its caption, description, visible text, or transcript supports that explanation. Never invent spoken words, scenes, results, offers, prices, audience reactions, or business actions. If detailed content is unavailable, keep summary and keyDetails empty instead of guessing.\n\nReturn ONLY valid JSON in this shape:\n{\n${profilesShape}  "activities": [\n    {\n      "competitorName": "exact name copied from the supplied list",\n      "date": "YYYY-MM-DD",\n      "contentType": "Video, Reel, Post, Article, Event, Offer, Ad, or Other",\n      "title": "exact visible title/headline, or a short factual label grounded in the source",\n      "activity": "one concise sentence stating what the business posted or announced",\n      "summary": "2-4 factual sentences explaining what the content is about, using only details visible in the source; empty string if unavailable",\n      "keyDetails": ["up to 6 concrete facts explicitly supported by the source"],\n      "sourceUrl": "${sourceUrlDescription}"\n    }\n  ],\n  "lastActivity": [\n    {\n      "competitorName": "exact name copied from the supplied list",\n      "date": "YYYY-MM-DD",\n      "activity": "one concise sentence stating what the business posted or announced",\n      "sourceUrl": "${sourceUrlDescription}"\n    }\n  ]\n}\n${emptyResultRule}`;
+      return `Search the live public web for activity posted by ONLY these exact businesses in ${country}:\n${businessList}\n\nDATE WINDOW: ${activityStartDate} through ${activityEndDate}, inclusive. Treat ${activityEndDate} as the current local calendar date. A source label such as "6h", "1d", "2d", or "5 days ago" is valid dated evidence: normalize it to YYYY-MM-DD by counting back from ${activityEndDate}.\n\n${searchScope} Check every requested source for every single business before moving on -- do not stop early after finding activity for only the first few names. ${fallbackEvidenceRule}\n\n${lastActivityRule}\n\nGROUNDING RULES: describe only facts visible in the public source, search-result extract, caption, title, description, or indexed transcript. For an opaque Facebook reel or LinkedIn feed URL that does not contain the Page/organization identity, include its independently observed publisherPageUrl; leave the activity out if its publisher cannot be tied to the listed business. For a video/reel, explain what it discusses or demonstrates only when its caption, description, visible text, or transcript supports that explanation. Never invent spoken words, scenes, results, offers, prices, audience reactions, or business actions. If detailed content is unavailable, keep summary and keyDetails empty instead of guessing.\n\nReturn ONLY valid JSON in this shape:\n{\n${profilesShape}  "activities": [\n    {\n      "competitorName": "exact name copied from the supplied list",\n      "date": "YYYY-MM-DD",\n      "contentType": "Video, Reel, Post, Article, Event, Offer, Ad, or Other",\n      "title": "exact visible title/headline, or a short factual label grounded in the source",\n      "activity": "one concise sentence stating what the business posted or announced",\n      "summary": "2-4 factual sentences explaining what the content is about, using only details visible in the source; empty string if unavailable",\n      "keyDetails": ["up to 6 concrete facts explicitly supported by the source"],\n      "publisherPageUrl": "public Page/organization URL proving the publisher for opaque reel/feed URLs, else empty string",\n      "sourceUrl": "${sourceUrlDescription}"\n    }\n  ],\n  "lastActivity": [\n    {\n      "competitorName": "exact name copied from the supplied list",\n      "date": "YYYY-MM-DD",\n      "activity": "one concise sentence stating what the business posted or announced",\n      "publisherPageUrl": "public Page/organization URL proving the publisher for opaque URLs, else empty string",\n      "sourceUrl": "${sourceUrlDescription}"\n    }\n  ]\n}\n${emptyResultRule}`;
     };
 
     const activityLookupCandidates = candidates.slice(0, ACTIVITY_LOOKUP_LIST_CAP);
@@ -352,8 +435,8 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
       (Array.isArray(activities) ? activities : []).forEach((activity) => {
         const sourcePlatform = socialPlatformFromUrl(activity?.sourceUrl);
         if (sourcePlatform === 'TikTok' || (allowedPlatforms && !allowedPlatforms.has(sourcePlatform))) return;
-        const candidate = mergedCandidates.get(competitorKey(activity?.competitorName));
-        if (!candidate) return;
+        const candidate = candidateForEvidence(activity?.competitorName, activity?.publisherPageUrl || activity?.sourceUrl);
+        if (!candidate || !activityBelongsToCandidate(candidate, activity?.sourceUrl, activity?.publisherPageUrl)) return;
         candidate.recentActivities = normalizeRecentActivities(
           [...(candidate.recentActivities || []), activity],
           activityStartDate,
@@ -371,13 +454,14 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
         if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^https?:\/\//i.test(sourceUrl)) return;
         const platform = socialPlatformFromUrl(sourceUrl);
         if (platform === 'TikTok' || (allowedPlatforms && !allowedPlatforms.has(platform))) return;
-        const candidate = mergedCandidates.get(competitorKey(entry?.competitorName));
-        if (!candidate || candidate.recentActivities?.length) return;
+        const candidate = candidateForEvidence(entry?.competitorName, entry?.publisherPageUrl || sourceUrl);
+        if (!candidate || candidate.recentActivities?.length || !activityBelongsToCandidate(candidate, sourceUrl, entry?.publisherPageUrl)) return;
         if (candidate.lastKnownActivity && candidate.lastKnownActivity.date >= date) return;
         candidate.lastKnownActivity = {
           date,
           activity: String(entry?.activity || '').trim().slice(0, 400) || 'Most recent verified public post found.',
           sourceUrl,
+          ...(entry?.publisherPageUrl ? { publisherPageUrl: String(entry.publisherPageUrl).trim().slice(0, 300) } : {}),
           platform,
         };
       });
@@ -386,8 +470,8 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
       const urlField = 'facebookUrl';
       const validUrl = validFacebookUrl;
       (Array.isArray(profiles) ? profiles : []).forEach((profile) => {
-        const candidate = mergedCandidates.get(competitorKey(profile?.competitorName));
         const profileUrl = String(profile?.profileUrl || '').trim().slice(0, 300);
+        const candidate = candidateForEvidence(profile?.competitorName, profileUrl);
         if (!candidate || candidate[urlField] || !validUrl(profileUrl)) return;
         candidate[urlField] = profileUrl;
       });
@@ -431,7 +515,7 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
     // indexed; direct enrichment can then inspect that feed instead of being
     // skipped merely because discovery did not return the social URL.
     const initialSocialUrls = new Map(activityLookupCandidates.map((candidate) => [
-      competitorKey(candidate.name),
+      candidate,
       { facebookUrl: candidate.facebookUrl },
     ]));
     const socialSearchTasks = ['Facebook'].flatMap((platform) => {
@@ -466,7 +550,7 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
     // of the pipeline.
     if (isApifySocialActivityConfigured()) {
       const newlyAddressable = activityLookupCandidates.filter((candidate) => {
-        const initial = initialSocialUrls.get(competitorKey(candidate.name)) || {};
+        const initial = initialSocialUrls.get(candidate) || {};
         return !initial.facebookUrl && candidate.facebookUrl;
       });
       if (newlyAddressable.length) {
@@ -491,6 +575,7 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
     // therefore keeps this enrichment out of unsupported market scans.
     if (isMetaAdLibraryConfigured(countryCode)) {
       await mapWithConcurrency(activityLookupCandidates, URL_VERIFICATION_CONCURRENCY, async (candidate) => {
+        if (candidates.filter((other) => competitorKey(other.name) === competitorKey(candidate.name)).length > 1) return;
         const adActivities = await fetchMetaAdLibraryActivity({
           businessName: candidate.name,
           countryCode,
@@ -516,13 +601,23 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
     // for real public pages. These URLs already came from grounded search, so
     // validate their exact supported host/shape instead of dropping them on a
     // platform anti-bot response. Ordinary web sources still require HTTP.
+    const sourcePlatform = socialPlatformFromUrl(item.sourceUrl);
+    if (sourcePlatform === 'Facebook') {
+      const sourcePage = facebookBusinessPageKey(item.sourceUrl);
+      const listedPage = facebookBusinessPageKey(item.facebookUrl);
+      if (!sourcePage) return null;
+      if (listedPage && sourcePage !== listedPage) item.facebookUrl = '';
+    }
+    if (sourcePlatform === 'LinkedIn' && !validLinkedInUrl(item.sourceUrl)) return null;
     if (!isSupportedPublicSocialUrl(item.sourceUrl) && !(await urlIsReachable(item.sourceUrl))) return null;
     const activityChecks = [];
     for (const activity of item.recentActivities || []) {
-      if (isSupportedPublicSocialUrl(activity.sourceUrl) || await urlIsReachable(activity.sourceUrl)) activityChecks.push(activity);
+      if (activityBelongsToCandidate(item, activity.sourceUrl, activity.publisherPageUrl)
+        && (isSupportedPublicSocialUrl(activity.sourceUrl) || await urlIsReachable(activity.sourceUrl))) activityChecks.push(activity);
     }
     let lastKnownActivity = null;
     if (item.lastKnownActivity
+      && activityBelongsToCandidate(item, item.lastKnownActivity.sourceUrl, item.lastKnownActivity.publisherPageUrl)
       && (isSupportedPublicSocialUrl(item.lastKnownActivity.sourceUrl) || await urlIsReachable(item.lastKnownActivity.sourceUrl))) {
       lastKnownActivity = item.lastKnownActivity;
     }
@@ -548,11 +643,7 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
     const tiktokUrl = '';
     const facebookUrl = item.facebookUrl || derivedFacebookPageUrl(activityChecks) || '';
     return hasActivityWindow ? { ...item, facebookUrl, tiktokUrl, linkedinUrl, recentActivities: activityChecks.filter(Boolean), lastKnownActivity } : { name: item.name, matchReason: item.matchReason, marketPresence: item.marketPresence, positioning: item.positioning, facebookUrl, tiktokUrl, linkedinUrl, sourceUrl: item.sourceUrl };
-  }))
-    // Requested: only surface competitors at least as established as the
-    // target -- a "weaker" one is still real and still gets found/verified
-    // above (marketPresence is genuinely useful signal), just not shown.
-    .filter((item) => item && item.marketPresence !== 'weaker');
+  })).filter(Boolean);
 
   return {
     isSpecificEntity: !!discoveryParsed?.isSpecificEntity,

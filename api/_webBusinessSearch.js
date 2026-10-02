@@ -16,11 +16,26 @@
 import { generateOpenRouterWebSearch } from './_openrouter.js';
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
-import { isSupportedPublicSocialUrl, socialPlatformFromUrl } from './_socialUrls.js';
+import { facebookBusinessPageKey, isSupportedPublicSocialUrl, socialPlatformFromUrl, validFacebookUrl, validLinkedInUrl } from './_socialUrls.js';
 
 const MAX_BUSINESS_CANDIDATES = 75;
 const URL_VERIFICATION_CONCURRENCY = 8;
 const MAX_REDIRECTS = 5;
+
+const samePublicIdentity = (left, right) => {
+  const normalized = (value) => String(value || '').trim().replace(/\/$/, '').toLowerCase();
+  if (['website', 'facebookPageUrl', 'linkedinUrl'].some((field) => (
+    normalized(left[field]) && normalized(right[field]) && normalized(left[field]) !== normalized(right[field])
+  ))) return false;
+  return [
+    ['sourceUrl', 'sourceUrl'],
+    ['website', 'website'],
+    ['facebookPageUrl', 'facebookPageUrl'],
+    ['linkedinUrl', 'linkedinUrl'],
+  ].some(([leftField, rightField]) => (
+    normalized(left[leftField]) && normalized(left[leftField]) === normalized(right[rightField])
+  ));
+};
 
 const mapWithConcurrency = async (items, limit, mapper) => {
   const results = new Array(items.length);
@@ -152,6 +167,105 @@ const fetchValidatedUrl = async (initialUrl, method, signal) => {
   return null;
 };
 
+// Read a small public page for first-party identity signals. The same DNS and
+// redirect checks used by URL verification apply to every hop.
+export async function fetchPublicPageIdentity(url, timeoutMs = 6000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetchValidatedUrl(url, 'GET', controller.signal);
+    if (!response?.ok || !/text\/html/i.test(response.headers?.get?.('content-type') || '')) return null;
+    const reader = response.body?.getReader?.();
+    if (!reader) return null;
+    const chunks = [];
+    let size = 0;
+    while (size < 256_000) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      chunks.push(value);
+    }
+    await reader.cancel().catch(() => {});
+    const html = new TextDecoder().decode(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)))).slice(0, 256_000);
+    const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || '';
+    const attributes = (tag) => Object.fromEntries([...tag.matchAll(/([\w:-]+)\s*=\s*["']([^"']*)["']/g)]
+      .map((match) => [match[1].toLowerCase(), match[2]]));
+    const meta = [...html.matchAll(/<meta\b[^>]*>/gi)].map((match) => attributes(match[0]));
+    const description = meta.find((item) => item.name?.toLowerCase() === 'description')?.content
+      || meta.find((item) => item.property?.toLowerCase() === 'og:description')?.content || '';
+    const links = [...html.matchAll(/<a\s+[^>]*href=["']([^"']+)["']/gi)].slice(0, 1000)
+      .map((match) => { try { return new URL(match[1].replace(/&amp;/g, '&'), response.url || url).href; } catch { return ''; } })
+      .filter(Boolean);
+    const isSocialPage = ['Facebook', 'LinkedIn'].includes(socialPlatformFromUrl(response.url || url));
+    const brandTitle = title.replace(/\s*[|\-–]\s*(?:Facebook|LinkedIn).*$/i, '').trim().toLocaleLowerCase();
+    const pageImages = [...html.matchAll(/<img\b[^>]*>/gi)].slice(0, 100).map((match) => attributes(match[0]))
+      .filter((item) => /logo|profile|avatar|cover|banner/i.test(`${item.alt || ''} ${item.class || ''} ${item.id || ''} ${item.itemprop || ''}`))
+      .map((item) => {
+        const label = `${item.alt || ''} ${item.class || ''} ${item.id || ''} ${item.itemprop || ''}`;
+        const placement = /cover|banner/i.test(label) ? 'cover photo' : /profile|avatar/i.test(label) ? 'profile photo' : 'page logo';
+        const imageName = String(item.alt || '').toLocaleLowerCase()
+          .replace(/\b(profile|picture|photo|logo|avatar|image|of|the)\b/gi, ' ')
+          .replace(/['’]s\b/g, ' ').replace(/\s+/g, ' ').trim();
+        return {
+          source: item.src || item['data-src'], placement,
+          ...(isSocialPage && placement !== 'cover photo' ? { ownerImage: !imageName || (brandTitle.length >= 4 && (brandTitle.includes(imageName) || imageName.includes(brandTitle))) } : {}),
+        };
+      }).sort((left, right) => {
+        const rank = { 'profile photo': 0, 'page logo': 1, 'cover photo': 2 };
+        return rank[left.placement] - rank[right.placement];
+      });
+    const imageSources = [
+      ...pageImages,
+      ...[...html.matchAll(/<link\b[^>]*>/gi)].slice(0, 100).map((match) => attributes(match[0]))
+        .filter((item) => /(?:^|\s)(?:icon|apple-touch-icon)(?:\s|$)/i.test(item.rel || ''))
+        .map((item) => ({ source: item.href, placement: 'site icon' })),
+      ...meta.filter((item) => item.property?.toLowerCase() === 'og:image')
+        .map((item) => ({ source: item.content, placement: 'page preview' })),
+    ];
+    const imageCandidates = imageSources.slice(0, 8)
+      .map((item) => {
+        try { return { url: new URL(String(item.source || '').replace(/&amp;/g, '&'), response.url || url).href, placement: item.placement, ...(typeof item.ownerImage === 'boolean' ? { ownerImage: item.ownerImage } : {}) }; }
+        catch { return null; }
+      }).filter(Boolean);
+    return {
+      url: response.url || url,
+      title: title.replace(/<[^>]+>/g, ' ').trim().slice(0, 250),
+      description: description.slice(0, 600),
+      text: html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 12_000),
+      links,
+      imageCandidates,
+      imageUrls: imageCandidates.map((item) => item.url),
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function fetchPublicImage(url, timeoutMs = 5000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetchValidatedUrl(url, 'GET', controller.signal);
+    if (!response?.ok || !/^image\/(?:png|jpeg|webp)/i.test(response.headers?.get?.('content-type') || '')) return null;
+    const reader = response.body?.getReader?.();
+    if (!reader) return null;
+    const chunks = [];
+    let size = 0;
+    while (size <= 750_000) {
+      const { value, done } = await reader.read();
+      if (done) return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
+      size += value.byteLength;
+      if (size > 750_000) break;
+      chunks.push(value);
+    }
+    await reader.cancel().catch(() => {});
+    return null;
+  } catch { return null; }
+  finally { clearTimeout(timer); }
+}
+
 export async function urlIsReachable(url, timeoutMs = 6000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -172,7 +286,7 @@ export async function urlIsReachable(url, timeoutMs = 6000) {
   }
 }
 
-export async function searchBusinessesOnWeb({ searchTerms, searchObjective = '', requiredSignal = '', entityScope = 'businesses', country = 'Cambodia', activityStartDate = '', activityEndDate = '', targetCount = 15 }) {
+export async function searchBusinessesOnWeb({ searchTerms, searchObjective = '', requiredSignal = '', entityScope = 'businesses', country = 'Cambodia', activityStartDate = '', activityEndDate = '', targetCount = 15, targetBusinessProfile = null, includeTargetBusiness = false }) {
   // The web-search model commonly stops after the first five matches unless the
   // requested breadth is explicit. Keep the target bounded, but pass it into
   // every complementary search so an unspecified count still produces a useful
@@ -188,10 +302,18 @@ export async function searchBusinessesOnWeb({ searchTerms, searchObjective = '',
   const workerScopeInstruction = entityScope === 'workers'
     ? `\nWORKER/TRADE SEARCH: Find real publicly listed tradespeople, freelancers, contractor teams, service businesses, and people publicly advertising that they are available for work in the exact requested trade. Examples include construction contractors, house builders, painters, electricians, plumbers, welders, mechanics, cleaners, drivers, and other requested skills. Preserve the exact trade/job category. A personal name is allowed only when it appears in a public professional/service directory, public portfolio, public business Page, or explicit public work-availability post. Never search private profiles, infer that someone needs work, or expose non-public personal data.`
     : '';
+  const profileName = String(targetBusinessProfile?.businessName || '').trim().slice(0, 120);
+  const profileDescription = String(targetBusinessProfile?.businessDescription || '').trim().slice(0, 1000);
+  const profileFacebookPage = String(targetBusinessProfile?.facebookPageUrl || '').trim().slice(0, 300);
+  const profileLogo = String(targetBusinessProfile?.logoDataUrl || '');
+  const validProfileLogo = profileLogo.length <= 500_000 && /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/i.test(profileLogo);
+  const profileInstruction = profileName
+    ? `\nOWNER BUSINESS PROFILE: Name: "${profileName}". Owner's introduction: "${profileDescription || 'not supplied'}". ${validFacebookUrl(profileFacebookPage) ? `Saved official Facebook Page: ${profileFacebookPage}.` : ''} ${validProfileLogo ? 'A reference image may be attached: it is the owner-saved logo. Compare it with visible logos on public results when possible.' : ''} First establish the owner's actual product/service from this profile and corroborating public evidence. A public Page/website may use an alternate name: associate it only with a corroborating description, matching contact information, official cross-link, or logo match plus another independent signal. A similar name or logo alone is insufficient. Search for customers of THIS business, never a similarly named unrelated business.${includeTargetBusiness ? ' If you find the owner itself, include its verified public listing and actual offering as grounding; the application will exclude it from customer leads.' : ''}`
+    : '';
   const searchFocuses = [
-    'Prioritize Google/Apple map listings and local business directories. Search city, district, province, and nearby-area variations.',
+    'Prioritize Google/Apple map listings, local business directories, and public marketplace listings. Search city, district, province, and nearby-area variations, including small shops without websites.',
     'Prioritize official websites and contact pages. Search English, Khmer/local-language spellings, abbreviations, and transliterations.',
-    'Use public Facebook business Pages, Instagram business profiles, and LinkedIn organization pages as supporting evidence when official websites do not contain the needed details. Never use TikTok or personal profiles.',
+    'Search public Facebook business Pages, Instagram business profiles, and LinkedIn organization pages as primary evidence for businesses without websites, and as supporting evidence for those with websites. Never use TikTok or personal profiles.',
     'Prioritize industry associations, marketplaces, review sites, category lists, event/vendor directories, and credible local news that may reveal businesses missed by map and official-site searches.',
   ];
   const buildPrompt = (focus) => `Search the live web for REAL businesses and organizations in ${country} matching the user's exact request: "${searchTerms}".
@@ -201,14 +323,16 @@ ${workerScopeInstruction}
 
 SEARCH PASS FOCUS: ${focus}
 SCAN OBJECTIVE: ${searchObjective || 'Find real public business prospects that match the request.'}
+${profileInstruction}
 RESULT TARGET FOR THIS PASS: Return up to ${requestedTargetCount} distinct verified matches. If at least ${requestedTargetCount} matching businesses are findable, do not stop after the first five. Keep searching across relevant result pages until this target is met. Never pad the list with invented, irrelevant, or unverified entries.
 
 Interpret the request flexibly and preserve its intent:
-- A specific company/Page/organization name means find and enrich that exact entity.
+- A specific company/Page/organization name means find and enrich that exact entity, EXCEPT when the scan objective asks for that company's potential customers: then the named company is the provider, not a customer lead itself. This applies whether or not an OWNER BUSINESS PROFILE is supplied.
 - A customer type or business category (restaurants, clinics, schools, factories, hotels, NGOs, retailers, professionals, etc.) means find real organizations in that category.
 - A product/service or problem (needs video content, wants AI automation, hiring sales staff, opening a new branch, etc.) means find real organizations with public evidence or a strong category fit for that need.
 - A location, size, language, industry, or other qualifier must narrow the results exactly as requested.
 - A broad market request may include companies, shops, institutions, associations, nonprofits, and other legitimate organizations; do not arbitrarily force every request into only shops/cafes/clinics.
+- A real small shop, informal service provider, or public business Page can qualify without formal registration, a legal certificate, a website, or LinkedIn. Verify the specific public business identity and offering from its own Page/listing and keep unverified contact fields empty.
 - A trade/worker request may include an individual public service provider, freelancer, contractor team, or job seeker with an explicit public work-availability listing; label which kind it is.
 - Never replace the user's requested category with a different category merely because it may be easier to find.
 
@@ -250,7 +374,17 @@ If you find no real businesses, return {"businesses": []}.`;
   // businesses. Run complementary passes concurrently, then merge them, so
   // smaller local businesses and local-language results are not crowded out.
   const settledSearches = await Promise.allSettled(searchFocuses.map((focus) => (
-    generateOpenRouterWebSearch({ prompt: buildPrompt(focus), maxResults: 20 })
+    (async () => {
+      const prompt = buildPrompt(focus);
+      if (!validProfileLogo) return generateOpenRouterWebSearch({ prompt, maxResults: 20 });
+      try {
+        return await generateOpenRouterWebSearch({ prompt, maxResults: 20, imageDataUrl: profileLogo });
+      } catch {
+        // Some configured text models reject image inputs. The owner-supplied
+        // name, introduction, and Page still ground a text-only search.
+        return generateOpenRouterWebSearch({ prompt, maxResults: 20 });
+      }
+    })()
   )));
   const parsedResults = settledSearches
     .filter((result) => result.status === 'fulfilled')
@@ -261,6 +395,8 @@ If you find no real businesses, return {"businesses": []}.`;
   }
 
   const EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
+  const ownerNameKey = profileName.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+  const ownerPageKey = facebookBusinessPageKey(profileFacebookPage);
   const candidateMap = new Map();
   parsedResults.flatMap((parsed) => (Array.isArray(parsed?.businesses) ? parsed.businesses : []))
     .map((item) => {
@@ -312,11 +448,25 @@ If you find no real businesses, return {"businesses": []}.`;
         sourceUrl: String(item?.sourceUrl || '').trim().slice(0, 300),
       };
     })
-    .filter((item) => item.businessName && socialPlatformFromUrl(item.sourceUrl) !== 'TikTok')
+    .filter((item) => {
+      if (!item.businessName || socialPlatformFromUrl(item.sourceUrl) === 'TikTok') return false;
+      if (includeTargetBusiness || (!ownerNameKey && !ownerPageKey)) return true;
+      const itemNameKey = item.businessName.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+      const itemPageKeys = [item.sourceUrl, item.facebookPageUrl].map(facebookBusinessPageKey).filter(Boolean);
+      return (!ownerNameKey || itemNameKey !== ownerNameKey)
+        && !(ownerPageKey && itemPageKeys.includes(ownerPageKey));
+    })
     .forEach((item) => {
-      const key = item.businessName.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
-      if (!key) return;
-      const existing = candidateMap.get(key);
+      const nameKey = item.businessName.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+      if (!nameKey) return;
+      // A matching display name is not an entity ID. Two independent shops
+      // can share a name; merge their contacts only with a shared public URL.
+      const matched = [...candidateMap.entries()].find(([, previous]) => (
+        previous.businessName.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '') === nameKey
+        && samePublicIdentity(previous, item)
+      ));
+      const key = matched?.[0] || `${nameKey}|${candidateMap.size}`;
+      const existing = matched?.[1];
       if (!existing) {
         candidateMap.set(key, item);
         return;
@@ -356,6 +506,17 @@ If you find no real businesses, return {"businesses": []}.`;
     // public-page shape is trusted on its shape instead; ordinary web sources
     // still require a real HTTP check.
     const checkUrl = item.sourceUrl || item.website;
+    const sourcePlatform = socialPlatformFromUrl(checkUrl);
+    if (sourcePlatform === 'Facebook') {
+      const sourcePage = facebookBusinessPageKey(checkUrl);
+      const listedPage = facebookBusinessPageKey(item.facebookPageUrl);
+      // A generic reel/search URL cannot establish a business identity. If
+      // the search also claimed another Page, keep the sourced business but
+      // do not expose that unsupported Page as its contact channel.
+      if (!sourcePage) return null;
+      if (listedPage && sourcePage !== listedPage) item.facebookPageUrl = '';
+    }
+    if (sourcePlatform === 'LinkedIn' && !validLinkedInUrl(checkUrl)) return null;
     const reachable = checkUrl
       ? (isSupportedPublicSocialUrl(checkUrl) || await urlIsReachable(checkUrl))
       : false;
