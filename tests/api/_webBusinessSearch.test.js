@@ -166,6 +166,43 @@ it('does not merge distinct Pages merely because a directory URL is shared', asy
   ]);
 });
 
+it('does not combine same-name shops from one shared directory listing', async () => {
+  mocks.webSearch.mockResolvedValue({ content: JSON.stringify({ businesses: [
+    { name: 'Kafe', phone: '012 111 111', sourceUrl: 'https://directory.example.com/cafes' },
+    { name: 'Kafe', phone: '012 222 222', sourceUrl: 'https://directory.example.com/cafes' },
+  ] }) });
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+
+  const businesses = await searchBusinessesOnWeb({ searchTerms: 'cafes' });
+
+  expect(businesses.map(({ phone }) => phone)).toEqual(['012 111 111', '012 222 222']);
+});
+
+it('combines alternate names only when they identify the same Facebook Page', async () => {
+  mocks.webSearch.mockResolvedValue({ content: JSON.stringify({ businesses: [
+    { name: 'DJ Academy', phone: '012 111 111', facebookPageUrl: 'https://www.facebook.com/djacademy', sourceUrl: 'https://www.facebook.com/djacademy' },
+    { name: 'AI DJ Academy', email: 'contact@djacademy.example', facebookPageUrl: 'https://www.facebook.com/djacademy', sourceUrl: 'https://www.facebook.com/djacademy' },
+  ] }) });
+
+  const businesses = await searchBusinessesOnWeb({ searchTerms: 'DJ Academy' });
+
+  expect(businesses).toEqual([expect.objectContaining({
+    businessName: 'DJ Academy', phone: '012 111 111', email: 'contact@djacademy.example',
+  })]);
+});
+
+it('recognizes mobile and desktop URLs for the same Facebook Page identity', async () => {
+  mocks.webSearch.mockResolvedValue({ content: JSON.stringify({ businesses: [
+    { name: 'DJ Academy', phone: '012 111 111', facebookPageUrl: 'https://www.facebook.com/djacademy/', sourceUrl: 'https://www.facebook.com/djacademy/' },
+    { name: 'AI DJ Academy', email: 'contact@djacademy.example', facebookPageUrl: 'https://m.facebook.com/djacademy/?ref=share', sourceUrl: 'https://m.facebook.com/djacademy/' },
+  ] }) });
+
+  const businesses = await searchBusinessesOnWeb({ searchTerms: 'DJ Academy' });
+
+  expect(businesses).toHaveLength(1);
+  expect(businesses[0]).toMatchObject({ phone: '012 111 111', email: 'contact@djacademy.example' });
+});
+
 it('keeps the user query and scan objective separate in every search pass', async () => {
   mocks.webSearch.mockResolvedValue({ content: JSON.stringify({ businesses: [] }) });
 

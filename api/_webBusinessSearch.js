@@ -24,17 +24,46 @@ const MAX_REDIRECTS = 5;
 
 const samePublicIdentity = (left, right) => {
   const normalized = (value) => String(value || '').trim().replace(/\/$/, '').toLowerCase();
-  if (['website', 'facebookPageUrl', 'linkedinUrl'].some((field) => (
+  const nameKey = (value) => normalized(value).replace(/[^\p{L}\p{N}]+/gu, '');
+  const linkedInKey = (value) => {
+    try { return validLinkedInUrl(value) ? new URL(value).pathname.replace(/\/$/, '').toLowerCase() : ''; }
+    catch { return ''; }
+  };
+  const leftPage = facebookBusinessPageKey(left.facebookPageUrl || left.sourceUrl);
+  const rightPage = facebookBusinessPageKey(right.facebookPageUrl || right.sourceUrl);
+  if (normalized(left.website) && normalized(right.website) && normalized(left.website) !== normalized(right.website)) return false;
+  const leftExplicitPage = facebookBusinessPageKey(left.facebookPageUrl);
+  const rightExplicitPage = facebookBusinessPageKey(right.facebookPageUrl);
+  if (leftExplicitPage && rightExplicitPage && leftExplicitPage !== rightExplicitPage) return false;
+  const leftExplicitLinkedIn = linkedInKey(left.linkedinUrl);
+  const rightExplicitLinkedIn = linkedInKey(right.linkedinUrl);
+  if (leftExplicitLinkedIn && rightExplicitLinkedIn && leftExplicitLinkedIn !== rightExplicitLinkedIn) return false;
+  // A shared directory result is not a company identifier. Conflicting public
+  // contact details must remain on separate rows even when names are equal.
+  if (['phone', 'email', 'address', 'telegram'].some((field) => (
     normalized(left[field]) && normalized(right[field]) && normalized(left[field]) !== normalized(right[field])
   ))) return false;
-  return [
-    ['sourceUrl', 'sourceUrl'],
-    ['website', 'website'],
-    ['facebookPageUrl', 'facebookPageUrl'],
-    ['linkedinUrl', 'linkedinUrl'],
-  ].some(([leftField, rightField]) => (
-    normalized(left[leftField]) && normalized(left[leftField]) === normalized(right[rightField])
-  ));
+  if (leftPage && leftPage === rightPage) return true;
+  const leftLinkedIn = linkedInKey(left.linkedinUrl || left.sourceUrl);
+  const rightLinkedIn = linkedInKey(right.linkedinUrl || right.sourceUrl);
+  if (leftLinkedIn && leftLinkedIn === rightLinkedIn) return true;
+  const businessName = nameKey(left.businessName);
+  if (!businessName || businessName !== nameKey(right.businessName)) return false;
+  if (normalized(left.website) && normalized(left.website) === normalized(right.website)) return true;
+  if (!normalized(left.sourceUrl) || normalized(left.sourceUrl) !== normalized(right.sourceUrl)) return false;
+  const contactFields = ['phone', 'email', 'address', 'telegram'];
+  if (contactFields.some((field) => normalized(left[field]) && normalized(left[field]) === normalized(right[field]))) return true;
+  // Identical sightings across search passes should only create one card,
+  // even when the source is a directory and no contact field was available.
+  if (['businessType', 'serviceOrJobType', ...contactFields, 'website', 'facebookPageUrl', 'linkedinUrl']
+    .every((field) => normalized(left[field]) === normalized(right[field]))) return true;
+  try {
+    const source = new URL(left.sourceUrl);
+    if (socialPlatformFromUrl(source.href) !== 'Web') return false;
+    const hostLabel = nameKey(source.hostname.replace(/^www\./i, '').split('.')[0]);
+    const finalPathLabel = nameKey(source.pathname.split('/').filter(Boolean).at(-1));
+    return businessName.length >= 4 && (hostLabel === businessName || finalPathLabel === businessName);
+  } catch { return false; }
 };
 
 const mapWithConcurrency = async (items, limit, mapper) => {
@@ -461,10 +490,7 @@ If you find no real businesses, return {"businesses": []}.`;
       if (!nameKey) return;
       // A matching display name is not an entity ID. Two independent shops
       // can share a name; merge their contacts only with a shared public URL.
-      const matched = [...candidateMap.entries()].find(([, previous]) => (
-        previous.businessName.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '') === nameKey
-        && samePublicIdentity(previous, item)
-      ));
+      const matched = [...candidateMap.entries()].find(([, previous]) => samePublicIdentity(previous, item));
       const key = matched?.[0] || `${nameKey}|${candidateMap.size}`;
       const existing = matched?.[1];
       if (!existing) {
