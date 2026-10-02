@@ -8,6 +8,7 @@ export interface VoiceConversationFallback {
 
 export interface FallbackOptions {
   languageHint: () => 'auto' | 'km' | 'en';
+  voiceGenderHint?: () => 'Female' | 'Male';
   audioElement: HTMLAudioElement;
   onListening: () => void;
   onThinking: () => void;
@@ -169,6 +170,7 @@ export const runVoiceConversationFallback = async (
           const { audioUrl } = await operations.requestJson({
             action: 'ttsGenerate', input: segment.text,
             languageHint: segment.language === 'km' ? 'Khmer' : 'English', conversation: true,
+            voice: options.voiceGenderHint?.() === 'Male' ? 'onyx' : undefined,
           }, signal);
           if (!audioUrl) throw new Error('Voice playback is unavailable.');
           await operations.playAudio(options.audioElement, audioUrl, signal);

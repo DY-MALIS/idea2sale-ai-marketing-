@@ -23,6 +23,11 @@ export interface GeminiLiveHandlers {
   onInterrupted?: () => void;
   onTurnComplete?: () => void;
   onPlaybackComplete?: () => void;
+  // Gemini's own transcript of what the user just said, delivered once a
+  // spoken turn finishes. This audio-to-audio connection never produces text
+  // otherwise, so callers that need to react to what was actually said (e.g.
+  // detecting a "create a video" request) have nothing else to go on.
+  onUserTurnText?: (text: string) => void;
   onError?: (error: Error) => void;
   onClose?: () => void;
 }
@@ -250,9 +255,15 @@ export async function connectGeminiLive(
         ...(setupConfig.systemInstruction ? {
           systemInstruction: { parts: [{ text: setupConfig.systemInstruction }] },
         } : {}),
+        // Google transcribes the user's own mic audio for us -- the only way
+        // this app ever learns what was said on this audio-only connection,
+        // used to detect spoken "create a video/plan" requests mid-call.
+        inputAudioTranscription: {},
       },
     }));
   };
+
+  let inputTranscriptBuffer = '';
 
   socket.onmessage = (event) => {
     void (async () => {
@@ -277,6 +288,8 @@ export async function connectGeminiLive(
             player.enqueue(base64ToInt16Array(inline.data));
           }
         }
+        const transcriptChunk = message?.serverContent?.inputTranscription?.text;
+        if (typeof transcriptChunk === 'string' && transcriptChunk) inputTranscriptBuffer += transcriptChunk;
         if (message?.serverContent?.interrupted) {
           player.stopAll();
           handlers.onInterrupted?.();
@@ -284,6 +297,9 @@ export async function connectGeminiLive(
         if (message?.serverContent?.turnComplete) {
           handlers.onTurnComplete?.();
           player.markTurnComplete();
+          const spoken = inputTranscriptBuffer.trim();
+          inputTranscriptBuffer = '';
+          if (spoken) handlers.onUserTurnText?.(spoken);
         }
       } catch (error) {
         fail(error instanceof Error ? error : new Error('Failed to parse Gemini Live message.'));

@@ -155,6 +155,11 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [voiceConnecting, setVoiceConnecting] = useState(false);
   const [voiceProcessing, setVoiceProcessing] = useState(false);
+  // The voice orb UI replaces the chat transcript while a call is active, so
+  // without this the user never sees what was just said or created -- only
+  // hears it. Holds the latest reply text (and, when a content/plan/video
+  // request fires, the brief) to caption on screen during the call.
+  const [voiceCaption, setVoiceCaption] = useState('');
   const [voiceRetryAt, setVoiceRetryAt] = useState(0);
   const voiceRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const voiceActiveRef = useRef(false);
@@ -164,6 +169,53 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const liveConnectionControllerRef = useRef<AbortController | null>(null);
   const fallbackSessionRef = useRef<VoiceConversationFallback | null>(null);
   const fallbackAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Shared by both the text-chat flow (askAgent) and the Live Voice realtime
+  // path below -- whichever one detected a complete "create a video/plan"
+  // brief, this is the one place that turns it into an actual generator
+  // request and sanitizes its fields. Returns the sanitized request so a
+  // caller can also use it to caption on screen what's being created.
+  const triggerCreativeAutomation = (automation: any, detectedLanguage: 'km' | 'en'): CreativeAutomationRequest => {
+    const kind = automation.kind === 'video' ? 'video' : 'image';
+    const request: CreativeAutomationRequest = {
+      id: `${Date.now()}-${kind}`,
+      kind,
+      imageMode: kind === 'image' && automation.imageMode === 'poster' ? 'poster' : 'visual',
+      prompt: String(automation.prompt || '').trim(),
+      platform: ['TikTok', 'Facebook', 'X', 'Telegram'].includes(automation.platform)
+        ? automation.platform
+        : 'General',
+      aspectRatio: ['1:1', '9:16', '16:9', '4:5', '3:4'].includes(automation.aspectRatio)
+        ? automation.aspectRatio
+        : (kind === 'video' ? '9:16' : '1:1'),
+      language: detectedLanguage,
+      voiceOverText: kind === 'video' ? String(automation.voiceOverText || '').trim() : undefined,
+      headline: kind === 'image' ? String(automation.headline || '').trim() : undefined,
+      cta: kind === 'image' ? String(automation.cta || '').trim() : undefined,
+      posterStyle: kind === 'image' ? String(automation.posterStyle || 'Modern').trim() : undefined,
+      duration: kind === 'video' && [4, 6, 8].includes(Number(automation.duration))
+        ? Number(automation.duration)
+        : undefined,
+      voiceGender: kind === 'video' && ['Male', 'Female'].includes(automation.voiceGender)
+        ? automation.voiceGender
+        : undefined,
+      performanceStyle: kind === 'video' ? String(automation.performanceStyle || '').trim() || undefined : undefined,
+      allowScriptShortening: kind === 'video',
+    };
+    onCreativeAutomation(request);
+    return request;
+  };
+
+  // "Create a video/plan" needs a visible brief, not just the orb's spoken
+  // audio -- builds the same on-screen caption from a triggered request's
+  // sanitized fields, whichever voice path (fast Live or fallback) produced it.
+  const automationCaption = (request: CreativeAutomationRequest): string => {
+    const km = language === 'km';
+    const headline = request.kind === 'video'
+      ? (km ? `កំពុងបង្កើតវីដេអូ (${request.platform} • ${request.aspectRatio} • ${request.duration || 8}s)` : `Creating a video (${request.platform} • ${request.aspectRatio} • ${request.duration || 8}s)`)
+      : (km ? `កំពុងបង្កើតរូបភាព (${request.platform} • ${request.aspectRatio})` : `Creating an image (${request.platform} • ${request.aspectRatio})`);
+    return [headline, request.headline, request.voiceOverText, request.cta].filter((part) => part && part.trim()).join('\n\n');
+  };
 
   const startFallbackVoice = (session: number) => {
     if (session !== voiceSessionRef.current || !voiceActiveRef.current) return;
@@ -175,17 +227,60 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     fallbackSessionRef.current = startVoiceConversationFallback({
       audioElement,
       languageHint: () => voiceInputLanguageRef.current,
+      voiceGenderHint: () => voiceGenderRef.current,
       onListening: () => { setVoiceConnecting(false); setVoiceProcessing(false); setIsSpeaking(false); },
       onThinking: () => setVoiceProcessing(true),
       onSpeaking: () => { setVoiceProcessing(false); setIsSpeaking(true); },
       onReplyComplete: () => setIsSpeaking(false),
-      onTranscript: (transcript) => askAgent(transcript, true),
+      onTranscript: async (transcript) => {
+        const answer = await askAgent(transcript, true);
+        if (answer && session === voiceSessionRef.current) setVoiceCaption(answer);
+        return answer;
+      },
       onError: (error) => {
         if (session !== voiceSessionRef.current || !voiceActiveRef.current) return;
         stopLiveVoice();
         notify(error.message, 'error');
       },
     });
+  };
+
+  // The fast Live path is pure audio between the browser and Google -- this
+  // app never sees a reply to drive onCreativeAutomation with. Once Gemini's
+  // own transcript of a finished user turn comes back (geminiLiveClient.ts),
+  // check it for a content/plan/video brief the same way typed chat does, and
+  // caption it, without touching the live audio turn itself in any way.
+  const handleLiveUserTurn = (session: number, transcript: string) => {
+    if (session !== voiceSessionRef.current || !voiceActiveRef.current) return;
+    void (async () => {
+      try {
+        const detectedLanguage = detectMessageLanguage(transcript);
+        const response = await fetch('/api/ai', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'voiceAutomationCheck',
+            message: transcript,
+            history: messagesRef.current.slice(-HISTORY_MESSAGES),
+            detectedLanguage,
+            businessContext: businessContext || undefined,
+          }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || session !== voiceSessionRef.current || !voiceActiveRef.current || !data.automation?.ready) return;
+        if (!autoCreateEnabledRef.current) return;
+        const request = triggerCreativeAutomation(data.automation, detectedLanguage);
+        const caption = automationCaption(request);
+        setVoiceCaption(caption);
+        updateMessages([
+          ...messagesRef.current,
+          { role: 'user', content: transcript, modality: 'voice' },
+          { role: 'assistant', content: caption, modality: 'voice' },
+        ]);
+      } catch (error) {
+        console.error('Live Voice automation check failed:', error);
+      }
+    })();
   };
 
   const startGeminiLive = async (session: number, playbackContext: AudioContext): Promise<boolean> => {
@@ -196,7 +291,12 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: controller.signal,
-        body: JSON.stringify({ businessContext: businessContext || undefined, voiceLanguage: voiceInputLanguageRef.current, action: 'geminiLiveToken' }),
+        body: JSON.stringify({
+          businessContext: businessContext || undefined,
+          voiceLanguage: voiceInputLanguageRef.current,
+          voiceName: voiceGenderRef.current === 'Male' ? 'Achird' : undefined,
+          action: 'geminiLiveToken',
+        }),
       });
       const data = await response.json().catch(() => ({}));
       if (response.status === 429) {
@@ -217,6 +317,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         onPlaybackComplete: () => {
           setIsSpeaking(false);
         },
+        onUserTurnText: (text) => handleLiveUserTurn(session, text),
         onError: () => startFallbackVoice(session),
         onClose: () => startFallbackVoice(session),
       }, { voiceName: data.voiceName, systemInstruction: data.systemInstruction }, controller.signal);
@@ -247,6 +348,11 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   // English, and mixed turns; explicit choices guide the live audio model.
   const [voiceInputLanguage, setVoiceInputLanguage] = useState<'auto' | 'km' | 'en'>('auto');
   const voiceInputLanguageRef = useRef(voiceInputLanguage);
+  // Picks both which Gemini voice speaks (Achird/Aoede) and the gendered
+  // delivery style sent alongside it (firm for male, gentle for female) --
+  // see the geminiLiveToken and ttsGenerate handlers in api/ai.js.
+  const [voiceGender, setVoiceGender] = useState<'Female' | 'Male'>('Female');
+  const voiceGenderRef = useRef(voiceGender);
   const conversationEndRef = useRef<HTMLDivElement>(null);
   const requestControllerRef = useRef<AbortController | null>(null);
   const agentRequestActiveRef = useRef(false);
@@ -795,6 +901,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       geminiLiveSessionRef.current = null;
     }
     setIsSpeaking(false);
+    setVoiceCaption('');
   };
 
   const startVoice = () => {
@@ -810,6 +917,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     setVoiceConnecting(true);
     setVoiceProcessing(false);
     setIsSpeaking(false);
+    setVoiceCaption('');
     try {
       // Unlock this exact element during the click so fallback speech can play
       // after async transcription, including on browsers with strict autoplay.
@@ -898,32 +1006,8 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       ]);
 
       if (autoCreateEnabledRef.current && data.automation?.ready) {
-        const kind = data.automation.kind === 'video' ? 'video' : 'image';
-        onCreativeAutomation({
-          id: `${Date.now()}-${kind}`,
-          kind,
-          imageMode: kind === 'image' && data.automation.imageMode === 'poster' ? 'poster' : 'visual',
-          prompt: String(data.automation.prompt || '').trim(),
-          platform: ['TikTok', 'Facebook', 'X', 'Telegram'].includes(data.automation.platform)
-            ? data.automation.platform
-            : 'General',
-          aspectRatio: ['1:1', '9:16', '16:9', '4:5', '3:4'].includes(data.automation.aspectRatio)
-            ? data.automation.aspectRatio
-            : (kind === 'video' ? '9:16' : '1:1'),
-          language: message ? detectMessageLanguage(message) : language,
-          voiceOverText: kind === 'video' ? String(data.automation.voiceOverText || '').trim() : undefined,
-          headline: kind === 'image' ? String(data.automation.headline || '').trim() : undefined,
-          cta: kind === 'image' ? String(data.automation.cta || '').trim() : undefined,
-          posterStyle: kind === 'image' ? String(data.automation.posterStyle || 'Modern').trim() : undefined,
-          duration: kind === 'video' && [4, 6, 8].includes(Number(data.automation.duration))
-            ? Number(data.automation.duration)
-            : undefined,
-          voiceGender: kind === 'video' && ['Male', 'Female'].includes(data.automation.voiceGender)
-            ? data.automation.voiceGender
-            : undefined,
-          performanceStyle: kind === 'video' ? String(data.automation.performanceStyle || '').trim() || undefined : undefined,
-          allowScriptShortening: kind === 'video',
-        });
+        const request = triggerCreativeAutomation(data.automation, message ? detectMessageLanguage(message) : language);
+        if (spoken) setVoiceCaption(automationCaption(request));
       }
       return answer;
     } catch (error: any) {
@@ -1361,6 +1445,26 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                   ))}
                 </div>
               )}
+              {micSupported && (
+                <div className="flex bg-brand-50 dark:bg-slate-800/70 p-1 rounded-xl border border-brand-200">
+                  {(['Female', 'Male'] as const).map((gender) => (
+                    <button
+                      key={gender}
+                      type="button"
+                      disabled={voiceActiveRef.current}
+                      onClick={() => { voiceGenderRef.current = gender; setVoiceGender(gender); }}
+                      title={language === 'km' ? 'ភេទសំឡេង' : 'Voice gender'}
+                      className={`px-3 py-1.5 rounded-lg text-[10px] font-black transition-all disabled:opacity-50 ${
+                        voiceGender === gender
+                          ? 'bg-white dark:bg-slate-700 text-brand-700 shadow-sm'
+                          : 'text-brand-400 hover:text-brand-700'
+                      }`}
+                    >
+                      {gender === 'Female' ? (language === 'km' ? 'ស្រី' : 'Female') : (language === 'km' ? 'ប្រុស' : 'Male')}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             {liveVoiceEnabled && (
               <p className="text-xs font-medium text-brand-600 dark:text-brand-300" role="status">
@@ -1497,6 +1601,11 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                 <p className="mt-2 text-slate-500 dark:text-slate-400">
                   {language === 'km' ? 'ការសន្ទនានេះជាសំឡេងផ្ទាល់។' : 'This conversation is live audio.'}
                 </p>
+                {voiceCaption && (
+                  <div className="mt-5 max-w-lg max-h-48 overflow-y-auto rounded-xl border border-brand-100 bg-white/70 dark:bg-slate-800/70 px-4 py-3 text-sm text-left text-slate-700 dark:text-slate-200 whitespace-pre-wrap">
+                    {voiceCaption}
+                  </div>
+                )}
                 <button type="button" onClick={stopLiveVoice} className="mt-8 px-5 py-3 rounded-xl border border-red-200 bg-red-50 text-red-600 font-bold">
                   {language === 'km' ? 'បញ្ចប់ការហៅ' : 'End call'}
                 </button>

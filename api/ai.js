@@ -76,7 +76,10 @@ export const getAiRateLimitPolicy = (action) => {
   }
   // One token opens an entire bidirectional audio call. Starting a call must
   // not spend the same quota used by typed chat and other AI tools.
-  if (action === 'geminiLiveToken') {
+  // voiceAutomationCheck fires automatically per spoken turn while a Live
+  // Voice call is open, so it shares that call's own budget rather than
+  // typed chat's -- a long call will fire this many times.
+  if (action === 'geminiLiveToken' || action === 'voiceAutomationCheck') {
     return { scope: 'ai-live-voice', limit: AI_LIVE_VOICE_RATE_LIMIT_PER_HOUR, failClosed: false };
   }
   return { scope: 'ai', limit: AI_RATE_LIMIT_PER_HOUR, failClosed: false };
@@ -1119,6 +1122,30 @@ Response rules:
         text: text || 'No response generated.',
         automation: automation?.ready ? automation : null,
       });
+    }
+
+    // The fast Gemini Live audio path talks directly to Google over its own
+    // WebSocket, so this server never sees what was said and can't run
+    // buildCreativeAutomation (the socialAgent flow above) the way the typed
+    // chat and the recorded-turn voice fallback do. The client sends this
+    // server just the input-audio transcript of one spoken turn (via Gemini
+    // Live's own transcription, not a fresh reply) purely so a "create a
+    // video/plan" request spoken mid-call still starts the generator and gets
+    // a visible brief, without interrupting the live audio with a second
+    // spoken reply of our own.
+    if (action === 'voiceAutomationCheck') {
+      const message = String(req.body?.message || '').trim();
+      if (!message) return res.status(400).json({ error: 'Message is required.' });
+      const history = Array.isArray(req.body?.history) ? req.body.history.slice(-20) : [];
+      const detectedLanguage = String(req.body?.detectedLanguage || '').toLowerCase();
+      const responseLanguage = resolveAgentReplyLanguage(message, detectedLanguage);
+      const historyText = history
+        .filter((item) => item?.role === 'assistant' || item?.role === 'user')
+        .map((item) => `${item.role === 'assistant' ? 'Assistant' : 'User'}: ${String(item.content || '').slice(0, 1800)}`)
+        .join('\n');
+      const businessContext = businessContextFromBody(req.body);
+      const automation = await buildCreativeAutomation({ message, historyText, responseLanguage, businessContext });
+      return res.status(200).json({ automation: automation?.ready ? automation : null });
     }
 
     if (action === 'adsStrategy') {
@@ -2202,7 +2229,18 @@ Return ONLY a single valid JSON object with this exact structure:
       const input = String(req.body?.input || '').trim();
       const voice = String(req.body?.voice || process.env.OPEN_ROUTER_TTS_VOICE || 'alloy');
       const languageHint = String(req.body?.languageHint || 'auto');
-      const performanceStyle = String(req.body?.performanceStyle || 'warm, expressive, natural, emotional human voice with realistic pauses');
+      // Reused below both to pick the Gemini voice (Achird/Aoede) and to shape
+      // how it's told to sound -- the same gender split the voice itself is.
+      const isMaleVoice = ['onyx', 'echo', 'male'].includes(voice);
+      const conversationGenderStyle = isMaleVoice
+        ? "This is a man's voice, so let it sound firm, confident, and strong: a steady, assured tone, like a man who sounds sure of himself -- not soft, timid, or hesitant."
+        : "This is a woman's voice, so let it sound gentle, soft, and warm: a tender, caring tone, like a woman speaking kindly -- not hard, loud, or forceful.";
+      // Shared by both Khmer and non-Khmer spoken replies in Live Voice's
+      // fallback loop so neither sounds flatter than the other -- a narrator
+      // reading text aloud, not a person actually talking.
+      const conversationPerformanceStyle = `Speak like a real, warm human being talking on a phone call to someone they genuinely want to help — never a flat, evenly-paced monotone narrator reading text aloud. Let your pitch rise and fall naturally across each sentence: fall gently at the end of statements, lift at the end of genuine questions, lift briefly with real excitement or a good idea. Stress only the one or two words that actually carry each sentence's meaning and let the rest sit lighter and quicker around them — do not give every word equal weight like a machine does. Leave a brief natural breath-like pause between separate ideas instead of running everything together at one constant rhythm. Match your energy to the content: relaxed for small talk, confident and clear for a concrete next step, genuinely interested when they share something about their business. ${conversationGenderStyle}`;
+      const performanceStyle = String(req.body?.performanceStyle
+        || (req.body?.conversation ? conversationPerformanceStyle : 'warm, expressive, natural, emotional human voice with realistic pauses'));
       if (!input) return res.status(400).json({ error: 'Text is required.' });
 
       if (containsKhmerScript(input)) {
@@ -2210,7 +2248,7 @@ Return ONLY a single valid JSON object with this exact structure:
           input,
           voice,
           performanceStyle: req.body?.conversation
-            ? 'Speak clearly and warmly as one person answering another in a natural conversation. Keep natural phrase pauses and pronounce every Khmer syllable fully.'
+            ? `${conversationPerformanceStyle} Speak with native Cambodian pronunciation, never a foreign accent: crisp initial and final consonants, correct vowel length, and clearly separated words with no merging or slurring between them. Fully pronounce every syllable, including word endings -- never rush or swallow them.`
             : performanceStyle,
           context: String(req.body?.context || ''),
         };
@@ -2230,7 +2268,7 @@ Return ONLY a single valid JSON object with this exact structure:
         // (picked by ear against the alternatives), regardless of the persona
         // voice name -- other callers keep the existing Kore/Puck mapping.
         const geminiVoice = req.body?.conversation
-          ? (['onyx', 'echo', 'male'].includes(voice) ? 'Achird' : 'Aoede')
+          ? (isMaleVoice ? 'Achird' : 'Aoede')
           : (GEMINI_VOICE_BY_OPENAI_VOICE[voice] || process.env.OPEN_ROUTER_TTS_GEMINI_VOICE || 'Kore');
         const audio = await synthesizeSpeechViaOpenRouter({ input, model: geminiModel, voice: geminiVoice, format: 'pcm' });
         return res.status(200).json(audio);
@@ -2291,7 +2329,13 @@ Return ONLY a single valid JSON object with this exact structure:
       const businessContext = businessContextFromBody(req.body);
       const voiceName = req.body?.voiceName === 'Achird' ? 'Achird' : 'Aoede';
       const voiceLanguage = ['auto', 'km', 'en'].includes(req.body?.voiceLanguage) ? req.body.voiceLanguage : 'auto';
-      const systemInstruction = `You are aime.angkorgate AI Agent in a live, bidirectional, voice-only call with a creator or small business owner. Listen to incoming audio and respond directly with spoken audio. ${liveVoiceLanguageInstruction(voiceLanguage)} Keep answers useful and conversational, with concrete advice where relevant. Do not read markdown, headings, or bullet symbols aloud. ${CAMBODIA_MARKET_CONTEXT}${businessContentInstruction(businessContext)} Spoken reply language follows the user's audio and the speech-language choice above, never the language of this business context or the app interface. Never answer Khmer speech in English or Hindi.`;
+      // Aoede and Achird are a female and a male voice respectively -- read
+      // in the gender each one actually sounds like, not the same neutral
+      // delivery regardless of which voice is speaking.
+      const genderStyle = voiceName === 'Achird'
+        ? "This is a man's voice, so let it sound firm, confident, and strong: a steady, assured tone, like a man who sounds sure of himself -- not soft, timid, or hesitant."
+        : "This is a woman's voice, so let it sound gentle, soft, and warm: a tender, caring tone, like a woman speaking kindly -- not hard, loud, or forceful.";
+      const systemInstruction = `You are aime.angkorgate AI Agent in a live, bidirectional, voice-only call with a creator or small business owner. Listen to incoming audio and respond directly with spoken audio. ${liveVoiceLanguageInstruction(voiceLanguage)} Keep answers useful and conversational, with concrete advice where relevant. Do not read markdown, headings, or bullet symbols aloud. Speak like a real, warm human being on a phone call -- never a flat, evenly-paced, robotic monotone that just reads words aloud. Let your pitch genuinely rise and fall within and across sentences the way real speech does: fall gently at the end of statements, lift at the end of genuine questions, lift briefly with real excitement or a good idea. Stress only the one or two words that actually carry each sentence's meaning and let the rest sit lighter and quicker around them -- do not give every word equal weight like a machine does. Leave a brief natural beat, like a small breath, between separate ideas instead of running everything together at one constant rhythm. Match your energy to the content: relaxed and easy for small talk, confident and clear for a concrete next step, genuinely interested when the user shares something about their business. Use the loose, informal phrasing a real person would actually say out loud, not the tidy phrasing of something written to be read. ${genderStyle} When speaking Khmer, sound like a native Cambodian speaker having a relaxed one-on-one conversation, never a foreign accent: crisp initial and final consonants, correct vowel length, and clearly separated words with no merging or slurring between them. Fully pronounce every Khmer syllable, including word endings, at a comfortable unhurried pace -- never rush, swallow endings, or run words together. ${CAMBODIA_MARKET_CONTEXT}${businessContentInstruction(businessContext)} Spoken reply language follows the user's audio and the speech-language choice above, never the language of this business context or the app interface. Never answer Khmer speech in English or Hindi.`;
       const ephemeral = await createGeminiLiveEphemeralToken({ voiceName, systemInstruction });
       return res.status(200).json(ephemeral);
     }
