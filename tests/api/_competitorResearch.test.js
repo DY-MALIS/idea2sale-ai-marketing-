@@ -365,7 +365,7 @@ it('keeps only reachable, explicitly dated activity inside the requested 7-day w
     activityEndDate: '2026-09-14',
   });
 
-  expect(mocks.webSearch).toHaveBeenCalledTimes(5);
+  expect(mocks.webSearch).toHaveBeenCalledTimes(6);
   expect(result.competitors[0].recentActivities).toEqual([
     { date: '2026-09-14', activity: 'Published a new course offer', sourceUrl: 'https://competitor.example.com/current', platform: 'Web' },
   ]);
@@ -517,7 +517,7 @@ it('retries the activity search once when it returns unparseable data, then find
     activityEndDate: '2026-09-22',
   });
 
-  expect(mocks.webSearch).toHaveBeenCalledTimes(6);
+  expect(mocks.webSearch).toHaveBeenCalledTimes(7);
   expect(result.competitors[0].recentActivities).toEqual([
     expect.objectContaining({
       date: '2026-09-22',
@@ -554,8 +554,8 @@ it('keeps the verified competitor list even if the activity search fails every a
     activityEndDate: '2026-09-18',
   });
 
-  // 3 discovery passes + 2 activity attempts (both failed) + one focused Facebook pass.
-  expect(mocks.webSearch).toHaveBeenCalledTimes(6);
+  // 3 discovery passes + 2 activity attempts + Facebook activity and Page passes.
+  expect(mocks.webSearch).toHaveBeenCalledTimes(7);
   expect(mocks.webSearch.mock.calls[5][0].prompt).toContain('Search ONLY Facebook');
   expect(result.competitors).toHaveLength(1);
   expect(result.competitors[0].recentActivities).toEqual([]);
@@ -592,7 +592,7 @@ it('searches Facebook even when LinkedIn activity was already found', async () =
     activityEndDate: '2026-09-18',
   });
 
-  expect(mocks.webSearch).toHaveBeenCalledTimes(5);
+  expect(mocks.webSearch).toHaveBeenCalledTimes(6);
   const facebookPrompt = mocks.webSearch.mock.calls[4][0].prompt;
   expect(facebookPrompt).toContain('Bean Society');
   expect(facebookPrompt).toContain('Rival Cafe');
@@ -734,10 +734,9 @@ it('merges Meta Ad Library results without spending an extra OpenRouter call, wh
     activityEndDate: '2026-09-18',
   });
 
-  // 3 discovery passes + 1 activity attempt + one focused pass per platform (still
-  // empty after the activity attempt) -- Meta Ad Library is a plain HTTP call, not
-  // an OpenRouter call, so it adds none of these.
-  expect(mocks.webSearch).toHaveBeenCalledTimes(5);
+  // The extra Page lookup runs because the Facebook activity pass found no
+  // profile. Meta Ad Library itself adds no OpenRouter call.
+  expect(mocks.webSearch).toHaveBeenCalledTimes(6);
   expect(mocks.fetchMetaAdLibraryActivity).toHaveBeenCalledWith(expect.objectContaining({
     businessName: 'Rival Cafe',
     countryCode: 'DE',
@@ -808,7 +807,7 @@ it('reports the most recent verified post when nothing falls inside the activity
     activityEndDate: '2026-09-18',
   });
 
-  expect(mocks.webSearch).toHaveBeenCalledTimes(6);
+  expect(mocks.webSearch).toHaveBeenCalledTimes(7);
   expect(result.competitors[0].recentActivities).toEqual([]);
   expect(result.competitors[0].lastKnownActivity).toEqual({
     date: '2026-07-02',
@@ -911,6 +910,49 @@ it('derives the Facebook Page link from a found post URL when discovery never re
   expect(result.competitors[0].facebookUrl).toBe('https://www.facebook.com/rivalcafe.kh');
 });
 
+it('shows the verified Facebook source as a Page link even without any post', async () => {
+  queueDiscoveryTimes({ content: JSON.stringify({ competitors: [{
+    name: 'Rival Cafe', isDirectCompetitor: true, matchConfidence: 'high',
+    matchReason: 'Serves the same cafe customers in Phnom Penh',
+    sourceUrl: 'https://www.facebook.com/pg/rivalcafe.kh/',
+  }] }) });
+  mocks.webSearch.mockResolvedValue({ content: JSON.stringify({ activities: [], profiles: [] }) });
+
+  const result = await researchCompetitors({
+    query: 'cafes Phnom Penh', activityStartDate: '2026-09-12', activityEndDate: '2026-09-18',
+  });
+
+  expect(result.competitors[0]).toMatchObject({
+    facebookUrl: 'https://www.facebook.com/rivalcafe.kh/', recentActivities: [],
+  });
+});
+
+it('looks up a Facebook Page separately when the activity search finds no posts or profile', async () => {
+  queueDiscoveryTimes({ content: JSON.stringify({ competitors: [{
+    name: 'Rival Cafe', isDirectCompetitor: true, matchConfidence: 'high',
+    matchReason: 'Serves the same cafe customers in Phnom Penh',
+    sourceUrl: 'https://rival-cafe.example.com',
+  }] }) });
+  mocks.webSearch
+    .mockResolvedValueOnce({ content: JSON.stringify({ activities: [{
+      competitorName: 'Unrelated Business', date: '2026-09-17', activity: 'Unrelated post', sourceUrl: 'https://example.com/post',
+    }] }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({ activities: [], profiles: [] }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({ profiles: [{
+      competitorName: 'Rival Cafe', profileUrl: 'https://www.facebook.com/rivalcafe.kh/',
+    }] }) });
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+
+  const result = await researchCompetitors({
+    query: 'cafes Phnom Penh', activityStartDate: '2026-09-12', activityEndDate: '2026-09-18',
+  });
+
+  expect(mocks.webSearch.mock.calls.at(-1)[0].prompt).toContain('independent of whether the business posted recently');
+  expect(result.competitors[0]).toMatchObject({
+    facebookUrl: 'https://www.facebook.com/rivalcafe.kh/', recentActivities: [],
+  });
+});
+
 it('never derives a Facebook Page link from a reel-only URL (no Page slug in the path)', async () => {
   queueDiscoveryTimes({ content: JSON.stringify({
     competitors: [{
@@ -998,8 +1040,8 @@ it('batches the Facebook/TikTok profile lookup instead of listing every missing-
     activityEndDate: '2026-09-18',
   });
 
-  // 3 discovery + 1 main activity + 2 Facebook batches.
-  expect(mocks.webSearch).toHaveBeenCalledTimes(6);
+  // 3 discovery + 1 main activity + 2 Facebook activity batches + 1 Page batch.
+  expect(mocks.webSearch).toHaveBeenCalledTimes(7);
   const facebookBatch1 = mocks.webSearch.mock.calls[4][0].prompt;
   const facebookBatch2 = mocks.webSearch.mock.calls[5][0].prompt;
   expect(facebookBatch1).toContain('Academy 1');

@@ -156,6 +156,15 @@ const isClearlyDifferentIndustry = (target, candidate) => (
 // that link from post evidence rather than showing nothing.
 const FACEBOOK_PAGE_FROM_POST_URL = /^https:\/\/(?:www\.)?facebook\.com\/([^/?#]+)\/(?:posts|videos)\//i;
 const NON_PAGE_FACEBOOK_PATH_SEGMENTS = new Set(['reel', 'watch', 'photo.php', 'permalink.php', 'groups', 'events', 'profile.php', 'story.php']);
+const facebookPageUrlFromSource = (value) => {
+  const key = facebookBusinessPageKey(value);
+  if (!key) return '';
+  try {
+    const parts = new URL(value).pathname.split('/').filter(Boolean);
+    if (parts[0]?.toLowerCase() === 'pages') return `https://www.facebook.com/pages/${parts[1]}/${parts[2]}/`;
+    return `https://www.facebook.com/${parts[0]?.toLowerCase() === 'pg' ? parts[1] : parts[0]}/`;
+  } catch { return ''; }
+};
 const derivedFacebookPageUrl = (activities) => {
   for (const activity of activities) {
     const slug = String(activity?.sourceUrl || '').match(FACEBOOK_PAGE_FROM_POST_URL)?.[1];
@@ -346,7 +355,7 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
       matchReason: String(item?.matchReason || '').trim().slice(0, 500),
       marketPresence: ['stronger', 'similar', 'weaker'].includes(marketPresence) ? marketPresence : '',
       positioning: String(item?.positioning || '').trim().slice(0, 300),
-      facebookUrl: validFacebookUrl(facebookUrl) ? facebookUrl : '',
+      facebookUrl: validFacebookUrl(facebookUrl) ? facebookUrl : facebookPageUrlFromSource(item?.sourceUrl),
       tiktokUrl: '',
       linkedinUrl: validLinkedInUrl(linkedinUrl) ? linkedinUrl : '',
       sourceUrl: String(item?.sourceUrl || '').trim().slice(0, 300),
@@ -542,6 +551,26 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
       mergeSocialProfiles(parsed.profiles, platform);
       mergeActivities(parsed.activities, new Set([platform]));
       mergeLastActivity(parsed.lastActivity, new Set([platform]));
+    });
+
+    // A search for recent posts can miss an existing Page with no indexed
+    // activity. Look up the Page itself for every still-unlinked competitor.
+    const missingFacebookPages = activityLookupCandidates.filter((candidate) => !candidate.facebookUrl);
+    const profileBatches = [];
+    for (let i = 0; i < missingFacebookPages.length; i += SOCIAL_LOOKUP_BATCH_SIZE) {
+      profileBatches.push(missingFacebookPages.slice(i, i + SOCIAL_LOOKUP_BATCH_SIZE));
+    }
+    const profileSearches = await Promise.allSettled(profileBatches.map(async (batch) => {
+      const identities = batch.map((candidate) => `- ${candidate.name} | known source: ${candidate.sourceUrl}${candidate.linkedinUrl ? ` | LinkedIn: ${candidate.linkedinUrl}` : ''}`).join('\n');
+      const response = await generateOpenRouterWebSearch({
+        prompt: `Find the official public Facebook business Page for EACH of these verified businesses in ${country}:\n${identities}\nSearch site:facebook.com with each exact business name and alternate public name. Check the Page description, location, logo when visible, contact details, and links against the known source. This is a Page lookup, independent of whether the business posted recently or at all. Never invent a Page URL or use a personal profile, post, reel, group, or another company's Page. Omit a business if its official Page cannot be identified from public search results. Return only JSON: {"profiles":[{"competitorName":"exact name from list","profileUrl":"observed official Facebook Page URL"}]}.`,
+        maxResults: ACTIVITY_MAX_RESULTS,
+        maxTokens: 4000,
+      });
+      return jsonFromText(response?.content)?.profiles;
+    }));
+    profileSearches.forEach((settled) => {
+      if (settled.status === 'fulfilled') mergeSocialProfiles(settled.value, 'Facebook');
     });
 
     // The first direct pass can only use URLs known during discovery. If a
