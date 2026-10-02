@@ -46,7 +46,7 @@ const canonicalSocialUrl = (value) => {
     if (facebookBusinessPageKey(url)) {
       return parts[0]?.toLowerCase() === 'pages'
         ? `https://www.facebook.com/pages/${parts[1]}/${parts[2]}/`
-        : `https://www.facebook.com/${parts[0]}/`;
+        : `https://www.facebook.com/${parts[0]?.toLowerCase() === 'pg' ? parts[1] : parts[0]}/`;
     }
     if (validLinkedInUrl(url)) return `https://www.linkedin.com/${parts[0]}/${parts[1]}/`;
   } catch { /* cleanUrl already checked this URL. */ }

@@ -1514,15 +1514,25 @@ Only skip a row if it truly has no date, or has a date but no topic/title/descri
         ...(isSelfBusinessTarget ? [savedBusinessProfile.facebookPageUrl] : []),
         ...ownPresencePages.filter((page) => page.platform === 'Facebook').map((page) => page.url),
       ].map(facebookBusinessPageKey).filter(Boolean));
-      const targetWebsiteHosts = new Set(ownPresencePages.filter((page) => page.platform === 'Website').map((page) => {
-        try { return new URL(page.url).hostname.toLowerCase(); } catch { return ''; }
-      }).filter(Boolean));
+      const targetWebsiteLocations = ownPresencePages.filter((page) => page.platform === 'Website').map((page) => {
+        try { return new URL(page.url); } catch { return null; }
+      }).filter(Boolean);
       const isTargetBusinessResult = (business) => {
         if (!audienceResearchTarget) return false;
         if (findExactBusiness([business], audienceResearchTarget)) return true;
         if ([business.sourceUrl, business.facebookPageUrl].some((url) => targetFacebookKeys.has(facebookBusinessPageKey(url)))) return true;
         return [business.sourceUrl, business.website].some((url) => {
-          try { return targetWebsiteHosts.has(new URL(url).hostname.toLowerCase()); } catch { return false; }
+          try {
+            const candidate = new URL(url);
+            return targetWebsiteLocations.some((own) => {
+              if (candidate.hostname.toLowerCase() !== own.hostname.toLowerCase()) return false;
+              // A root website owns its host. A path-based site on a shared
+              // host owns only that path and descendants, not other tenants.
+              const ownPath = own.pathname.replace(/\/+$/, '');
+              const candidatePath = candidate.pathname.replace(/\/+$/, '');
+              return !ownPath || candidatePath === ownPath || candidatePath.startsWith(`${ownPath}/`);
+            });
+          } catch { return false; }
         });
       };
       const productAudienceSegments = productAudienceSettled.status === 'fulfilled' ? productAudienceSettled.value : [];

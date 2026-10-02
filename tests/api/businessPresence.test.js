@@ -125,6 +125,24 @@ it('confirms a Page-only business when its public Page itself matches the profil
   expect(presence.matches).toEqual([expect.objectContaining({ platform: 'Facebook', evidence: expect.arrayContaining(['Introduction matches Page']) })]);
 });
 
+it('keeps the Page slug when a discovered Facebook URL uses the legacy pg prefix', async () => {
+  mocks.search.mockResolvedValue({ content: JSON.stringify({ candidates: [
+    { url: 'https://www.facebook.com/pg/kafe.dating/', publicName: 'Kafe Dating' },
+  ] }) });
+  mocks.page.mockImplementation(async (url) => url === 'https://www.facebook.com/kafe.dating/' ? {
+    url, title: 'Kafe Dating', description: 'Coffee and dating events in Phnom Penh',
+    text: 'Coffee and dating events in Phnom Penh', imageUrls: [], links: [],
+  } : null);
+
+  const presence = await findBusinessPresence({
+    businessName: 'Kafe Dating', businessDescription: 'Coffee and dating events in Phnom Penh',
+  });
+
+  expect(presence.matches).toEqual([expect.objectContaining({
+    platform: 'Facebook', url: 'https://www.facebook.com/kafe.dating/',
+  })]);
+});
+
 it('reports a matching Page profile photo and keeps a conflicting avatar out of confirmed matches', async () => {
   const logo = await sharp({ create: { width: 40, height: 40, channels: 3, background: '#196acb' } }).png().toBuffer();
   const circularAvatar = await sharp({ create: { width: 40, height: 40, channels: 3, background: '#ffffff' } })

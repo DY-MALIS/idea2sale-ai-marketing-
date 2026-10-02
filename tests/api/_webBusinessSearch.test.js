@@ -152,6 +152,17 @@ it('keeps same-name businesses at different public sources separate', async () =
   expect(businesses.map(({ phone }) => phone)).toEqual(['012 111 111', '012 222 222']);
 });
 
+it('keeps distinct legacy pg Facebook Pages separate', async () => {
+  mocks.webSearch.mockResolvedValue({ content: JSON.stringify({ businesses: [
+    { name: 'Kafe', phone: '012 111 111', sourceUrl: 'https://www.facebook.com/pg/kafe-one/' },
+    { name: 'Kafe', phone: '012 222 222', sourceUrl: 'https://www.facebook.com/pg/kafe-two/' },
+  ] }) });
+
+  const businesses = await searchBusinessesOnWeb({ searchTerms: 'cafes' });
+
+  expect(businesses.map(({ phone }) => phone)).toEqual(['012 111 111', '012 222 222']);
+});
+
 it('does not merge distinct Pages merely because a directory URL is shared', async () => {
   mocks.webSearch.mockResolvedValue({ content: JSON.stringify({ businesses: [
     { name: 'Kafe', facebookPageUrl: 'https://www.facebook.com/kafe-one', sourceUrl: 'https://directory.example.com/cafes' },
@@ -258,6 +269,20 @@ it('does not return the owner or its differently named Page as a customer lead',
 
   expect(businesses.map(({ businessName }) => businessName)).toEqual(['Local Training Buyer']);
   expect(mocks.webSearch.mock.calls[0][0].prompt).toContain('not a customer lead itself');
+});
+
+it('does not exclude another company merely because both Facebook URLs use pg', async () => {
+  mocks.webSearch.mockResolvedValue({ content: JSON.stringify({ businesses: [
+    { name: 'DJ Academy', sourceUrl: 'https://www.facebook.com/pg/djacademy/' },
+    { name: 'Other Academy', sourceUrl: 'https://www.facebook.com/pg/otheracademy/' },
+  ] }) });
+
+  const businesses = await searchBusinessesOnWeb({
+    searchTerms: 'potential customers for DJ Academy',
+    targetBusinessProfile: { businessName: 'DJ Academy', facebookPageUrl: 'https://www.facebook.com/pg/djacademy/' },
+  });
+
+  expect(businesses.map(({ businessName }) => businessName)).toEqual(['Other Academy']);
 });
 
 it('can retain the verified owner only as offering evidence when its introduction is missing', async () => {

@@ -35,6 +35,10 @@ export const facebookBusinessPageKey = (value) => {
     const first = (parts[0] || '').toLowerCase();
     if (!first || FACEBOOK_NON_PAGE_PATHS.has(first)) return '';
     if (first === 'pages') return parts[2] ? `pages/${parts[2].toLowerCase()}` : '';
+    if (first === 'pg') {
+      const page = (parts[1] || '').toLowerCase();
+      return page && !FACEBOOK_NON_PAGE_PATHS.has(page) ? page : '';
+    }
     return first;
   } catch {
     return '';

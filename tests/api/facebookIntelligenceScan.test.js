@@ -590,6 +590,29 @@ it('excludes the provider even when its verified website uses another public nam
   expect(res.body.webBusinessesFound).toBe(1);
 });
 
+it('keeps other businesses on the same website host when the owner has its own site path', async () => {
+  mocks.findBusinessPresence.mockResolvedValue({
+    businessName: 'DGACADEMY',
+    matches: [{ platform: 'Website', url: 'https://sites.google.com/view/dgacademy/', publicName: 'DG Academy', evidence: ['Logo matches Business Profile'] }],
+    candidates: [],
+  });
+  mocks.searchBusinesses.mockResolvedValue([
+    { businessName: 'DG Academy Online', businessType: 'Training', sourceUrl: 'https://sites.google.com/view/dgacademy/courses' },
+    { businessName: 'Local Training Buyer', businessType: 'Professional association', sourceUrl: 'https://sites.google.com/view/local-training-buyer/' },
+  ]);
+  const res = responseRecorder();
+  await handler({
+    method: 'POST', headers: {}, socket: { remoteAddress: '127.0.0.1' },
+    body: {
+      action: 'facebookIntelligenceScan', query: 'customers of DGACADEMY',
+      businessName: 'DGACADEMY', businessDescription: 'AI skills training',
+      scanMode: 'customer', countries: ['KH'], language: 'en',
+    },
+  }, res);
+
+  expect(res.body.potentialLeads.map((lead) => lead.businessName)).toEqual(['Local Training Buyer']);
+});
+
 it('looks up the owner\'s own business on the live web when no description was saved, instead of a dead end', async () => {
   const req = {
     method: 'POST',
