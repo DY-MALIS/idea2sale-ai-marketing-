@@ -798,7 +798,6 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   };
 
   const startVoice = () => {
-    if (!voiceActiveRef.current && Date.now() < voiceRetryAt) return;
     if (voiceActiveRef.current) {
       stopLiveVoice();
       return;
@@ -818,6 +817,10 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       fallbackAudioRef.current = fallbackAudio;
       fallbackAudio.src = SILENT_WAV_DATA_URL;
       void fallbackAudio.play().catch(() => {});
+      if (Date.now() < voiceRetryAt) {
+        startFallbackVoice(session);
+        return;
+      }
       const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
       if (!AudioContextCtor) throw new Error('Live audio is not supported by this browser.');
       const playbackContext: AudioContext = new AudioContextCtor({ sampleRate: 24000 });
@@ -1317,7 +1320,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                 <button
                   type="button"
                   onClick={startVoice}
-                  disabled={!liveVoiceEnabled && (loading || voiceRetryAt > Date.now())}
+                  disabled={!liveVoiceEnabled && loading}
                   aria-pressed={liveVoiceEnabled}
                   title={liveVoiceEnabled ? text.listening : text.voiceInput}
                   className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-bold transition-all disabled:opacity-60 ${liveVoiceEnabled ? 'bg-red-500 border-red-500 text-white animate-pulse' : 'bg-white/70 dark:bg-slate-800/70 border-brand-200 text-brand-600 hover:bg-brand-50 dark:hover:bg-slate-700'}`}
@@ -1332,7 +1335,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                   type="button"
                   onClick={startVoice}
                   aria-pressed={liveVoiceEnabled}
-                  disabled={!liveVoiceEnabled && (loading || voiceRetryAt > Date.now())}
+                  disabled={!liveVoiceEnabled && loading}
                   className={`px-3 py-2 rounded-xl border text-xs font-bold disabled:opacity-50 ${liveVoiceEnabled ? 'bg-brand-600 border-brand-600 text-white' : 'bg-white/70 dark:bg-slate-800/70 border-brand-200 text-brand-600'}`}
                 >
                   {language === 'km' ? 'សន្ទនាសំឡេងផ្ទាល់' : 'Live Voice'} {liveVoiceEnabled ? (language === 'km' ? 'បើក' : 'On') : (language === 'km' ? 'បិទ' : 'Off')}
@@ -1369,8 +1372,8 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
             {voiceRetryAt > Date.now() && (
               <p className="text-xs font-medium text-red-600" role="status">
                 {language === 'km'
-                  ? `ការហៅសំឡេងដល់កម្រិតកំណត់។ សាកល្បងវិញប្រហែល ${Math.ceil((voiceRetryAt - Date.now()) / 60000)} នាទីទៀត។`
-                  : `Live Voice limit reached. Try again in about ${Math.ceil((voiceRetryAt - Date.now()) / 60000)} minutes.`}
+                  ? 'ការភ្ជាប់សំឡេងផ្ទាល់មិនទាន់អាចប្រើបាន។ អ្នកនៅតែអាចបន្តសន្ទនាសំឡេងតាមផ្លូវបម្រុង។'
+                  : 'Realtime voice is temporarily unavailable. You can continue the voice conversation using the fallback.'}
               </p>
             )}
             {attachedImages.length > 0 && (
