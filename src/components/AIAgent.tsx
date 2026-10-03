@@ -14,7 +14,7 @@ import { startVoiceConversationFallback, type VoiceConversationFallback } from '
 import { getLatestBusinessBranding } from '../lib/businessBranding';
 import { CreativeAutomationRequest } from '../types';
 import { downloadAgentDocument, isAgentDocumentCommand, type AgentDocument } from '../lib/agentDocument';
-import { AgentDocumentCard } from './AgentDocumentCard';
+import { AgentDocumentCard, AgentDocumentDialog } from './AgentDocumentCard';
 
 const DEMO_AGENT_CONVERSATION_STORAGE_KEY = 'demo_agent_conversation';
 // Keep recent agent work visible long enough for users to return and reuse it.
@@ -164,6 +164,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   // request fires, the brief) to caption on screen during the call.
   const [voiceCaption, setVoiceCaption] = useState('');
   const [voiceDocument, setVoiceDocument] = useState<AgentDocument | null>(null);
+  const [documentDialog, setDocumentDialog] = useState<AgentDocument | null>(null);
   const [voiceRetryAt, setVoiceRetryAt] = useState(0);
   const voiceRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const voiceActiveRef = useRef(false);
@@ -299,13 +300,13 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           const document = data.document as AgentDocument;
           const caption = language === 'km' ? `ឯកសារ ${document.format.toUpperCase()} រួចរាល់៖ ${document.title}` : `${document.format.toUpperCase()} ready: ${document.title}`;
           setVoiceDocument(document);
+          setDocumentDialog(document);
           setVoiceCaption(caption);
           updateMessages([
             ...messagesRef.current,
             { role: 'user', content: transcript, modality: 'voice' },
             { role: 'assistant', content: caption, modality: 'voice', document },
           ]);
-          handleDocumentDownload(document);
           return;
         }
         if (!data.automation?.ready) return;
@@ -482,6 +483,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     setMessages([]);
     setConversationSessions([]);
     setActiveSessionId(newSessionId());
+    setDocumentDialog(null);
 
     const loadMemory = async () => {
       try {
@@ -663,6 +665,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     const nextSessionId = newSessionId();
     const nextSessions = upsertSession(conversationSessions, buildSession(messages, activeSessionId));
     setMessages([]);
+    setDocumentDialog(null);
     setInput('');
     setLoading(false);
     setConversationSessions(nextSessions);
@@ -1080,11 +1083,11 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       ]);
 
       if (document) {
+        setDocumentDialog(document);
         if (spoken) {
           setVoiceDocument(document);
           setVoiceCaption(answer);
         }
-        handleDocumentDownload(document);
         return '';
       }
 
@@ -1121,6 +1124,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   return (
     <div className="max-w-7xl mx-auto space-y-8">
       <ToastHost />
+      {documentDialog && <AgentDocumentDialog document={documentDialog} language={language} onDownload={handleDocumentDownload} onClose={() => setDocumentDialog(null)} />}
       <header className="flex flex-col gap-2">
         <h2 className="text-4xl font-display font-bold text-brand-700 dark:text-brand-300 tracking-tight flex items-center gap-3">
           {text.title}
