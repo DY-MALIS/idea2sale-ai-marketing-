@@ -3,7 +3,7 @@ import { strFromU8, unzipSync } from 'fflate';
 import readXlsxFile from 'read-excel-file/node';
 import mammoth from 'mammoth';
 import { createAgentDocumentBlob, isAgentDocumentCommand } from '../../src/lib/agentDocument';
-import { normalizeAgentDocument, requestedAgentDocumentFormat } from '../../api/_agentDocument.js';
+import { dateMonthlyPlanRows, nextThirtyBangkokDates, normalizeAgentDocument, requestedAgentDocumentFormat } from '../../api/_agentDocument.js';
 
 describe('agent document requests', () => {
   it('recognizes direct Khmer and English commands without treating advice as creation', () => {
@@ -11,6 +11,23 @@ describe('agent document requests', () => {
     expect(requestedAgentDocumentFormat('Create an Excel content calendar')).toBe('xlsx');
     expect(requestedAgentDocumentFormat('How do I use Excel?')).toBeNull();
     expect(isAgentDocumentCommand('Create an Excel content calendar')).toBe(true);
+    expect(requestedAgentDocumentFormat('សូមបង្កើត plan សម្រាប់មួយខែ')).toBe('xlsx');
+    expect(isAgentDocumentCommand('សូមបង្កើត plan សម្រាប់មួយខែ')).toBe(true);
+    expect(requestedAgentDocumentFormat('សូមរៀបចំផែនការមាតិកាមួយខែ')).toBe('xlsx');
+    expect(requestedAgentDocumentFormat('How do I create a plan for one month?')).toBeNull();
+  });
+
+  it('turns a monthly plan into 30 dated rows for Bangkok time', () => {
+    const dates = nextThirtyBangkokDates(new Date('2026-10-02T18:00:00Z'));
+    expect(dates).toHaveLength(30);
+    expect(dates[0]).toBe('2026-10-03');
+    expect(dates[29]).toBe('2026-11-01');
+    const document = normalizeAgentDocument({ title: 'Monthly plan', sheets: [{ name: 'Plan', columns: ['Date', 'Platform', 'Format', 'Topic', 'Hook', 'CTA'], rows: [['2026-10-03', 'Facebook', 'Video', 'Product demo', 'Watch this', 'Order now']] }] }, 'xlsx');
+    const completed = dateMonthlyPlanRows(document, dates, 'English');
+    expect(completed.sheets[0].rows).toHaveLength(30);
+    expect(completed.sheets[0].rows[0]).toEqual(['2026-10-03', 'Facebook', 'Video', 'Product demo', 'Watch this', 'Order now']);
+    expect(completed.sheets[0].rows[29][0]).toBe('2026-11-01');
+    expect(completed.sheets[0].rows[29][3]).toContain('Draft idea:');
   });
 
   it('makes a Word file with Khmer content and XML escaped', async () => {

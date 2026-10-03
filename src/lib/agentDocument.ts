@@ -1,4 +1,5 @@
 import { strToU8, zipSync } from 'fflate';
+import { requestedAgentDocumentFormat } from '../../shared/agentDocumentIntent.js';
 
 export interface AgentDocument {
   format: 'docx' | 'xlsx';
@@ -7,10 +8,7 @@ export interface AgentDocument {
   sheets?: { name: string; columns: string[]; rows: string[][] }[];
 }
 
-export const isAgentDocumentCommand = (message: string) => (
-  (/\b(word|docx|excel|xlsx)\b|ឯកសារ\s*វើដ|សន្លឹក\s*អិចសែល/iu.test(message)
-    && /\b(create|make|generate|prepare|write|export|download|convert|turn|send|give me)\b|បង្កើត|រៀបចំ|សរសេរ|ធ្វើ|ផ្ញើ|យក|ទាញយក|ចេញជា/iu.test(message))
-);
+export const isAgentDocumentCommand = (message: string) => Boolean(requestedAgentDocumentFormat(message));
 
 const xml = (value: unknown) => String(value ?? '')
   .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')

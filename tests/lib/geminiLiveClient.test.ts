@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { connectGeminiLive } from '../../src/lib/geminiLiveClient';
+import { isAgentDocumentCommand } from '../../src/lib/agentDocument';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -116,6 +117,7 @@ describe('Gemini Live browser connection', () => {
     vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [{ stop: vi.fn() }] }) } });
     vi.stubGlobal('window', { setInterval, setTimeout });
     vi.stubGlobal('WebSocket', FakeWebSocket);
+    const createBufferSource = vi.fn(() => ({ connect: vi.fn(), start: vi.fn(), stop: vi.fn(), onended: null }));
     const playbackContext = {
       sampleRate: 16000,
       currentTime: 0,
@@ -123,12 +125,12 @@ describe('Gemini Live browser connection', () => {
       createMediaStreamSource: () => ({ connect: vi.fn(), disconnect: vi.fn() }),
       createScriptProcessor: () => ({ connect: vi.fn(), disconnect: vi.fn(), onaudioprocess: null }),
       createBuffer: () => ({ duration: 0.1, copyToChannel: vi.fn() }),
-      createBufferSource: () => ({ connect: vi.fn(), start: vi.fn(), stop: vi.fn(), onended: null }),
+      createBufferSource,
       close: vi.fn().mockResolvedValue(undefined),
     } as unknown as AudioContext;
 
     const onUserTurnText = vi.fn();
-    const pending = connectGeminiLive('ephemeral-token', 'gemini-3.8-live', playbackContext, { onUserTurnText });
+    const pending = connectGeminiLive('ephemeral-token', 'gemini-3.8-live', playbackContext, { onUserTurnText, onUserTranscription: isAgentDocumentCommand });
     await vi.waitFor(() => expect(socket).toBeDefined());
     socket.readyState = FakeWebSocket.OPEN;
     socket.onopen();
@@ -147,5 +149,14 @@ describe('Gemini Live browser connection', () => {
     socket.onmessage({ data: JSON.stringify({ serverContent: { turnComplete: true } }) });
     await Promise.resolve();
     expect(onUserTurnText).toHaveBeenCalledOnce();
+
+    socket.onmessage({ data: JSON.stringify({ serverContent: { inputTranscription: { text: 'សូមបង្កើត plan សម្រាប់មួយខែ' } } }) });
+    const audioData = Buffer.from(new Int16Array([100, -100]).buffer).toString('base64');
+    socket.onmessage({ data: JSON.stringify({ serverContent: { modelTurn: { parts: [{ inlineData: { mimeType: 'audio/pcm;rate=24000', data: audioData } }] } } }) });
+    await Promise.resolve();
+    expect(createBufferSource).not.toHaveBeenCalled();
+    socket.onmessage({ data: JSON.stringify({ serverContent: { turnComplete: true } }) });
+    await Promise.resolve();
+    expect(onUserTurnText).toHaveBeenLastCalledWith('សូមបង្កើត plan សម្រាប់មួយខែ');
   });
 });

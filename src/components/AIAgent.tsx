@@ -254,6 +254,11 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   // caption it, without touching the live audio turn itself in any way.
   const handleLiveUserTurn = (session: number, transcript: string) => {
     if (session !== voiceSessionRef.current || !voiceActiveRef.current) return;
+    const documentCommand = isAgentDocumentCommand(transcript);
+    if (documentCommand) {
+      setVoiceProcessing(true);
+      setVoiceCaption(language === 'km' ? 'កំពុងបង្កើតផែនការ និងឯកសារ...' : 'Creating your plan and document...');
+    }
     void (async () => {
       try {
         const detectedLanguage = detectMessageLanguage(transcript);
@@ -270,7 +275,15 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           }),
         });
         const data = await response.json().catch(() => ({}));
-        if (!response.ok || session !== voiceSessionRef.current || !voiceActiveRef.current) return;
+        if (!response.ok) {
+          if (documentCommand && session === voiceSessionRef.current) {
+            const error = String(data.error || (language === 'km' ? 'មិនអាចបង្កើតឯកសារបានទេ។' : 'Could not create the document.'));
+            setVoiceCaption(error);
+            notify(error, 'error');
+          }
+          return;
+        }
+        if (session !== voiceSessionRef.current || !voiceActiveRef.current) return;
         if (data.document) {
           const document = data.document as AgentDocument;
           const caption = language === 'km' ? `ឯកសារ ${document.format.toUpperCase()} រួចរាល់៖ ${document.title}` : `${document.format.toUpperCase()} ready: ${document.title}`;
@@ -295,6 +308,13 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         ]);
       } catch (error) {
         console.error('Live Voice automation check failed:', error);
+        if (documentCommand && session === voiceSessionRef.current) {
+          const message = language === 'km' ? 'ការបង្កើតផែនការបានបរាជ័យ។ សូមសាកល្បងម្តងទៀត។' : 'Could not create the plan. Please try again.';
+          setVoiceCaption(message);
+          notify(message, 'error');
+        }
+      } finally {
+        if (documentCommand && session === voiceSessionRef.current) setVoiceProcessing(false);
       }
     })();
   };
