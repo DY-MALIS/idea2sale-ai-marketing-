@@ -30,11 +30,11 @@ import { uploadMediaDataUrl } from './_imagekitUpload.js';
 import { sendOutreachEmail } from './_email.js';
 import { extractDocumentText } from './_documentExtract.js';
 import { generateAgentDocument, requestedAgentDocumentFormat } from './_agentDocument.js';
-import { isContentPlanEditRequest } from '../shared/contentPlanEditIntent.js';
+import { isContentPlanEditFollowup, isContentPlanEditRequest } from '../shared/contentPlanEditIntent.js';
 import { createHash } from 'crypto';
 
-const agentContentPlanText = (body) => (Array.isArray(body?.contentPlan) ? body.contentPlan : [])
-  .slice(0, 14)
+const agentContentPlanText = (body, limit = 14) => (Array.isArray(body?.contentPlan) ? body.contentPlan : [])
+  .slice(0, limit)
   .map((item) => [
     String(item?.date || '').slice(0, 20),
     item?.type === 'video' ? 'video' : 'image',
@@ -1046,7 +1046,10 @@ export default async function handler(req, res) {
     if (action === 'editContentPlan') {
       const message = String(req.body?.message || '').trim();
       const items = Array.isArray(req.body?.items) ? req.body.items.slice(0, 60) : [];
-      if (!isContentPlanEditRequest(message) || !items.length) {
+      const planContext = (Array.isArray(req.body?.planContext) ? req.body.planContext : [])
+        .slice(-4).map((item) => ({ role: item?.role === 'assistant' ? 'assistant' : 'user', content: String(item?.content || '').slice(0, 1000) }));
+      const hasPlanContext = planContext.some((item) => item.role === 'assistant' && /content\s*plan|ផែនការ/iu.test(item.content));
+      if (!(isContentPlanEditRequest(message) || (hasPlanContext && isContentPlanEditFollowup(message))) || !items.length) {
         return res.status(400).json({ error: 'An existing content plan and a specific edit request are required.' });
       }
       const owner = req.body?.target === 'saved' ? await requireAiUser(req) : null;
@@ -1056,24 +1059,41 @@ export default async function handler(req, res) {
         type: item?.type === 'video' ? 'video' : 'image',
         topic: String(item?.topic || '').slice(0, 200),
         prompt: String(item?.prompt || '').slice(0, 500),
+        headline: String(item?.headline || '').slice(0, 80),
+        cta: String(item?.cta || '').slice(0, 30),
+        voiceGender: item?.voiceGender === 'Male' ? 'Male' : 'Female',
         voiceOverText: String(item?.voiceOverText || '').slice(0, 500),
+        performanceStyle: String(item?.performanceStyle || '').slice(0, 300),
+        aspectRatio: String(item?.aspectRatio || '').slice(0, 10),
         status: String(item?.status || 'DRAFT').slice(0, 20),
       }));
       const response = await generateOpenRouterText({
         model: process.env.OPEN_ROUTER_CONTENT_PLAN_MODEL || 'google/gemini-3.1-pro-preview',
-        system: 'You edit an existing content calendar. Return only a JSON array of precise changes to existing rows. Never claim that you saved anything. Do not invent an edit when the request is unclear. Preserve all unrequested dates, topics, types, and rows. Only rows marked DRAFT or PENDING may be edited.',
-        prompt: `User request:\n${message.slice(0, 2000)}\n\nExisting content plan (index is 1-based and must be used in your response):\n${JSON.stringify(editable)}\n\nReturn ONLY a JSON array like [{"index":2,"changes":{"topic":"new topic","prompt":"new English visual prompt"}}]. Include only changed fields from: date (YYYY-MM-DD), type (image or video), topic, prompt, headline, cta, voiceGender (Male or Female), voiceOverText (natural Khmer narration), performanceStyle, aspectRatio. If a topic changes, also update its generation prompt and, for video, its Khmer narration. If changing an image to a video, supply a suitable Khmer voiceOverText. Do not include rows that do not need editing. If the target row is unclear or unavailable, return [].`,
+        system: 'You edit an existing content calendar exactly as instructed. Return only a JSON array of operations. Never claim you saved anything. Never change, add, or remove an item unless explicitly requested. Preserve every unrequested row and field. Only rows marked DRAFT or PENDING may be updated or removed.',
+        prompt: `Today is ${new Date().toISOString().slice(0, 10)}.\nRecent conversation for resolving references such as "it" or "that row":\n${JSON.stringify(planContext)}\n\nUser request:\n${message.slice(0, 2000)}\n\nExisting content plan (index is 1-based):\n${JSON.stringify(editable)}\n\nReturn ONLY a JSON array of requested operations. To change an existing row: {"op":"update","index":2,"changes":{"topic":"new topic","prompt":"new English visual prompt"}}. To add a row: {"op":"add","item":{"date":"YYYY-MM-DD","type":"image or video","topic":"short topic","prompt":"complete English visual generation prompt","voiceOverText":"Khmer narration if video"}}. To remove a row: {"op":"remove","index":2}. Valid update fields: date, type, topic, prompt, headline, cta, voiceGender (Male or Female), voiceOverText (natural Khmer narration), performanceStyle, aspectRatio. For a changed topic or type, also supply a matching generation prompt; for a changed video topic or conversion to video, supply Khmer narration. New video rows need Khmer narration and a visual-only English prompt; new image rows need a complete English image prompt. Keep dates in YYYY-MM-DD format. Do not replace the entire plan unless explicitly told to. If the requested target or change is unclear, return [].`,
         temperature: 0.1,
-        maxTokens: 4500,
+        maxTokens: 16000,
       });
       const parsed = jsonFromText(response, []);
       const allowed = ['date', 'type', 'topic', 'prompt', 'headline', 'cta', 'voiceGender', 'voiceOverText', 'performanceStyle', 'aspectRatio'];
-      const patches = (Array.isArray(parsed) ? parsed : []).flatMap((entry) => {
+      if (Array.isArray(parsed) && parsed.length > 120) {
+        return res.status(502).json({ error: 'The requested plan edit is too large to apply safely in one step.' });
+      }
+      const operations = Array.isArray(parsed) ? parsed : [];
+      if (operations.some((entry) => {
+        const index = Number(entry?.index);
+        return ['update', 'remove'].includes(entry?.op || 'update') && Number.isInteger(index) && index >= 1 && index <= editable.length
+          && !['DRAFT', 'PENDING'].includes(editable[index - 1].status);
+      })) {
+        return res.status(409).json({ error: 'Only draft or pending Content Plan rows can be changed. This row is already being generated or finished.' });
+      }
+      const patches = operations.flatMap((entry) => {
+        if (entry?.op && entry.op !== 'update') return [];
         const index = Number(entry?.index);
         if (!Number.isInteger(index) || index < 1 || index > editable.length || !['DRAFT', 'PENDING'].includes(editable[index - 1].status)) return [];
         const changes = Object.fromEntries(allowed.flatMap((key) => {
           const value = entry?.changes?.[key];
-          if (typeof value !== 'string' || !value.trim()) return [];
+          if (typeof value !== 'string' || (!value.trim() && !['headline', 'cta', 'performanceStyle'].includes(key))) return [];
           if (key === 'date' && !/^\d{4}-\d{2}-\d{2}$/.test(value)) return [];
           if (key === 'type' && !['image', 'video'].includes(value)) return [];
           if (key === 'voiceGender' && !['Male', 'Female'].includes(value)) return [];
@@ -1083,24 +1103,77 @@ export default async function handler(req, res) {
         return Object.keys(changes).length ? [{ index, changes }] : [];
       });
       const uniquePatches = [...new Map(patches.map((patch) => [patch.index, patch])).values()];
+      const removals = [...new Set(operations.flatMap((entry) => {
+        const index = Number(entry?.index);
+        return entry?.op === 'remove' && Number.isInteger(index) && index >= 1 && index <= editable.length && ['DRAFT', 'PENDING'].includes(editable[index - 1].status) ? [index] : [];
+      }))];
+      if (uniquePatches.some((patch) => removals.includes(patch.index))) {
+        return res.status(502).json({ error: 'The plan edit tried to update and remove the same row. Please try again.' });
+      }
+      const rawAdditions = operations.filter((entry) => entry?.op === 'add');
+      const additions = rawAdditions.flatMap((entry) => {
+        const item = entry?.item;
+        if (!item || !/^\d{4}-\d{2}-\d{2}$/.test(String(item.date || '')) || !String(item.topic || '').trim() || !String(item.prompt || '').trim()) return [];
+        const type = item.type === 'video' ? 'video' : 'image';
+        if (type === 'video' && !/[\u1780-\u17ff]/u.test(String(item.voiceOverText || ''))) return [];
+        return [{
+          scheduledDate: String(item.date),
+          type,
+          topic: String(item.topic).trim().slice(0, 200),
+          prompt: String(item.prompt).trim().slice(0, 2000),
+          ...(type === 'video' ? {
+            voiceGender: item.voiceGender === 'Male' ? 'Male' : 'Female',
+            voiceOverText: String(item.voiceOverText).trim().slice(0, 500),
+            performanceStyle: String(item.performanceStyle || '').trim().slice(0, 1000),
+            aspectRatio: ['9:16', '16:9', '1:1', '3:4'].includes(item.aspectRatio) ? item.aspectRatio : '9:16',
+            duration: 8,
+            voiceOverWanted: true,
+            voiceOverMode: 'edge-seedance',
+          } : {
+            headline: String(item.headline || '').trim().slice(0, 80),
+            cta: String(item.cta || '').trim().slice(0, 30),
+            aspectRatio: ['9:16', '16:9', '1:1', '3:4'].includes(item.aspectRatio) ? item.aspectRatio : '1:1',
+          }),
+        }];
+      });
+      if (additions.length !== rawAdditions.length) {
+        return res.status(502).json({ error: 'The new plan item was incomplete. Please specify a date and topic, then try again.' });
+      }
       for (const { index, changes } of uniquePatches) {
         const nextType = changes.type || editable[index - 1].type;
-        if (changes.topic && !changes.prompt) {
+        if ((changes.topic || changes.type) && !changes.prompt) {
           return res.status(502).json({ error: 'The plan edit did not include an updated generation prompt. Please try again.' });
         }
         if (nextType === 'video' && (changes.topic || changes.type === 'video') && !changes.voiceOverText) {
           return res.status(502).json({ error: 'The video edit did not include Khmer narration. Please try again.' });
         }
       }
-      if (req.body?.target === 'saved' && uniquePatches.length) {
+      const hasChanges = uniquePatches.length + removals.length + additions.length > 0;
+      let addedItems = additions;
+      if (req.body?.target === 'saved' && hasChanges) {
         const firestore = initFirebaseAdmin();
+        const planCollection = firestore.collection('content_plan_items');
+        const created = additions.map((item) => ({
+          ref: planCollection.doc(),
+          data: {
+            ...item,
+            userId: owner.uid,
+            businessName: String(req.body?.businessName || '').slice(0, 200),
+            status: 'PENDING',
+            createdAt: new Date(),
+          },
+        }));
         await firestore.runTransaction(async (transaction) => {
-          const refs = uniquePatches.map(({ index }) => firestore.collection('content_plan_items').doc(String(items[index - 1]?.id || '')));
+          const refs = [...uniquePatches.map(({ index }) => index), ...removals]
+            .map((index) => planCollection.doc(String(items[index - 1]?.id || '')));
           const snapshots = await Promise.all(refs.map((ref) => transaction.get(ref)));
-          snapshots.forEach((snapshot, position) => {
+          snapshots.forEach((snapshot) => {
             if (!snapshot.exists || snapshot.data()?.userId !== owner.uid || snapshot.data()?.status !== 'PENDING') {
               throw Object.assign(new Error('The content plan changed. Refresh it and try again.'), { statusCode: 409 });
             }
+          });
+          uniquePatches.forEach((_, position) => {
+            const snapshot = snapshots[position];
             const changes = uniquePatches[position].changes;
             const nextType = changes.type || snapshot.data()?.type;
             const nextNarration = changes.voiceOverText || snapshot.data()?.voiceOverText;
@@ -1114,9 +1187,12 @@ export default async function handler(req, res) {
               ...(changes.type === 'video' ? { duration: 8, voiceOverWanted: true, voiceOverMode: 'edge-seedance' } : {}),
             });
           });
+          removals.forEach((_, position) => transaction.delete(snapshots[uniquePatches.length + position].ref));
+          created.forEach(({ ref, data }) => transaction.create(ref, data));
         });
+        addedItems = created.map(({ ref, data }) => ({ id: ref.id, ...data }));
       }
-      return res.status(200).json({ patches: uniquePatches, applied: req.body?.target === 'saved' && uniquePatches.length > 0 });
+      return res.status(200).json({ patches: uniquePatches, removals, additions: addedItems, applied: req.body?.target === 'saved' && hasChanges });
     }
 
     if (action === 'socialAgent') {
@@ -1152,7 +1228,8 @@ export default async function handler(req, res) {
 
       const documentFormat = requestedAgentDocumentFormat(message);
       if (documentFormat) {
-        const document = await generateAgentDocument({ format: documentFormat, message, historyText: `${historyText}${contentPlanText ? `\nAvailable Content Plan:\n${contentPlanText}` : ''}`, businessContextText, responseLanguage });
+        const fullContentPlanText = agentContentPlanText(req.body, 60);
+        const document = await generateAgentDocument({ format: documentFormat, message, historyText: `${historyText}${fullContentPlanText ? `\nAvailable Content Plan:\n${fullContentPlanText}` : ''}`, businessContextText, responseLanguage });
         return res.status(200).json({ text: '', document, automation: null });
       }
       const automation = await buildCreativeAutomation({ message, historyText, responseLanguage, businessContext, contentPlanText });
@@ -1246,10 +1323,11 @@ Response rules:
       const contentPlanText = agentContentPlanText(req.body);
       const documentFormat = requestedAgentDocumentFormat(message);
       if (documentFormat) {
+        const fullContentPlanText = agentContentPlanText(req.body, 60);
         const document = await generateAgentDocument({
           format: documentFormat,
           message,
-          historyText: `${historyText}${contentPlanText ? `\nAvailable Content Plan:\n${contentPlanText}` : ''}`,
+          historyText: `${historyText}${fullContentPlanText ? `\nAvailable Content Plan:\n${fullContentPlanText}` : ''}`,
           businessContextText: `Business name: ${businessContext.businessName || 'not set'}\nBusiness description: ${businessContext.businessDescription || 'not set'}`,
           responseLanguage,
         });

@@ -15,7 +15,7 @@ import { getLatestBusinessBranding } from '../lib/businessBranding';
 import { CreativeAutomationRequest } from '../types';
 import { downloadAgentDocument, isAgentDocumentCommand, type AgentDocument } from '../lib/agentDocument';
 import { AgentDocumentCard, AgentDocumentDialog } from './AgentDocumentCard';
-import { isContentPlanEditRequest } from '../../shared/contentPlanEditIntent.js';
+import { isContentPlanEditFollowup, isContentPlanEditRequest } from '../../shared/contentPlanEditIntent.js';
 
 const DEMO_AGENT_CONVERSATION_STORAGE_KEY = 'demo_agent_conversation';
 // Keep recent agent work visible long enough for users to return and reuse it.
@@ -271,7 +271,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   // app handle document and Content Plan commands. Those turns stay silent
   // until the corresponding on-screen result or error is available.
   const handleLiveUserTurn = (session: number, transcript: string) => {
-    const planEditCommand = isContentPlanEditRequest(transcript);
+    const planEditCommand = isPlanEditMessage(transcript);
     const documentCommand = isAgentDocumentCommand(transcript);
     const handledCommand = planEditCommand || documentCommand;
     if (session !== voiceSessionRef.current || !voiceActiveRef.current) return handledCommand;
@@ -388,7 +388,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           setIsSpeaking(false);
         },
         onUserTurnText: (text) => handleLiveUserTurn(session, text),
-        onUserTranscription: (text) => isAgentDocumentCommand(text) || isContentPlanEditRequest(text),
+        onUserTranscription: (text) => isAgentDocumentCommand(text) || isPlanEditMessage(text),
         onError: () => startFallbackVoice(session),
         onClose: () => startFallbackVoice(session),
       }, { voiceName: data.voiceName, systemInstruction: data.systemInstruction }, controller.signal);
@@ -447,7 +447,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const planSectionRef = useRef<HTMLElement>(null);
 
   function contentPlanForAgent() {
-    return (planItems.length ? planItems.filter((item) => item.selected) : savedPlanItems).slice(0, 14).map((item) => ({
+    return (planItems.length ? planItems.filter((item) => item.selected) : savedPlanItems).slice(0, 60).map((item) => ({
       date: 'date' in item ? item.date : item.scheduledDate,
       type: item.type,
       topic: item.topic,
@@ -455,6 +455,16 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       voiceOverText: item.voiceOverText || '',
     }));
   }
+
+  const isPlanEditMessage = (message: string) => {
+    if (isContentPlanEditRequest(message)) return true;
+    const last = messagesRef.current.at(-1);
+    const previousAssistant = last?.role === 'assistant' ? last : messagesRef.current.at(-2);
+    return (planItems.length > 0 || savedPlanItems.length > 0)
+      && previousAssistant?.role === 'assistant'
+      && /content\s*plan|ផែនការ/iu.test(previousAssistant.content)
+      && isContentPlanEditFollowup(message);
+  };
 
   useEffect(() => {
     if (isDemoMode || !user) return;
@@ -476,7 +486,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
               voiceGender: data.voiceGender === 'Male' ? 'Male' : 'Female',
               voiceOverText: String(data.voiceOverText || ''),
               performanceStyle: String(data.performanceStyle || ''),
-              aspectRatio: ['9:16', '16:9', '1:1', '3:4'].includes(data.aspectRatio) ? data.aspectRatio : '9:16',
+              aspectRatio: ['9:16', '16:9', '1:1', '3:4'].includes(data.aspectRatio) ? data.aspectRatio : data.type === 'video' ? '9:16' : '1:1',
               status: data.status || 'PENDING',
               errorMessage: data.errorMessage || undefined,
               resultMediaUrl: data.resultMediaUrl || undefined,
@@ -815,7 +825,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         voiceGender: item.voiceGender === 'Male' ? 'Male' : 'Female',
         voiceOverText: item.voiceOverText || '',
         performanceStyle: item.performanceStyle || '',
-        aspectRatio: ['9:16', '16:9', '1:1', '3:4'].includes(item.aspectRatio) ? item.aspectRatio : '9:16',
+        aspectRatio: ['9:16', '16:9', '1:1', '3:4'].includes(item.aspectRatio) ? item.aspectRatio : item.type === 'video' ? '9:16' : '1:1',
         selected: true,
       }));
       if (!items.length) {
@@ -927,7 +937,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           prompt: item.prompt,
           businessName: businessContext?.businessName || '',
           ...(item.type === 'image'
-            ? { headline: item.headline || '', cta: item.cta || '' }
+            ? { headline: item.headline || '', cta: item.cta || '', aspectRatio: item.aspectRatio || '1:1' }
             : { voiceGender: item.voiceGender || 'Female', voiceOverText: item.voiceOverText || '', scriptEditedByUser: item.scriptEditedByUser === true, duration: 8, performanceStyle: item.performanceStyle || '', aspectRatio: item.aspectRatio || '9:16', voiceOverWanted: true, voiceOverMode: 'edge-seedance' }),
           status: 'PENDING',
           createdAt: serverTimestamp(),
@@ -968,7 +978,9 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       body: JSON.stringify({
         action: 'editContentPlan',
         message,
+        planContext: messagesRef.current.slice(-4).map(({ role, content }) => ({ role, content: content.slice(0, 1000) })),
         target,
+        businessName: businessContext?.businessName || '',
         items: items.map((item) => ({
           ...item,
           date: 'date' in item ? item.date : item.scheduledDate,
@@ -979,33 +991,49 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || 'Could not update the Content Plan.');
     const patches = (Array.isArray(data.patches) ? data.patches : []) as { index: number; changes: Partial<PlanItem> }[];
-    if (!patches.length) return language === 'km'
+    const removals = (Array.isArray(data.removals) ? data.removals : []) as number[];
+    const additions = (Array.isArray(data.additions) ? data.additions : []) as SavedPlanItem[];
+    const totalChanges = patches.length + removals.length + additions.length;
+    if (!totalChanges) return language === 'km'
       ? 'ខ្ញុំមិនអាចកំណត់ជួរណា ឬអ្វីដែលត្រូវកែបានច្បាស់ទេ។ សូមបញ្ជាក់ថ្ងៃ ឬចំណងជើងក្នុង Content Plan។'
       : 'I could not identify which plan row to change. Specify its date or topic.';
     if (target === 'saved' && data.applied !== true) throw new Error('The Content Plan update was not saved.');
     if (target === 'draft') {
-      setPlanItems((current) => current.map((item, index) => {
+      const removedIndexes = new Set(removals);
+      setPlanItems((current) => [...current.map((item, index) => {
         const patch = patches.find((entry) => entry.index === index + 1);
         return patch ? { ...item, ...patch.changes } : item;
-      }));
+      }).filter((_, index) => !removedIndexes.has(index + 1)), ...additions.map((item) => ({
+        ...item,
+        date: item.scheduledDate,
+        selected: true,
+      }))]);
     } else {
       const changesById = new Map(patches.map((entry) => [savedPlanItems[entry.index - 1]?.id, entry.changes]));
-      setSavedPlanItems((current) => current.map((item) => {
+      const removedIds = new Set(removals.map((index) => savedPlanItems[index - 1]?.id));
+      setSavedPlanItems((current) => [...current.filter((item) => !removedIds.has(item.id)).map((item) => {
         const changes = changesById.get(item.id);
         if (!changes) return item;
         const { date, ...fields } = changes;
         return { ...item, ...fields, ...(date ? { scheduledDate: date } : {}) } as SavedPlanItem;
-      }).sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate)));
+      }), ...additions].sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate)));
     }
     setPlanOpen(true);
     setPlanError(null);
     setPlanSavedCount(null);
-    const editedTopics = patches.slice(0, 3).map(({ index, changes }) => changes.topic || items[index - 1]?.topic).filter(Boolean).join(' · ');
-    setPlanEditNotice(`${language === 'km' ? 'បានកែថ្មី' : 'Just updated'}: ${editedTopics}`);
+    const editedTopics = [
+      ...patches.map(({ index, changes }) => changes.topic || items[index - 1]?.topic),
+      ...additions.map((item) => item.topic),
+      ...removals.map((index) => items[index - 1]?.topic),
+    ].filter(Boolean).slice(0, 3).join(' · ');
+    const summary = language === 'km'
+      ? [patches.length && `កែ ${patches.length}`, additions.length && `បន្ថែម ${additions.length}`, removals.length && `លុប ${removals.length}`].filter(Boolean).join(' · ')
+      : [patches.length && `edited ${patches.length}`, additions.length && `added ${additions.length}`, removals.length && `removed ${removals.length}`].filter(Boolean).join(' · ');
+    setPlanEditNotice(`${summary}: ${editedTopics}`);
     window.requestAnimationFrame(() => planSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
     return language === 'km'
-      ? `បានកែ Content Plan ${patches.length} ចំណុច${target === 'draft' ? ' ក្នុងសេចក្តីព្រាង។ សូមចុច «រក្សាទុកផែនការ» ដើម្បីរក្សាទុកជាផ្លូវការ។' : ' និងរក្សាទុករួច។'} សូមមើលកាត Content Plan ខាងលើ។`
-      : `Updated ${patches.length} Content Plan item(s)${target === 'draft' ? ' in the draft. Click Save Plan to schedule them.' : ' and saved them.'} Review the Content Plan card above.`;
+      ? `Content Plan៖ ${summary}${target === 'draft' ? ' ក្នុងសេចក្តីព្រាង។ សូមចុច «រក្សាទុកផែនការ» ដើម្បីរក្សាទុកជាផ្លូវការ។' : ' និងរក្សាទុករួច។'} សូមមើលកាតខាងលើ។`
+      : `Content Plan: ${summary}${target === 'draft' ? ' in the draft. Click Save Plan to schedule them.' : ' and saved.'} Review the card above.`;
   };
 
   const handleReviewPlanItem = async (itemId: string, action: 'approve' | 'retry', mediaUrl?: string) => {
@@ -1140,7 +1168,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     requestControllerRef.current = controller;
 
     try {
-      if (isContentPlanEditRequest(message)) {
+      if (isPlanEditMessage(message)) {
         const answer = await editContentPlan(message, controller.signal);
         updateMessages([...pendingMessages, { role: 'assistant', content: answer, modality: spoken ? 'voice' : 'text' }]);
         if (spoken) setVoiceCaption(answer);
@@ -1399,7 +1427,12 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                               </span>
                             </div>
                             <p className="mt-1 truncate text-sm font-bold text-brand-700 dark:text-brand-300">{item.topic}</p>
+                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                              {language === 'km' ? 'សមាមាត្រ' : 'Aspect ratio'}: {item.aspectRatio || (item.type === 'video' ? '9:16' : '1:1')}
+                              {item.type === 'video' && ` · ${language === 'km' ? 'សំឡេង' : 'Voice'}: ${item.voiceGender || 'Female'}`}
+                            </p>
                             {item.prompt && <p className="mt-1 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">{item.prompt}</p>}
+                            {item.type === 'video' && item.performanceStyle && <p className="mt-1 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">{item.performanceStyle}</p>}
                             {item.type === 'image' && (item.headline || item.cta) && (
                               <p className="mt-1 text-xs text-brand-600 dark:text-brand-300">{[item.headline, item.cta].filter(Boolean).join(' · ')}</p>
                             )}
@@ -1489,7 +1522,12 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                                 </span>
                               </div>
                               <p className="mt-1 truncate text-sm font-bold text-brand-700 dark:text-brand-300">{item.topic}</p>
+                              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                {language === 'km' ? 'សមាមាត្រ' : 'Aspect ratio'}: {item.aspectRatio || (item.type === 'video' ? '9:16' : '1:1')}
+                                {item.type === 'video' && ` · ${language === 'km' ? 'សំឡេង' : 'Voice'}: ${item.voiceGender || 'Female'}`}
+                              </p>
                               {item.prompt && <p className="mt-1 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">{item.prompt}</p>}
+                              {item.type === 'video' && item.performanceStyle && <p className="mt-1 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">{item.performanceStyle}</p>}
                               {item.type === 'video' && item.voiceOverText && <p className="mt-1 text-xs text-brand-600 dark:text-brand-300">{item.voiceOverText}</p>}
                               {item.type === 'image' && (item.headline || item.cta) && (
                                 <p className="mt-1 text-xs text-brand-600 dark:text-brand-300">{[item.headline, item.cta].filter(Boolean).join(' · ')}</p>

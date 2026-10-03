@@ -993,7 +993,7 @@ export default async function handler(req, res) {
       }
       const item = claim.post;
       try {
-        const image = await generateOpenRouterImage({ prompt: item.prompt, aspectRatio: '1:1' });
+        const image = await generateOpenRouterImage({ prompt: item.prompt, aspectRatio: item.aspectRatio || '1:1' });
         const profileSnap = await db.collection('business_profiles').doc(item.userId).get().catch(() => null);
         const postered = await applyPosterTextOverlay(image.imageUrl, item.headline || '', item.cta || '');
         const watermarked = await applyLogoWatermarkServer(postered, profileSnap?.data()?.logoDataUrl);
