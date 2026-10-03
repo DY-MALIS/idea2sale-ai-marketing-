@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Bot, CalendarClock, Check, ChevronDown, Copy, Download, FileSpreadsheet, FileText, History, Image as ImageIcon, ImagePlus, Loader2, Mic, MicOff, RefreshCw, Send, Sparkles, Trash2, UserRound, Video, X, Zap } from 'lucide-react';
+import { Bot, CalendarClock, Check, ChevronDown, Copy, History, Image as ImageIcon, ImagePlus, Loader2, Mic, MicOff, RefreshCw, Send, Sparkles, Trash2, UserRound, Video, X, Zap } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { AnimatePresence, motion } from 'motion/react';
 import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, setDoc, serverTimestamp, updateDoc, where } from 'firebase/firestore';
@@ -14,6 +14,7 @@ import { startVoiceConversationFallback, type VoiceConversationFallback } from '
 import { getLatestBusinessBranding } from '../lib/businessBranding';
 import { CreativeAutomationRequest } from '../types';
 import { downloadAgentDocument, isAgentDocumentCommand, type AgentDocument } from '../lib/agentDocument';
+import { AgentDocumentCard } from './AgentDocumentCard';
 
 const DEMO_AGENT_CONVERSATION_STORAGE_KEY = 'demo_agent_conversation';
 // Keep recent agent work visible long enough for users to return and reuse it.
@@ -162,6 +163,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   // hears it. Holds the latest reply text (and, when a content/plan/video
   // request fires, the brief) to caption on screen during the call.
   const [voiceCaption, setVoiceCaption] = useState('');
+  const [voiceDocument, setVoiceDocument] = useState<AgentDocument | null>(null);
   const [voiceRetryAt, setVoiceRetryAt] = useState(0);
   const voiceRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const voiceActiveRef = useRef(false);
@@ -171,6 +173,15 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const liveConnectionControllerRef = useRef<AbortController | null>(null);
   const fallbackSessionRef = useRef<VoiceConversationFallback | null>(null);
   const fallbackAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  const handleDocumentDownload = (document: AgentDocument) => {
+    try {
+      downloadAgentDocument(document);
+    } catch (error) {
+      console.error('Document download failed:', error);
+      notify(language === 'km' ? 'មិនអាចទាញយកឯកសារបានទេ។ សូមចុចប៊ូតុងម្ដងទៀត។' : 'Could not download the document. Please try the button again.', 'error');
+    }
+  };
 
   // Shared by both the text-chat flow (askAgent) and the Live Voice realtime
   // path below -- whichever one detected a complete "create a video/plan"
@@ -287,13 +298,14 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         if (data.document) {
           const document = data.document as AgentDocument;
           const caption = language === 'km' ? `ឯកសារ ${document.format.toUpperCase()} រួចរាល់៖ ${document.title}` : `${document.format.toUpperCase()} ready: ${document.title}`;
-          downloadAgentDocument(document);
+          setVoiceDocument(document);
           setVoiceCaption(caption);
           updateMessages([
             ...messagesRef.current,
             { role: 'user', content: transcript, modality: 'voice' },
             { role: 'assistant', content: caption, modality: 'voice', document },
           ]);
+          handleDocumentDownload(document);
           return;
         }
         if (!data.automation?.ready) return;
@@ -958,6 +970,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     }
     setIsSpeaking(false);
     setVoiceCaption('');
+    setVoiceDocument(null);
   };
 
   const startVoice = () => {
@@ -974,6 +987,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     setVoiceProcessing(false);
     setIsSpeaking(false);
     setVoiceCaption('');
+    setVoiceDocument(null);
     try {
       // Unlock this exact element during the click so fallback speech can play
       // after async transcription, including on browsers with strict autoplay.
@@ -1066,8 +1080,11 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       ]);
 
       if (document) {
-        downloadAgentDocument(document);
-        if (spoken) setVoiceCaption(answer);
+        if (spoken) {
+          setVoiceDocument(document);
+          setVoiceCaption(answer);
+        }
+        handleDocumentDownload(document);
         return '';
       }
 
@@ -1093,7 +1110,6 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   };
 
   const latestAnswer = [...messages].reverse().find((message) => message.role === 'assistant' && message.modality !== 'voice')?.content || '';
-  const latestDocument = [...messages].reverse().find((message) => message.role === 'assistant' && message.document)?.document;
   const conversationHistory = useMemo(() => {
     const currentSession = buildSession(messages, activeSessionId);
     return [
@@ -1652,7 +1668,8 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
 
           <div className="flex-1 max-h-[720px] overflow-y-auto pr-2 space-y-4">
             {liveVoiceEnabled ? (
-              <div className="h-full min-h-[500px] flex flex-col items-center justify-center text-center" role="status" aria-live="polite">
+              <div className={`h-full min-h-[500px] flex flex-col items-center text-center ${voiceDocument ? 'justify-start pt-3' : 'justify-center'}`} role={voiceDocument ? undefined : 'status'} aria-live={voiceDocument ? 'off' : 'polite'}>
+                {!voiceDocument && <>
                 <div className={`w-24 h-24 rounded-full flex items-center justify-center mb-5 ${isSpeaking ? 'bg-brand-600 text-white animate-pulse' : 'bg-brand-50 text-brand-600'}`}>
                   {voiceConnecting || voiceProcessing ? <Loader2 size={42} className="animate-spin" /> : isSpeaking ? <Bot size={42} /> : <Mic size={42} />}
                 </div>
@@ -1673,10 +1690,11 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                     {voiceCaption}
                   </div>
                 )}
-                {latestDocument && (
-                  <button type="button" onClick={() => downloadAgentDocument(latestDocument)} className="mt-4 inline-flex items-center gap-2 rounded-xl bg-brand-600 px-5 py-3 font-bold text-white">
-                    <Download size={18} /> {language === 'km' ? 'ទាញយកឯកសារ' : 'Download document'}
-                  </button>
+                </>}
+                {voiceDocument && (
+                  <div className="mt-5 w-full max-w-2xl rounded-2xl border border-brand-200 bg-brand-50/70 p-4 dark:border-slate-600 dark:bg-slate-800/95">
+                    <AgentDocumentCard document={voiceDocument} language={language} onDownload={handleDocumentDownload} />
+                  </div>
                 )}
                 <button type="button" onClick={stopLiveVoice} className="mt-8 px-5 py-3 rounded-xl border border-red-200 bg-red-50 text-red-600 font-bold">
                   {language === 'km' ? 'បញ្ចប់ការហៅ' : 'End call'}
@@ -1735,31 +1753,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                           <p className="whitespace-pre-wrap leading-relaxed">{message.modality === 'voice' ? (language === 'km' ? 'សំណួរជាសំឡេង' : 'Voice message') : message.content}</p>
                         </>
                       ) : message.document ? (
-                        <div className="space-y-3">
-                          <div className="flex items-center gap-2 font-bold text-brand-700 dark:text-brand-300">
-                            {message.document.format === 'xlsx' ? <FileSpreadsheet size={20} /> : <FileText size={20} />}
-                            <span>{message.document.title}</span>
-                          </div>
-                          {message.document.format === 'docx' ? (
-                            <div className="max-h-72 overflow-y-auto rounded-xl bg-white/70 p-3 text-sm dark:bg-slate-900/60">
-                              {message.document.sections?.map((section, sectionIndex) => <div key={sectionIndex} className="mb-3">
-                                {section.heading && <p className="font-semibold">{section.heading}</p>}
-                                {section.paragraphs.map((paragraph, paragraphIndex) => <p key={paragraphIndex} className="mt-1 whitespace-pre-wrap">{paragraph}</p>)}
-                              </div>)}
-                            </div>
-                          ) : (
-                            <div className="max-h-72 overflow-auto rounded-xl bg-white/70 p-3 text-sm dark:bg-slate-900/60">
-                              {message.document.sheets?.map((sheet, sheetIndex) => <div key={sheetIndex} className="mb-3">
-                                <p className="mb-1 font-semibold">{sheet.name}</p>
-                                <table className="min-w-full border-collapse text-left"><thead><tr>{sheet.columns.map((column, columnIndex) => <th key={columnIndex} className="border border-slate-300 px-2 py-1">{column}</th>)}</tr></thead>
-                                  <tbody>{sheet.rows.slice(0, 8).map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex} className="border border-slate-300 px-2 py-1">{cell}</td>)}</tr>)}</tbody></table>
-                              </div>)}
-                            </div>
-                          )}
-                          <button type="button" onClick={() => downloadAgentDocument(message.document!)} className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2 font-bold text-white">
-                            <Download size={16} /> {language === 'km' ? 'ទាញយកឯកសារ' : 'Download document'}
-                          </button>
-                        </div>
+                        <AgentDocumentCard document={message.document} language={language} onDownload={handleDocumentDownload} />
                       ) : message.modality === 'voice'
                         ? <p className="leading-relaxed">{language === 'km' ? 'ចម្លើយជាសំឡេង' : 'Voice reply'}</p>
                         : <div className="prose prose-brand max-w-none"><Markdown>{message.content}</Markdown></div>}
