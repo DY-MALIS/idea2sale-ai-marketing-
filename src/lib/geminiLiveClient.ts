@@ -27,7 +27,9 @@ export interface GeminiLiveHandlers {
   // spoken turn finishes. This audio-to-audio connection never produces text
   // otherwise, so callers that need to react to what was actually said (e.g.
   // detecting a "create a video" request) have nothing else to go on.
-  onUserTurnText?: (text: string) => void;
+  // Return true when the app handled the turn itself and model speech must
+  // remain silent (for example, a document generation command).
+  onUserTurnText?: (text: string) => boolean | void;
   onUserTranscription?: (text: string) => boolean;
   onError?: (error: Error) => void;
   onClose?: () => void;
@@ -266,6 +268,11 @@ export async function connectGeminiLive(
 
   let inputTranscriptBuffer = '';
   let suppressReplyAudio = false;
+  // The model may send audio before the finished input transcript. Hold it
+  // until the app can decide whether this turn creates a downloadable file.
+  // Sessions without an app-side turn handler keep normal streaming playback.
+  const gateReplyAudio = Boolean(handlers.onUserTurnText);
+  let pendingReplyAudio: Int16Array[] = [];
 
   socket.onmessage = (event) => {
     void (async () => {
@@ -288,6 +295,7 @@ export async function connectGeminiLive(
           inputTranscriptBuffer += transcriptChunk;
           if (handlers.onUserTranscription?.(inputTranscriptBuffer)) {
             suppressReplyAudio = true;
+            pendingReplyAudio = [];
             player.stopAll();
           }
         }
@@ -295,19 +303,28 @@ export async function connectGeminiLive(
         for (const part of parts) {
           const inline = part?.inlineData;
           if (!suppressReplyAudio && inline?.data && /^audio\//.test(inline.mimeType || '')) {
-            player.enqueue(base64ToInt16Array(inline.data));
+            const audio = base64ToInt16Array(inline.data);
+            if (gateReplyAudio) pendingReplyAudio.push(audio);
+            else player.enqueue(audio);
           }
         }
         if (message?.serverContent?.interrupted) {
+          pendingReplyAudio = [];
           player.stopAll();
           handlers.onInterrupted?.();
         }
         if (message?.serverContent?.turnComplete) {
           handlers.onTurnComplete?.();
-          player.markTurnComplete();
           const spoken = inputTranscriptBuffer.trim();
           inputTranscriptBuffer = '';
-          if (spoken) handlers.onUserTurnText?.(spoken);
+          if (gateReplyAudio && !spoken && pendingReplyAudio.length) {
+            fail(new Error('Live voice transcription was unavailable for this turn.'));
+            return;
+          }
+          const handledByApp = spoken ? handlers.onUserTurnText?.(spoken) === true : false;
+          if (!suppressReplyAudio && !handledByApp) pendingReplyAudio.forEach((audio) => player.enqueue(audio));
+          pendingReplyAudio = [];
+          player.markTurnComplete();
           suppressReplyAudio = false;
         }
       } catch (error) {

@@ -15,6 +15,7 @@ import { getLatestBusinessBranding } from '../lib/businessBranding';
 import { CreativeAutomationRequest } from '../types';
 import { downloadAgentDocument, isAgentDocumentCommand, type AgentDocument } from '../lib/agentDocument';
 import { AgentDocumentCard, AgentDocumentDialog } from './AgentDocumentCard';
+import { isContentPlanEditRequest } from '../../shared/contentPlanEditIntent.js';
 
 const DEMO_AGENT_CONVERSATION_STORAGE_KEY = 'demo_agent_conversation';
 // Keep recent agent work visible long enough for users to return and reuse it.
@@ -60,6 +61,13 @@ interface SavedPlanItem {
   scheduledDate: string;
   type: 'image' | 'video';
   topic: string;
+  prompt: string;
+  headline?: string;
+  cta?: string;
+  voiceGender?: 'Male' | 'Female';
+  voiceOverText?: string;
+  performanceStyle?: string;
+  aspectRatio?: '9:16' | '16:9' | '1:1' | '3:4';
   status: 'PENDING' | 'PROCESSING' | 'DONE' | 'FAILED' | 'REVIEW' | 'READY';
   errorMessage?: string;
   resultMediaUrl?: string;
@@ -259,20 +267,32 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     });
   };
 
-  // The fast Live path is pure audio between the browser and Google -- this
-  // app never sees a reply to drive onCreativeAutomation with. Once Gemini's
-  // own transcript of a finished user turn comes back (geminiLiveClient.ts),
-  // check it for a content/plan/video brief the same way typed chat does, and
-  // caption it, without touching the live audio turn itself in any way.
+  // Gemini Live returns audio directly, while its user transcript lets this
+  // app handle document and Content Plan commands. Those turns stay silent
+  // until the corresponding on-screen result or error is available.
   const handleLiveUserTurn = (session: number, transcript: string) => {
-    if (session !== voiceSessionRef.current || !voiceActiveRef.current) return;
+    const planEditCommand = isContentPlanEditRequest(transcript);
     const documentCommand = isAgentDocumentCommand(transcript);
-    if (documentCommand) {
+    const handledCommand = planEditCommand || documentCommand;
+    if (session !== voiceSessionRef.current || !voiceActiveRef.current) return handledCommand;
+    if (handledCommand) {
       setVoiceProcessing(true);
-      setVoiceCaption(language === 'km' ? 'កំពុងបង្កើតផែនការ និងឯកសារ...' : 'Creating your plan and document...');
+      setVoiceCaption(planEditCommand
+        ? (language === 'km' ? 'កំពុងកែ Content Plan...' : 'Updating Content Plan...')
+        : (language === 'km' ? 'កំពុងបង្កើតផែនការ និងឯកសារ...' : 'Creating your plan and document...'));
     }
     void (async () => {
       try {
+        if (planEditCommand) {
+          const answer = await editContentPlan(transcript);
+          if (session === voiceSessionRef.current && voiceActiveRef.current) setVoiceCaption(answer);
+          updateMessages([
+            ...messagesRef.current,
+            { role: 'user', content: transcript, modality: 'voice' },
+            { role: 'assistant', content: answer, modality: 'voice' },
+          ]);
+          return;
+        }
         const detectedLanguage = detectMessageLanguage(transcript);
         const response = await fetch('/api/ai', {
           method: 'POST',
@@ -295,13 +315,13 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           }
           return;
         }
-        if (session !== voiceSessionRef.current || !voiceActiveRef.current) return;
+        if (!documentCommand && (session !== voiceSessionRef.current || !voiceActiveRef.current)) return;
         if (data.document) {
           const document = data.document as AgentDocument;
           const caption = language === 'km' ? `ឯកសារ ${document.format.toUpperCase()} រួចរាល់៖ ${document.title}` : `${document.format.toUpperCase()} ready: ${document.title}`;
-          setVoiceDocument(document);
+          if (session === voiceSessionRef.current && voiceActiveRef.current) setVoiceDocument(document);
           setDocumentDialog(document);
-          setVoiceCaption(caption);
+          if (session === voiceSessionRef.current && voiceActiveRef.current) setVoiceCaption(caption);
           updateMessages([
             ...messagesRef.current,
             { role: 'user', content: transcript, modality: 'voice' },
@@ -321,15 +341,16 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         ]);
       } catch (error) {
         console.error('Live Voice automation check failed:', error);
-        if (documentCommand && session === voiceSessionRef.current) {
-          const message = language === 'km' ? 'ការបង្កើតផែនការបានបរាជ័យ។ សូមសាកល្បងម្តងទៀត។' : 'Could not create the plan. Please try again.';
-          setVoiceCaption(message);
+        if (handledCommand) {
+          const message = error instanceof Error ? error.message : (language === 'km' ? 'មិនអាចធ្វើបច្ចុប្បន្នភាពផែនការបានទេ។' : 'Could not update the plan.');
+          if (session === voiceSessionRef.current && voiceActiveRef.current) setVoiceCaption(message);
           notify(message, 'error');
         }
       } finally {
-        if (documentCommand && session === voiceSessionRef.current) setVoiceProcessing(false);
+        if (handledCommand && session === voiceSessionRef.current) setVoiceProcessing(false);
       }
     })();
+    return handledCommand;
   };
 
   const startGeminiLive = async (session: number, playbackContext: AudioContext): Promise<boolean> => {
@@ -367,7 +388,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           setIsSpeaking(false);
         },
         onUserTurnText: (text) => handleLiveUserTurn(session, text),
-        onUserTranscription: isAgentDocumentCommand,
+        onUserTranscription: (text) => isAgentDocumentCommand(text) || isContentPlanEditRequest(text),
         onError: () => startFallbackVoice(session),
         onClose: () => startFallbackVoice(session),
       }, { voiceName: data.voiceName, systemInstruction: data.systemInstruction }, controller.signal);
@@ -419,17 +440,19 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const [replaceOldPlan, setReplaceOldPlan] = useState(true);
   const [planSaving, setPlanSaving] = useState(false);
   const [planError, setPlanError] = useState<string | null>(null);
+  const [planEditNotice, setPlanEditNotice] = useState<string | null>(null);
   const [planSavedCount, setPlanSavedCount] = useState<number | null>(null);
   const [savedPlanItems, setSavedPlanItems] = useState<SavedPlanItem[]>([]);
   const planFileInputRef = useRef<HTMLInputElement>(null);
+  const planSectionRef = useRef<HTMLElement>(null);
 
   function contentPlanForAgent() {
     return (planItems.length ? planItems.filter((item) => item.selected) : savedPlanItems).slice(0, 14).map((item) => ({
       date: 'date' in item ? item.date : item.scheduledDate,
       type: item.type,
       topic: item.topic,
-      prompt: 'prompt' in item ? item.prompt : '',
-      voiceOverText: 'voiceOverText' in item ? item.voiceOverText || '' : '',
+      prompt: item.prompt,
+      voiceOverText: item.voiceOverText || '',
     }));
   }
 
@@ -447,6 +470,13 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
               scheduledDate: String(data.scheduledDate || ''),
               type: data.type === 'video' ? 'video' : 'image',
               topic: String(data.topic || ''),
+              prompt: String(data.prompt || ''),
+              headline: String(data.headline || ''),
+              cta: String(data.cta || ''),
+              voiceGender: data.voiceGender === 'Male' ? 'Male' : 'Female',
+              voiceOverText: String(data.voiceOverText || ''),
+              performanceStyle: String(data.performanceStyle || ''),
+              aspectRatio: ['9:16', '16:9', '1:1', '3:4'].includes(data.aspectRatio) ? data.aspectRatio : '9:16',
               status: data.status || 'PENDING',
               errorMessage: data.errorMessage || undefined,
               resultMediaUrl: data.resultMediaUrl || undefined,
@@ -766,6 +796,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     setPlanExtracting(true);
     setPlanError(null);
     setPlanSavedCount(null);
+    setPlanEditNotice(null);
     try {
       const response = await fetch('/api/ai', {
         method: 'POST',
@@ -859,6 +890,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     }
     setPlanSaving(true);
     setPlanError(null);
+    setPlanEditNotice(null);
     if (replaceOldPlan) {
       // Only PENDING items are cleared -- DONE items are already-published
       // history and PROCESSING items are mid-generation (a video job may
@@ -918,6 +950,62 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     }
     setPlanSavedCount(savedCount > 0 ? savedCount : null);
     setPlanSaving(false);
+  };
+
+  const editContentPlan = async (message: string, signal?: AbortSignal): Promise<string> => {
+    const target = planItems.length ? 'draft' : 'saved';
+    const items = target === 'draft' ? planItems : savedPlanItems;
+    if (!items.length) return language === 'km'
+      ? 'មិនទាន់មាន Content Plan នៅក្នុងកាតសម្រាប់កែទេ។ សូមបញ្ចូល ឬរក្សាទុកផែនការជាមុន។'
+      : 'There is no Content Plan in the card to edit yet. Add or save a plan first.';
+    const response = await fetch('/api/ai', {
+      method: 'POST',
+      signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(target === 'saved' && user ? { Authorization: `Bearer ${await user.getIdToken()}` } : {}),
+      },
+      body: JSON.stringify({
+        action: 'editContentPlan',
+        message,
+        target,
+        items: items.map((item) => ({
+          ...item,
+          date: 'date' in item ? item.date : item.scheduledDate,
+          status: 'status' in item ? item.status : 'DRAFT',
+        })),
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'Could not update the Content Plan.');
+    const patches = (Array.isArray(data.patches) ? data.patches : []) as { index: number; changes: Partial<PlanItem> }[];
+    if (!patches.length) return language === 'km'
+      ? 'ខ្ញុំមិនអាចកំណត់ជួរណា ឬអ្វីដែលត្រូវកែបានច្បាស់ទេ។ សូមបញ្ជាក់ថ្ងៃ ឬចំណងជើងក្នុង Content Plan។'
+      : 'I could not identify which plan row to change. Specify its date or topic.';
+    if (target === 'saved' && data.applied !== true) throw new Error('The Content Plan update was not saved.');
+    if (target === 'draft') {
+      setPlanItems((current) => current.map((item, index) => {
+        const patch = patches.find((entry) => entry.index === index + 1);
+        return patch ? { ...item, ...patch.changes } : item;
+      }));
+    } else {
+      const changesById = new Map(patches.map((entry) => [savedPlanItems[entry.index - 1]?.id, entry.changes]));
+      setSavedPlanItems((current) => current.map((item) => {
+        const changes = changesById.get(item.id);
+        if (!changes) return item;
+        const { date, ...fields } = changes;
+        return { ...item, ...fields, ...(date ? { scheduledDate: date } : {}) } as SavedPlanItem;
+      }).sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate)));
+    }
+    setPlanOpen(true);
+    setPlanError(null);
+    setPlanSavedCount(null);
+    const editedTopics = patches.slice(0, 3).map(({ index, changes }) => changes.topic || items[index - 1]?.topic).filter(Boolean).join(' · ');
+    setPlanEditNotice(`${language === 'km' ? 'បានកែថ្មី' : 'Just updated'}: ${editedTopics}`);
+    window.requestAnimationFrame(() => planSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    return language === 'km'
+      ? `បានកែ Content Plan ${patches.length} ចំណុច${target === 'draft' ? ' ក្នុងសេចក្តីព្រាង។ សូមចុច «រក្សាទុកផែនការ» ដើម្បីរក្សាទុកជាផ្លូវការ។' : ' និងរក្សាទុករួច។'} សូមមើលកាត Content Plan ខាងលើ។`
+      : `Updated ${patches.length} Content Plan item(s)${target === 'draft' ? ' in the draft. Click Save Plan to schedule them.' : ' and saved them.'} Review the Content Plan card above.`;
   };
 
   const handleReviewPlanItem = async (itemId: string, action: 'approve' | 'retry', mediaUrl?: string) => {
@@ -1052,6 +1140,12 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     requestControllerRef.current = controller;
 
     try {
+      if (isContentPlanEditRequest(message)) {
+        const answer = await editContentPlan(message, controller.signal);
+        updateMessages([...pendingMessages, { role: 'assistant', content: answer, modality: spoken ? 'voice' : 'text' }]);
+        if (spoken) setVoiceCaption(answer);
+        return spoken ? '' : answer;
+      }
       const response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1209,7 +1303,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         )}
       </section>
 
-      <section className="glass rounded-2xl p-5">
+      <section ref={planSectionRef} className="glass rounded-2xl p-5">
         <button
           type="button"
           onClick={() => setPlanOpen((open) => !open)}
@@ -1270,6 +1364,11 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                 </div>
 
                 {planError && <p className="text-sm text-rose-500">{planError}</p>}
+                {planEditNotice && !planError && (
+                  <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300">
+                    {planEditNotice}
+                  </p>
+                )}
                 {planSavedCount !== null && !planError && (
                   <p className="flex items-center gap-2 text-sm font-bold text-emerald-600">
                     <Check size={16} />
@@ -1300,6 +1399,10 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                               </span>
                             </div>
                             <p className="mt-1 truncate text-sm font-bold text-brand-700 dark:text-brand-300">{item.topic}</p>
+                            {item.prompt && <p className="mt-1 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">{item.prompt}</p>}
+                            {item.type === 'image' && (item.headline || item.cta) && (
+                              <p className="mt-1 text-xs text-brand-600 dark:text-brand-300">{[item.headline, item.cta].filter(Boolean).join(' · ')}</p>
+                            )}
                             {item.type === 'video' && (
                               <div className="mt-2 space-y-1">
                                 <label htmlFor={`plan-narration-${index}`} className="text-xs font-bold text-brand-600 dark:text-brand-300">
@@ -1386,6 +1489,11 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                                 </span>
                               </div>
                               <p className="mt-1 truncate text-sm font-bold text-brand-700 dark:text-brand-300">{item.topic}</p>
+                              {item.prompt && <p className="mt-1 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">{item.prompt}</p>}
+                              {item.type === 'video' && item.voiceOverText && <p className="mt-1 text-xs text-brand-600 dark:text-brand-300">{item.voiceOverText}</p>}
+                              {item.type === 'image' && (item.headline || item.cta) && (
+                                <p className="mt-1 text-xs text-brand-600 dark:text-brand-300">{[item.headline, item.cta].filter(Boolean).join(' · ')}</p>
+                              )}
                               {['FAILED', 'READY'].includes(item.status) && item.errorMessage && (
                                 <p className={`mt-1 break-words text-xs ${item.status === 'READY' ? 'text-amber-700 dark:text-amber-300' : 'text-rose-500'}`}>{item.errorMessage}</p>
                               )}

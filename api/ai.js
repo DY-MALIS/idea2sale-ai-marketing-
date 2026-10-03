@@ -30,6 +30,7 @@ import { uploadMediaDataUrl } from './_imagekitUpload.js';
 import { sendOutreachEmail } from './_email.js';
 import { extractDocumentText } from './_documentExtract.js';
 import { generateAgentDocument, requestedAgentDocumentFormat } from './_agentDocument.js';
+import { isContentPlanEditRequest } from '../shared/contentPlanEditIntent.js';
 import { createHash } from 'crypto';
 
 const agentContentPlanText = (body) => (Array.isArray(body?.contentPlan) ? body.contentPlan : [])
@@ -100,12 +101,12 @@ export const getAiRateLimitPolicy = (action) => {
 const requireAiUser = async (req) => {
   const authHeader = String(req.headers?.authorization || '');
   const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
-  if (!idToken) throw Object.assign(new Error('Sign in before generating or retrieving a video.'), { statusCode: 401 });
+  if (!idToken) throw Object.assign(new Error('Sign in before changing a saved content plan or generating a video.'), { statusCode: 401 });
   initFirebaseAdmin();
   try {
     return await admin.auth().verifyIdToken(idToken, true);
   } catch {
-    throw Object.assign(new Error('Video session authentication failed. Sign in again.'), { statusCode: 401 });
+    throw Object.assign(new Error('Authentication failed. Sign in again.'), { statusCode: 401 });
   }
 };
 
@@ -1042,6 +1043,82 @@ export default async function handler(req, res) {
       return res.status(200).json({ text: text || 'No response generated.' });
     }
 
+    if (action === 'editContentPlan') {
+      const message = String(req.body?.message || '').trim();
+      const items = Array.isArray(req.body?.items) ? req.body.items.slice(0, 60) : [];
+      if (!isContentPlanEditRequest(message) || !items.length) {
+        return res.status(400).json({ error: 'An existing content plan and a specific edit request are required.' });
+      }
+      const owner = req.body?.target === 'saved' ? await requireAiUser(req) : null;
+      const editable = items.map((item, index) => ({
+        index: index + 1,
+        date: String(item?.date || '').slice(0, 10),
+        type: item?.type === 'video' ? 'video' : 'image',
+        topic: String(item?.topic || '').slice(0, 200),
+        prompt: String(item?.prompt || '').slice(0, 500),
+        voiceOverText: String(item?.voiceOverText || '').slice(0, 500),
+        status: String(item?.status || 'DRAFT').slice(0, 20),
+      }));
+      const response = await generateOpenRouterText({
+        model: process.env.OPEN_ROUTER_CONTENT_PLAN_MODEL || 'google/gemini-3.1-pro-preview',
+        system: 'You edit an existing content calendar. Return only a JSON array of precise changes to existing rows. Never claim that you saved anything. Do not invent an edit when the request is unclear. Preserve all unrequested dates, topics, types, and rows. Only rows marked DRAFT or PENDING may be edited.',
+        prompt: `User request:\n${message.slice(0, 2000)}\n\nExisting content plan (index is 1-based and must be used in your response):\n${JSON.stringify(editable)}\n\nReturn ONLY a JSON array like [{"index":2,"changes":{"topic":"new topic","prompt":"new English visual prompt"}}]. Include only changed fields from: date (YYYY-MM-DD), type (image or video), topic, prompt, headline, cta, voiceGender (Male or Female), voiceOverText (natural Khmer narration), performanceStyle, aspectRatio. If a topic changes, also update its generation prompt and, for video, its Khmer narration. If changing an image to a video, supply a suitable Khmer voiceOverText. Do not include rows that do not need editing. If the target row is unclear or unavailable, return [].`,
+        temperature: 0.1,
+        maxTokens: 4500,
+      });
+      const parsed = jsonFromText(response, []);
+      const allowed = ['date', 'type', 'topic', 'prompt', 'headline', 'cta', 'voiceGender', 'voiceOverText', 'performanceStyle', 'aspectRatio'];
+      const patches = (Array.isArray(parsed) ? parsed : []).flatMap((entry) => {
+        const index = Number(entry?.index);
+        if (!Number.isInteger(index) || index < 1 || index > editable.length || !['DRAFT', 'PENDING'].includes(editable[index - 1].status)) return [];
+        const changes = Object.fromEntries(allowed.flatMap((key) => {
+          const value = entry?.changes?.[key];
+          if (typeof value !== 'string' || !value.trim()) return [];
+          if (key === 'date' && !/^\d{4}-\d{2}-\d{2}$/.test(value)) return [];
+          if (key === 'type' && !['image', 'video'].includes(value)) return [];
+          if (key === 'voiceGender' && !['Male', 'Female'].includes(value)) return [];
+          if (key === 'aspectRatio' && !['9:16', '16:9', '1:1', '3:4'].includes(value)) return [];
+          return [[key, value.trim().slice(0, key === 'prompt' ? 2000 : key === 'performanceStyle' ? 1000 : 500)]];
+        }));
+        return Object.keys(changes).length ? [{ index, changes }] : [];
+      });
+      const uniquePatches = [...new Map(patches.map((patch) => [patch.index, patch])).values()];
+      for (const { index, changes } of uniquePatches) {
+        const nextType = changes.type || editable[index - 1].type;
+        if (changes.topic && !changes.prompt) {
+          return res.status(502).json({ error: 'The plan edit did not include an updated generation prompt. Please try again.' });
+        }
+        if (nextType === 'video' && (changes.topic || changes.type === 'video') && !changes.voiceOverText) {
+          return res.status(502).json({ error: 'The video edit did not include Khmer narration. Please try again.' });
+        }
+      }
+      if (req.body?.target === 'saved' && uniquePatches.length) {
+        const firestore = initFirebaseAdmin();
+        await firestore.runTransaction(async (transaction) => {
+          const refs = uniquePatches.map(({ index }) => firestore.collection('content_plan_items').doc(String(items[index - 1]?.id || '')));
+          const snapshots = await Promise.all(refs.map((ref) => transaction.get(ref)));
+          snapshots.forEach((snapshot, position) => {
+            if (!snapshot.exists || snapshot.data()?.userId !== owner.uid || snapshot.data()?.status !== 'PENDING') {
+              throw Object.assign(new Error('The content plan changed. Refresh it and try again.'), { statusCode: 409 });
+            }
+            const changes = uniquePatches[position].changes;
+            const nextType = changes.type || snapshot.data()?.type;
+            const nextNarration = changes.voiceOverText || snapshot.data()?.voiceOverText;
+            if (nextType === 'video' && !/[\u1780-\u17ff]/u.test(String(nextNarration || ''))) {
+              throw Object.assign(new Error('A video needs Khmer narration before it can be saved.'), { statusCode: 400 });
+            }
+            const { date, ...fields } = changes;
+            transaction.update(snapshot.ref, {
+              ...fields,
+              ...(date ? { scheduledDate: date } : {}),
+              ...(changes.type === 'video' ? { duration: 8, voiceOverWanted: true, voiceOverMode: 'edge-seedance' } : {}),
+            });
+          });
+        });
+      }
+      return res.status(200).json({ patches: uniquePatches, applied: req.body?.target === 'saved' && uniquePatches.length > 0 });
+    }
+
     if (action === 'socialAgent') {
       const message = String(req.body?.message || '').trim();
       const platform = String(req.body?.platform || 'All');
@@ -1128,6 +1205,7 @@ Response rules:
 - If it is troubleshooting: give the likely cause, exact fix, and how to verify it worked.
 - If it is content creation: provide only the content assets the user requested. If they did not specify format, suggest 2-3 good formats first. Use clean Markdown structure so it reads like a scannable document, not a dense paragraph: a "##" or "###" heading for the title, bold labels for sub-parts, and bullet or numbered lists where there are multiple items. For a video/reel/TikTok script specifically, break it into a scene-by-scene shooting script: a bold timestamp range as a mini-heading for each beat (e.g. "**0–3s — Hook**"), with the on-screen visual direction and the exact spoken dialogue clearly separated under it (e.g. "Visual:" / "Dialogue:"), plus a short spec line up top (duration, aspect ratio, platform). Exception: if the "Creative automation" section above says a detail is missing, follow its instruction instead of writing a full script — resolving that one missing detail is the priority for this response.
 - If it is a request to improve something: rewrite or improve it immediately, then briefly explain what changed.
+- A chat response alone cannot change the Content Plan card. Never say that a Content Plan row was updated or saved unless the app's dedicated edit action actually performed that change.
 - If it is a planning request: give a practical plan with clear steps and priorities.
 - If it is casual conversation: respond naturally and do not turn it into a content plan.
 - If X API context is available, use it as source inspiration and mention that the ideas are based on recent public X posts. Do not copy posts verbatim.
@@ -2371,7 +2449,7 @@ Return ONLY a single valid JSON object with this exact structure:
       const systemInstruction = `You are aime.angkorgate AI Agent in a live, bidirectional, voice-only call with a creator or small business owner. Listen to incoming audio and respond directly with spoken audio. ${liveVoiceLanguageInstruction(voiceLanguage)} When the user commands creation of a Word or Excel file, remain silent for that turn; the app creates and displays the file. Keep other answers useful and conversational, with concrete advice where relevant. Do not read markdown, headings, or bullet symbols aloud. Speak like a real, warm human being on a phone call -- never a flat, evenly-paced, robotic monotone that just reads words aloud. Let your pitch genuinely rise and fall within and across sentences the way real speech does: fall gently at the end of statements, lift at the end of genuine questions, lift briefly with real excitement or a good idea. Stress only the one or two words that actually carry each sentence's meaning and let the rest sit lighter and quicker around them -- do not give every word equal weight like a machine does. Leave a brief natural beat, like a small breath, between separate ideas instead of running everything together at one constant rhythm. Match your energy to the content: relaxed and easy for small talk, confident and clear for a concrete next step, genuinely interested when the user shares something about their business. Use the loose, informal phrasing a real person would actually say out loud, not the tidy phrasing of something written to be read. ${genderStyle} When speaking Khmer, sound like a native Cambodian speaker having a relaxed one-on-one conversation, never a foreign accent: crisp initial and final consonants, correct vowel length, and clearly separated words with no merging or slurring between them. Fully pronounce every Khmer syllable, including word endings, at a comfortable unhurried pace -- never rush, swallow endings, or run words together. ${CAMBODIA_MARKET_CONTEXT}${businessContentInstruction(businessContext)} Spoken reply language follows the user's audio and the speech-language choice above, never the language of this business context or the app interface. Never answer Khmer speech in English or Hindi.`;
       const ephemeral = await createGeminiLiveEphemeralToken({
         voiceName,
-        systemInstruction: `${systemInstruction} If the user directly asks you to create a plan for one month, remain silent for that turn too; the app creates and displays the monthly Excel plan.`,
+        systemInstruction: `${systemInstruction} If the user directly asks you to create a plan for one month, remain silent for that turn too; the app creates and displays the monthly Excel plan. If the user asks to edit an existing Content Plan or a dated row, remain silent for that turn; the app updates the plan card and reports the saved result on screen.`,
       });
       return res.status(200).json(ephemeral);
     }
@@ -2516,7 +2594,7 @@ Return ONLY a single valid JSON object with this exact structure:
     // AI Agent chat history in Firestore) passes through here first.
     const message = redactSecrets(error?.message || '');
     const keyError = /OPEN_ROUTER_API_KEY|unauthorized|invalid api[_ -]?key/i.test(message);
-    return res.status(keyError ? 503 : 500).json({
+    return res.status(keyError ? 503 : Number.isInteger(error?.statusCode) && error.statusCode >= 400 && error.statusCode < 500 ? error.statusCode : 500).json({
       error: keyError ? 'OpenRouter API key is missing or invalid. Update OPEN_ROUTER_API_KEY in Vercel.' : message || 'AI generation failed.',
     });
   }

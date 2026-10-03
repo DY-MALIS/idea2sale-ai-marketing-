@@ -129,8 +129,8 @@ describe('Gemini Live browser connection', () => {
       close: vi.fn().mockResolvedValue(undefined),
     } as unknown as AudioContext;
 
-    const onUserTurnText = vi.fn();
-    const pending = connectGeminiLive('ephemeral-token', 'gemini-3.8-live', playbackContext, { onUserTurnText, onUserTranscription: isAgentDocumentCommand });
+    const onUserTurnText = vi.fn((text: string) => isAgentDocumentCommand(text));
+    const pending = connectGeminiLive('ephemeral-token', 'gemini-3.8-live', playbackContext, { onUserTurnText, onUserTranscription: () => false });
     await vi.waitFor(() => expect(socket).toBeDefined());
     socket.readyState = FakeWebSocket.OPEN;
     socket.onopen();
@@ -150,13 +150,24 @@ describe('Gemini Live browser connection', () => {
     await Promise.resolve();
     expect(onUserTurnText).toHaveBeenCalledOnce();
 
-    socket.onmessage({ data: JSON.stringify({ serverContent: { inputTranscription: { text: 'សូមបង្កើត plan សម្រាប់មួយខែ' } } }) });
     const audioData = Buffer.from(new Int16Array([100, -100]).buffer).toString('base64');
+    // Gemini can begin its spoken reply before the user's final transcript arrives.
     socket.onmessage({ data: JSON.stringify({ serverContent: { modelTurn: { parts: [{ inlineData: { mimeType: 'audio/pcm;rate=24000', data: audioData } }] } } }) });
+    await Promise.resolve();
+    expect(createBufferSource).not.toHaveBeenCalled();
+    socket.onmessage({ data: JSON.stringify({ serverContent: { inputTranscription: { text: 'សូមបង្កើត plan សម្រាប់មួយខែ' } } }) });
+    socket.onmessage({ data: JSON.stringify({ serverContent: { turnComplete: true } }) });
+    await Promise.resolve();
+    expect(onUserTurnText).toHaveBeenLastCalledWith('សូមបង្កើត plan សម្រាប់មួយខែ');
+    expect(createBufferSource).not.toHaveBeenCalled();
+
+    socket.onmessage({ data: JSON.stringify({ serverContent: { modelTurn: { parts: [{ inlineData: { mimeType: 'audio/pcm;rate=24000', data: audioData } }] } } }) });
+    socket.onmessage({ data: JSON.stringify({ serverContent: { inputTranscription: { text: 'hello' } } }) });
     await Promise.resolve();
     expect(createBufferSource).not.toHaveBeenCalled();
     socket.onmessage({ data: JSON.stringify({ serverContent: { turnComplete: true } }) });
     await Promise.resolve();
-    expect(onUserTurnText).toHaveBeenLastCalledWith('សូមបង្កើត plan សម្រាប់មួយខែ');
+    expect(onUserTurnText).toHaveBeenLastCalledWith('hello');
+    expect(createBufferSource).toHaveBeenCalledOnce();
   });
 });
