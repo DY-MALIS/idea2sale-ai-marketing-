@@ -30,7 +30,7 @@ import { uploadMediaDataUrl } from './_imagekitUpload.js';
 import { sendOutreachEmail } from './_email.js';
 import { extractDocumentText } from './_documentExtract.js';
 import { generateAgentDocument, requestedAgentDocumentFormat } from './_agentDocument.js';
-import { isContentPlanEditFollowup, isContentPlanEditRequest } from '../shared/contentPlanEditIntent.js';
+import { isContentPlanEditFollowup, isContentPlanEditPronounFollowup, isContentPlanEditRequest } from '../shared/contentPlanEditIntent.js';
 import { createHash } from 'crypto';
 
 const agentContentPlanText = (body, limit = 14) => (Array.isArray(body?.contentPlan) ? body.contentPlan : [])
@@ -1049,7 +1049,7 @@ export default async function handler(req, res) {
       const planContext = (Array.isArray(req.body?.planContext) ? req.body.planContext : [])
         .slice(-4).map((item) => ({ role: item?.role === 'assistant' ? 'assistant' : 'user', content: String(item?.content || '').slice(0, 1000) }));
       const hasPlanContext = planContext.some((item) => item.role === 'assistant' && /content\s*plan|ផែនការ/iu.test(item.content));
-      if (!(isContentPlanEditRequest(message) || (hasPlanContext && isContentPlanEditFollowup(message))) || !items.length) {
+      if (!(isContentPlanEditRequest(message) || (hasPlanContext && isContentPlanEditFollowup(message)) || isContentPlanEditPronounFollowup(message)) || !items.length) {
         return res.status(400).json({ error: 'An existing content plan and a specific edit request are required.' });
       }
       const owner = req.body?.target === 'saved' ? await requireAiUser(req) : null;

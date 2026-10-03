@@ -15,7 +15,7 @@ import { getLatestBusinessBranding } from '../lib/businessBranding';
 import { CreativeAutomationRequest } from '../types';
 import { downloadAgentDocument, isAgentDocumentCommand, type AgentDocument } from '../lib/agentDocument';
 import { AgentDocumentCard, AgentDocumentDialog } from './AgentDocumentCard';
-import { isContentPlanEditFollowup, isContentPlanEditRequest } from '../../shared/contentPlanEditIntent.js';
+import { isContentPlanEditFollowup, isContentPlanEditPronounFollowup, isContentPlanEditRequest } from '../../shared/contentPlanEditIntent.js';
 
 const DEMO_AGENT_CONVERSATION_STORAGE_KEY = 'demo_agent_conversation';
 // Keep recent agent work visible long enough for users to return and reuse it.
@@ -458,10 +458,11 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
 
   const isPlanEditMessage = (message: string) => {
     if (isContentPlanEditRequest(message)) return true;
+    if (!(planItems.length > 0 || savedPlanItems.length > 0)) return false;
+    if (isContentPlanEditPronounFollowup(message)) return true;
     const last = messagesRef.current.at(-1);
     const previousAssistant = last?.role === 'assistant' ? last : messagesRef.current.at(-2);
-    return (planItems.length > 0 || savedPlanItems.length > 0)
-      && previousAssistant?.role === 'assistant'
+    return previousAssistant?.role === 'assistant'
       && /content\s*plan|ផែនការ/iu.test(previousAssistant.content)
       && isContentPlanEditFollowup(message);
   };

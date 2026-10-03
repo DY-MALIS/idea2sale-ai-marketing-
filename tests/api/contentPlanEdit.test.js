@@ -119,6 +119,24 @@ describe('editContentPlan', () => {
     expect(update).not.toHaveBeenCalled();
   });
 
+  it('edits the plan from a pronoun-based command with no prior assistant turn about it', async () => {
+    generateText.mockResolvedValueOnce(JSON.stringify([{
+      op: 'update', index: 1,
+      changes: { type: 'video', prompt: 'A presenter demonstrates the campaign', voiceOverText: 'សូមមកស្គាល់យុទ្ធនាការថ្មីរបស់យើង ដែលជួយអតិថិជនបានកាន់តែងាយស្រួល។' },
+    }]));
+    const res = response();
+    await handler({
+      method: 'POST', headers: {},
+      body: {
+        action: 'editContentPlan', target: 'draft', message: 'Change it to a video',
+        items: [{ date: '2026-10-05', type: 'image', topic: 'Old campaign', prompt: 'Old photo', status: 'DRAFT' }],
+      },
+    }, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.patches[0].changes.type).toBe('video');
+  });
+
   it('uses the previous plan conversation for a short follow-up edit', async () => {
     generateText.mockResolvedValueOnce(JSON.stringify([{
       op: 'update', index: 1,
