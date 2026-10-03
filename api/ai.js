@@ -1482,6 +1482,8 @@ Response rules:
     if (action === 'extractContentPlan') {
       const planUrl = String(req.body?.planUrl || '').trim();
       let planText = String(req.body?.planText || '').trim();
+      const fileDataUrl = String(req.body?.fileDataUrl || '');
+      const fileName = String(req.body?.fileName || '');
       const businessContext = businessContextFromBody(req.body);
 
       if (!planText && planUrl) {
@@ -1498,7 +1500,19 @@ Response rules:
         }
       }
 
-      if (!planText) return res.status(400).json({ error: 'Please upload a CSV file or paste a Google Sheets link.' });
+      // PDF/Word plans (e.g. a brief typed up as a document rather than a
+      // spreadsheet) arrive as a data URL -- CSV/Excel are parsed client-side
+      // into plain planText already, so this only fires for the remaining
+      // file types the browser can't turn into text/rows on its own.
+      if (!planText && !planUrl && fileDataUrl) {
+        try {
+          planText = await extractDocumentText({ dataUrl: fileDataUrl, fileName });
+        } catch (error) {
+          return res.status(error?.status || 400).json({ error: error?.message || 'Could not read this file.' });
+        }
+      }
+
+      if (!planText) return res.status(400).json({ error: 'Please upload a CSV, Excel, PDF, Word, or text file, or paste a Google Sheets link.' });
       // A whole multi-tab workbook dump (summary/KPI tabs plus the real
       // calendar tab) is much larger than a single sheet, but still small
       // relative to what the text model can take -- keep enough of it that

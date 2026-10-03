@@ -803,7 +803,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     }
   };
 
-  const runPlanExtraction = async (body: { planText?: string; planUrl?: string }) => {
+  const runPlanExtraction = async (body: { planText?: string; planUrl?: string; fileDataUrl?: string; fileName?: string }) => {
     setPlanExtracting(true);
     setPlanError(null);
     setPlanSavedCount(null);
@@ -871,10 +871,20 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       return;
     }
 
+    // Plain text/CSV can be read directly; anything else (PDF, Word, or any
+    // other file type the picker no longer blocks) is handed to the server
+    // as a data URL -- extractDocumentText there does the real parsing (or
+    // returns a clear "unsupported file type" error for something it
+    // genuinely can't read, e.g. an image), rather than this reading raw
+    // binary bytes as mangled "text".
+    const isPlainText = /\.(csv|txt)$/i.test(file.name) || file.type === 'text/csv' || file.type === 'text/plain';
     const reader = new FileReader();
-    reader.onload = () => void runPlanExtraction({ planText: String(reader.result || '') });
+    reader.onload = () => void runPlanExtraction(isPlainText
+      ? { planText: String(reader.result || '') }
+      : { fileDataUrl: String(reader.result || ''), fileName: file.name });
     reader.onerror = () => setPlanError(language === 'km' ? 'មិនអាចអានឯកសារនេះបានទេ។' : 'Could not read this file.');
-    reader.readAsText(file);
+    if (isPlainText) reader.readAsText(file);
+    else reader.readAsDataURL(file);
   };
 
   const handlePlanLinkSubmit = () => {
@@ -1357,12 +1367,12 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
               <>
                 <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-400">
                   {language === 'km'
-                    ? 'អាប់ឡូតឯកសារ Excel/CSV ឬបិទភ្ជាប់ link Google Sheet ដែលមានកាលបរិច្ឆេទ + សំណើបង្កើតរូបភាព/វីដេអូ។ AI នឹងស្រង់ចេញជា prompt ត្រៀមរួច ហើយបង្កើតឲ្យស្វ័យប្រវត្តិនៅថ្ងៃដល់កំណត់ រួចផ្ញើទៅ Telegram Channel/Bot ដែលអ្នកបានភ្ជាប់។'
-                    : 'Upload an Excel/CSV file or paste a Google Sheet link with dates + image/video requests. The AI extracts ready-to-use prompts and generates each one automatically on its scheduled date, delivered to your connected Telegram Channel/Bot.'}
+                    ? 'អាប់ឡូតឯកសារ Excel/CSV/PDF/Word/text ឬបិទភ្ជាប់ link Google Sheet ដែលមានកាលបរិច្ឆេទ + សំណើបង្កើតរូបភាព/វីដេអូ។ AI នឹងស្រង់ចេញជា prompt ត្រៀមរួច ហើយបង្កើតឲ្យស្វ័យប្រវត្តិនៅថ្ងៃដល់កំណត់ រួចផ្ញើទៅ Telegram Channel/Bot ដែលអ្នកបានភ្ជាប់។'
+                    : 'Upload an Excel/CSV/PDF/Word/text file or paste a Google Sheet link with dates + image/video requests. The AI extracts ready-to-use prompts and generates each one automatically on its scheduled date, delivered to your connected Telegram Channel/Bot.'}
                 </p>
 
                 <div className="flex flex-wrap items-center gap-3">
-                  <input ref={planFileInputRef} type="file" accept=".csv,.xlsx,.xls,text/csv" className="hidden" onChange={handlePlanFileSelect} />
+                  <input ref={planFileInputRef} type="file" className="hidden" onChange={handlePlanFileSelect} />
                   <button
                     type="button"
                     onClick={() => planFileInputRef.current?.click()}
