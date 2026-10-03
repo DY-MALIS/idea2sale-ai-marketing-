@@ -1068,7 +1068,12 @@ export default async function handler(req, res) {
         status: String(item?.status || 'DRAFT').slice(0, 20),
       }));
       const response = await generateOpenRouterText({
-        model: process.env.OPEN_ROUTER_CONTENT_PLAN_MODEL || 'google/gemini-3.1-pro-preview',
+        // Single-row edits are latency-sensitive (this is on the critical path for a
+        // spoken Live Voice command) -- unlike the bulk plan-generation actions below,
+        // which still use the slower 'google/gemini-3.1-pro-preview' preview model
+        // (empirically 3-5s, occasionally 90s+, see TEXT_REQUEST_TIMEOUT_MS's comment
+        // in _openrouter.js) because they're not blocking a live conversation turn.
+        model: process.env.OPEN_ROUTER_CONTENT_PLAN_EDIT_MODEL || 'google/gemini-3.8-flash',
         system: 'You edit an existing content calendar exactly as instructed. Return only a JSON array of operations. Never claim you saved anything. Never change, add, or remove an item unless explicitly requested. Preserve every unrequested row and field. Only rows marked DRAFT or PENDING may be updated or removed.',
         prompt: `Today is ${new Date().toISOString().slice(0, 10)}.\nRecent conversation for resolving references such as "it" or "that row":\n${JSON.stringify(planContext)}\n\nUser request:\n${message.slice(0, 2000)}\n\nExisting content plan (index is 1-based):\n${JSON.stringify(editable)}\n\nReturn ONLY a JSON array of requested operations. To change an existing row: {"op":"update","index":2,"changes":{"topic":"new topic","prompt":"new English visual prompt"}}. To add a row: {"op":"add","item":{"date":"YYYY-MM-DD","type":"image or video","topic":"short topic","prompt":"complete English visual generation prompt","voiceOverText":"Khmer narration if video"}}. To remove a row: {"op":"remove","index":2}. Valid update fields: date, type, topic, prompt, headline, cta, voiceGender (Male or Female), voiceOverText (natural Khmer narration), performanceStyle, aspectRatio. For a changed topic or type, also supply a matching generation prompt; for a changed video topic or conversion to video, supply Khmer narration. New video rows need Khmer narration and a visual-only English prompt; new image rows need a complete English image prompt. Keep dates in YYYY-MM-DD format. Do not replace the entire plan unless explicitly told to. If the requested target or change is unclear, return [].`,
         temperature: 0.1,
