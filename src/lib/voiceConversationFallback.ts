@@ -21,6 +21,12 @@ export interface FallbackOptions {
 const recorderFormat = (mimeType: string) => mimeType.includes('mp4') ? 'm4a' : mimeType.includes('ogg') ? 'ogg' : 'webm';
 const abortError = () => new DOMException('Voice conversation stopped.', 'AbortError');
 
+// Give up on a turn and quietly start listening again once this long has
+// passed without the mic ever crossing the speech-detected threshold --
+// previously 60s, which left the caller staring at "Listening..." in total
+// silence for up to a full minute before anything happened.
+const SILENT_TURN_TIMEOUT_MS = 15000;
+
 // Keep a turn short enough for the server request limit; quiet periods do not
 // submit fabricated speech to the transcription model.
 const recordTurn = async (signal: AbortSignal): Promise<{ audioBase64: string; format: string } | null> => {
@@ -100,7 +106,7 @@ const recordTurn = async (signal: AbortSignal): Promise<{ audioBase64: string; f
         state = next.state;
         elapsedQuietMs = state.heardSpeech ? 0 : elapsedQuietMs + elapsed;
         if (next.shouldSubmit) finish(true);
-        else if (elapsedQuietMs >= 60000) finish(false);
+        else if (elapsedQuietMs >= SILENT_TURN_TIMEOUT_MS) finish(false);
       }, 100);
       timeout = setTimeout(() => finish(state.heardSpeech), 90000);
     });
