@@ -29,7 +29,19 @@ import { researchProductAudience } from './_productAudienceResearch.js';
 import { uploadMediaDataUrl } from './_imagekitUpload.js';
 import { sendOutreachEmail } from './_email.js';
 import { extractDocumentText } from './_documentExtract.js';
+import { generateAgentDocument, requestedAgentDocumentFormat } from './_agentDocument.js';
 import { createHash } from 'crypto';
+
+const agentContentPlanText = (body) => (Array.isArray(body?.contentPlan) ? body.contentPlan : [])
+  .slice(0, 14)
+  .map((item) => [
+    String(item?.date || '').slice(0, 20),
+    item?.type === 'video' ? 'video' : 'image',
+    String(item?.topic || '').slice(0, 180),
+    String(item?.prompt || '').slice(0, 500),
+    String(item?.voiceOverText || '').slice(0, 240),
+  ].filter(Boolean).join(' | '))
+  .filter(Boolean).join('\n');
 
 // Most actions remain available to guest/demo traffic, so the shared endpoint
 // needs a general per-IP limit. Paid video generation is stricter below: both
@@ -729,9 +741,9 @@ export const resolveCreativeImageMode = (kind, requestedMode, conversation = '')
     : 'visual'
 );
 
-const buildCreativeAutomation = async ({ message, historyText, responseLanguage, businessContext }) => {
-  const conversation = `${historyText}\nUser: ${message}`.trim();
-  if (!creativeMediaPattern.test(conversation)) return null;
+const buildCreativeAutomation = async ({ message, historyText, responseLanguage, businessContext, contentPlanText = '' }) => {
+  const conversation = `${historyText}${contentPlanText ? `\nAvailable Content Plan from this app:\n${contentPlanText}` : ''}\nUser: ${message}`.trim();
+  if (!creativeMediaPattern.test(`${historyText}\nUser: ${message}`)) return null;
 
   let rawPlan;
   try {
@@ -1050,18 +1062,24 @@ export default async function handler(req, res) {
         .map((item) => `${item.role === 'assistant' ? 'Assistant' : 'User'}: ${String(item.content || '').slice(0, 1800)}`)
         .join('\n');
       const businessContext = businessContextFromBody(req.body);
-      const automation = await buildCreativeAutomation({ message, historyText, responseLanguage, businessContext });
-      const xContext = await fetchXContext(message);
-
       // Long-term memory: the user's saved Business Profile, so the agent knows the
       // business name and directory automatically instead of the user re-explaining
       // it every conversation. This is separate from (and persists across) the
       // recent-conversation window above, which only covers the current chat.
       const businessName = businessContext.businessName;
       const businessDirectory = businessContext.directory.map((entry) => `${entry.name} (${entry.type})`);
-      const businessContextText = businessName || businessDirectory.length
-        ? `Business name: ${businessName || 'not set'}${businessDirectory.length ? `\nKnown people/companies in the user's directory: ${businessDirectory.join(', ')}` : ''}`
+      const businessContextText = businessName || businessContext.businessDescription || businessDirectory.length
+        ? `Business name: ${businessName || 'not set'}\nBusiness description: ${businessContext.businessDescription || 'not set'}${businessDirectory.length ? `\nKnown people/companies in the user's directory: ${businessDirectory.join(', ')}` : ''}`
         : 'No saved business profile yet.';
+      const contentPlanText = agentContentPlanText(req.body);
+
+      const documentFormat = requestedAgentDocumentFormat(message);
+      if (documentFormat) {
+        const document = await generateAgentDocument({ format: documentFormat, message, historyText: `${historyText}${contentPlanText ? `\nAvailable Content Plan:\n${contentPlanText}` : ''}`, businessContextText, responseLanguage });
+        return res.status(200).json({ text: '', document, automation: null });
+      }
+      const automation = await buildCreativeAutomation({ message, historyText, responseLanguage, businessContext, contentPlanText });
+      const xContext = await fetchXContext(message);
 
       const text = await generateOpenRouterText({
         system: agentSystemPrompt,
@@ -1090,6 +1108,9 @@ Creative automation: ${automation
 
 Recent conversation:
 ${historyText || 'None'}
+
+Available Content Plan in this app:
+${contentPlanText || 'None'}
 
 X API context:
 ${xContext || 'No X API context was requested or available.'}
@@ -1144,7 +1165,19 @@ Response rules:
         .map((item) => `${item.role === 'assistant' ? 'Assistant' : 'User'}: ${String(item.content || '').slice(0, 1800)}`)
         .join('\n');
       const businessContext = businessContextFromBody(req.body);
-      const automation = await buildCreativeAutomation({ message, historyText, responseLanguage, businessContext });
+      const contentPlanText = agentContentPlanText(req.body);
+      const documentFormat = requestedAgentDocumentFormat(message);
+      if (documentFormat) {
+        const document = await generateAgentDocument({
+          format: documentFormat,
+          message,
+          historyText: `${historyText}${contentPlanText ? `\nAvailable Content Plan:\n${contentPlanText}` : ''}`,
+          businessContextText: `Business name: ${businessContext.businessName || 'not set'}\nBusiness description: ${businessContext.businessDescription || 'not set'}`,
+          responseLanguage,
+        });
+        return res.status(200).json({ document, automation: null });
+      }
+      const automation = await buildCreativeAutomation({ message, historyText, responseLanguage, businessContext, contentPlanText });
       return res.status(200).json({ automation: automation?.ready ? automation : null });
     }
 
@@ -2335,7 +2368,7 @@ Return ONLY a single valid JSON object with this exact structure:
       const genderStyle = voiceName === 'Achird'
         ? "This is a man's voice, so let it sound firm, confident, and strong: a steady, assured tone, like a man who sounds sure of himself -- not soft, timid, or hesitant."
         : "This is a woman's voice, so let it sound gentle, soft, and warm: a tender, caring tone, like a woman speaking kindly -- not hard, loud, or forceful.";
-      const systemInstruction = `You are aime.angkorgate AI Agent in a live, bidirectional, voice-only call with a creator or small business owner. Listen to incoming audio and respond directly with spoken audio. ${liveVoiceLanguageInstruction(voiceLanguage)} Keep answers useful and conversational, with concrete advice where relevant. Do not read markdown, headings, or bullet symbols aloud. Speak like a real, warm human being on a phone call -- never a flat, evenly-paced, robotic monotone that just reads words aloud. Let your pitch genuinely rise and fall within and across sentences the way real speech does: fall gently at the end of statements, lift at the end of genuine questions, lift briefly with real excitement or a good idea. Stress only the one or two words that actually carry each sentence's meaning and let the rest sit lighter and quicker around them -- do not give every word equal weight like a machine does. Leave a brief natural beat, like a small breath, between separate ideas instead of running everything together at one constant rhythm. Match your energy to the content: relaxed and easy for small talk, confident and clear for a concrete next step, genuinely interested when the user shares something about their business. Use the loose, informal phrasing a real person would actually say out loud, not the tidy phrasing of something written to be read. ${genderStyle} When speaking Khmer, sound like a native Cambodian speaker having a relaxed one-on-one conversation, never a foreign accent: crisp initial and final consonants, correct vowel length, and clearly separated words with no merging or slurring between them. Fully pronounce every Khmer syllable, including word endings, at a comfortable unhurried pace -- never rush, swallow endings, or run words together. ${CAMBODIA_MARKET_CONTEXT}${businessContentInstruction(businessContext)} Spoken reply language follows the user's audio and the speech-language choice above, never the language of this business context or the app interface. Never answer Khmer speech in English or Hindi.`;
+      const systemInstruction = `You are aime.angkorgate AI Agent in a live, bidirectional, voice-only call with a creator or small business owner. Listen to incoming audio and respond directly with spoken audio. ${liveVoiceLanguageInstruction(voiceLanguage)} When the user commands creation of a Word or Excel file, remain silent for that turn; the app creates and displays the file. Keep other answers useful and conversational, with concrete advice where relevant. Do not read markdown, headings, or bullet symbols aloud. Speak like a real, warm human being on a phone call -- never a flat, evenly-paced, robotic monotone that just reads words aloud. Let your pitch genuinely rise and fall within and across sentences the way real speech does: fall gently at the end of statements, lift at the end of genuine questions, lift briefly with real excitement or a good idea. Stress only the one or two words that actually carry each sentence's meaning and let the rest sit lighter and quicker around them -- do not give every word equal weight like a machine does. Leave a brief natural beat, like a small breath, between separate ideas instead of running everything together at one constant rhythm. Match your energy to the content: relaxed and easy for small talk, confident and clear for a concrete next step, genuinely interested when the user shares something about their business. Use the loose, informal phrasing a real person would actually say out loud, not the tidy phrasing of something written to be read. ${genderStyle} When speaking Khmer, sound like a native Cambodian speaker having a relaxed one-on-one conversation, never a foreign accent: crisp initial and final consonants, correct vowel length, and clearly separated words with no merging or slurring between them. Fully pronounce every Khmer syllable, including word endings, at a comfortable unhurried pace -- never rush, swallow endings, or run words together. ${CAMBODIA_MARKET_CONTEXT}${businessContentInstruction(businessContext)} Spoken reply language follows the user's audio and the speech-language choice above, never the language of this business context or the app interface. Never answer Khmer speech in English or Hindi.`;
       const ephemeral = await createGeminiLiveEphemeralToken({ voiceName, systemInstruction });
       return res.status(200).json(ephemeral);
     }

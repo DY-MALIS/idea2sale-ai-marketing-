@@ -28,6 +28,7 @@ export interface GeminiLiveHandlers {
   // otherwise, so callers that need to react to what was actually said (e.g.
   // detecting a "create a video" request) have nothing else to go on.
   onUserTurnText?: (text: string) => void;
+  onUserTranscription?: (text: string) => boolean;
   onError?: (error: Error) => void;
   onClose?: () => void;
 }
@@ -264,6 +265,7 @@ export async function connectGeminiLive(
   };
 
   let inputTranscriptBuffer = '';
+  let suppressReplyAudio = false;
 
   socket.onmessage = (event) => {
     void (async () => {
@@ -281,15 +283,21 @@ export async function connectGeminiLive(
           return;
         }
         const modelTurn = message?.serverContent?.modelTurn;
+        const transcriptChunk = message?.serverContent?.inputTranscription?.text;
+        if (typeof transcriptChunk === 'string' && transcriptChunk) {
+          inputTranscriptBuffer += transcriptChunk;
+          if (handlers.onUserTranscription?.(inputTranscriptBuffer)) {
+            suppressReplyAudio = true;
+            player.stopAll();
+          }
+        }
         const parts: Array<{ inlineData?: { mimeType?: string; data?: string } }> = modelTurn?.parts || [];
         for (const part of parts) {
           const inline = part?.inlineData;
-          if (inline?.data && /^audio\//.test(inline.mimeType || '')) {
+          if (!suppressReplyAudio && inline?.data && /^audio\//.test(inline.mimeType || '')) {
             player.enqueue(base64ToInt16Array(inline.data));
           }
         }
-        const transcriptChunk = message?.serverContent?.inputTranscription?.text;
-        if (typeof transcriptChunk === 'string' && transcriptChunk) inputTranscriptBuffer += transcriptChunk;
         if (message?.serverContent?.interrupted) {
           player.stopAll();
           handlers.onInterrupted?.();
@@ -300,6 +308,7 @@ export async function connectGeminiLive(
           const spoken = inputTranscriptBuffer.trim();
           inputTranscriptBuffer = '';
           if (spoken) handlers.onUserTurnText?.(spoken);
+          suppressReplyAudio = false;
         }
       } catch (error) {
         fail(error instanceof Error ? error : new Error('Failed to parse Gemini Live message.'));

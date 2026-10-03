@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Bot, CalendarClock, Check, ChevronDown, Copy, History, Image as ImageIcon, ImagePlus, Loader2, Mic, MicOff, RefreshCw, Send, Sparkles, Trash2, UserRound, Video, X, Zap } from 'lucide-react';
+import { Bot, CalendarClock, Check, ChevronDown, Copy, Download, FileSpreadsheet, FileText, History, Image as ImageIcon, ImagePlus, Loader2, Mic, MicOff, RefreshCw, Send, Sparkles, Trash2, UserRound, Video, X, Zap } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { AnimatePresence, motion } from 'motion/react';
 import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, setDoc, serverTimestamp, updateDoc, where } from 'firebase/firestore';
@@ -13,6 +13,7 @@ import { connectGeminiLive, GeminiLiveSession } from '../lib/geminiLiveClient';
 import { startVoiceConversationFallback, type VoiceConversationFallback } from '../lib/voiceConversationFallback';
 import { getLatestBusinessBranding } from '../lib/businessBranding';
 import { CreativeAutomationRequest } from '../types';
+import { downloadAgentDocument, isAgentDocumentCommand, type AgentDocument } from '../lib/agentDocument';
 
 const DEMO_AGENT_CONVERSATION_STORAGE_KEY = 'demo_agent_conversation';
 // Keep recent agent work visible long enough for users to return and reuse it.
@@ -23,6 +24,7 @@ interface AgentMessage {
   content: string;
   modality?: 'text' | 'voice';
   imageDataUrls?: string[];
+  document?: AgentDocument;
 }
 
 interface AgentConversationSession {
@@ -92,7 +94,7 @@ const sessionTitleFromMessages = (messages: AgentMessage[]) => (
 
 const buildSession = (messages: AgentMessage[], existingId?: string): AgentConversationSession | null => {
   const textOnly = messages
-    .map(({ role, content, modality }) => ({ role, content, ...(modality ? { modality } : {}) }))
+    .map(({ role, content, modality, document }) => ({ role, content, ...(modality ? { modality } : {}), ...(document ? { document } : {}) }))
     .filter((message) => message.content.trim());
   if (!textOnly.length) return null;
   return {
@@ -264,10 +266,24 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
             history: messagesRef.current.slice(-HISTORY_MESSAGES),
             detectedLanguage,
             businessContext: businessContext || undefined,
+            contentPlan: contentPlanForAgent(),
           }),
         });
         const data = await response.json().catch(() => ({}));
-        if (!response.ok || session !== voiceSessionRef.current || !voiceActiveRef.current || !data.automation?.ready) return;
+        if (!response.ok || session !== voiceSessionRef.current || !voiceActiveRef.current) return;
+        if (data.document) {
+          const document = data.document as AgentDocument;
+          const caption = language === 'km' ? `ឯកសារ ${document.format.toUpperCase()} រួចរាល់៖ ${document.title}` : `${document.format.toUpperCase()} ready: ${document.title}`;
+          downloadAgentDocument(document);
+          setVoiceCaption(caption);
+          updateMessages([
+            ...messagesRef.current,
+            { role: 'user', content: transcript, modality: 'voice' },
+            { role: 'assistant', content: caption, modality: 'voice', document },
+          ]);
+          return;
+        }
+        if (!data.automation?.ready) return;
         if (!autoCreateEnabledRef.current) return;
         const request = triggerCreativeAutomation(data.automation, detectedLanguage);
         const caption = automationCaption(request);
@@ -318,6 +334,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           setIsSpeaking(false);
         },
         onUserTurnText: (text) => handleLiveUserTurn(session, text),
+        onUserTranscription: isAgentDocumentCommand,
         onError: () => startFallbackVoice(session),
         onClose: () => startFallbackVoice(session),
       }, { voiceName: data.voiceName, systemInstruction: data.systemInstruction }, controller.signal);
@@ -372,6 +389,16 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const [planSavedCount, setPlanSavedCount] = useState<number | null>(null);
   const [savedPlanItems, setSavedPlanItems] = useState<SavedPlanItem[]>([]);
   const planFileInputRef = useRef<HTMLInputElement>(null);
+
+  function contentPlanForAgent() {
+    return (planItems.length ? planItems.filter((item) => item.selected) : savedPlanItems).slice(0, 14).map((item) => ({
+      date: 'date' in item ? item.date : item.scheduledDate,
+      type: item.type,
+      topic: item.topic,
+      prompt: 'prompt' in item ? item.prompt : '',
+      voiceOverText: 'voiceOverText' in item ? item.voiceOverText || '' : '',
+    }));
+  }
 
   useEffect(() => {
     if (isDemoMode || !user) return;
@@ -508,7 +535,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   // add real storage cost within a handful of exchanges, so they stay session-only.
   const persistConversation = (nextMessages: AgentMessage[], sessionsOverride = conversationSessions, sessionId = activeSessionId) => {
     if (!memoryLoadedRef.current) return;
-    const textOnly = nextMessages.map(({ role, content, modality }) => ({ role, content, ...(modality ? { modality } : {}) }));
+    const textOnly = nextMessages.map(({ role, content, modality, document }) => ({ role, content, ...(modality ? { modality } : {}), ...(document ? { document } : {}) }));
     const currentSession = buildSession(textOnly, sessionId);
     const sessions = currentSession
       ? [
@@ -516,18 +543,27 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           ...sessionsOverride.filter((session) => session.id !== currentSession.id),
         ].slice(0, MAX_SESSIONS)
       : sessionsOverride.slice(0, MAX_SESSIONS);
+    // The active chat is already stored in `messages`; storing it again in
+    // `sessions` doubles large document previews. Keep older sessions within
+    // Firestore's document limit and discard oldest history only if needed.
+    let storedMessages = textOnly;
+    const storedSessions = sessions.filter((session) => session.id !== sessionId);
+    const encoder = new TextEncoder();
+    const savedBytes = () => encoder.encode(JSON.stringify({ messages: storedMessages, sessions: storedSessions })).length;
+    while (storedSessions.length && savedBytes() > 700_000) storedSessions.pop();
+    while (storedMessages.length > 1 && savedBytes() > 700_000) storedMessages = storedMessages.slice(1);
     try {
       if (isDemoMode || !user) {
         localStorage.setItem(DEMO_AGENT_CONVERSATION_STORAGE_KEY, JSON.stringify({
-          messages: textOnly,
-          sessions,
+          messages: storedMessages,
+          sessions: storedSessions,
           activeSessionId: sessionId,
           updatedAt: Date.now(),
         }));
       } else {
         void setDoc(doc(db, 'agent_conversations', user.uid), {
-          messages: textOnly,
-          sessions,
+          messages: storedMessages,
+          sessions: storedSessions,
           activeSessionId: sessionId,
           userId: user.uid,
           updatedAt: serverTimestamp(),
@@ -994,16 +1030,26 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           history,
           images: imagesForRequest.map((image) => ({ base64: image.base64, mimeType: image.mimeType })),
           businessContext: businessContext || undefined,
+          contentPlan: contentPlanForAgent(),
         }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'AI Agent failed.');
-      const answer = String(data.text || 'No response generated.').trim();
+      const document = data.document as AgentDocument | undefined;
+      const answer = document
+        ? (language === 'km' ? `ឯកសារ ${document.format.toUpperCase()} រួចរាល់៖ ${document.title}` : `${document.format.toUpperCase()} ready: ${document.title}`)
+        : String(data.text || 'No response generated.').trim();
 
       updateMessages([
         ...pendingMessages,
-        { role: 'assistant', content: answer, modality: spoken ? 'voice' : 'text' },
+        { role: 'assistant', content: answer, modality: spoken ? 'voice' : 'text', ...(document ? { document } : {}) },
       ]);
+
+      if (document) {
+        downloadAgentDocument(document);
+        if (spoken) setVoiceCaption(answer);
+        return '';
+      }
 
       if (autoCreateEnabledRef.current && data.automation?.ready) {
         const request = triggerCreativeAutomation(data.automation, message ? detectMessageLanguage(message) : language);
@@ -1027,6 +1073,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   };
 
   const latestAnswer = [...messages].reverse().find((message) => message.role === 'assistant' && message.modality !== 'voice')?.content || '';
+  const latestDocument = [...messages].reverse().find((message) => message.role === 'assistant' && message.document)?.document;
   const conversationHistory = useMemo(() => {
     const currentSession = buildSession(messages, activeSessionId);
     return [
@@ -1606,6 +1653,11 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                     {voiceCaption}
                   </div>
                 )}
+                {latestDocument && (
+                  <button type="button" onClick={() => downloadAgentDocument(latestDocument)} className="mt-4 inline-flex items-center gap-2 rounded-xl bg-brand-600 px-5 py-3 font-bold text-white">
+                    <Download size={18} /> {language === 'km' ? 'ទាញយកឯកសារ' : 'Download document'}
+                  </button>
+                )}
                 <button type="button" onClick={stopLiveVoice} className="mt-8 px-5 py-3 rounded-xl border border-red-200 bg-red-50 text-red-600 font-bold">
                   {language === 'km' ? 'បញ្ចប់ការហៅ' : 'End call'}
                 </button>
@@ -1662,11 +1714,35 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                           )}
                           <p className="whitespace-pre-wrap leading-relaxed">{message.modality === 'voice' ? (language === 'km' ? 'សំណួរជាសំឡេង' : 'Voice message') : message.content}</p>
                         </>
-                      ) : (
-                        message.modality === 'voice'
-                          ? <p className="leading-relaxed">{language === 'km' ? 'ចម្លើយជាសំឡេង' : 'Voice reply'}</p>
-                          : <div className="prose prose-brand max-w-none"><Markdown>{message.content}</Markdown></div>
-                      )}
+                      ) : message.document ? (
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2 font-bold text-brand-700 dark:text-brand-300">
+                            {message.document.format === 'xlsx' ? <FileSpreadsheet size={20} /> : <FileText size={20} />}
+                            <span>{message.document.title}</span>
+                          </div>
+                          {message.document.format === 'docx' ? (
+                            <div className="max-h-72 overflow-y-auto rounded-xl bg-white/70 p-3 text-sm dark:bg-slate-900/60">
+                              {message.document.sections?.map((section, sectionIndex) => <div key={sectionIndex} className="mb-3">
+                                {section.heading && <p className="font-semibold">{section.heading}</p>}
+                                {section.paragraphs.map((paragraph, paragraphIndex) => <p key={paragraphIndex} className="mt-1 whitespace-pre-wrap">{paragraph}</p>)}
+                              </div>)}
+                            </div>
+                          ) : (
+                            <div className="max-h-72 overflow-auto rounded-xl bg-white/70 p-3 text-sm dark:bg-slate-900/60">
+                              {message.document.sheets?.map((sheet, sheetIndex) => <div key={sheetIndex} className="mb-3">
+                                <p className="mb-1 font-semibold">{sheet.name}</p>
+                                <table className="min-w-full border-collapse text-left"><thead><tr>{sheet.columns.map((column, columnIndex) => <th key={columnIndex} className="border border-slate-300 px-2 py-1">{column}</th>)}</tr></thead>
+                                  <tbody>{sheet.rows.slice(0, 8).map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex} className="border border-slate-300 px-2 py-1">{cell}</td>)}</tr>)}</tbody></table>
+                              </div>)}
+                            </div>
+                          )}
+                          <button type="button" onClick={() => downloadAgentDocument(message.document!)} className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2 font-bold text-white">
+                            <Download size={16} /> {language === 'km' ? 'ទាញយកឯកសារ' : 'Download document'}
+                          </button>
+                        </div>
+                      ) : message.modality === 'voice'
+                        ? <p className="leading-relaxed">{language === 'km' ? 'ចម្លើយជាសំឡេង' : 'Voice reply'}</p>
+                        : <div className="prose prose-brand max-w-none"><Markdown>{message.content}</Markdown></div>}
                     </div>
                     {isUser && (
                       <div className="mt-1 h-9 w-9 shrink-0 rounded-xl bg-white dark:bg-slate-800 border border-brand-200 text-brand-600 flex items-center justify-center">
