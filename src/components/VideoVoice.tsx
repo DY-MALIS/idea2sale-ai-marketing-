@@ -406,14 +406,18 @@ const applyVoiceOver = async (
   const ffmpeg = await getFFmpeg();
   let muxStarted = false;
   try {
-    // Must run before writeFile() below: ffmpeg.wasm transfers (not copies)
-    // the buffer it's given, which detaches videoBytes.buffer -- reading it
-    // afterward threw "Cannot perform DataView constructor on a detached
-    // ArrayBuffer" for any saved job old enough to need this probing fallback.
+    // Read videoBytes for duration before writeFile() gets anywhere near it,
+    // AND hand writeFile a copy (.slice()) rather than videoBytes itself --
+    // ffmpeg.wasm transfers (not copies) whatever buffer it's given, which
+    // detaches the original. Belt and suspenders: the ordering alone was the
+    // actual bug (DataView construction on an already-detached buffer broke
+    // resuming any saved job old enough to need this probing fallback), but
+    // only copying survives a future edit that reads videoBytes again later
+    // in this function without having to remember why order matters here.
     let videoDuration = validDuration(knownDurations?.video) ? knownDurations.video : mp4DurationSeconds(videoBytes);
     let audioDuration = validDuration(knownDurations?.audio) ? knownDurations.audio : null;
-    await ffmpeg.writeFile('vo_input.mp4', videoBytes);
-    await ffmpeg.writeFile(`vo_audio.${audioExt}`, audioBytes);
+    await ffmpeg.writeFile('vo_input.mp4', videoBytes.slice());
+    await ffmpeg.writeFile(`vo_audio.${audioExt}`, audioBytes.slice());
     if (!validDuration(videoDuration)) {
       videoDuration = await ffprobeDurationSeconds(ffmpeg, 'vo_input.mp4', 'vo_video_duration.txt');
     }

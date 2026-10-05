@@ -22,6 +22,16 @@ describe('MP4 duration from downloaded bytes', () => {
   it('returns null for truncated or invalid clips', () => {
     expect(mp4DurationSeconds(new Uint8Array([0, 0, 0, 20, 109, 111, 111, 118]))).toBeNull();
   });
+
+  it('returns null instead of throwing when the backing buffer is detached', () => {
+    const bytes = new Uint8Array(20);
+    // structuredClone's transfer option is the standard way to detach an
+    // ArrayBuffer in a test -- same end state ffmpeg.wasm leaves a buffer in
+    // after writeFile() transfers it away from the caller.
+    structuredClone(bytes.buffer, { transfer: [bytes.buffer] });
+    expect(bytes.buffer.byteLength).toBe(0);
+    expect(mp4DurationSeconds(bytes)).toBeNull();
+  });
 });
 
 describe('duration from ffmpeg.wasm probe', () => {
