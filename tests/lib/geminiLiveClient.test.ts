@@ -170,4 +170,61 @@ describe('Gemini Live browser connection', () => {
     expect(onUserTurnText).toHaveBeenLastCalledWith('hello');
     expect(createBufferSource).toHaveBeenCalledOnce();
   });
+
+  it('plays the reply instead of killing the call when a turn has audio but no transcript', async () => {
+    vi.useFakeTimers();
+    let socket: any;
+    const FakeWebSocket = class {
+      static OPEN = 1;
+      static CONNECTING = 0;
+      readyState = 0;
+      onopen: (() => void) | null = null;
+      onmessage: ((event: { data: string }) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+      url: string;
+      constructor(url: string) { this.url = url; socket = this; }
+      send() {}
+      close() { this.readyState = 3; }
+    };
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [{ stop: vi.fn() }] }) } });
+    vi.stubGlobal('window', { setInterval, setTimeout });
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    const createBufferSource = vi.fn(() => ({ connect: vi.fn(), start: vi.fn(), stop: vi.fn(), onended: null }));
+    const playbackContext = {
+      sampleRate: 16000,
+      currentTime: 0,
+      destination: {},
+      createMediaStreamSource: () => ({ connect: vi.fn(), disconnect: vi.fn() }),
+      createScriptProcessor: () => ({ connect: vi.fn(), disconnect: vi.fn(), onaudioprocess: null }),
+      createBuffer: () => ({ duration: 0.1, copyToChannel: vi.fn() }),
+      createBufferSource,
+      close: vi.fn().mockResolvedValue(undefined),
+    } as unknown as AudioContext;
+
+    const onUserTurnText = vi.fn((text: string) => isAgentDocumentCommand(text));
+    const onError = vi.fn();
+    const onClose = vi.fn();
+    const pending = connectGeminiLive('ephemeral-token', 'gemini-3.8-live', playbackContext, { onUserTurnText, onError, onClose });
+    await vi.waitFor(() => expect(socket).toBeDefined());
+    socket.readyState = FakeWebSocket.OPEN;
+    socket.onopen();
+    socket.onmessage({ data: JSON.stringify({ setupComplete: {} }) });
+    await pending;
+
+    // No inputTranscription event arrives for this turn (a brief utterance,
+    // a transcription hiccup) but the model still produced a spoken reply.
+    const audioData = Buffer.from(new Int16Array([100, -100]).buffer).toString('base64');
+    socket.onmessage({ data: JSON.stringify({ serverContent: { modelTurn: { parts: [{ inlineData: { mimeType: 'audio/pcm;rate=24000', data: audioData } }] } } }) });
+    socket.onmessage({ data: JSON.stringify({ serverContent: { turnComplete: true } }) });
+    await Promise.resolve();
+
+    // The held audio plays and the call stays open -- it must not be treated
+    // as a fatal connection error that forces a fallback to the slow,
+    // turn-based voice path.
+    expect(createBufferSource).toHaveBeenCalledOnce();
+    expect(onError).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(socket.readyState).toBe(FakeWebSocket.OPEN);
+  });
 });

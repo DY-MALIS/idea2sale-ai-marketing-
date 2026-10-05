@@ -317,10 +317,16 @@ export async function connectGeminiLive(
           handlers.onTurnComplete?.();
           const spoken = inputTranscriptBuffer.trim();
           inputTranscriptBuffer = '';
-          if (gateReplyAudio && !spoken && pendingReplyAudio.length) {
-            fail(new Error('Live voice transcription was unavailable for this turn.'));
-            return;
-          }
+          // gateReplyAudio holds reply audio only so a turn transcribing to a
+          // document/plan command can be kept silent -- an occasional turn
+          // with no transcript at all (a brief utterance, a VAD hiccup) isn't
+          // evidence the connection itself is broken. This used to fail the
+          // whole session over it, which tore down the fast, natural,
+          // interruptible Gemini Live call and dropped back to the slow
+          // turn-based fallback for the rest of the conversation merely
+          // because one turn's transcript didn't come through -- far more
+          // disruptive than the small risk of speaking over a command that
+          // happens to coincide with a missing transcript.
           const handledByApp = spoken ? handlers.onUserTurnText?.(spoken) === true : false;
           if (!suppressReplyAudio && !handledByApp) pendingReplyAudio.forEach((audio) => player.enqueue(audio));
           pendingReplyAudio = [];
