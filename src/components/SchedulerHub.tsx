@@ -193,7 +193,18 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
         // was in flight -- handledHandoffRef.current is always the latest request's
         // id, so if it's moved on, this (now-stale) result must not overwrite it.
         if (handledHandoffRef.current !== requestId) return;
-        if (targetPlatform === 'TIKTOK' || targetPlatform === 'YOUTUBE') {
+        if (handoffRequest.kind === 'video') {
+          // A generated video is valid media for either slot -- TikTok/YouTube
+          // need it in the dedicated video field, Telegram can send the same
+          // clip as its media. Populate both so if the user adds TikTok/YouTube
+          // as a platform after a Telegram-preferring handoff lands (there is
+          // no video-specific preferredPlatform from VideoVoice's own Schedule
+          // button), that field isn't stuck on "No file chosen" with no way to
+          // attach the already-generated clip -- requiresVideo's submit guard
+          // (below) was blocking scheduling entirely in exactly that case.
+          setVideoFile(file);
+          setTelegramMediaFile(file);
+        } else if (targetPlatform === 'TIKTOK' || targetPlatform === 'YOUTUBE') {
           setVideoFile(file);
           setTelegramMediaFile(null);
         } else {
