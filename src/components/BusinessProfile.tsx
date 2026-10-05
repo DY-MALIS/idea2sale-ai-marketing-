@@ -578,29 +578,48 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
                 {t('myTelegramChannelTitle')}
               </label>
               <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">{t('myTelegramChannelDesc')}</p>
-              <div className="space-y-2">
-                <input
-                  type="password"
-                  value={telegramBotToken}
-                  onChange={(e) => setTelegramBotToken(e.target.value)}
-                  placeholder={t('telegramBotTokenPlaceholder')}
-                  autoComplete="off"
-                  className="w-full px-4 py-3 bg-brand-50 border border-brand-100 dark:bg-slate-800 dark:border-slate-700 rounded-2xl text-sm text-brand-700 dark:text-slate-100 focus:outline-none focus:ring-2 ring-brand-500/20"
-                />
-                <input
-                  type="text"
-                  value={telegramChatId}
-                  onChange={(e) => setTelegramChatId(e.target.value)}
-                  placeholder={t('telegramChatIdPlaceholder')}
-                  className="w-full px-4 py-3 bg-brand-50 border border-brand-100 dark:bg-slate-800 dark:border-slate-700 rounded-2xl text-sm text-brand-700 dark:text-slate-100 focus:outline-none focus:ring-2 ring-brand-500/20"
-                />
-                <input
-                  type="text"
-                  value={telegramChannelUrl}
-                  onChange={(e) => setTelegramChannelUrl(e.target.value)}
-                  placeholder="Channel username, e.g. @mycompany"
-                  className="w-full px-4 py-3 bg-brand-50 border border-brand-100 dark:bg-slate-800 dark:border-slate-700 rounded-2xl text-sm text-brand-700 dark:text-slate-100 focus:outline-none focus:ring-2 ring-brand-500/20"
-                />
+              <div className="space-y-3">
+                <div>
+                  <label htmlFor="telegram-bot-token" className="mb-1 block text-[10px] font-bold text-slate-500 dark:text-slate-400">{t('telegramBotTokenLabel')}</label>
+                  <input
+                    id="telegram-bot-token"
+                    type="password"
+                    value={telegramBotToken}
+                    onChange={(e) => setTelegramBotToken(e.target.value)}
+                    placeholder={t('telegramBotTokenPlaceholder')}
+                    autoComplete="off"
+                    className="w-full px-4 py-3 bg-brand-50 border border-brand-100 dark:bg-slate-800 dark:border-slate-700 rounded-2xl text-sm text-brand-700 dark:text-slate-100 focus:outline-none focus:ring-2 ring-brand-500/20"
+                  />
+                </div>
+                <div>
+                  {/* This is the field the Sidebar's "Open Telegram Channel"
+                      link and publishing destination actually read -- placed
+                      and labeled ahead of the legacy Chat ID field below so
+                      it isn't mistaken for it (see telegramChatId's own label:
+                      the two were previously indistinguishable once typed,
+                      since only placeholder text -- which disappears on input
+                      -- told them apart). */}
+                  <label htmlFor="telegram-channel-username" className="mb-1 block text-[10px] font-bold text-slate-500 dark:text-slate-400">{t('telegramChannelUsernameLabel')}</label>
+                  <input
+                    id="telegram-channel-username"
+                    type="text"
+                    value={telegramChannelUrl}
+                    onChange={(e) => setTelegramChannelUrl(e.target.value)}
+                    placeholder={t('telegramChannelUsernamePlaceholder')}
+                    className="w-full px-4 py-3 bg-brand-50 border border-brand-100 dark:bg-slate-800 dark:border-slate-700 rounded-2xl text-sm text-brand-700 dark:text-slate-100 focus:outline-none focus:ring-2 ring-brand-500/20"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="telegram-chat-id" className="mb-1 block text-[10px] font-bold text-slate-500 dark:text-slate-400">{t('telegramChatIdLabel')}</label>
+                  <input
+                    id="telegram-chat-id"
+                    type="text"
+                    value={telegramChatId}
+                    onChange={(e) => setTelegramChatId(e.target.value)}
+                    placeholder={t('telegramChatIdPlaceholder')}
+                    className="w-full px-4 py-3 bg-brand-50 border border-brand-100 dark:bg-slate-800 dark:border-slate-700 rounded-2xl text-sm text-brand-700 dark:text-slate-100 focus:outline-none focus:ring-2 ring-brand-500/20"
+                  />
+                </div>
               </div>
             </div>
 
