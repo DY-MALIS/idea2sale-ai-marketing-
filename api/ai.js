@@ -742,8 +742,14 @@ export const resolveCreativeImageMode = (kind, requestedMode, conversation = '')
     : 'visual'
 );
 
-const buildCreativeAutomation = async ({ message, historyText, responseLanguage, businessContext, contentPlanText = '' }) => {
+const buildCreativeAutomation = async ({ message, historyText, responseLanguage, businessContext, contentPlanText = '', model }) => {
   const conversation = `${historyText}${contentPlanText ? `\nAvailable Content Plan from this app:\n${contentPlanText}` : ''}\nUser: ${message}`.trim();
+  // historyText can carry this match from an earlier turn (e.g. the assistant
+  // discussing a past video) even when the current message is unrelated --
+  // that's fine for a typed chat, but on a live call this classifier call
+  // itself becomes the "Thinking" delay the caller is trying to avoid, so the
+  // caller passes a fast model for liveVoice instead of leaving this on the
+  // slow reasoning default.
   if (!creativeMediaPattern.test(`${historyText}\nUser: ${message}`)) return null;
 
   let rawPlan;
@@ -763,7 +769,7 @@ For video requests, the underlying video model's own speech/dialogue generation 
 CRITICAL — resolving the narration question after you've already asked it once: if you already asked the narration question in an earlier turn and the user's reply doesn't directly say yes/no to narration but is instead a generic go-ahead ("yes", "create it", "go ahead", "ចាស", "បង្កើតមក" and similar) — do NOT ask the narration question again, and do NOT leave the request stuck unresolved or claim you are unable to proceed. Treat the generic go-ahead itself as approval for narration in whatever language the conversation already established, set voiceOverWanted=true, and write a short, natural voiceOverText yourself (1-3 sentences, in that language) directly from the scene/product/action already described in the conversation — you already have enough context to write reasonable narration without asking a third time. This must result in ready=true in that same turn; never respond by saying you cannot trigger generation yourself or by only offering to draft a script instead of completing the brief.
 The prompt must be a detailed English production prompt suitable for an image or video generation model, describing only the visuals (never write dialogue/spoken words into it, and never ask for specific on-screen text/lettering/signage wording — describe signs and surfaces as blank or generic instead, per the no-on-screen-text rule above).
 For video requests, the app only supports these exact durations in seconds: 4, 6, 8. This limit keeps each generated video within the $0.80 cost ceiling. Read the conversation for any stated or implied length and set "duration" to the closest allowed value — if nothing is stated, default to 8. If "voiceOverWanted" is true, the "voiceOverText" script's natural spoken length (at a normal, unhurried pace, roughly 2-3 spoken words per second) must fit within the chosen "duration" with a little room to spare — write a shorter script for a short duration and do not write a script that would still be talking after the video ends.`,
-      model: resolveOpenRouterTextModel(),
+      model: resolveOpenRouterTextModel(model),
       temperature: 0.2,
       // Reasoning-capable models draw hidden reasoning tokens from this same
       // budget before writing the visible JSON (see api/_openrouter.js) -- 'high'
@@ -1245,22 +1251,27 @@ export default async function handler(req, res) {
         const document = await generateAgentDocument({ format: documentFormat, message, historyText: `${historyText}${fullContentPlanText ? `\nAvailable Content Plan:\n${fullContentPlanText}` : ''}`, businessContextText, responseLanguage });
         return res.status(200).json({ text: '', document, automation: null });
       }
-      // Independent of each other -- run concurrently instead of back-to-back
-      // so a spoken turn doesn't pay for both round-trips in sequence.
-      const [automation, xContext] = await Promise.all([
-        buildCreativeAutomation({ message, historyText, responseLanguage, businessContext, contentPlanText }),
-        fetchXContext(message),
-      ]);
-
       // Live Voice needs the reply the instant it's ready to start speaking --
       // the default reasoning model (DEFAULT_REASONING_MODEL) spends several
       // extra seconds on hidden reasoning tokens before writing anything
       // visible, which reads as dead air on a spoken call. gemini-3.8-flash is
       // already trusted for latency-sensitive replies elsewhere (Content Plan
-      // edits) and skips that reasoning pass.
+      // edits) and skips that reasoning pass. Used for BOTH calls below --
+      // buildCreativeAutomation's own classifier call sits in front of the
+      // main reply (it's awaited first) and was still silently using the slow
+      // model on every live turn whose recent conversation merely mentioned
+      // "video"/"image", which is common in a marketing chat and was the
+      // actual remaining source of a slow "Thinking" state.
       const textModel = liveVoice
         ? resolveOpenRouterTextModel(process.env.OPEN_ROUTER_LIVE_VOICE_MODEL || 'google/gemini-3.8-flash')
         : resolveOpenRouterTextModel();
+
+      // Independent of each other -- run concurrently instead of back-to-back
+      // so a spoken turn doesn't pay for both round-trips in sequence.
+      const [automation, xContext] = await Promise.all([
+        buildCreativeAutomation({ message, historyText, responseLanguage, businessContext, contentPlanText, model: textModel }),
+        fetchXContext(message),
+      ]);
 
       const text = await generateOpenRouterText({
         system: agentSystemPrompt,
