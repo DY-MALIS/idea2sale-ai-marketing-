@@ -41,9 +41,13 @@ export async function generateKhmerSpeech({
       // narration voice name was passed in; narration keeps Kore/Charon.
       const voiceOverride = preferNaturalVoice ? (edgeKhmerVoice(voice) === 'km-KH-PisethNeural' ? 'Achird' : 'Aoede') : undefined;
       const generated = await generateGeminiSpeech({ input: spokenInput, voice, performanceStyle: clearKhmerStyle, context, voiceOverride });
-      // Check the actual waveform before using Gemini for either a live reply
-      // or a paid video. A fluent-sounding read can still change Khmer words.
-      if (preferNaturalVoice || (Number.isFinite(targetSeconds) && targetSeconds >= 4 && targetSeconds <= 8)) {
+      // Re-transcribing to check the waveform doubles this call's latency with
+      // a second network round-trip -- worth paying for a paid video (targetSeconds
+      // set, checked below), where a changed word is a wasted render, but not for
+      // a live spoken reply: preferNaturalVoice skips it so the conversation gets
+      // the Gemini audio immediately, falling back to Edge below only if the
+      // Gemini call itself fails outright.
+      if (Number.isFinite(targetSeconds) && targetSeconds >= 4 && targetSeconds <= 8) {
         const wavPrefix = 'data:audio/wav;base64,';
         if (!generated.audioUrl?.startsWith(wavPrefix)) throw new Error('Expressive voice returned unsupported audio.');
         const transcript = await transcribeAudioWithOpenRouter({

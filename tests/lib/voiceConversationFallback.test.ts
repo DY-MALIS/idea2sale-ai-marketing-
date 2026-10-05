@@ -39,6 +39,44 @@ it('listens again after each spoken answer until the caller ends the conversatio
   expect(onError).not.toHaveBeenCalled();
 });
 
+it('starts generating the next speech segment while the current one is still playing', async () => {
+  const controller = new AbortController();
+  const callOrder: string[] = [];
+  const recordTurn = vi.fn().mockResolvedValueOnce({ audioBase64: 'turn', format: 'webm' });
+  const requestJson = vi.fn(async (body: any) => {
+    if (body.action === 'sttTranscribe') return { transcript: 'question' };
+    callOrder.push(`generate:${body.languageHint}`);
+    return { audioUrl: `data:audio/mpeg;base64,${body.languageHint}` };
+  });
+  // Resolve the first playAudio call only after the second segment's
+  // generate request has already fired -- proving it was not deferred until
+  // after playback finished, as the old strictly-sequential code would do.
+  let resolveFirstPlay: () => void = () => {};
+  const playAudio = vi.fn(async (_el: unknown, url: string) => {
+    callOrder.push(`play:${url}`);
+    if (url.includes('Khmer')) await new Promise<void>((resolve) => { resolveFirstPlay = resolve; });
+  });
+
+  const run = runVoiceConversationFallback({
+    languageHint: () => 'auto',
+    audioElement: {} as HTMLAudioElement,
+    onListening: () => {},
+    onThinking: () => {},
+    onSpeaking: () => {},
+    onReplyComplete: () => controller.abort(),
+    onTranscript: async () => 'សួស្តី hello',
+    onError: vi.fn(),
+  }, controller.signal, { recordTurn, requestJson, playAudio });
+
+  await vi.waitFor(() => expect(callOrder).toContain('generate:English'));
+  // The second segment's generate request fires as soon as the first
+  // segment's audio is in hand -- before (not after) that audio finishes
+  // playing, which is the dead-air gap this pipelining removes.
+  expect(callOrder).toEqual(['generate:Khmer', 'generate:English', 'play:data:audio/mpeg;base64,Khmer']);
+  resolveFirstPlay();
+  await run;
+});
+
 it('releases the microphone when a fallback call is ended while listening', async () => {
   const stopTrack = vi.fn();
   const closeContext = vi.fn().mockResolvedValue(undefined);

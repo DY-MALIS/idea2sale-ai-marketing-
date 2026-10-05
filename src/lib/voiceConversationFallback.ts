@@ -171,14 +171,23 @@ export const runVoiceConversationFallback = async (
         options.onSpeaking();
         const cleanReply = reply.replace(/```[\s\S]*?```/g, ' ').replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
           .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/[#*_`>|]/g, ' ').trim();
-        for (const segment of splitSpeechByLanguage(cleanReply)) {
+        const segments = splitSpeechByLanguage(cleanReply);
+        const generateSegment = (segment: { text: string; language: string }) => operations.requestJson({
+          action: 'ttsGenerate', input: segment.text,
+          languageHint: segment.language === 'km' ? 'Khmer' : 'English', conversation: true,
+          voice: options.voiceGenderHint?.() === 'Male' ? 'onyx' : undefined,
+        }, signal);
+        // Start generating the next segment's audio as soon as the current
+        // one is ready, overlapping that network round-trip with the current
+        // segment's playback instead of waiting for playback to finish first --
+        // otherwise a multi-segment (mixed Khmer/English) reply has a dead-air
+        // gap between every spoken segment.
+        let pending = segments.length ? generateSegment(segments[0]) : null;
+        for (let i = 0; i < segments.length; i += 1) {
           if (signal.aborted) break;
-          const { audioUrl } = await operations.requestJson({
-            action: 'ttsGenerate', input: segment.text,
-            languageHint: segment.language === 'km' ? 'Khmer' : 'English', conversation: true,
-            voice: options.voiceGenderHint?.() === 'Male' ? 'onyx' : undefined,
-          }, signal);
+          const { audioUrl } = await pending!;
           if (!audioUrl) throw new Error('Voice playback is unavailable.');
+          pending = i + 1 < segments.length ? generateSegment(segments[i + 1]) : null;
           await operations.playAudio(options.audioElement, audioUrl, signal);
         }
         options.onReplyComplete();

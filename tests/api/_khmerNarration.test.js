@@ -26,27 +26,24 @@ describe('Khmer narration', () => {
     await expect(generateKhmerSpeech({ input: 'សួស្តី' })).rejects.toThrow('voice unavailable');
     expect(mocks.gemini).not.toHaveBeenCalled();
   });
-  it('plays a natural Agent voice only after its Khmer words are verified', async () => {
+  it('plays a natural Agent voice immediately, without a verification round-trip', async () => {
     vi.stubEnv('KHMER_TTS_PROVIDER', '');
     const script = '\u179f\u17bd\u179f\u17d2\u178f\u17b8';
     mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,YXVkaW8=', provider: 'gemini' });
-    mocks.transcribe.mockResolvedValue(script);
     const result = await generateKhmerSpeech({ input: script, preferNaturalVoice: true, edgeRate: '+0%' });
     expect(result).toMatchObject({ provider: 'gemini', spokenText: script });
-    expect(mocks.transcribe).toHaveBeenCalledWith({
-      audioBase64: 'YXVkaW8=', format: 'wav', languageHint: 'Khmer', model: 'google/chirp-3',
-    });
+    expect(mocks.transcribe).not.toHaveBeenCalled();
     expect(mocks.gemini.mock.calls[0][0].performanceStyle).toContain('relaxed conversation');
     expect(mocks.edge).not.toHaveBeenCalled();
   });
-  it('uses a clear Khmer voice if the expressive Agent read says different words', async () => {
+  it('uses a clear Khmer voice if the Agent conversation call itself fails outright', async () => {
     vi.stubEnv('KHMER_TTS_PROVIDER', '');
     const script = '\u179f\u17bd\u179f\u17d2\u178f\u17b8';
-    mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,YXVkaW8=', provider: 'gemini' });
-    mocks.transcribe.mockResolvedValue('Hello');
+    mocks.gemini.mockRejectedValue(new Error('provider unavailable'));
     mocks.edge.mockResolvedValue({ audioUrl: 'khmer', provider: 'edge' });
     const result = await generateKhmerSpeech({ input: script, preferNaturalVoice: true, edgeRate: '+0%' });
-    expect(result).toMatchObject({ provider: 'edge', spokenText: script, fallbackReason: expect.stringContaining('unclear') });
+    expect(result).toMatchObject({ provider: 'edge', spokenText: script });
+    expect(mocks.transcribe).not.toHaveBeenCalled();
     expect(mocks.edge).toHaveBeenCalledWith({ input: script, voice: 'km-KH-SreymomNeural', rate: '+0%' });
   });
   it('uses expressive Gemini speech first and preserves delivery direction', async () => {

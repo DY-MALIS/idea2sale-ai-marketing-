@@ -1245,12 +1245,26 @@ export default async function handler(req, res) {
         const document = await generateAgentDocument({ format: documentFormat, message, historyText: `${historyText}${fullContentPlanText ? `\nAvailable Content Plan:\n${fullContentPlanText}` : ''}`, businessContextText, responseLanguage });
         return res.status(200).json({ text: '', document, automation: null });
       }
-      const automation = await buildCreativeAutomation({ message, historyText, responseLanguage, businessContext, contentPlanText });
-      const xContext = await fetchXContext(message);
+      // Independent of each other -- run concurrently instead of back-to-back
+      // so a spoken turn doesn't pay for both round-trips in sequence.
+      const [automation, xContext] = await Promise.all([
+        buildCreativeAutomation({ message, historyText, responseLanguage, businessContext, contentPlanText }),
+        fetchXContext(message),
+      ]);
+
+      // Live Voice needs the reply the instant it's ready to start speaking --
+      // the default reasoning model (DEFAULT_REASONING_MODEL) spends several
+      // extra seconds on hidden reasoning tokens before writing anything
+      // visible, which reads as dead air on a spoken call. gemini-3.8-flash is
+      // already trusted for latency-sensitive replies elsewhere (Content Plan
+      // edits) and skips that reasoning pass.
+      const textModel = liveVoice
+        ? resolveOpenRouterTextModel(process.env.OPEN_ROUTER_LIVE_VOICE_MODEL || 'google/gemini-3.8-flash')
+        : resolveOpenRouterTextModel();
 
       const text = await generateOpenRouterText({
         system: agentSystemPrompt,
-        model: resolveOpenRouterTextModel(),
+        model: textModel,
         temperature: 0.55,
         // See the matching comment on buildCreativeAutomation's maxTokens above --
         // 'high' reasoning effort needs headroom beyond the old ceiling or the
