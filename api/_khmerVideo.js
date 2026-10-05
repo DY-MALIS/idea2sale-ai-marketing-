@@ -42,6 +42,17 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
   if (speech.mode === 'silent') {
     return { job: await startOpenRouterVideo({ prompt: visualPrompt(speech.prompt), duration, aspectRatio }), avatarImage: null };
   }
+  // Start the avatar image now, in parallel with the narration pipeline below
+  // -- it only depends on speech.avatarPrompt/aspectRatio/images, none of
+  // which involve narration audio at all, so there's no reason the (often
+  // slow, sometimes multi-step: TTS, duration-fit retries, expand/shorten
+  // rewrites) narration work below should block it from starting. Awaited
+  // just before it's actually needed, right after the narration pipeline
+  // finishes and fittedDuration is known.
+  const imagePromise = images.length
+    ? Promise.resolve({ imageUrl: `data:${images[0].mimeType};base64,${images[0].base64}` })
+    : generateOpenRouterImage({ prompt: visualPrompt(speech.avatarPrompt), aspectRatio, model: BUDGET_AVATAR_IMAGE_MODEL });
+
   let spokenScript = speech.script;
   let scriptShortened = false;
   if (allowScriptShortening && /[A-Za-z]{2,}/.test(spokenScript)) {
@@ -128,9 +139,7 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
   if (!(narrationAudio.duration > 0 && narrationAudio.duration <= MAX_KHMER_CLIP_DURATION)) throw new Error('Khmer narration exceeds the maximum 8-second clip. Use a longer video workflow or adjust the delivery pace.');
   const fittedDuration = fitKhmerClipDurationToNarration(narrationAudio.duration, duration);
   assertVideoGenerationWithinBudget({ duration: fittedDuration, khmerSpeech: true, model: KHMER_VIDEO_MODEL });
-  const image = images.length
-    ? { imageUrl: `data:${images[0].mimeType};base64,${images[0].base64}` }
-    : await generateOpenRouterImage({ prompt: visualPrompt(speech.avatarPrompt), aspectRatio, model: BUDGET_AVATAR_IMAGE_MODEL });
+  const image = await imagePromise;
   const avatarImage = await uploadMediaDataUrl({ mediaDataUrl: image.imageUrl, mediaType: 'photo' });
   const avatarReferenceUrl = getOriginalImageKitUrl(avatarImage.mediaUrl, process.env.IMAGEKIT_URL_ENDPOINT || '');
   const exactKhmerTranscript = String(narrationAudio.spokenText || spokenScript || '').trim();

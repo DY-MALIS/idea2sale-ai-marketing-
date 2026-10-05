@@ -60,6 +60,13 @@ const AI_FETCH_TIMEOUT_MS = 70000;
 // client-side (surfacing as "Video generation took too long"/"failed") even
 // though the server (given up to 300s via vercel.json) was still working.
 const VIDEO_STATUS_FETCH_TIMEOUT_MS = 240000;
+// ttsGenerate is the same class of exception: server-side it can chain Gemini
+// TTS (up to TEXT_REQUEST_TIMEOUT_MS=180s), a Khmer verification re-transcribe,
+// and an Edge-voice fallback, all before responding. The generic 70s timeout
+// was aborting the client's wait while the server kept working toward a
+// response the UI had already given up on -- sized close to the function's
+// own 300s hard ceiling (vercel.json maxDuration) rather than the generic budget.
+const TTS_FETCH_TIMEOUT_MS = 290000;
 // Poll often enough that a completed provider job appears promptly in the UI.
 // Three seconds is still conservative for the provider while avoiding the
 // extra five-second-feeling pause that users saw after generation completed.
@@ -536,8 +543,13 @@ const concatenateVideoClips = async (clipUrls: string[]): Promise<string> => {
   const fileNames = clipUrls.map((_, i) => `segment_${i}.mp4`);
   try {
     const { fetchFile } = await import('@ffmpeg/util');
-    for (let i = 0; i < clipUrls.length; i += 1) {
-      await ffmpeg.writeFile(fileNames[i], await fetchFile(clipUrls[i]));
+    // Each clip is an independent ImageKit URL from a different segment of the
+    // same generation -- fetch them concurrently instead of one full network
+    // round trip at a time, then hand the already-downloaded bytes to ffmpeg
+    // (a fast in-memory write, not worth parallelizing further).
+    const clipBytes = await Promise.all(clipUrls.map((url) => fetchFile(url)));
+    for (let i = 0; i < clipBytes.length; i += 1) {
+      await ffmpeg.writeFile(fileNames[i], clipBytes[i]);
     }
     await ffmpeg.writeFile('concat_list.txt', fileNames.map((name) => `file '${name}'`).join('\n'));
     await ffmpeg.exec(['-f', 'concat', '-safe', '0', '-i', 'concat_list.txt', '-c', 'copy', 'concat_output.mp4']);
@@ -1008,7 +1020,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
           voice: narration.voice,
           languageHint: narration.languageHint,
           performanceStyle: narration.performanceStyle,
-        });
+        }, TTS_FETCH_TIMEOUT_MS);
         const ttsData = await ttsResponse.json();
         if (!ttsResponse.ok || !ttsData.audioUrl) throw new Error(ttsData.error || 'Could not restore video narration.');
         video = await applyVoiceOver(video, ttsData.audioUrl, 1);
@@ -1254,7 +1266,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
             voice: persona.openRouterVoice,
             languageHint: hasKhmerText ? 'Khmer' : 'English',
             performanceStyle: `${persona.style} Read the exact provided text like you are speaking in a real conversation, not reading a script. Use human emotion, natural rhythm, clear consonants, natural pacing. Avoid robotic or AI narration.`,
-          });
+          }, TTS_FETCH_TIMEOUT_MS);
           const ttsData = await ttsResponse.json();
           if (ttsResponse.ok && ttsData.audioUrl) {
             // Preserve natural speech speed; never rush or truncate Khmer words.
@@ -1390,7 +1402,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         voice: selectedPersona.openRouterVoice,
         languageHint,
         performanceStyle: `${selectedPersona.style} Read the exact provided text like you are speaking in a real conversation, not reading a script. Keep Khmer words Khmer and English words English. Use human emotion, natural rhythm, clear consonants, natural pacing, short pauses, and real creator-style intonation. Avoid robotic or AI narration.`,
-      });
+      }, TTS_FETCH_TIMEOUT_MS);
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Audio generation failed.');
       setGeneratedAudio(data.audioUrl);

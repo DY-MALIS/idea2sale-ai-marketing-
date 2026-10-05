@@ -72,7 +72,12 @@ it('still rejects narration that exceeds the eight-second budget ceiling', async
   const upload = uploadStub({ audioDuration: 8.1, imageUrl: 'image' });
   await expect(startKhmerVideoJob({}, { script: 'សួស្តី' }, upload, { duration: 8 })).rejects.toThrow('maximum 8-second clip');
   expect(mocks.speech).toHaveBeenCalledTimes(2);
-  expect(mocks.image).not.toHaveBeenCalled();
+  // The avatar image now starts in parallel with narration (it has no
+  // dependency on narration audio), so it's fired before narration is known
+  // to have failed -- an accepted, rare, budget-model-cost tradeoff for a
+  // universal latency win on every successful generation. The video call
+  // (the expensive one) stays correctly gated behind narration succeeding.
+  expect(mocks.image).toHaveBeenCalledTimes(1);
   expect(mocks.video).not.toHaveBeenCalled();
 });
 
