@@ -1257,6 +1257,7 @@ export default async function handler(req, res) {
 
       const documentFormat = requestedAgentDocumentFormat(message);
       if (documentFormat) {
+        if (liveVoice) console.log(`socialAgent(liveVoice): document command detected (${documentFormat}) for message: ${JSON.stringify(message.slice(0, 200))}`);
         const fullContentPlanText = agentContentPlanText(req.body, 60);
         const document = await generateAgentDocument({ format: documentFormat, message, historyText: `${historyText}${fullContentPlanText ? `\nAvailable Content Plan:\n${fullContentPlanText}` : ''}`, businessContextText, responseLanguage });
         return res.status(200).json({ text: '', document, automation: null });
@@ -1282,6 +1283,14 @@ export default async function handler(req, res) {
         buildCreativeAutomation({ message, historyText, responseLanguage, businessContext, contentPlanText, model: textModel }),
         fetchXContext(message),
       ]);
+      // Temporary diagnostic, liveVoice only: the fastest way to tell "didn't
+      // detect the voice command" from "detected it but judged the brief
+      // incomplete" from "detected it, was ready, but the client-side
+      // trigger never fired" when a spoken video/image/plan command is
+      // reported as not working.
+      if (liveVoice) {
+        console.log(`socialAgent(liveVoice): message=${JSON.stringify(message.slice(0, 200))} automation=${JSON.stringify(automation ? { ready: automation.ready, kind: automation.kind, missing: automation.missing } : null)}`);
+      }
 
       const text = await generateOpenRouterText({
         system: agentSystemPrompt,
@@ -1379,6 +1388,7 @@ Response rules:
       const contentPlanText = agentContentPlanText(req.body);
       const documentFormat = requestedAgentDocumentFormat(message);
       if (documentFormat) {
+        console.log(`voiceAutomationCheck: document command detected (${documentFormat}) for message: ${JSON.stringify(message.slice(0, 200))}`);
         const fullContentPlanText = agentContentPlanText(req.body, 60);
         const document = await generateAgentDocument({
           format: documentFormat,
@@ -1390,6 +1400,14 @@ Response rules:
         return res.status(200).json({ document, automation: null });
       }
       const automation = await buildCreativeAutomation({ message, historyText, responseLanguage, businessContext, contentPlanText });
+      // Temporary diagnostic: this is the only server-side signal for a live
+      // voice media command (the client's spoken turn never reaches ai.js
+      // for Gemini Live otherwise), so logging the classifier's actual
+      // decision is the fastest way to tell "didn't detect the command" from
+      // "detected it but judged the brief incomplete" from "detected it, was
+      // ready, but the client-side trigger never fired" when a user reports
+      // a voice-commanded video/plan not working.
+      console.log(`voiceAutomationCheck: message=${JSON.stringify(message.slice(0, 200))} automation=${JSON.stringify(automation ? { ready: automation.ready, kind: automation.kind, missing: automation.missing } : null)}`);
       return res.status(200).json({ automation: automation?.ready ? automation : null });
     }
 
