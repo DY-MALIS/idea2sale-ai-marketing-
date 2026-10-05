@@ -3,6 +3,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   text: vi.fn(),
   checkRateLimit: vi.fn(),
+  extractWebsite: vi.fn(),
 }));
 
 vi.mock('../../api/_openrouter.js', () => ({
@@ -34,6 +35,7 @@ vi.mock('../../api/_competitorResearch.js', () => ({ researchCompetitors: vi.fn(
 vi.mock('../../api/_marketTrendResearch.js', () => ({ researchMarketTrends: vi.fn() }));
 vi.mock('../../api/_imagekitUpload.js', () => ({ uploadMediaDataUrl: vi.fn() }));
 vi.mock('../../api/_email.js', () => ({ sendOutreachEmail: vi.fn() }));
+vi.mock('../../api/_websiteExtract.js', () => ({ extractWebsiteText: mocks.extractWebsite }));
 
 import handler from '../../api/ai.js';
 
@@ -88,6 +90,74 @@ it('rejects the request when no file was sent', async () => {
   expect(res.statusCode).toBe(400);
   expect(res.body.error).toMatch(/choose a file/i);
   expect(mocks.text).not.toHaveBeenCalled();
+});
+
+it('summarizes a pasted website link into a saved business description', async () => {
+  mocks.extractWebsite.mockResolvedValue({
+    text: 'We roast and sell single-origin coffee beans sourced from Mondulkiri and sell them to cafes across Phnom Penh.',
+    title: 'Sabai Coffee Roastery',
+  });
+  mocks.text.mockResolvedValue('We roast and sell specialty coffee beans in Phnom Penh.');
+  const req = {
+    method: 'POST',
+    headers: {},
+    body: { action: 'extractBusinessIntro', websiteUrl: 'https://sabaicoffee.example.com', language: 'en' },
+  };
+  const res = responseRecorder();
+  await handler(req, res);
+  expect(res.statusCode).toBe(200);
+  expect(res.body).toEqual({ businessDescription: 'We roast and sell specialty coffee beans in Phnom Penh.' });
+  expect(mocks.extractWebsite).toHaveBeenCalledWith({ url: 'https://sabaicoffee.example.com' });
+  expect(mocks.text.mock.calls[0][0].prompt).toContain('the website "Sabai Coffee Roastery"');
+  expect(mocks.text.mock.calls[0][0].prompt).toContain('Mondulkiri');
+});
+
+it('falls back to the URL itself as the source label when the page has no title', async () => {
+  mocks.extractWebsite.mockResolvedValue({ text: 'Fresh bread baked daily.', title: '' });
+  mocks.text.mockResolvedValue('A bakery selling fresh bread daily.');
+  const req = {
+    method: 'POST',
+    headers: {},
+    body: { action: 'extractBusinessIntro', websiteUrl: 'https://example-bakery.com', language: 'en' },
+  };
+  const res = responseRecorder();
+  await handler(req, res);
+  expect(res.statusCode).toBe(200);
+  expect(mocks.text.mock.calls[0][0].prompt).toContain('the website "https://example-bakery.com"');
+});
+
+it('surfaces a website-extraction failure with its own status and message', async () => {
+  mocks.extractWebsite.mockRejectedValue(Object.assign(new Error('This website link cannot be fetched.'), { code: 'blocked_host', status: 400 }));
+  const req = {
+    method: 'POST',
+    headers: {},
+    body: { action: 'extractBusinessIntro', websiteUrl: 'http://169.254.169.254/', language: 'en' },
+  };
+  const res = responseRecorder();
+  await handler(req, res);
+  expect(res.statusCode).toBe(400);
+  expect(res.body.error).toBe('This website link cannot be fetched.');
+  expect(mocks.text).not.toHaveBeenCalled();
+});
+
+it('prefers the website link over an uploaded file when both are somehow sent', async () => {
+  mocks.extractWebsite.mockResolvedValue({ text: 'We roast coffee in Mondulkiri.', title: 'Sabai Coffee' });
+  mocks.text.mockResolvedValue('We roast and sell specialty coffee beans in Phnom Penh.');
+  const req = {
+    method: 'POST',
+    headers: {},
+    body: {
+      action: 'extractBusinessIntro',
+      fileDataUrl: textDataUrl('Our company roasts coffee in Mondulkiri.'),
+      websiteUrl: 'https://sabaicoffee.example.com',
+      fileName: 'company-intro.txt',
+      language: 'en',
+    },
+  };
+  const res = responseRecorder();
+  await handler(req, res);
+  expect(res.statusCode).toBe(200);
+  expect(mocks.extractWebsite).toHaveBeenCalledWith({ url: 'https://sabaicoffee.example.com' });
 });
 
 it('surfaces a document-extraction failure with its own status and message', async () => {

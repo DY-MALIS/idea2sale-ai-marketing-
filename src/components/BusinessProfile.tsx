@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Upload, FileText, Building2, User, Plus, Trash2, Save, CheckCircle2, Loader2, Send, Bot } from 'lucide-react';
+import { X, Upload, FileText, Building2, User, Plus, Trash2, Save, CheckCircle2, Loader2, Send, Bot, Globe, ArrowRight } from 'lucide-react';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { cn } from '../lib/utils';
@@ -74,6 +74,8 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [introUploading, setIntroUploading] = useState(false);
+  const [showWebsiteInput, setShowWebsiteInput] = useState(false);
+  const [websiteUrlInput, setWebsiteUrlInput] = useState('');
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [telegramBotActive, setTelegramBotActive] = useState(false);
@@ -190,6 +192,33 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'Could not read this file.');
       setBusinessDescription(String(data.businessDescription || ''));
+    } catch (err: any) {
+      setError(err.message || t('businessProfileLoadError'));
+    } finally {
+      setIntroUploading(false);
+    }
+  };
+
+  const handleWebsiteIntroSubmit = async () => {
+    const websiteUrl = websiteUrlInput.trim();
+    if (!websiteUrl) return;
+    if (!/^https?:\/\//i.test(websiteUrl)) {
+      setError(language === 'km' ? 'សូមបញ្ចូល link ដែលចាប់ផ្តើមដោយ http:// ឬ https://' : 'Enter a link starting with http:// or https://');
+      return;
+    }
+    setIntroUploading(true);
+    setError(null);
+    try {
+      const response = await withUploadTimeout(fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'extractBusinessIntro', websiteUrl, language }),
+      }));
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Could not read this website.');
+      setBusinessDescription(String(data.businessDescription || ''));
+      setShowWebsiteInput(false);
+      setWebsiteUrlInput('');
     } catch (err: any) {
       setError(err.message || t('businessProfileLoadError'));
     } finally {
@@ -407,6 +436,50 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
                   ? (language === 'km' ? 'កំពុងអាន...' : 'Reading file...')
                   : (language === 'km' ? 'ឬ Upload ឯកសារណែនាំក្រុមហ៊ុន (.txt, .pdf, .docx, .json, .js, .html...)' : 'Or upload a company intro file (.txt, .pdf, .docx, .json, .js, .html...)')}
               </button>
+              {showWebsiteInput ? (
+                <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+                  <input
+                    type="url"
+                    inputMode="url"
+                    autoFocus
+                    value={websiteUrlInput}
+                    onChange={(event) => setWebsiteUrlInput(event.target.value)}
+                    onKeyDown={(event) => { if (event.key === 'Enter' && !introUploading) { event.preventDefault(); void handleWebsiteIntroSubmit(); } }}
+                    disabled={introUploading}
+                    placeholder="https://your-website.com"
+                    className="flex-1 px-4 py-2 bg-brand-50 border border-brand-100 dark:bg-slate-800 dark:border-slate-700 rounded-xl text-sm text-brand-700 dark:text-slate-100 focus:outline-none focus:ring-2 ring-brand-500/20 disabled:opacity-50"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void handleWebsiteIntroSubmit()}
+                      disabled={introUploading || !websiteUrlInput.trim()}
+                      className="flex items-center justify-center gap-1.5 px-3 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {introUploading ? <Loader2 size={14} className="animate-spin" /> : <ArrowRight size={14} />}
+                      {language === 'km' ? 'ទាញយក' : 'Fetch'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setShowWebsiteInput(false); setWebsiteUrlInput(''); }}
+                      disabled={introUploading}
+                      className="px-3 py-2 bg-brand-50 hover:bg-brand-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-brand-600 dark:text-brand-400 rounded-xl text-xs font-bold transition-colors disabled:opacity-50"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowWebsiteInput(true)}
+                  disabled={introUploading}
+                  className="mt-2 ml-2 inline-flex items-center gap-2 px-3 py-1.5 bg-brand-50 hover:bg-brand-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-brand-600 dark:text-brand-400 rounded-xl text-xs font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Globe size={14} />
+                  {language === 'km' ? 'ឬ ដាក់ Link វេបសាយក្រុមហ៊ុន' : 'Or paste your website link'}
+                </button>
+              )}
             </div>
 
             <div>
