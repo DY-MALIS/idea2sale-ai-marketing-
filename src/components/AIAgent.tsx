@@ -10,6 +10,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../hooks/useToast';
 import { connectGeminiLive, GeminiLiveSession } from '../lib/geminiLiveClient';
+import { reportClientError } from '../lib/errorReporting';
 import { startVoiceConversationFallback, type VoiceConversationFallback } from '../lib/voiceConversationFallback';
 import { getLatestBusinessBranding } from '../lib/businessBranding';
 import { CreativeAutomationRequest } from '../types';
@@ -394,8 +395,12 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         },
         onUserTurnText: (text) => handleLiveUserTurn(session, text),
         onUserTranscription: (text) => isAgentDocumentCommand(text) || isPlanEditMessage(text),
-        onError: () => startFallbackVoice(session),
-        onClose: () => startFallbackVoice(session),
+        // Every drop to the slow fallback path previously left no trace of
+        // why -- reporting here is the only way to learn whether real users'
+        // Gemini Live connections are failing at all, and if so why, without
+        // asking them to open devtools.
+        onError: (error) => { reportClientError('geminiLive.onError', error); startFallbackVoice(session); },
+        onClose: () => { reportClientError('geminiLive.onClose', new Error('Gemini Live closed unexpectedly')); startFallbackVoice(session); },
       }, { voiceName: data.voiceName, systemInstruction: data.systemInstruction }, controller.signal);
 
       if (session !== voiceSessionRef.current || !voiceActiveRef.current) {
@@ -406,9 +411,10 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       geminiLiveSessionRef.current = geminiSession;
       setVoiceConnecting(false);
       return true;
-    } catch {
+    } catch (error) {
       void playbackContext.close().catch(() => {});
       if (session === voiceSessionRef.current && voiceActiveRef.current && !controller.signal.aborted) {
+        reportClientError('geminiLive.connect', error);
         startFallbackVoice(session);
       }
       return false;
