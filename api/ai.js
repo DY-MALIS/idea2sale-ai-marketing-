@@ -982,6 +982,11 @@ export default async function handler(req, res) {
         const message = String(req.body?.message || 'No message').trim().slice(0, 500);
         const url = String(req.body?.url || '').trim().slice(0, 300);
         const stack = String(req.body?.stack || '').trim().slice(0, 1200);
+        // Also in the function's own stdout, not just the admin Telegram
+        // channel -- lets this be found in `vercel logs` without needing
+        // Telegram access, e.g. while live-diagnosing a report straight from
+        // this deployment's logs.
+        console.error(`Frontend error [${context}]: ${message}${url ? ` | Page: ${url}` : ''}${stack ? ` | ${stack}` : ''}`);
         await notifyAdmins(
           `Frontend error [${context}]: ${message}${url ? `\nPage: ${url}` : ''}${stack ? `\n${stack}` : ''}`,
         );
