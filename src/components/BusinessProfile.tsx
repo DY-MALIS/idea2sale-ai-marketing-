@@ -395,7 +395,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
                 placeholder={language === 'km' ? 'ឧទាហរណ៍៖ ហាងកាហ្វេ និងម៉ាត លក់ភេសជ្ជៈ និងទំនិញប្រចាំថ្ងៃ' : 'For example: a cafe and mini mart selling drinks and everyday goods'}
                 className="w-full px-4 py-3 bg-brand-50 border border-brand-100 dark:bg-slate-800 dark:border-slate-700 rounded-2xl text-sm text-brand-700 dark:text-slate-100 focus:outline-none focus:ring-2 ring-brand-500/20"
               />
-              <input ref={introFileInputRef} type="file" accept=".txt,.pdf,.docx,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" className="hidden" onChange={handleIntroFileChange} />
+              <input ref={introFileInputRef} type="file" className="hidden" onChange={handleIntroFileChange} />
               <button
                 type="button"
                 onClick={() => introFileInputRef.current?.click()}
@@ -405,7 +405,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
                 {introUploading ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
                 {introUploading
                   ? (language === 'km' ? 'កំពុងអាន...' : 'Reading file...')
-                  : (language === 'km' ? 'ឬ Upload ឯកសារណែនាំក្រុមហ៊ុន (.txt, .pdf, .docx)' : 'Or upload a company intro file (.txt, .pdf, .docx)')}
+                  : (language === 'km' ? 'ឬ Upload ឯកសារណែនាំក្រុមហ៊ុន (.txt, .pdf, .docx, .json, .js, .html...)' : 'Or upload a company intro file (.txt, .pdf, .docx, .json, .js, .html...)')}
               </button>
             </div>
 

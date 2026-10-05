@@ -63,7 +63,17 @@ export async function extractDocumentText({ dataUrl, fileName }) {
       throw typedError('Could not read text from this Word document.', 'docx_parse_failed');
     }
   } else {
-    throw typedError('Upload a .txt, .pdf, or .docx file.', 'unsupported_file_type');
+    // Anything else (.json, .js, .html, .md, .csv, ...) is read the same way
+    // as .txt: it's source/markup text, not a binary format needing a parser
+    // like pdf-parse or mammoth above. A NUL byte never appears in real text
+    // and is the cheapest reliable signal of a binary file (image, archive,
+    // executable) slipping in under an unrecognized or renamed extension --
+    // reject it with a clear reason instead of feeding decoded garbage to the
+    // summarizer below.
+    if (buffer.subarray(0, 8000).includes(0)) {
+      throw typedError('This file type is not supported. Upload a text-based file (.txt, .pdf, .docx, .json, .js, .html, ...).', 'unsupported_file_type');
+    }
+    rawText = buffer.toString('utf8');
   }
 
   const trimmed = rawText.replace(/\s+/g, ' ').trim();

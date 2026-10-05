@@ -89,7 +89,10 @@ it('surfaces a document-extraction failure for a file type it cannot read', asyn
     headers: {},
     body: {
       action: 'extractContentPlan',
-      fileDataUrl: 'data:image/png;base64,aGVsbG8=',
+      // Real PNG magic bytes (not just a renamed text file) -- genuinely
+      // binary content under an unrecognized/unreadable extension still
+      // needs to be rejected, not decoded as garbled "text".
+      fileDataUrl: `data:image/png;base64,${Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x0d]).toString('base64')}`,
       fileName: 'plan-screenshot.png',
       language: 'en',
     },
@@ -97,7 +100,7 @@ it('surfaces a document-extraction failure for a file type it cannot read', asyn
   const res = responseRecorder();
   await handler(req, res);
   expect(res.statusCode).toBe(400);
-  expect(res.body.error).toMatch(/\.txt, \.pdf, or \.docx/i);
+  expect(res.body.error).toMatch(/not supported/i);
   expect(mocks.text).not.toHaveBeenCalled();
 });
 

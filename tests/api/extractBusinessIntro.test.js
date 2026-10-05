@@ -96,7 +96,10 @@ it('surfaces a document-extraction failure with its own status and message', asy
     headers: {},
     body: {
       action: 'extractBusinessIntro',
-      fileDataUrl: 'data:image/png;base64,aGVsbG8=',
+      // Real PNG magic bytes (not just a renamed text file) -- genuinely
+      // binary content under an unrecognized/unreadable extension still
+      // needs to be rejected, not decoded as garbled "text".
+      fileDataUrl: `data:image/png;base64,${Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x0d]).toString('base64')}`,
       fileName: 'logo.png',
       language: 'en',
     },
@@ -104,7 +107,7 @@ it('surfaces a document-extraction failure with its own status and message', asy
   const res = responseRecorder();
   await handler(req, res);
   expect(res.statusCode).toBe(400);
-  expect(res.body.error).toMatch(/\.txt, \.pdf, or \.docx/i);
+  expect(res.body.error).toMatch(/not supported/i);
   expect(mocks.text).not.toHaveBeenCalled();
 });
 

@@ -54,8 +54,14 @@ it('rejects the legacy .doc format with guidance instead of attempting to parse 
   expect(mocks.extractRawText).not.toHaveBeenCalled();
 });
 
-it('rejects a file type that is not txt/pdf/docx', async () => {
-  await expect(extractDocumentText({ dataUrl: dataUrl('image/png', 'x'), fileName: 'logo.png' }))
+it('reads a code/markup file as plain text instead of rejecting its extension', async () => {
+  const text = await extractDocumentText({ dataUrl: dataUrl('application/json', '{"name": "Handmade Soap Co"}'), fileName: 'profile.json' });
+  expect(text).toBe('{"name": "Handmade Soap Co"}');
+});
+
+it('rejects a binary file slipped in under an unrecognized extension', async () => {
+  const binary = `data:application/octet-stream;base64,${Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x0d]).toString('base64')}`;
+  await expect(extractDocumentText({ dataUrl: binary, fileName: 'logo.png' }))
     .rejects.toMatchObject({ code: 'unsupported_file_type' });
 });
 
