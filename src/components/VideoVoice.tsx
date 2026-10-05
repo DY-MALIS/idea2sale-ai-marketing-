@@ -406,10 +406,14 @@ const applyVoiceOver = async (
   const ffmpeg = await getFFmpeg();
   let muxStarted = false;
   try {
-    await ffmpeg.writeFile('vo_input.mp4', videoBytes);
-    await ffmpeg.writeFile(`vo_audio.${audioExt}`, audioBytes);
+    // Must run before writeFile() below: ffmpeg.wasm transfers (not copies)
+    // the buffer it's given, which detaches videoBytes.buffer -- reading it
+    // afterward threw "Cannot perform DataView constructor on a detached
+    // ArrayBuffer" for any saved job old enough to need this probing fallback.
     let videoDuration = validDuration(knownDurations?.video) ? knownDurations.video : mp4DurationSeconds(videoBytes);
     let audioDuration = validDuration(knownDurations?.audio) ? knownDurations.audio : null;
+    await ffmpeg.writeFile('vo_input.mp4', videoBytes);
+    await ffmpeg.writeFile(`vo_audio.${audioExt}`, audioBytes);
     if (!validDuration(videoDuration)) {
       videoDuration = await ffprobeDurationSeconds(ffmpeg, 'vo_input.mp4', 'vo_video_duration.txt');
     }
