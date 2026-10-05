@@ -1277,6 +1277,14 @@ export default async function handler(req, res) {
         system: agentSystemPrompt,
         model: textModel,
         temperature: 0.55,
+        // A live spoken turn is a conversational reply, not a structured task
+        // needing chain-of-thought -- 'high' (the default) spends extra hidden
+        // reasoning tokens before writing anything visible, which is dead air
+        // on a call. 'low' is only for liveVoice; the typed chat keeps the
+        // default, and buildCreativeAutomation's own JSON classification above
+        // keeps its own default too, since getting that JSON shape right
+        // benefits more from reasoning than a short spoken reply does.
+        reasoningEffort: liveVoice ? 'low' : undefined,
         // See the matching comment on buildCreativeAutomation's maxTokens above --
         // 'high' reasoning effort needs headroom beyond the old ceiling or the
         // visible reply itself can come back truncated or empty.
