@@ -524,6 +524,7 @@ async function startServer() {
     console.log("Starting Vite in middleware mode...");
     try {
       const vite = await createViteServer({
+        configLoader: "runner",
         server: { middlewareMode: true },
         appType: "spa",
       });
@@ -531,6 +532,7 @@ async function startServer() {
       app.use(vite.middlewares);
     } catch (viteError) {
       console.error("Vite failed to start:", viteError);
+      throw viteError;
     }
   } else {
     const distPath = path.join(process.cwd(), 'dist');

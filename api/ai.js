@@ -1048,8 +1048,16 @@ export default async function handler(req, res) {
       const items = Array.isArray(req.body?.items) ? req.body.items.slice(0, 60) : [];
       const planContext = (Array.isArray(req.body?.planContext) ? req.body.planContext : [])
         .slice(-4).map((item) => ({ role: item?.role === 'assistant' ? 'assistant' : 'user', content: String(item?.content || '').slice(0, 1000) }));
-      const hasPlanContext = planContext.some((item) => item.role === 'assistant' && /content\s*plan|ផែនការ/iu.test(item.content));
-      if (!(isContentPlanEditRequest(message) || (hasPlanContext && isContentPlanEditFollowup(message)) || isContentPlanEditPronounFollowup(message)) || !items.length) {
+      const previousAssistant = [...planContext].reverse().find((item) => item.role === 'assistant');
+      const hasPlanContext = Boolean(previousAssistant && /content\s*plan|ផែនការ/iu.test(previousAssistant.content));
+      // A pronoun-only edit ("change it...") is only trusted with zero prior
+      // conversation turns -- the session's very first message, when the plan
+      // card is the only thing "it" could mean. With any history present this
+      // falls back to requiring hasPlanContext, same as isContentPlanEditFollowup,
+      // so an unrelated "update it" elsewhere in the chat isn't misrouted here
+      // just because a saved plan happens to exist.
+      const isFirstTurnPronounEdit = !planContext.length && isContentPlanEditPronounFollowup(message);
+      if (!(isContentPlanEditRequest(message) || (hasPlanContext && isContentPlanEditFollowup(message)) || isFirstTurnPronounEdit) || !items.length) {
         return res.status(400).json({ error: 'An existing content plan and a specific edit request are required.' });
       }
       const owner = req.body?.target === 'saved' ? await requireAiUser(req) : null;

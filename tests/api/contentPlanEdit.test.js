@@ -137,6 +137,43 @@ describe('editContentPlan', () => {
     expect(res.body.patches[0].changes.type).toBe('video');
   });
 
+  it('does not treat an unrelated pronoun message mid-conversation as a plan edit just because a plan exists', async () => {
+    const res = response();
+    await handler({
+      method: 'POST', headers: {},
+      body: {
+        action: 'editContentPlan', target: 'draft', message: 'Change it back, that was wrong',
+        planContext: [
+          { role: 'user', content: 'What time zone is Phnom Penh in?' },
+          { role: 'assistant', content: 'Phnom Penh is in ICT, UTC+7.' },
+        ],
+        items: [{ date: '2026-10-05', type: 'image', topic: 'Old campaign', prompt: 'Old photo', status: 'DRAFT' }],
+      },
+    }, res);
+
+    expect(res.statusCode).toBe(400);
+    expect(generateText).not.toHaveBeenCalled();
+  });
+
+  it('requires the most recent assistant reply to be about the plan for a pronoun follow-up', async () => {
+    const res = response();
+    await handler({
+      method: 'POST', headers: {},
+      body: {
+        action: 'editContentPlan', target: 'draft', message: 'Change it back',
+        planContext: [
+          { role: 'assistant', content: 'Content Plan: edited the draft.' },
+          { role: 'user', content: 'What time zone is Phnom Penh in?' },
+          { role: 'assistant', content: 'Phnom Penh is in ICT, UTC+7.' },
+        ],
+        items: [{ date: '2026-10-05', type: 'image', topic: 'Old campaign', prompt: 'Old photo', status: 'DRAFT' }],
+      },
+    }, res);
+
+    expect(res.statusCode).toBe(400);
+    expect(generateText).not.toHaveBeenCalled();
+  });
+
   it('uses the previous plan conversation for a short follow-up edit', async () => {
     generateText.mockResolvedValueOnce(JSON.stringify([{
       op: 'update', index: 1,

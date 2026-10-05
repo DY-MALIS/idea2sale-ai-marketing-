@@ -82,6 +82,11 @@ const MAX_MESSAGES = 40;
 const HISTORY_MESSAGES = 20;
 const MAX_SESSIONS = 20;
 const MAX_IMAGES = 4;
+// Matches BusinessProfile.tsx's INTRO_FILE_MAX_BYTES for the same reason: a
+// PDF/Word file this size goes to the server as a base64 data URL (~33%
+// larger) inside the /api/ai JSON body, and extractDocumentText's own 8MB
+// cap means anything larger fails there anyway -- better to say so up front.
+const PLAN_FILE_MAX_BYTES = 8 * 1024 * 1024;
 const SILENT_WAV_DATA_URL = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
 
 // A plain `session-${Date.now()}` id collides whenever two sessions are created
@@ -459,7 +464,13 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const isPlanEditMessage = (message: string) => {
     if (isContentPlanEditRequest(message)) return true;
     if (!(planItems.length > 0 || savedPlanItems.length > 0)) return false;
-    if (isContentPlanEditPronounFollowup(message)) return true;
+    // Only trust a bare pronoun reference ("change it...") with no assistant
+    // context at all as the session's very first turn -- the plan card is the
+    // only thing "it" could mean then. Once there's any conversation history,
+    // require the previous assistant turn to have actually mentioned the plan,
+    // or an unrelated "update it"/"change it" elsewhere in the chat would get
+    // misrouted into a plan edit just because a saved plan happens to exist.
+    if (!messagesRef.current.length && isContentPlanEditPronounFollowup(message)) return true;
     const last = messagesRef.current.at(-1);
     const previousAssistant = last?.role === 'assistant' ? last : messagesRef.current.at(-2);
     return previousAssistant?.role === 'assistant'
@@ -878,6 +889,10 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     // genuinely can't read, e.g. an image), rather than this reading raw
     // binary bytes as mangled "text".
     const isPlainText = /\.(csv|txt)$/i.test(file.name) || file.type === 'text/csv' || file.type === 'text/plain';
+    if (!isPlainText && file.size > PLAN_FILE_MAX_BYTES) {
+      setPlanError(language === 'km' ? 'ឯកសារនេះធំពេក (កំណត់ត្រឹម ៨MB)។' : 'That file is too large (8 MB limit).');
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => void runPlanExtraction(isPlainText
       ? { planText: String(reader.result || '') }
@@ -973,7 +988,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     setPlanSaving(false);
   };
 
-  const editContentPlan = async (message: string, signal?: AbortSignal): Promise<string> => {
+  const editContentPlan = async (message: string, signal?: AbortSignal, priorMessages: AgentMessage[] = messagesRef.current): Promise<string> => {
     const target = planItems.length ? 'draft' : 'saved';
     const items = target === 'draft' ? planItems : savedPlanItems;
     if (!items.length) return language === 'km'
@@ -989,7 +1004,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       body: JSON.stringify({
         action: 'editContentPlan',
         message,
-        planContext: messagesRef.current.slice(-4).map(({ role, content }) => ({ role, content: content.slice(0, 1000) })),
+        planContext: priorMessages.slice(-4).map(({ role, content }) => ({ role, content: content.slice(0, 1000) })),
         target,
         businessName: businessContext?.businessName || '',
         items: items.map((item) => ({
@@ -1157,6 +1172,11 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     agentRequestActiveRef.current = true;
 
     const history = messagesRef.current.slice(-HISTORY_MESSAGES);
+    // Must run before updateMessages mutates messagesRef.current below --
+    // isPlanEditMessage's first-turn pronoun check depends on the message
+    // list still being empty for a session's very first message, and
+    // updateMessages immediately appends this user message into that ref.
+    const planEditCommand = isPlanEditMessage(message);
     const userMessage: AgentMessage = {
       role: 'user',
       content: message || (language === 'km' ? '(រូបភាពភ្ជាប់)' : '(Attached image)'),
@@ -1179,8 +1199,8 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     requestControllerRef.current = controller;
 
     try {
-      if (isPlanEditMessage(message)) {
-        const answer = await editContentPlan(message, controller.signal);
+      if (planEditCommand) {
+        const answer = await editContentPlan(message, controller.signal, history);
         updateMessages([...pendingMessages, { role: 'assistant', content: answer, modality: spoken ? 'voice' : 'text' }]);
         if (spoken) setVoiceCaption(answer);
         return spoken ? '' : answer;
