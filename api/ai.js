@@ -802,7 +802,7 @@ Return exactly this JSON shape:
   "missing": "one concise missing detail, or empty string"
 }
 
-Aspect ratio defaults: poster=3:4 unless the user names another format, TikTok/Reels/Shorts video=9:16, YouTube video=16:9, TikTok image=4:5, Facebook image=4:5, X/Telegram=16:9, General image=1:1, General video=9:16.`,
+Aspect ratio defaults: poster=3:4 unless the user names another format, TikTok/Reels/Shorts video=9:16, YouTube video=16:9, TikTok image=4:5, Facebook image=4:5, X/Telegram=16:9, General image=1:1, General video=16:9.`,
     });
   } catch (error) {
     // If the classifier call itself fails (e.g. the configured model rejects
@@ -820,7 +820,11 @@ Aspect ratio defaults: poster=3:4 unless the user names another format, TikTok/R
     : 'General';
   const imageMode = resolveCreativeImageMode(plan.kind, plan.imageMode, conversation);
   const fallbackRatio = plan.kind === 'video'
-    ? platform === 'YouTube' ? '16:9' : '9:16'
+    // Portrait only when a platform that actually needs it (TikTok, or
+    // Facebook/X/Telegram feeds) was explicitly identified -- an
+    // unspecified/"General" video request defaults to landscape, same as
+    // YouTube, rather than assuming TikTok's 9:16.
+    ? (platform === 'YouTube' || platform === 'General') ? '16:9' : '9:16'
     : imageMode === 'poster'
       ? '3:4'
     : platform === 'TikTok' || platform === 'Facebook'
