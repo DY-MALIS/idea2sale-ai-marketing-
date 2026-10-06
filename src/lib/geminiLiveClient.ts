@@ -19,6 +19,14 @@ const SEND_CHUNK_MS = 200;
 // Allow a brief window for an incoming transcript to identify an app-handled
 // command, without holding an ordinary spoken reply until generation finishes.
 const REPLY_COMMAND_GRACE_MS = 300;
+// Google's own voice-activity detection decides when the user has stopped
+// talking before it starts replying -- the default silence window it waits
+// out is the biggest piece of the "speaking -> hearing a reply" gap this
+// client doesn't otherwise control. Ask it to wait less and commit to that
+// decision sooner. If this account's API revision rejects the field, the
+// socket's setup call fails like any other and the caller's onError handler
+// already falls back to the slower non-Live voice path.
+const END_OF_SPEECH_SILENCE_MS = 300;
 
 export interface GeminiLiveHandlers {
   onOpen?: () => void;
@@ -266,12 +274,24 @@ export async function connectGeminiLive(
         // this app ever learns what was said on this audio-only connection,
         // used to detect spoken "create a video/plan" requests mid-call.
         inputAudioTranscription: {},
+        realtimeInputConfig: {
+          automaticActivityDetection: {
+            endOfSpeechSensitivity: 'END_SENSITIVITY_HIGH',
+            silenceDurationMs: END_OF_SPEECH_SILENCE_MS,
+          },
+        },
       },
     }));
   };
 
   let inputTranscriptBuffer = '';
   let suppressReplyAudio = false;
+  // Diagnostic only: how long after the user's speech was last transcribed
+  // the first byte of reply audio shows up. This is almost entirely Google's
+  // own VAD-plus-generation time, not something this client controls, but it
+  // tells us whether END_OF_SPEECH_SILENCE_MS actually moved the needle.
+  let lastTranscriptAt = 0;
+  let latencyLoggedForTurn = false;
   // The model may send audio before the input transcript. Give command turns a
   // short chance to be recognized, then play ordinary replies as they stream.
   const gateReplyAudio = Boolean(handlers.onUserTurnText);
@@ -309,6 +329,7 @@ export async function connectGeminiLive(
         const transcriptChunk = message?.serverContent?.inputTranscription?.text;
         if (typeof transcriptChunk === 'string' && transcriptChunk) {
           inputTranscriptBuffer += transcriptChunk;
+          lastTranscriptAt = performance.now();
           if (handlers.onUserTranscription?.(inputTranscriptBuffer)) {
             suppressReplyAudio = true;
             pendingReplyAudio = [];
@@ -320,6 +341,10 @@ export async function connectGeminiLive(
         for (const part of parts) {
           const inline = part?.inlineData;
           if (!suppressReplyAudio && inline?.data && /^audio\//.test(inline.mimeType || '')) {
+            if (!latencyLoggedForTurn && lastTranscriptAt) {
+              latencyLoggedForTurn = true;
+              console.debug('[geminiLive] time from last transcript to first reply audio (ms):', Math.round(performance.now() - lastTranscriptAt));
+            }
             const audio = base64ToInt16Array(inline.data);
             if (gateReplyAudio && !replyAudioReleased) {
               pendingReplyAudio.push(audio);
@@ -331,6 +356,7 @@ export async function connectGeminiLive(
           clearReplyGate();
           pendingReplyAudio = [];
           replyAudioReleased = false;
+          latencyLoggedForTurn = false;
           player.stopAll();
           handlers.onInterrupted?.();
         }
@@ -356,6 +382,8 @@ export async function connectGeminiLive(
           player.markTurnComplete();
           suppressReplyAudio = false;
           replyAudioReleased = false;
+          lastTranscriptAt = 0;
+          latencyLoggedForTurn = false;
         }
       } catch (error) {
         fail(error instanceof Error ? error : new Error('Failed to parse Gemini Live message.'));

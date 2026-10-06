@@ -63,6 +63,9 @@ describe('Gemini Live browser connection', () => {
       },
       systemInstruction: { parts: [{ text: 'Speak Khmer for Khmer input.' }] },
       inputAudioTranscription: {},
+      realtimeInputConfig: {
+        automaticActivityDetection: { endOfSpeechSensitivity: 'END_SENSITIVITY_HIGH', silenceDurationMs: 300 },
+      },
     } });
 
     processor.onaudioprocess({ inputBuffer: { getChannelData: () => new Float32Array([0.5, -0.5]) } });
