@@ -170,6 +170,36 @@ it('continues a video brief after the user answers the narration question', asyn
   expect(mocks.text).toHaveBeenCalledTimes(1);
 });
 
+it('hands a completed spoken video command to the same generator brief', async () => {
+  mocks.text.mockResolvedValue(JSON.stringify({
+    ready: true, kind: 'video', platform: 'YouTube', duration: 8,
+    prompt: 'Photorealistic Cambodian instructor demonstrating a training workflow in a classroom, no readable text',
+    voiceOverWanted: true, voiceOverText: 'ស្វែងយល់ពីការប្រើ AI ក្នុងការងារប្រចាំថ្ងៃ។', voiceGender: 'Female', missing: '',
+  }));
+  const res = responseRecorder();
+  await handler({ method: 'POST', headers: {}, body: {
+    action: 'voiceAutomationCheck', message: 'Create a video about our training with Khmer narration',
+    detectedLanguage: 'en',
+  } }, res);
+
+  expect(res.statusCode).toBe(200);
+  expect(res.body.automation).toMatchObject({ ready: true, kind: 'video', aspectRatio: '16:9', duration: 8 });
+});
+
+it('returns the missing-detail question for an incomplete spoken video command', async () => {
+  mocks.text.mockResolvedValue(JSON.stringify({
+    ready: false, kind: 'video', platform: 'General',
+    prompt: 'Photorealistic Cambodian instructor demonstrating a training workflow in a classroom, no readable text',
+    voiceOverWanted: null, voiceOverText: '', missing: 'Should the video have Khmer narration or be silent?',
+  }));
+  const res = responseRecorder();
+  await handler({ method: 'POST', headers: {}, body: {
+    action: 'voiceAutomationCheck', message: 'Create a video about our training', detectedLanguage: 'en',
+  } }, res);
+
+  expect(res.body.automation).toMatchObject({ ready: false, kind: 'video', missing: 'Should the video have Khmer narration or be silent?' });
+});
+
 it('does not claim generation started while the automatic creation switch is off', async () => {
   const res = responseRecorder();
   await handler({ method: 'POST', headers: {}, body: { action: 'socialAgent', message: 'Create an image of coffee', autoCreateEnabled: false } }, res);

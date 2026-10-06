@@ -4,6 +4,19 @@ const { mockVerifyIdToken, mockGetFirestore } = vi.hoisted(() => ({
   mockVerifyIdToken: vi.fn(),
   mockGetFirestore: vi.fn(),
 }));
+const planMocks = vi.hoisted(() => ({
+  db: null,
+  startKhmerVideoJob: vi.fn(),
+  preparePlanVideoSpeech: vi.fn(),
+  publishJSON: vi.fn(),
+}));
+vi.mock('../../../api/_firebaseAdmin.js', () => ({ initFirebaseAdmin: () => planMocks.db || mockGetFirestore() }));
+vi.mock('../../../api/_khmerVideo.js', () => ({ startKhmerVideoJob: planMocks.startKhmerVideoJob }));
+vi.mock('../../../api/_videoSpeech.js', async (importOriginal) => ({
+  ...(await importOriginal()),
+  preparePlanVideoSpeech: planMocks.preparePlanVideoSpeech,
+}));
+vi.mock('@upstash/qstash', () => ({ Client: class { publishJSON = planMocks.publishJSON; } }));
 vi.mock('firebase-admin', () => ({
   default: {
     auth: () => ({ verifyIdToken: mockVerifyIdToken }),
@@ -18,7 +31,7 @@ vi.mock('firebase-admin/firestore', async (importOriginal) => ({
   getFirestore: mockGetFirestore,
 }));
 
-const { GENERATED_VIDEO_STATUSES, applyImageKitDeliveryTransform, applyImageKitLogoOverlay, escapeTelegramHtml, formatTelegramHtml, postTelegramMessage, sendTelegram, telegramMediaUrlFor, telegramTextFor, truncateForTelegram } =
+const { default: scheduledHandler, GENERATED_VIDEO_STATUSES, isStalledContentPlanVideoStart, applyImageKitDeliveryTransform, applyImageKitLogoOverlay, escapeTelegramHtml, formatTelegramHtml, postTelegramMessage, sendTelegram, telegramMediaUrlFor, telegramTextFor, truncateForTelegram } =
   await import('../../../api/telegram/run-scheduled.js');
 
 const originalEnv = { ...process.env };
@@ -28,6 +41,10 @@ afterEach(() => {
   global.fetch = originalFetch;
   mockVerifyIdToken.mockReset();
   mockGetFirestore.mockReset();
+  planMocks.db = null;
+  planMocks.startKhmerVideoJob.mockReset();
+  planMocks.preparePlanVideoSpeech.mockReset();
+  planMocks.publishJSON.mockReset();
   vi.restoreAllMocks();
 });
 
@@ -57,6 +74,54 @@ const okTelegramResponse = () => ({
 
 it('counts videos waiting for human review against the daily generation quota', () => {
   expect(GENERATED_VIDEO_STATUSES).toEqual(['DONE', 'PROCESSING', 'REVIEW', 'READY']);
+});
+
+it('detects a timed-out plan video start without treating an accepted paid job as retryable', () => {
+  const now = Date.now();
+  const processingAt = { toMillis: () => now - 11 * 60 * 1000 };
+  expect(isStalledContentPlanVideoStart({ status: 'PROCESSING', type: 'video', processingAt }, now)).toBe(true);
+  expect(isStalledContentPlanVideoStart({ status: 'PROCESSING', type: 'video', processingAt, videoJobId: 'paid-job' }, now)).toBe(false);
+  expect(isStalledContentPlanVideoStart({ status: 'PROCESSING', type: 'video', processingAt: { toMillis: () => now - 2 * 60 * 1000 } }, now)).toBe(false);
+});
+
+it('starts an approved plan video once, saves its job ID, and schedules the poller', async () => {
+  process.env.CRON_SECRET = 'cron-test';
+  process.env.QSTASH_TOKEN = 'qstash-test';
+  process.env.APP_URL = 'https://aime.example.test';
+  const patches = [];
+  const item = { status: 'PENDING', type: 'video', userId: 'owner', prompt: 'Cambodian training video', duration: 8 };
+  const planRef = {
+    get: async () => ({ exists: true, id: 'planvideo123', data: () => item }),
+    update: async (patch) => { patches.push(patch); Object.assign(item, patch); },
+  };
+  planMocks.db = {
+    collection: (name) => ({ doc: () => name === 'content_plan_items'
+      ? planRef
+      : { get: async () => ({ data: () => ({ businessName: 'DGACADEMY' }) }) } }),
+    runTransaction: async (fn) => fn({
+      get: (ref) => ref.get(),
+      update: (_ref, patch) => { patches.push(patch); Object.assign(item, patch); },
+    }),
+  };
+  planMocks.preparePlanVideoSpeech.mockResolvedValue({ mode: 'edge-seedance', script: 'សូមស្វាគមន៍', prompt: 'Training presenter' });
+  planMocks.startKhmerVideoJob.mockResolvedValue({
+    job: { jobId: 'paid-video-job' },
+    avatarImage: { mediaUrl: 'https://ik.imagekit.io/test/avatar.png' },
+    narrationAudio: { mediaUrl: 'https://ik.imagekit.io/test/voice.mp3', spokenText: 'សូមស្វាគមន៍', duration: 4 },
+  });
+  planMocks.publishJSON.mockResolvedValue({ messageId: 'poll-message' });
+  const res = createMockRes();
+
+  await scheduledHandler({ method: 'POST', headers: { authorization: 'Bearer cron-test' }, query: { planVideoId: 'planvideo123' } }, res);
+
+  expect(res.statusCode).toBe(200);
+  expect(res.body).toMatchObject({ ok: true, videoStarted: true, jobId: 'paid-video-job', pollingDeferred: false });
+  expect(patches).toContainEqual(expect.objectContaining({ videoJobId: 'paid-video-job', status: 'PROCESSING' }));
+  expect(planMocks.startKhmerVideoJob).toHaveBeenCalledTimes(1);
+  expect(planMocks.publishJSON).toHaveBeenCalledWith(expect.objectContaining({
+    url: 'https://aime.example.test/api/telegram/deliver',
+    body: { contentPlanItemId: 'planvideo123' },
+  }));
 });
 
 describe('truncateForTelegram', () => {

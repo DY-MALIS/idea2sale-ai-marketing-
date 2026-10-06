@@ -1489,7 +1489,9 @@ Response rules:
       // ready, but the client-side trigger never fired" when a user reports
       // a voice-commanded video/plan not working.
       console.log(`voiceAutomationCheck: message=${JSON.stringify(message.slice(0, 200))} automation=${JSON.stringify(automation ? { ready: automation.ready, kind: automation.kind, missing: automation.missing } : null)}`);
-      return res.status(200).json({ automation: automation?.ready ? automation : null });
+      // Live Voice needs the classifier's missing-detail question to explain
+      // why a spoken command has not started the generator yet.
+      return res.status(200).json({ automation });
     }
 
     if (action === 'adsStrategy') {
@@ -2588,7 +2590,17 @@ Return ONLY a single valid JSON object with this exact structure:
       const prompt = String(req.body?.prompt || '').trim();
       const businessContext = businessContextFromBody(req.body);
       if (!prompt) return res.status(400).json({ error: 'Video description is required.' });
-      const text = await createKhmerNarration(prompt, Number(req.body?.duration) || 8, businessContext.businessName);
+      const duration = VIDEO_DURATION_OPTIONS.includes(Number(req.body?.duration)) ? Number(req.body.duration) : 8;
+      const text = req.body?.language === 'English'
+        ? String(await generateOpenRouterText({
+          model: resolveOpenRouterTextModel(process.env.OPEN_ROUTER_LIVE_VOICE_MODEL || 'google/gemini-3.8-flash'),
+          system: `Write only one short, natural English marketing voice-over sentence. No labels, quotation marks or stage directions. Preserve the business identity and do not invent claims. ${businessContentInstruction(businessContext)}`,
+          prompt: `Write words that fit clearly within ${duration} seconds at a normal speaking pace (at most ${duration * 2} words). Video scene: ${prompt.slice(0, 2000)}`,
+          maxTokens: 120,
+          reasoningEffort: 'low',
+        })).trim()
+        : await createKhmerNarration(prompt, duration, businessContext.businessName);
+      if (!text) return res.status(502).json({ error: 'Could not prepare video narration.' });
       return res.status(200).json({ text });
     }
 

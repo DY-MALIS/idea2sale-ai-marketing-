@@ -30,6 +30,12 @@ export { applyImageKitDeliveryTransform, applyImageKitLogoOverlay, initFirebaseA
 
 export const GENERATED_VIDEO_STATUSES = Object.freeze(['DONE', 'PROCESSING', 'REVIEW', 'READY']);
 
+export const isStalledContentPlanVideoStart = (item, nowMs = Date.now()) => {
+  const startedAtMs = item?.processingAt?.toMillis?.();
+  return item?.status === 'PROCESSING' && item?.type === 'video' && !item?.videoJobId
+    && typeof startedAtMs === 'number' && nowMs - startedAtMs > 10 * 60 * 1000;
+};
+
 // Server-side equivalent of PosterGen.tsx's applyLogoWatermark (that one uses
 // the browser Canvas API, unavailable here) -- same top-left placement/ratios,
 // so a Content Plan image gets the business's actual logo instead of shipping
@@ -816,6 +822,16 @@ export default async function handler(req, res) {
       // 200 is far above any normal backlog while still bounding that worst case.
       .limit(200)
       .get();
+    // A start can time out after its atomic claim but before a provider job ID
+    // is saved. Poll recovery cannot help without that ID. Surface the failure
+    // instead of leaving the plan indefinitely PROCESSING; never resubmit it
+    // automatically because the provider may already have accepted payment.
+    for (const stalledDoc of processingVideoSnapshot.docs.filter((doc) => isStalledContentPlanVideoStart(doc.data()))) {
+      const message = 'Video start was interrupted before a job ID was saved. It was not retried automatically to avoid a duplicate charge.';
+      await stalledDoc.ref.update({ status: 'FAILED', errorMessage: message, failedAt: FieldValue.serverTimestamp() });
+      results.push({ id: stalledDoc.id, ok: false, contentPlan: true, startInterrupted: true, error: message });
+      await notifyAdmins(`Content plan video item ${stalledDoc.id}: ${message}`);
+    }
     const staleProcessingVideos = processingVideoSnapshot.docs
       .filter((doc) => {
         const video = doc.data();

@@ -17,7 +17,7 @@ import { CreativeAutomationRequest } from '../types';
 import { downloadAgentDocument, isAgentDocumentCommand, type AgentDocument } from '../lib/agentDocument';
 import { AgentDocumentCard, AgentDocumentDialog } from './AgentDocumentCard';
 import { isContentPlanEditFollowup, isContentPlanEditPronounFollowup, isContentPlanEditRequest } from '../../shared/contentPlanEditIntent.js';
-import { isContentPlanCreationRequest } from '../../shared/agentIntent.js';
+import { isContentPlanCreationRequest, shouldClassifyCreativeMedia } from '../../shared/agentIntent.js';
 
 const DEMO_AGENT_CONVERSATION_STORAGE_KEY = 'demo_agent_conversation';
 // Keep recent agent work visible long enough for users to return and reuse it.
@@ -300,6 +300,8 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     const planEditCommand = isPlanEditMessage(transcript);
     const agentPlanCommand = isAgentPlanMessage(transcript);
     const documentCommand = isAgentDocumentCommand(transcript);
+    const mediaCommand = shouldClassifyCreativeMedia(transcript, messagesRef.current
+      .slice(-4).map((item) => `${item.role === 'assistant' ? 'Assistant' : 'User'}: ${item.content}`).join('\n'));
     const handledCommand = planEditCommand || agentPlanCommand || documentCommand;
     if (session !== voiceSessionRef.current || !voiceActiveRef.current) return handledCommand;
     if (handledCommand) {
@@ -340,8 +342,8 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
-          if (documentCommand && session === voiceSessionRef.current) {
-            const error = String(data.error || (language === 'km' ? 'មិនអាចបង្កើតឯកសារបានទេ។' : 'Could not create the document.'));
+          if ((documentCommand || mediaCommand) && session === voiceSessionRef.current) {
+            const error = String(data.error || (language === 'km' ? 'មិនអាចចាប់ផ្ដើមការបង្កើតបានទេ។' : 'Could not start generation.'));
             setVoiceCaption(error);
             notify(error, 'error');
           }
@@ -361,8 +363,16 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           ]);
           return;
         }
-        if (!data.automation?.ready) return;
-        if (!autoCreateEnabledRef.current) return;
+        if (!data.automation?.ready || !autoCreateEnabledRef.current) {
+          if (mediaCommand && session === voiceSessionRef.current) {
+            setVoiceCaption(!autoCreateEnabledRef.current
+              ? (language === 'km' ? 'សូមបើកការបង្កើតរូប/វីដេអូស្វ័យប្រវត្តិ រួចបញ្ជាម្ដងទៀត។' : 'Turn on automatic image/video creation, then ask again.')
+              : String(data.automation?.missing || (language === 'km'
+                ? 'មិនទាន់ចាប់ផ្ដើមបង្កើតទេ។ សូមបញ្ជាក់ប្រធានបទ និងសំឡេងដែលចង់បាន។'
+                : 'Creation has not started. Please clarify the subject and narration.')));
+          }
+          return;
+        }
         const request = triggerCreativeAutomation(data.automation, detectedLanguage);
         const caption = automationCaption(request);
         setVoiceCaption(caption);
@@ -373,8 +383,8 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         ]);
       } catch (error) {
         console.error('Live Voice automation check failed:', error);
-        if (handledCommand) {
-          const message = error instanceof Error ? error.message : (language === 'km' ? 'មិនអាចធ្វើបច្ចុប្បន្នភាពផែនការបានទេ។' : 'Could not update the plan.');
+        if (handledCommand || mediaCommand) {
+          const message = error instanceof Error ? error.message : (language === 'km' ? 'មិនអាចដំណើរការបញ្ជានេះបានទេ។' : 'Could not process this command.');
           if (session === voiceSessionRef.current && voiceActiveRef.current) setVoiceCaption(message);
           notify(message, 'error');
         }

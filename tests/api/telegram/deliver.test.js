@@ -3,6 +3,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const { mockPollOpenRouterVideo } = vi.hoisted(() => ({ mockPollOpenRouterVideo: vi.fn() }));
 const { mockVerifySpeech } = vi.hoisted(() => ({ mockVerifySpeech: vi.fn().mockResolvedValue({ passed: true }) }));
 const { mockMux } = vi.hoisted(() => ({ mockMux: vi.fn().mockResolvedValue('data:video/mp4;base64,bXV4ZWQ=') }));
+const { mockRemoteUpload } = vi.hoisted(() => ({ mockRemoteUpload: vi.fn() }));
+vi.mock('../../../api/_imagekitUpload.js', async (importOriginal) => ({
+  ...(await importOriginal()),
+  uploadMediaRemoteUrl: mockRemoteUpload,
+}));
 vi.mock('../../../api/_videoNarrationMux.js', () => ({ replaceVideoNarration: mockMux }));
 vi.mock('../../../api/_videoSpeech.js', () => ({ verifyUploadedVideoSpeech: mockVerifySpeech }));
 vi.mock('../../../api/_openrouter.js', () => ({ pollOpenRouterVideo: mockPollOpenRouterVideo }));
@@ -67,6 +72,52 @@ describe('QStash raw request body', () => {
 });
 
 describe('processContentPlanVideo', () => {
+  it('copies a completed scheduled clip by public URL without downloading its bytes in the poller', async () => {
+    mockPollOpenRouterVideo.mockResolvedValue({ contentUrl: 'https://storage.example.com/clip.mp4' });
+    mockRemoteUpload.mockResolvedValue({ mediaUrl: 'https://ik.imagekit.io/test/clip.mp4' });
+    mockResolveTelegramDestination.mockResolvedValue({ token: '', chatId: '' });
+    const updates = [];
+    const result = await processContentPlanVideo(fakeDb({
+      status: 'PROCESSING', videoJobId: 'job', voiceOverWanted: false, prompt: 'Silent product video',
+    }, patch => updates.push(patch)), 'item', {});
+
+    expect(result).toMatchObject({ ok: true, videoReady: true });
+    expect(mockPollOpenRouterVideo).toHaveBeenCalledWith({ jobId: 'job', preferRemoteUrl: true });
+    expect(mockRemoteUpload).toHaveBeenCalledWith({ mediaUrl: 'https://storage.example.com/clip.mp4', folder: '/telegram-media' });
+    expect(mockUploadMediaDataUrl).not.toHaveBeenCalled();
+    expect(updates).toContainEqual({ sourceMediaUrl: 'https://ik.imagekit.io/test/clip.mp4' });
+  });
+
+  it('reuses a stored source clip after narration assembly was interrupted', async () => {
+    mockUploadMediaDataUrl.mockResolvedValue({ mediaUrl: 'https://ik.imagekit.io/test/assembled.mp4' });
+    mockResolveTelegramDestination.mockResolvedValue({ token: '', chatId: '' });
+    const result = await processContentPlanVideo(fakeDb({
+      status: 'PROCESSING', videoJobId: 'job', sourceMediaUrl: 'https://ik.imagekit.io/test/source.mp4',
+      voiceOverMode: 'edge-seedance', voiceOverText: 'សួស្តី', prompt: 'Presenter',
+      narrationAudio: { filePath: '/voice.mp3', mediaUrl: 'https://ik.imagekit.io/test/voice.mp3', duration: 5 },
+    }), 'item', {});
+
+    expect(result).toMatchObject({ ok: true, videoReady: true });
+    expect(mockPollOpenRouterVideo).not.toHaveBeenCalled();
+    expect(mockRemoteUpload).not.toHaveBeenCalled();
+    expect(mockMux).toHaveBeenCalledWith('https://ik.imagekit.io/test/source.mp4', 'https://ik.imagekit.io/test/voice.mp3');
+  });
+
+  it('reuses a finished clip after verification was interrupted', async () => {
+    mockResolveTelegramDestination.mockResolvedValue({ token: '', chatId: '' });
+    const result = await processContentPlanVideo(fakeDb({
+      status: 'PROCESSING', videoJobId: 'job', resultMediaUrl: 'https://ik.imagekit.io/test/finished.mp4',
+      voiceOverMode: 'edge-seedance', voiceOverText: 'សួស្តី', prompt: 'Presenter',
+    }), 'item', {});
+
+    expect(result).toMatchObject({ ok: true, videoReady: true });
+    expect(mockPollOpenRouterVideo).not.toHaveBeenCalled();
+    expect(mockRemoteUpload).not.toHaveBeenCalled();
+    expect(mockUploadMediaDataUrl).not.toHaveBeenCalled();
+    expect(mockMux).not.toHaveBeenCalled();
+    expect(mockVerifySpeech).toHaveBeenCalledWith('https://ik.imagekit.io/test/finished.mp4', 'សួស្តី');
+  });
+
   it('retains a verified video as ready when no Telegram chat is connected', async () => {
     mockPollOpenRouterVideo.mockResolvedValue({ videoUrl: 'raw' });
     mockUploadMediaDataUrl.mockResolvedValue({ mediaUrl: 'uploaded' });
@@ -237,6 +288,29 @@ describe('processContentPlanVideo', () => {
     expect(result).toMatchObject({ ok: true, stillProcessing: true, pollingDeferred: true, attempts: 3 });
     expect(updates).not.toContainEqual(expect.objectContaining({ status: 'FAILED' }));
     expect(updates.at(-1)).toMatchObject({ pollSchedulingError: 'QStash unavailable' });
+  });
+
+  it('retries a temporary provider connection failure without losing the paid job', async () => {
+    mockPollOpenRouterVideo.mockRejectedValue(new TypeError('fetch failed'));
+    const updates = [];
+    const result = await processContentPlanVideo(fakeDb({
+      status: 'PROCESSING', videoJobId: 'job-1', pollAttempts: 2,
+    }, (patch) => updates.push(patch)), 'item-1', {});
+
+    expect(result).toMatchObject({ ok: true, stillProcessing: true, attempts: 3 });
+    expect(mockScheduleContentPlanPoll).toHaveBeenCalledWith({}, 'item-1');
+    expect(updates).not.toContainEqual(expect.objectContaining({ status: 'FAILED' }));
+  });
+
+  it('retries a provider rate limit while retaining the paid job', async () => {
+    mockPollOpenRouterVideo.mockRejectedValue(Object.assign(new Error('Slow down'), { statusCode: 429 }));
+    const updates = [];
+    const result = await processContentPlanVideo(fakeDb({
+      status: 'PROCESSING', videoJobId: 'job-1', pollAttempts: 1,
+    }, (patch) => updates.push(patch)), 'item-1', {});
+
+    expect(result).toMatchObject({ ok: true, stillProcessing: true, attempts: 2 });
+    expect(updates).not.toContainEqual(expect.objectContaining({ status: 'FAILED' }));
   });
 
   it('fails the item once the poll-attempt limit is reached instead of polling forever', async () => {

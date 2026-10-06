@@ -16,7 +16,7 @@ import { claimPendingPost, findRecentDuplicateTelegramPost } from '../_telegramC
 import { notifyAdmins } from '../_alert.js';
 import { createKhmerNarration, generateKhmerSpeech } from '../_khmerNarration.js';
 import { verifyUploadedVideoSpeech } from '../_videoSpeech.js';
-import { applyImageKitMuteTransform } from '../_imagekitUpload.js';
+import { applyImageKitMuteTransform, uploadMediaRemoteUrl } from '../_imagekitUpload.js';
 import { wantsSilentVideo } from '../../shared/videoSpeech.js';
 import { replaceVideoNarration } from '../_videoNarrationMux.js';
 
@@ -24,6 +24,12 @@ import { replaceVideoNarration } from '../_videoNarrationMux.js';
 // default ~20s spacing is roughly 13 minutes, comfortably past how long a
 // healthy Veo job takes, after which this is treated as a real failure.
 const MAX_VIDEO_POLL_ATTEMPTS = 40;
+const isTransientVideoProcessingError = (error) => {
+  const message = String(error?.message || '').toLowerCase();
+  return ['AbortError', 'TimeoutError'].includes(error?.name)
+    || [429, 500, 502, 503, 504].includes(Number(error?.statusCode))
+    || /fetch failed|failed to fetch|econnreset|etimedout|socket hang up|network error|gateway timeout|service unavailable|too many requests/.test(message);
+};
 
 // Claims the final "ready to send" step so a duplicate/late QStash delivery
 // racing a still-in-flight invocation -- both read status PROCESSING at the
@@ -57,9 +63,14 @@ export const processContentPlanVideo = async (db, itemId, req) => {
   }
 
   try {
-    const result = await pollOpenRouterVideo({ jobId: item.videoJobId });
+    let uploaded = item.resultMediaUrl ? { mediaUrl: item.resultMediaUrl } : null;
+    let sourceMediaUrl = item.sourceMediaUrl || '';
+    let result;
+    if (!uploaded && !sourceMediaUrl) {
+      result = await pollOpenRouterVideo({ jobId: item.videoJobId, preferRemoteUrl: true });
+    }
 
-    if (!result.videoUrl) {
+    if (!uploaded && !sourceMediaUrl && !result.videoUrl && !result.contentUrl) {
       const attempts = (Number(item.pollAttempts) || 0) + 1;
       if (attempts >= MAX_VIDEO_POLL_ATTEMPTS) {
         throw new Error(`Video generation timed out after ${attempts} status checks.`);
@@ -80,50 +91,66 @@ export const processContentPlanVideo = async (db, itemId, req) => {
       }
     }
 
-    let uploaded = await uploadMediaDataUrl({ mediaDataUrl: result.videoUrl, mediaType: 'video' });
-    if (item.voiceOverMode === 'silent' || item.voiceOverWanted === false || wantsSilentVideo(item.prompt || '')) {
-      uploaded.mediaUrl = applyImageKitMuteTransform(uploaded.mediaUrl);
-    }
-    const wantsNarration = ['edge-seedance', 'gemini', 'separate'].includes(item.voiceOverMode) && item.voiceOverWanted !== false && item.prompt
-      && !wantsSilentVideo(item.prompt);
-    if (wantsNarration) {
-      const requestedDuration = Number(item.duration);
-      const duration = [4, 6, 8].includes(requestedDuration) ? requestedDuration : 8;
-      const script = item.voiceOverText || await createKhmerNarration(item.prompt, duration);
-      let narration = item.narrationAudio;
-      // Lip movement was generated from this exact track. Regenerating it here
-      // can change word timing and break synchronization.
-      if (item.voiceOverMode === 'edge-seedance' && !narration?.filePath) {
-        throw new Error('Missing original Khmer reference audio. Regenerate the video to restore lip sync.');
+    if (!uploaded) {
+      if (!sourceMediaUrl) {
+        if (result.contentUrl) {
+          try {
+            uploaded = await uploadMediaRemoteUrl({ mediaUrl: result.contentUrl, folder: '/telegram-media' });
+          } catch (remoteError) {
+            // A public provider URL may be unreachable from ImageKit. The
+            // authenticated content endpoint remains available for those jobs.
+            console.warn('Scheduled video remote copy failed; trying authenticated download:', remoteError?.message || remoteError);
+            result = await pollOpenRouterVideo({ jobId: item.videoJobId });
+          }
+        }
+        if (!uploaded) uploaded = await uploadMediaDataUrl({ mediaDataUrl: result.videoUrl, mediaType: 'video' });
+        sourceMediaUrl = uploaded.mediaUrl;
+        await ref.update({ sourceMediaUrl });
       }
-      if (!narration) {
-        const audio = await generateKhmerSpeech({ input: script, voice: item.voiceGender === 'Male' ? 'onyx' : 'nova', performanceStyle: item.performanceStyle || '', context: item.prompt });
-        narration = {
-          ...await uploadMediaDataUrl({ mediaDataUrl: audio.audioUrl, mediaType: 'audio' }),
-          duration: Number(audio.duration),
-        };
+      uploaded = { mediaUrl: sourceMediaUrl };
+      if (item.voiceOverMode === 'silent' || item.voiceOverWanted === false || wantsSilentVideo(item.prompt || '')) {
+        uploaded.mediaUrl = applyImageKitMuteTransform(uploaded.mediaUrl);
       }
-      if (!Number.isFinite(narration.duration) || narration.duration <= 0) throw new Error('Could not verify Khmer narration duration.');
-      if (narration.duration > duration) throw new Error(`Khmer narration exceeds ${duration} seconds. Shorten the dialogue and retry.`);
-      // Audio references guide the lips but do not guarantee the output voice.
-      // Replace the track explicitly before verification and delivery.
-      if (item.voiceOverMode !== 'edge-seedance') {
-        throw new Error('This legacy narrated video must be regenerated with ImageKit-backed reference audio.');
+      const wantsNarration = ['edge-seedance', 'gemini', 'separate'].includes(item.voiceOverMode) && item.voiceOverWanted !== false && item.prompt
+        && !wantsSilentVideo(item.prompt);
+      if (wantsNarration) {
+        const requestedDuration = Number(item.duration);
+        const duration = [4, 6, 8].includes(requestedDuration) ? requestedDuration : 8;
+        const script = item.voiceOverText || await createKhmerNarration(item.prompt, duration);
+        let narration = item.narrationAudio;
+        // Lip movement was generated from this exact track. Regenerating it here
+        // can change word timing and break synchronization.
+        if (item.voiceOverMode === 'edge-seedance' && !narration?.filePath) {
+          throw new Error('Missing original Khmer reference audio. Regenerate the video to restore lip sync.');
+        }
+        if (!narration) {
+          const audio = await generateKhmerSpeech({ input: script, voice: item.voiceGender === 'Male' ? 'onyx' : 'nova', performanceStyle: item.performanceStyle || '', context: item.prompt });
+          narration = {
+            ...await uploadMediaDataUrl({ mediaDataUrl: audio.audioUrl, mediaType: 'audio' }),
+            duration: Number(audio.duration),
+          };
+        }
+        if (!Number.isFinite(narration.duration) || narration.duration <= 0) throw new Error('Could not verify Khmer narration duration.');
+        if (narration.duration > duration) throw new Error(`Khmer narration exceeds ${duration} seconds. Shorten the dialogue and retry.`);
+        // Audio references guide the lips but do not guarantee the output voice.
+        // Replace the track explicitly before verification and delivery.
+        if (item.voiceOverMode !== 'edge-seedance') {
+          throw new Error('This legacy narrated video must be regenerated with ImageKit-backed reference audio.');
+        }
+        if (!narration.mediaUrl) throw new Error('Missing original Khmer narration URL. Regenerate this video.');
+        const assembledVideo = await replaceVideoNarration(uploaded.mediaUrl, narration.mediaUrl);
+        uploaded = await uploadMediaDataUrl({ mediaDataUrl: assembledVideo, mediaType: 'video' });
       }
-      if (!narration.mediaUrl) throw new Error('Missing original Khmer narration URL. Regenerate this video.');
-      const assembledVideo = await replaceVideoNarration(uploaded.mediaUrl, narration.mediaUrl);
-      uploaded = await uploadMediaDataUrl({ mediaDataUrl: assembledVideo, mediaType: 'video' });
+      // Scheduled videos do not pass through the browser-side ffmpeg watermark.
+      // Apply the saved logo before persisting the finished media URL.
+      const profileSnap = await db.collection('business_profiles').doc(item.userId).get().catch(() => null);
+      const logoDataUrl = String(profileSnap?.data()?.logoDataUrl || '');
+      if (logoDataUrl) {
+        const uploadedLogo = await uploadMediaDataUrl({ mediaDataUrl: logoDataUrl, mediaType: 'photo' });
+        uploaded.mediaUrl = applyImageKitLogoOverlay(uploaded.mediaUrl, uploadedLogo.filePath);
+      }
+      await ref.update({ resultMediaUrl: uploaded.mediaUrl });
     }
-    // Scheduled videos do not pass through the browser-side ffmpeg watermark.
-    // Apply the same saved logo here through ImageKit so every delivery path
-    // uses the Business Profile branding.
-    const profileSnap = await db.collection('business_profiles').doc(item.userId).get().catch(() => null);
-    const logoDataUrl = String(profileSnap?.data()?.logoDataUrl || '');
-    if (logoDataUrl) {
-      const uploadedLogo = await uploadMediaDataUrl({ mediaDataUrl: logoDataUrl, mediaType: 'photo' });
-      uploaded.mediaUrl = applyImageKitLogoOverlay(uploaded.mediaUrl, uploadedLogo.filePath);
-    }
-    await ref.update({ resultMediaUrl: uploaded.mediaUrl });
     if (item.voiceOverWanted !== false && item.voiceOverMode !== 'silent' && item.prompt && !wantsSilentVideo(item.prompt)) {
       try {
         const speechVerification = await verifyUploadedVideoSpeech(uploaded.mediaUrl, item.voiceOverText);
@@ -200,6 +227,20 @@ export const processContentPlanVideo = async (db, itemId, req) => {
       });
       await notifyAdmins(`Content plan video item ${itemId} needs manual review: ${message}`);
       return { ok: false, reviewRequired: true, error: message };
+    }
+    if (isTransientVideoProcessingError(error) && (Number(item.pollAttempts) || 0) + 1 < MAX_VIDEO_POLL_ATTEMPTS) {
+      const attempts = (Number(item.pollAttempts) || 0) + 1;
+      await ref.update({ pollAttempts: attempts, lastTransientError: message });
+      try {
+        await scheduleContentPlanPoll(req, itemId);
+        await ref.update({ pollScheduledAt: FieldValue.serverTimestamp(), pollSchedulingError: null });
+        return { ok: true, stillProcessing: true, transientError: message, attempts };
+      } catch (scheduleError) {
+        const scheduleMessage = scheduleError?.message || 'Could not schedule the next video check.';
+        await ref.update({ pollSchedulingError: scheduleMessage, pollSchedulingFailedAt: FieldValue.serverTimestamp() });
+        await notifyAdmins(`Video job ${item.videoJobId} needs another poll, but scheduling failed: ${scheduleMessage}`);
+        return { ok: true, stillProcessing: true, pollingDeferred: true, transientError: message, attempts };
+      }
     }
     await ref.update({ status: 'FAILED', errorMessage: message, failedAt: FieldValue.serverTimestamp(), ...(error?.speechVerification ? { speechVerification: error.speechVerification } : {}) });
     await notifyAdmins(`Content plan video item ${itemId} failed: ${message}`);

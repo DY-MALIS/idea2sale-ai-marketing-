@@ -860,7 +860,9 @@ export async function pollOpenRouterVideo({ jobId, preferRemoteUrl = false }) {
   });
   const status = await statusResponse.json().catch(() => ({}));
   if (!statusResponse.ok) {
-    throw new Error(redactSecrets(status?.error?.message || status?.message || 'OpenRouter video polling failed.'));
+    const error = new Error(redactSecrets(status?.error?.message || status?.message || 'OpenRouter video polling failed.'));
+    error.statusCode = statusResponse.status;
+    throw error;
   }
   if (status.status === 'failed' || status.status === 'cancelled' || status.status === 'expired') {
     throw new Error(redactSecrets(status.error) || `OpenRouter video generation ${status.status}.`);
@@ -890,7 +892,9 @@ export async function pollOpenRouterVideo({ jobId, preferRemoteUrl = false }) {
   });
   if (!contentResponse.ok) {
     const data = await contentResponse.json().catch(() => ({}));
-    throw new Error(redactSecrets(data?.error?.message || data?.message || 'OpenRouter video download failed.'));
+    const error = new Error(redactSecrets(data?.error?.message || data?.message || 'OpenRouter video download failed.'));
+    error.statusCode = contentResponse.status;
+    throw error;
   }
   const video = Buffer.from(await contentResponse.arrayBuffer()).toString('base64');
   return {

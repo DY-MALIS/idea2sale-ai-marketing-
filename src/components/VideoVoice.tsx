@@ -32,6 +32,7 @@ import { ffprobeDurationSeconds, mp4DurationSeconds } from '../lib/mediaDuration
 import { deleteGenerationHistory, GenerationHistoryEntry, saveGenerationHistory, useGenerationHistory } from '../lib/generationHistory';
 import HistoryPanel from './HistoryPanel';
 import { estimateVideoGenerationCostUsd, MAX_VIDEO_DURATION_SECONDS, MAX_VIDEO_GENERATION_COST_USD } from '../../shared/videoCost.js';
+import { videoOptionsFromRecoveredStart } from '../lib/videoRecoveryState';
 
 type ToolType = 'video' | 'voice';
 type VoiceGender = 'Female' | 'Male';
@@ -107,6 +108,10 @@ interface PendingVideoStart {
   fingerprint: string;
   userId: string;
   requestId: string;
+  silentRequested?: boolean;
+  resumeNarration?: PendingVideoJob['resumeNarration'];
+  expectedScript?: string;
+  aspectRatio?: VideoAspectRatio;
   createdAt: number;
 }
 
@@ -743,8 +748,23 @@ const attemptGenerateVideoClip = async (
   }
   if (!pending) {
     const savedStart = readPendingVideoStarts().find((item) => item.userId === userId && item.fingerprint === fingerprint);
-    const start = savedStart || { fingerprint, userId, requestId: crypto.randomUUID(), createdAt: Date.now() };
+    const start: PendingVideoStart = savedStart || {
+      fingerprint, userId, requestId: crypto.randomUUID(), createdAt: Date.now(),
+      silentRequested: resumeOptions?.silentRequested,
+      resumeNarration: resumeOptions?.resumeNarration,
+      expectedScript: khmerSpeech?.script,
+      aspectRatio,
+    };
     if (!savedStart) savePendingVideoStart(start);
+    else if ((!start.resumeNarration && resumeOptions?.resumeNarration)
+      || (start.silentRequested === undefined && resumeOptions?.silentRequested !== undefined)
+      || (!start.expectedScript && khmerSpeech?.script)) {
+      if (!start.resumeNarration) start.resumeNarration = resumeOptions?.resumeNarration;
+      if (start.silentRequested === undefined) start.silentRequested = resumeOptions?.silentRequested;
+      if (!start.expectedScript) start.expectedScript = khmerSpeech?.script;
+      start.aspectRatio ||= aspectRatio;
+      savePendingVideoStart(start);
+    }
     let data: any;
     if (savedStart) {
       data = await recoverVideoStart(start.requestId, idToken);
@@ -783,8 +803,8 @@ const attemptGenerateVideoClip = async (
       outputDuration: Number(data.outputDuration) || undefined,
       narrationFallbackReason: data.narrationFallbackReason || undefined,
       expectedScript: data.spokenScript || khmerSpeech?.script || undefined,
-      silentRequested: resumeOptions?.silentRequested,
-      resumeNarration: resumeOptions?.resumeNarration,
+      silentRequested: start.silentRequested,
+      resumeNarration: start.resumeNarration,
       aspectRatio: normalizeVideoAspectRatio(data.outputAspectRatio || aspectRatio),
       createdAt: Date.now(),
     };
@@ -1128,8 +1148,8 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
           narrationAudioUrl: data.narrationAudioUrl || undefined,
           narrationDuration: Number(data.narrationDuration) || undefined,
           outputDuration: Number(data.outputDuration) || undefined,
-          expectedScript: data.spokenScript || undefined,
-          aspectRatio: normalizeVideoAspectRatio(data.outputAspectRatio),
+          ...videoOptionsFromRecoveredStart(recoverableVideoStart, data),
+          aspectRatio: normalizeVideoAspectRatio(data.outputAspectRatio || recoverableVideoStart.aspectRatio),
           createdAt: Date.now(),
         };
         savePendingVideoJob(currentJob);
@@ -1255,19 +1275,21 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         user.getIdToken(),
         resetFFmpeg(),
       ]);
-      if (!voiceOverContent && generationLanguage === 'Khmer' && narrationRequested && voiceOverTextOverride === undefined) {
+      if (!voiceOverContent && narrationRequested && voiceOverTextOverride === undefined) {
         voiceOverContent = extractVideoDialogue(promptText).script;
       }
-      if (narrationRequested && voiceOverTextOverride === undefined && !voiceOverContent && generationLanguage === 'Khmer' && !wantsSilentVideo(promptText)) {
-        const response = await fetchAiWithTimeout({ action: 'videoNarration', prompt: promptText || 'Product introduction', duration: durationOverride || videoDuration, businessContext });
+      if (narrationRequested && voiceOverTextOverride === undefined && !voiceOverContent && !wantsSilentVideo(promptText)) {
+        const response = await fetchAiWithTimeout({ action: 'videoNarration', prompt: promptText || 'Product introduction', duration: durationOverride || videoDuration, language: generationLanguage, businessContext });
         const data = await response.json();
-        if (!response.ok || !data.text) throw new Error(data.error || 'Could not prepare Khmer narration.');
+        if (!response.ok || !data.text) throw new Error(data.error || 'Could not prepare video narration.');
         voiceOverContent = data.text;
         setVoiceOverText(data.text);
       }
       const silentRequested = !narrationRequested || (voiceOverTextOverride === undefined && wantsSilentVideo(promptText));
       if (silentRequested) voiceOverContent = '';
-      const nativeKhmerSpeech = generationLanguage === 'Khmer' && !silentRequested;
+      // The scene-description language is independent of the spoken script.
+      // Agent commands are often in English while requesting Khmer speech.
+      const nativeKhmerSpeech = !silentRequested && /[\u1780-\u17ff]/u.test(voiceOverContent);
       const audioDirection = nativeKhmerSpeech ? 'Khmer/Cambodian context. '
         : (voiceOverContent ? 'Visual footage only. No speech or dialogue; narration is added separately. ' : '');
       const prompt = `${audioDirection}${promptText || 'Create a realistic short marketing video from the uploaded reference image.'}${businessContext.businessName ? `\nThis marketing asset represents ${businessContext.businessName}. Do not render its name as AI-generated text; the app applies the saved logo afterward.` : ''}`;
@@ -1467,6 +1489,11 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
             ? error
             : 'Video generation failed for an unknown reason. Please try again.';
       if (/OPEN_ROUTER_API_KEY|api key/i.test(errorMessage)) setNeedsApiKey(true);
+      if (typeof promptOverride === 'string') {
+        setAutomationNotice(language === 'km'
+          ? `ការបង្កើតវីដេអូតាមបញ្ជាមិនបានបញ្ចប់៖ ${errorMessage}`
+          : `Commanded video did not finish: ${errorMessage}`);
+      }
       notify(errorMessage, 'error');
     } finally {
       setLoading(false);
@@ -1721,6 +1748,9 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       || voiceName.includes('cambodian');
   });
   const englishVoices = browserVoices.filter((voice) => voice.lang.toLowerCase().startsWith('en'));
+  const estimatedKhmerSpeech = voiceOverEnabled && (voiceOverText.trim()
+    ? /[\u1780-\u17ff]/u.test(voiceOverText)
+    : videoLanguage === 'Khmer');
 
   return (
     <div className="max-w-6xl mx-auto space-y-10">
@@ -1887,8 +1917,8 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                   </div>
                   <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">
                     {language === 'km'
-                      ? `${videoLanguage === 'Khmer' && voiceOverEnabled ? 'តម្លៃអតិបរមាប៉ាន់ស្មាន' : 'តម្លៃប៉ាន់ស្មាន'}៖ $${estimateVideoGenerationCostUsd({ duration: videoLanguage === 'Khmer' && voiceOverEnabled ? MAX_VIDEO_DURATION_SECONDS : videoDuration, khmerSpeech: videoLanguage === 'Khmer' && voiceOverEnabled }).toFixed(2)} · កំណត់អតិបរមា $${MAX_VIDEO_GENERATION_COST_USD.toFixed(2)}`
-                      : `${videoLanguage === 'Khmer' && voiceOverEnabled ? 'Estimated maximum' : 'Estimated cost'}: $${estimateVideoGenerationCostUsd({ duration: videoLanguage === 'Khmer' && voiceOverEnabled ? MAX_VIDEO_DURATION_SECONDS : videoDuration, khmerSpeech: videoLanguage === 'Khmer' && voiceOverEnabled }).toFixed(2)} · Maximum $${MAX_VIDEO_GENERATION_COST_USD.toFixed(2)}`}
+                      ? `${estimatedKhmerSpeech ? 'តម្លៃអតិបរមាប៉ាន់ស្មាន' : 'តម្លៃប៉ាន់ស្មាន'}៖ $${estimateVideoGenerationCostUsd({ duration: estimatedKhmerSpeech ? MAX_VIDEO_DURATION_SECONDS : videoDuration, khmerSpeech: estimatedKhmerSpeech }).toFixed(2)} · កំណត់អតិបរមា $${MAX_VIDEO_GENERATION_COST_USD.toFixed(2)}`
+                      : `${estimatedKhmerSpeech ? 'Estimated maximum' : 'Estimated cost'}: $${estimateVideoGenerationCostUsd({ duration: estimatedKhmerSpeech ? MAX_VIDEO_DURATION_SECONDS : videoDuration, khmerSpeech: estimatedKhmerSpeech }).toFixed(2)} · Maximum $${MAX_VIDEO_GENERATION_COST_USD.toFixed(2)}`}
                   </p>
                 </div>
 
