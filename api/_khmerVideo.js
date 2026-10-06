@@ -33,6 +33,7 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
   generateAudio,
   allowScriptShortening = false,
 } = {}) => {
+  const preparationStartedAt = Date.now();
   const hasKhmerSpeech = speech.mode !== 'silent';
   assertVideoGenerationWithinBudget({
     duration,
@@ -51,7 +52,7 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
   // finishes and fittedDuration is known.
   const imagePromise = (images.length
     ? Promise.resolve({ imageUrl: `data:${images[0].mimeType};base64,${images[0].base64}` })
-    : generateOpenRouterImage({ prompt: visualPrompt(speech.avatarPrompt), aspectRatio, model: BUDGET_AVATAR_IMAGE_MODEL }))
+    : generateOpenRouterImage({ prompt: visualPrompt(speech.avatarPrompt), aspectRatio, model: BUDGET_AVATAR_IMAGE_MODEL, timeoutMs: 75_000 }))
     // Attach the rejection handler immediately. Narration may take minutes,
     // and an image request that fails before the later await would otherwise
     // become an unhandled rejection and could terminate the function.
@@ -85,7 +86,8 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
   // well before an 8-second clip, try one fuller script before paying for the
   // video. Never rewrite manually supplied narration or replace a usable read
   // with a second take that is too long or no fuller than the first.
-  if (allowScriptShortening && duration === 8 && measuredDuration > 0 && measuredDuration < 6) {
+  if (allowScriptShortening && duration === 8 && measuredDuration > 0 && measuredDuration < 6
+    && Date.now() - preparationStartedAt < 90_000) {
     try {
       const expandedScript = await expandGeneratedKhmerNarration(spokenScript, item.businessName, measuredDuration);
       if (expandedScript && expandedScript !== spokenScript) {

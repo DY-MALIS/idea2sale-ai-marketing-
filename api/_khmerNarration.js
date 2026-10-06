@@ -55,6 +55,9 @@ export async function generateKhmerSpeech({
           format: 'wav',
           languageHint: 'Khmer',
           model: process.env.OPEN_ROUTER_STT_MODEL || 'google/chirp-3',
+          // This is one verification step before a video job can even start.
+          // A slow STT gateway must not consume the function's whole 300s.
+          timeoutMs: 30_000,
         });
         if (!compareKhmerTranscript(spokenInput, transcript).passed) {
           throw new Error('Gemini voice did not clearly match the Khmer script.');
@@ -117,10 +120,10 @@ export async function createKhmerNarration(prompt, duration = 8, businessName = 
   // the ones it doesn't already know how to fix, and pointing the retry at exactly
   // those words is far more reliable than repeating the same open-ended instruction.
   const MAX_ATTEMPTS = 2;
-  let text = await generateOpenRouterText({ model: process.env.OPEN_ROUTER_CONTENT_PLAN_MODEL || 'google/gemini-3.1-pro-preview', system, prompt: buildPrompt() });
+  let text = await generateOpenRouterText({ model: process.env.OPEN_ROUTER_CONTENT_PLAN_MODEL || 'google/gemini-3.1-pro-preview', system, prompt: buildPrompt(), reasoningEffort: 'low', timeoutMs: 45_000 });
   for (let attempt = 1; attempt < MAX_ATTEMPTS && /[A-Za-z]{2,}/.test(normalizeForKhmerSpeech(text || '')); attempt += 1) {
     const strayWords = [...new Set(normalizeForKhmerSpeech(text).match(/[A-Za-z]{2,}/g) || [])].join(', ');
-    text = await generateOpenRouterText({ model: process.env.OPEN_ROUTER_CONTENT_PLAN_MODEL || 'google/gemini-3.1-pro-preview', system, prompt: buildPrompt(strayWords) });
+    text = await generateOpenRouterText({ model: process.env.OPEN_ROUTER_CONTENT_PLAN_MODEL || 'google/gemini-3.1-pro-preview', system, prompt: buildPrompt(strayWords), reasoningEffort: 'low', timeoutMs: 45_000 });
   }
   if (!/[\u1780-\u17ff]/.test(text || '')) throw new Error('Could not generate a Khmer narration script. Please enter Khmer text.');
   return text.trim();
@@ -132,6 +135,8 @@ export async function createKhmerNarration(prompt, duration = 8, businessName = 
 export async function shortenGeneratedKhmerNarration(script, businessName = '', maxCharacters = 55) {
   const text = await generateOpenRouterText({
     model: process.env.OPEN_ROUTER_CONTENT_PLAN_MODEL || 'google/gemini-3.1-pro-preview',
+    reasoningEffort: 'low',
+    timeoutMs: 45_000,
     system: `Rewrite one AI-generated narration as a clear, short Cambodian Khmer sentence. Preserve the core claim and company identity, but do not invent claims. Output only the spoken sentence. ${KHMER_SCRIPT_ONLY_INSTRUCTION}`,
     prompt: `Fit this spoken line naturally into an 8-second video, aiming for at most ${maxCharacters} Khmer characters. If the company name is in Latin letters, write how a Cambodian speaker would pronounce it in Khmer script; never leave Latin letters. Company: ${businessName || 'not specified'}. Original line: ${script}`,
   });
@@ -148,6 +153,8 @@ export async function shortenGeneratedKhmerNarration(script, businessName = '', 
 export async function expandGeneratedKhmerNarration(script, businessName = '', measuredSeconds = 0) {
   const text = await generateOpenRouterText({
     model: process.env.OPEN_ROUTER_CONTENT_PLAN_MODEL || 'google/gemini-3.1-pro-preview',
+    reasoningEffort: 'low',
+    timeoutMs: 30_000,
     system: `Rewrite one AI-generated narration as natural conversational Cambodian Khmer. Preserve its factual claims, topic and company identity. Add a useful related detail, not a slogan or invented offer. Output only one spoken sentence with two connected clauses. ${KHMER_SCRIPT_ONLY_INSTRUCTION}`,
     prompt: `The original line was spoken in ${Number(measuredSeconds).toFixed(1)} seconds, but this video lasts 8 seconds. Expand it enough to speak naturally for about 6.5 to 7.5 seconds, leaving a short ending beat. Aim for 80-100 total Khmer characters, but keep the words clear and never rush. If the company name uses Latin letters, spell its pronunciation in Khmer script. Company: ${businessName || 'not specified'}. Original line: ${script}`,
   });

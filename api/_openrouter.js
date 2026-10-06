@@ -58,10 +58,10 @@ const headers = (contentType = 'application/json') => ({
   'X-Title': 'aime.angkorgate',
 });
 
-const openRouterJson = async (path, body) => {
+const openRouterJson = async (path, body, timeoutMs = MEDIA_REQUEST_TIMEOUT_MS) => {
   const response = await fetch(`${OPENROUTER_BASE_URL}${path}`, {
     method: 'POST',
-    signal: AbortSignal.timeout(MEDIA_REQUEST_TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
     headers: headers(),
     body: JSON.stringify(body),
   });
@@ -110,12 +110,12 @@ export const resolveOpenRouterImageModel = (model) => {
 // consistent with Google officially listing Khmer (km-KH) as a supported Chirp 3
 // language, unlike Whisper. Falls back to whisper-1 if Chirp 3 itself fails for any
 // reason (e.g. a transient outage on its preview-status endpoint).
-const transcribeOnce = async ({ audioBase64, format, language, model }) => {
+const transcribeOnce = async ({ audioBase64, format, language, model, timeoutMs }) => {
   const data = await openRouterJson('/audio/transcriptions', {
     model,
     input_audio: { data: audioBase64, format },
     ...(language ? { language } : {}),
-  });
+  }, timeoutMs);
   const transcript = data?.text;
   if (typeof transcript !== 'string') throw new Error('OpenRouter did not return a transcript.');
   return transcript.trim();
@@ -130,11 +130,11 @@ const transcribeOnce = async ({ audioBase64, format, language, model }) => {
 // signal of a bad transcription.
 const looksLikeScriptMismatch = (text, language) => language === 'km' && text && !/[ក-៿]/.test(text);
 
-export async function transcribeAudioWithOpenRouter({ audioBase64, format = 'wav', languageHint = 'auto', model: modelOverride }) {
+export async function transcribeAudioWithOpenRouter({ audioBase64, format = 'wav', languageHint = 'auto', model: modelOverride, timeoutMs }) {
   const language = languageHint === 'Khmer' ? 'km' : languageHint === 'English' ? 'en' : undefined;
 
   if (modelOverride) {
-    return transcribeOnce({ audioBase64, format, language, model: modelOverride });
+    return transcribeOnce({ audioBase64, format, language, model: modelOverride, timeoutMs });
   }
 
   const primaryModel = process.env.OPEN_ROUTER_STT_MODEL || 'google/chirp-3';
@@ -224,6 +224,7 @@ async function generateOpenRouterTextOnce({
   temperature,
   maxTokens,
   reasoningEffort = 'high',
+  timeoutMs = TEXT_REQUEST_TIMEOUT_MS,
 }) {
   const apiKey = getApiKey();
 
@@ -243,7 +244,7 @@ async function generateOpenRouterTextOnce({
 
   const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
     method: 'POST',
-    signal: AbortSignal.timeout(TEXT_REQUEST_TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
     headers: {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
@@ -386,7 +387,7 @@ export async function generateOpenRouterWebSearch({ prompt, system = 'You are a 
 // gpt-audio-mini -> Google Translate).
 const FALLBACK_IMAGE_MODEL = 'bytedance-seed/seedream-4.5';
 
-export async function generateOpenRouterImage({ prompt, aspectRatio = '1:1', model }) {
+export async function generateOpenRouterImage({ prompt, aspectRatio = '1:1', model, timeoutMs }) {
   const primaryModel = resolveOpenRouterImageModel(model);
   const buildBody = (modelId) => ({
     model: modelId,
@@ -398,12 +399,12 @@ export async function generateOpenRouterImage({ prompt, aspectRatio = '1:1', mod
 
   let data;
   try {
-    data = await openRouterJson('/images', buildBody(primaryModel));
+    data = await openRouterJson('/images', buildBody(primaryModel), timeoutMs);
     if (!data?.data?.[0]?.b64_json) throw new Error('OpenRouter did not return an image.');
   } catch (primaryError) {
     if (primaryModel === FALLBACK_IMAGE_MODEL) throw primaryError;
     console.error(`Image generation failed with ${primaryModel}, retrying with ${FALLBACK_IMAGE_MODEL}:`, primaryError?.message || primaryError);
-    data = await openRouterJson('/images', buildBody(FALLBACK_IMAGE_MODEL));
+    data = await openRouterJson('/images', buildBody(FALLBACK_IMAGE_MODEL), timeoutMs);
   }
 
   const image = data?.data?.[0];

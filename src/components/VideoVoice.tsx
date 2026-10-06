@@ -61,6 +61,7 @@ const AI_FETCH_TIMEOUT_MS = 70000;
 // client-side (surfacing as "Video generation took too long"/"failed") even
 // though the server (given up to 300s via vercel.json) was still working.
 const VIDEO_STATUS_FETCH_TIMEOUT_MS = 240000;
+const VIDEO_GENERATE_FETCH_TIMEOUT_MS = 290000;
 // ttsGenerate is the same class of exception: server-side it can chain Gemini
 // TTS (up to TEXT_REQUEST_TIMEOUT_MS=180s), a Khmer verification re-transcribe,
 // and an Edge-voice fallback, all before responding. The generic 70s timeout
@@ -172,7 +173,7 @@ const readPendingVideoStarts = (): PendingVideoStart[] => {
   try {
     const value = JSON.parse(localStorage.getItem(PENDING_VIDEO_STARTS_KEY) || '[]');
     return Array.isArray(value) ? value.filter((item) => item?.requestId && item?.fingerprint && item?.userId
-      && Date.now() - Number(item.createdAt || 0) < 6 * 60 * 1000) : [];
+      && Date.now() - Number(item.createdAt || 0) < 24 * 60 * 60 * 1000) : [];
   } catch {
     return [];
   }
@@ -709,8 +710,17 @@ const recoverVideoStart = async (requestId: string, idToken: string) => {
       throw new Error('Connection lost while checking the video start. Wait a moment, then try Generate again to check this request.');
     }
     const data = await response.json().catch(() => ({}));
-    if (response.status === 202) continue;
-    if (!response.ok) throw new Error(data.error || 'Could not check whether the video started.');
+    if (response.status === 202) {
+      if (data.status === 'not-found') {
+        throw Object.assign(new Error('The video request did not reach the server. Press Generate again to retry the same request safely.'), { startNotReceived: true });
+      }
+      continue;
+    }
+    if (!response.ok) {
+      const error = new Error(data.error || 'Could not check whether the video started.') as Error & { startInterrupted?: boolean };
+      if (response.status === 409 && /interrupted|stopped before a job ID/i.test(error.message)) error.startInterrupted = true;
+      throw error;
+    }
     if (data.jobId) return data;
   }
   throw new Error('The video start is still processing. Try Generate again within a few minutes to check this request.');
@@ -767,11 +777,26 @@ const attemptGenerateVideoClip = async (
     }
     let data: any;
     if (savedStart) {
-      data = await recoverVideoStart(start.requestId, idToken);
+      try {
+        data = await recoverVideoStart(start.requestId, idToken);
+      } catch (error) {
+        if ((error as Error & { startNotReceived?: boolean }).startNotReceived) {
+          // Retry the exact same request ID. The server's atomic reservation
+          // ensures that a delayed original submission cannot start a second
+          // paid job if it eventually reaches the server.
+          const response = await fetchAiWithTimeout({ action: 'videoGenerate', prompt, images, duration, aspectRatio, khmerSpeech, requestId: start.requestId }, VIDEO_GENERATE_FETCH_TIMEOUT_MS, idToken);
+          data = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(data.error || 'Could not retry the video start.');
+          if (!data.jobId) data = await recoverVideoStart(start.requestId, idToken);
+        } else {
+          if ((error as Error & { startInterrupted?: boolean }).startInterrupted) removePendingVideoStart(userId, fingerprint);
+          throw error;
+        }
+      }
     } else {
       let response: Response | undefined;
       try {
-        response = await fetchAiWithTimeout({ action: 'videoGenerate', prompt, images, duration, aspectRatio, khmerSpeech, requestId: start.requestId }, VIDEO_STATUS_FETCH_TIMEOUT_MS, idToken);
+        response = await fetchAiWithTimeout({ action: 'videoGenerate', prompt, images, duration, aspectRatio, khmerSpeech, requestId: start.requestId }, VIDEO_GENERATE_FETCH_TIMEOUT_MS, idToken);
       } catch {
         // The paid provider may have accepted the job even if the browser lost
         // the long start response. Query by request id rather than submit again.
@@ -1140,7 +1165,16 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       ]);
       let currentJob = resumableVideoJob;
       if (!currentJob && recoverableVideoStart) {
-        const data = await recoverVideoStart(recoverableVideoStart.requestId, idToken);
+        let data: any;
+        try {
+          data = await recoverVideoStart(recoverableVideoStart.requestId, idToken);
+        } catch (error) {
+          if ((error as Error & { startInterrupted?: boolean }).startInterrupted) {
+            removePendingVideoStart(user.uid, recoverableVideoStart.fingerprint);
+            setRecoverableVideoStart(null);
+          }
+          throw error;
+        }
         currentJob = {
           fingerprint: recoverableVideoStart.fingerprint,
           userId: user.uid,

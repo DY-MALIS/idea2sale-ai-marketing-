@@ -63,6 +63,7 @@ describe('Khmer narration', () => {
     expect(mocks.gemini.mock.calls[0][0].performanceStyle).toContain('within 5.85 seconds');
     expect(mocks.gemini.mock.calls[0][0].performanceStyle).toContain('Do not omit, abbreviate or cut off any word');
     expect(mocks.transcribe).toHaveBeenCalledTimes(1);
+    expect(mocks.transcribe).toHaveBeenCalledWith(expect.objectContaining({ timeoutMs: 30_000 }));
   });
 
   it('uses the Khmer neural voice when a paid video Gemini read changes the words', async () => {

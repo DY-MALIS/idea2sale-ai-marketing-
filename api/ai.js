@@ -119,6 +119,8 @@ const requireAiUser = async (req) => {
 };
 
 const videoJobDocId = (jobId) => createHash('sha256').update(String(jobId)).digest('hex');
+const videoStartDocId = (userId, requestId) => createHash('sha256').update(`${userId}:${requestId}`).digest('hex');
+const VIDEO_START_STALE_MS = 10 * 60 * 1000;
 
 export const FACEBOOK_SCAN_MODES = Object.freeze([
   'customer',
@@ -648,6 +650,8 @@ const normalizeMediaPrompt = async (prompt, mediaType) => {
       prompt: `Interpret this request as a precise ${mediaType} production prompt. Preserve every __KHMER_N__ placeholder exactly once, in order; these contain original Khmer wording and must not be translated or omitted.\n\n${source}`,
       temperature: 0.1,
       maxTokens: 2500,
+      reasoningEffort: 'low',
+      timeoutMs: mediaType === 'video' ? 45_000 : undefined,
     });
     const normalized = mediaType === 'video' ? await preserveKhmerDuringTranslation(prompt, translate) : await translate(prompt);
     return normalized.trim() || prompt;
@@ -2730,6 +2734,32 @@ Return ONLY a single valid JSON object with this exact structure:
       // Reject every other stale/unsupported ratio instead of passing it through.
       const aspectRatio = resolveVideoAspectRatio(req.body?.aspectRatio);
       if (!prompt) return res.status(400).json({ error: 'Video prompt is required.' });
+      let startRef = null;
+      if (requestId) {
+        const db = initFirebaseAdmin();
+        startRef = db.collection('video_starts').doc(videoStartDocId(verifiedVideoUser.uid, requestId));
+        const requestHash = createHash('sha256').update(JSON.stringify({
+          prompt, duration: req.body?.duration, aspectRatio, images: req.body?.images,
+          khmerSpeech: req.body?.khmerSpeech,
+        })).digest('hex');
+        try {
+          // Firestore create() is atomic. A second browser call with this ID
+          // cannot start another paid provider job, even during a slow start.
+          await startRef.create({ userId: verifiedVideoUser.uid, requestId, requestHash, status: 'PREPARING', startedAt: new Date() });
+        } catch (claimError) {
+          if (Number(claimError?.code) !== 6 && claimError?.code !== 'already-exists') throw claimError;
+          const saved = (await startRef.get()).data();
+          if (!saved || saved.userId !== verifiedVideoUser.uid || saved.requestHash !== requestHash) {
+            return res.status(409).json({ error: 'This video request ID was already used for a different request.' });
+          }
+          if (saved.startResponse?.jobId) return res.status(200).json(saved.startResponse);
+          const startedAtMs = saved.startedAt?.toMillis?.() || new Date(saved.startedAt || 0).getTime();
+          if (Date.now() - startedAtMs > VIDEO_START_STALE_MS) {
+            return res.status(409).json({ error: 'This video start was interrupted before its job ID was saved. It will not be submitted again automatically to avoid a duplicate charge.' });
+          }
+          return res.status(202).json({ status: 'starting' });
+        }
+      }
       const normalizedPrompt = await normalizeMediaPrompt(prompt, 'video');
       const images = Array.isArray(req.body?.images)
         ? req.body.images
@@ -2783,6 +2813,13 @@ Return ONLY a single valid JSON object with this exact structure:
           narrationFallbackReason: narrationAudio.fallbackReason,
           spokenScript: narrationAudio.spokenText || speech.script,
         };
+        if (startRef) {
+          try {
+            await startRef.set({ status: 'PROCESSING', jobId: job.jobId, startResponse: JSON.parse(JSON.stringify(responseBody)), updatedAt: new Date() }, { merge: true });
+          } catch (startStoreError) {
+            console.error('Could not persist Khmer video start response; trying the job record:', startStoreError?.message || startStoreError);
+          }
+        }
         try {
           await initFirebaseAdmin().collection('video_jobs').doc(videoJobDocId(job.jobId)).set({
             userId: verifiedVideoUser.uid,
@@ -2803,11 +2840,19 @@ Return ONLY a single valid JSON object with this exact structure:
         duration,
         aspectRatio,
       });
+      const responseBody = { ...video, outputAspectRatio: aspectRatio };
+      if (startRef) {
+        try {
+          await startRef.set({ status: 'PROCESSING', jobId: video.jobId, startResponse: JSON.parse(JSON.stringify(responseBody)), updatedAt: new Date() }, { merge: true });
+        } catch (startStoreError) {
+          console.error('Could not persist video start response; trying the job record:', startStoreError?.message || startStoreError);
+        }
+      }
       try {
         await initFirebaseAdmin().collection('video_jobs').doc(videoJobDocId(video.jobId)).set({
           userId: verifiedVideoUser.uid,
           jobId: video.jobId,
-          ...(requestId ? { requestId, startResponse: JSON.parse(JSON.stringify({ ...video, outputAspectRatio: aspectRatio })) } : {}),
+          ...(requestId ? { requestId, startResponse: JSON.parse(JSON.stringify(responseBody)) } : {}),
           aspectRatio,
           status: 'PROCESSING',
           createdAt: new Date(),
@@ -2815,15 +2860,32 @@ Return ONLY a single valid JSON object with this exact structure:
       } catch (jobStoreError) {
         console.error('Could not persist video job ownership; the authenticated owner may still resume it:', jobStoreError?.message || jobStoreError);
       }
-      return res.status(200).json({ ...video, outputAspectRatio: aspectRatio });
+      return res.status(200).json(responseBody);
     }
 
     if (action === 'videoRecover') {
       const requestId = String(req.body?.requestId || '').trim();
       if (!/^[A-Za-z0-9_-]{16,100}$/.test(requestId)) return res.status(400).json({ error: 'Invalid video request id.' });
+      const startSnap = await initFirebaseAdmin().collection('video_starts').doc(videoStartDocId(verifiedVideoUser.uid, requestId)).get();
+      if (startSnap.exists) {
+        const saved = startSnap.data();
+        if (saved.userId !== verifiedVideoUser.uid) return res.status(403).json({ error: 'This video request belongs to another account.' });
+        if (saved.startResponse?.jobId) return res.status(200).json(saved.startResponse);
+        // A job may still be in the older job collection if the separate
+        // request record update failed after the paid provider submission.
+      }
       const matches = await initFirebaseAdmin().collection('video_jobs').where('requestId', '==', requestId).limit(3).get();
       const owned = matches.docs.find((doc) => doc.data()?.userId === verifiedVideoUser.uid);
-      if (!owned) return res.status(202).json({ status: 'starting' });
+      if (!owned) {
+        if (startSnap.exists) {
+          const startedAtMs = startSnap.data()?.startedAt?.toMillis?.() || new Date(startSnap.data()?.startedAt || 0).getTime();
+          if (Date.now() - startedAtMs > VIDEO_START_STALE_MS) {
+            return res.status(409).json({ error: 'The video start stopped before a job ID was saved. No automatic retry was made to avoid a duplicate charge.' });
+          }
+          return res.status(202).json({ status: 'starting' });
+        }
+        return res.status(202).json({ status: 'not-found' });
+      }
       const saved = owned.data();
       return res.status(200).json(saved.startResponse || { jobId: saved.jobId, outputAspectRatio: saved.aspectRatio });
     }
