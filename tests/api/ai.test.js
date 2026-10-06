@@ -28,6 +28,7 @@ describe('resolveAgentReplyLanguage', () => {
     expect(resolveAgentReplyLanguage('សួស្តី', 'en')).toBe('Khmer');
     expect(resolveAgentReplyLanguage('Hello', 'km')).toBe('English');
     expect(resolveAgentReplyLanguage('សួស្តី Hello', 'km')).toBe('Mixed Khmer and English');
+    expect(resolveAgentReplyLanguage('សូមបង្កើត content plan សម្រាប់ហាងកាហ្វេរបស់ខ្ញុំ', 'en')).toBe('Khmer');
   });
 });
 

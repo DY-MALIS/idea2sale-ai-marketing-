@@ -335,6 +335,8 @@ service cloud.firestore {
         && (!('telegramChannelUrl' in incoming()) || (incoming().telegramChannelUrl is string && incoming().telegramChannelUrl.size() <= 200))
         && (!('tiktokHandle' in incoming()) || (incoming().tiktokHandle is string && incoming().tiktokHandle.size() <= 100))
         && (!('facebookPageUrl' in incoming()) || (incoming().facebookPageUrl is string && incoming().facebookPageUrl.size() <= 300))
+        && (!('websiteUrl' in incoming()) || (incoming().websiteUrl is string && incoming().websiteUrl.size() <= 300))
+        && (!('linkedinUrl' in incoming()) || (incoming().linkedinUrl is string && incoming().linkedinUrl.size() <= 300))
         && !incoming().keys().hasAny(['telegramBotActive', 'telegramBotUsername']);
 
       // Bot activation and username are set only by the authenticated server
@@ -354,6 +356,8 @@ service cloud.firestore {
         && (!('telegramChannelUrl' in incoming()) || (incoming().telegramChannelUrl is string && incoming().telegramChannelUrl.size() <= 200))
         && (!('tiktokHandle' in incoming()) || (incoming().tiktokHandle is string && incoming().tiktokHandle.size() <= 100))
         && (!('facebookPageUrl' in incoming()) || (incoming().facebookPageUrl is string && incoming().facebookPageUrl.size() <= 300))
+        && (!('websiteUrl' in incoming()) || (incoming().websiteUrl is string && incoming().websiteUrl.size() <= 300))
+        && (!('linkedinUrl' in incoming()) || (incoming().linkedinUrl is string && incoming().linkedinUrl.size() <= 300))
         && !incoming().diff(existing()).affectedKeys().hasAny(['telegramBotActive', 'telegramBotUsername']);
 
       allow delete: if isSignedIn() && profileId == request.auth.uid;

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Upload, FileText, Building2, User, Plus, Trash2, Save, CheckCircle2, Loader2, Send, Bot, Globe, ArrowRight } from 'lucide-react';
+import { X, Upload, FileText, Building2, User, Plus, Trash2, Save, CheckCircle2, Loader2, Send, Bot, ArrowRight } from 'lucide-react';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { cn } from '../lib/utils';
@@ -13,6 +13,19 @@ import { channelUsernameFromProfile } from '../../shared/telegramDestination.js'
 
 const DEMO_STORAGE_KEY = 'demo_business_profile';
 const LOGO_MAX_DIMENSION = 256;
+
+const validHttpUrl = (value: string, allowedHosts?: string[]): boolean => {
+  try {
+    if (value.length > 300 || /\s/.test(value)) return false;
+    const parsed = new URL(value);
+    return ['http:', 'https:'].includes(parsed.protocol)
+      && Boolean(parsed.hostname)
+      && !parsed.username && !parsed.password
+      && (!allowedHosts || (parsed.protocol === 'https:' && allowedHosts.includes(parsed.hostname.toLowerCase())));
+  } catch {
+    return false;
+  }
+};
 
 const getLocalProfile = (): BusinessProfileData => {
   try {
@@ -74,8 +87,6 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [introUploading, setIntroUploading] = useState(false);
-  const [showWebsiteInput, setShowWebsiteInput] = useState(false);
-  const [websiteUrlInput, setWebsiteUrlInput] = useState('');
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [telegramBotActive, setTelegramBotActive] = useState(false);
@@ -92,6 +103,8 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
   const [telegramChannelUrl, setTelegramChannelUrl] = useState('');
   const [tiktokHandle, setTiktokHandle] = useState('');
   const [facebookPageUrl, setFacebookPageUrl] = useState('');
+  const [websiteUrl, setWebsiteUrl] = useState('');
+  const [linkedinUrl, setLinkedinUrl] = useState('');
 
   const [entryName, setEntryName] = useState('');
   const [entryType, setEntryType] = useState<'COMPANY' | 'INDIVIDUAL'>('COMPANY');
@@ -110,7 +123,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
       setBusinessName(''); setBusinessDescription(''); setLogoDataUrl(''); setDirectory([]);
       setTelegramBotToken(''); setTelegramChatId(''); setTelegramChannelUrl('');
       setSavedTelegramBotToken('');
-      setTiktokHandle(''); setFacebookPageUrl(''); setTelegramBotActive(false);
+      setTiktokHandle(''); setFacebookPageUrl(''); setWebsiteUrl(''); setLinkedinUrl(''); setTelegramBotActive(false);
       try {
         if (isDemoMode || !user) {
           const local = getLocalProfile();
@@ -125,6 +138,8 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
           setTelegramChannelUrl(local.telegramChannelUrl || '');
           setTiktokHandle(local.tiktokHandle || '');
           setFacebookPageUrl(local.facebookPageUrl || '');
+          setWebsiteUrl(local.websiteUrl || '');
+          setLinkedinUrl(local.linkedinUrl || '');
         } else {
           const snap = await getDoc(doc(db, 'business_profiles', user.uid));
           if (cancelled) return;
@@ -140,12 +155,14 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
             setTelegramChannelUrl(data.telegramChannelUrl || '');
             setTiktokHandle(data.tiktokHandle || '');
             setFacebookPageUrl(data.facebookPageUrl || '');
+            setWebsiteUrl(data.websiteUrl || '');
+            setLinkedinUrl(data.linkedinUrl || '');
             setTelegramBotActive(Boolean(data.telegramBotActive));
           } else {
             setBusinessName(''); setBusinessDescription(''); setLogoDataUrl(''); setDirectory([]);
             setTelegramBotToken(''); setTelegramChatId(''); setTelegramChannelUrl('');
             setSavedTelegramBotToken('');
-            setTiktokHandle(''); setFacebookPageUrl(''); setTelegramBotActive(false);
+            setTiktokHandle(''); setFacebookPageUrl(''); setWebsiteUrl(''); setLinkedinUrl(''); setTelegramBotActive(false);
           }
         }
       } catch (err) {
@@ -200,9 +217,9 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
   };
 
   const handleWebsiteIntroSubmit = async () => {
-    const websiteUrl = websiteUrlInput.trim();
-    if (!websiteUrl) return;
-    if (!/^https?:\/\//i.test(websiteUrl)) {
+    const url = websiteUrl.trim();
+    if (!url) return;
+    if (!validHttpUrl(url)) {
       setError(language === 'km' ? 'សូមបញ្ចូល link ដែលចាប់ផ្តើមដោយ http:// ឬ https://' : 'Enter a link starting with http:// or https://');
       return;
     }
@@ -212,13 +229,11 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
       const response = await withUploadTimeout(fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'extractBusinessIntro', websiteUrl, language }),
+        body: JSON.stringify({ action: 'extractBusinessIntro', websiteUrl: url, language }),
       }));
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'Could not read this website.');
       setBusinessDescription(String(data.businessDescription || ''));
-      setShowWebsiteInput(false);
-      setWebsiteUrlInput('');
     } catch (err: any) {
       setError(err.message || t('businessProfileLoadError'));
     } finally {
@@ -249,8 +264,18 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
     }
     const channelUrl = channelUsername ? `https://t.me/${channelUsername.slice(1)}` : '';
     const pageUrl = facebookPageUrl.trim();
-    if (pageUrl && !/^https:\/\/(?:www\.|m\.)?(?:facebook\.com|fb\.com)\//i.test(pageUrl)) {
+    if (pageUrl && !validHttpUrl(pageUrl, ['facebook.com', 'www.facebook.com', 'm.facebook.com', 'fb.com', 'www.fb.com'])) {
       setError('Enter a Facebook Page URL beginning with https://facebook.com/');
+      return;
+    }
+    const siteUrl = websiteUrl.trim();
+    if (siteUrl && !validHttpUrl(siteUrl)) {
+      setError(language === 'km' ? 'សូមបញ្ចូល Website link ត្រឹមត្រូវ ដែលចាប់ផ្តើមដោយ https:// ឬ http://' : 'Enter a valid website URL starting with https:// or http:// (up to 300 characters).');
+      return;
+    }
+    const linkedInPageUrl = linkedinUrl.trim();
+    if (linkedInPageUrl && !validHttpUrl(linkedInPageUrl, ['linkedin.com', 'www.linkedin.com'])) {
+      setError(language === 'km' ? 'សូមបញ្ចូល LinkedIn link ត្រឹមត្រូវ ដែលចាប់ផ្តើមដោយ https://linkedin.com/' : 'Enter a LinkedIn URL beginning with https://linkedin.com/ (up to 300 characters).');
       return;
     }
     if (tiktokHandle.trim() && !/^@?[A-Za-z0-9._]{1,100}$/.test(tiktokHandle.trim())) {
@@ -270,6 +295,8 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
       telegramChannelUrl: channelUrl,
       tiktokHandle: tiktokHandle.trim().replace(/^@/, ''),
       facebookPageUrl: facebookPageUrl.trim(),
+      websiteUrl: siteUrl,
+      linkedinUrl: linkedInPageUrl,
     };
     try {
       if (isDemoMode || !user) {
@@ -436,50 +463,45 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
                   ? (language === 'km' ? 'កំពុងអាន...' : 'Reading file...')
                   : (language === 'km' ? 'ឬ Upload ឯកសារណែនាំក្រុមហ៊ុន (.txt, .pdf, .docx, .json, .js, .html...)' : 'Or upload a company intro file (.txt, .pdf, .docx, .json, .js, .html...)')}
               </button>
-              {showWebsiteInput ? (
-                <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-                  <input
-                    type="url"
-                    inputMode="url"
-                    autoFocus
-                    value={websiteUrlInput}
-                    onChange={(event) => setWebsiteUrlInput(event.target.value)}
-                    onKeyDown={(event) => { if (event.key === 'Enter' && !introUploading) { event.preventDefault(); void handleWebsiteIntroSubmit(); } }}
-                    disabled={introUploading}
-                    placeholder="https://your-website.com"
-                    className="flex-1 px-4 py-2 bg-brand-50 border border-brand-100 dark:bg-slate-800 dark:border-slate-700 rounded-xl text-sm text-brand-700 dark:text-slate-100 focus:outline-none focus:ring-2 ring-brand-500/20 disabled:opacity-50"
-                  />
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => void handleWebsiteIntroSubmit()}
-                      disabled={introUploading || !websiteUrlInput.trim()}
-                      className="flex items-center justify-center gap-1.5 px-3 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {introUploading ? <Loader2 size={14} className="animate-spin" /> : <ArrowRight size={14} />}
-                      {language === 'km' ? 'ទាញយក' : 'Fetch'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setShowWebsiteInput(false); setWebsiteUrlInput(''); }}
-                      disabled={introUploading}
-                      className="px-3 py-2 bg-brand-50 hover:bg-brand-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-brand-600 dark:text-brand-400 rounded-xl text-xs font-bold transition-colors disabled:opacity-50"
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-2 block">
+                  {language === 'km' ? 'តំណភ្ជាប់អាជីវកម្ម (ជាជម្រើស)' : 'Business links (optional)'}
+                </label>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {language === 'km' ? 'បញ្ចូលតំណភ្ជាប់ ហើយចុច រក្សាទុកព័ត៌មាន ខាងក្រោម ដើម្បីរក្សាទុកទាំង ៣។' : 'Enter your links, then click Save Profile below to keep them.'}
+                </p>
+              </div>
+              <div>
+                <label htmlFor="business-facebook-url" className="mb-1 block text-xs font-semibold text-slate-500 dark:text-slate-400">Facebook</label>
+                <input id="business-facebook-url" type="url" inputMode="url" value={facebookPageUrl}
+                  onChange={(e) => setFacebookPageUrl(e.target.value)} placeholder="https://www.facebook.com/mycompany"
+                  className="w-full px-4 py-3 bg-brand-50 border border-brand-100 dark:bg-slate-800 dark:border-slate-700 rounded-2xl text-sm text-brand-700 dark:text-slate-100 focus:outline-none focus:ring-2 ring-brand-500/20" />
+              </div>
+              <div>
+                <label htmlFor="business-website-url" className="mb-1 block text-xs font-semibold text-slate-500 dark:text-slate-400">Website</label>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <input id="business-website-url" type="url" inputMode="url" value={websiteUrl}
+                    onChange={(e) => setWebsiteUrl(e.target.value)} placeholder="https://your-website.com"
+                    className="min-w-0 flex-1 px-4 py-3 bg-brand-50 border border-brand-100 dark:bg-slate-800 dark:border-slate-700 rounded-2xl text-sm text-brand-700 dark:text-slate-100 focus:outline-none focus:ring-2 ring-brand-500/20" />
+                  <button type="button" onClick={() => void handleWebsiteIntroSubmit()} disabled={introUploading || !websiteUrl.trim()}
+                    className="flex items-center justify-center gap-1.5 px-4 py-3 bg-brand-600 hover:bg-brand-700 text-white rounded-2xl text-xs font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                    {introUploading ? <Loader2 size={14} className="animate-spin" /> : <ArrowRight size={14} />}
+                    {language === 'km' ? 'ទាញយកព័ត៌មាន' : 'Fetch intro'}
+                  </button>
                 </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setShowWebsiteInput(true)}
-                  disabled={introUploading}
-                  className="mt-2 ml-2 inline-flex items-center gap-2 px-3 py-1.5 bg-brand-50 hover:bg-brand-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-brand-600 dark:text-brand-400 rounded-xl text-xs font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Globe size={14} />
-                  {language === 'km' ? 'ឬ ដាក់ Link វេបសាយក្រុមហ៊ុន' : 'Or paste your website link'}
-                </button>
-              )}
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  {language === 'km' ? 'ទាញយកព័ត៌មាន បំពេញការណែនាំខាងលើ។ តំណភ្ជាប់ត្រូវរក្សាទុកពេលចុច រក្សាទុកព័ត៌មាន។' : 'Fetch intro fills the description above. Save Profile stores the link.'}
+                </p>
+              </div>
+              <div>
+                <label htmlFor="business-linkedin-url" className="mb-1 block text-xs font-semibold text-slate-500 dark:text-slate-400">LinkedIn</label>
+                <input id="business-linkedin-url" type="url" inputMode="url" value={linkedinUrl}
+                  onChange={(e) => setLinkedinUrl(e.target.value)} placeholder="https://www.linkedin.com/company/mycompany"
+                  className="w-full px-4 py-3 bg-brand-50 border border-brand-100 dark:bg-slate-800 dark:border-slate-700 rounded-2xl text-sm text-brand-700 dark:text-slate-100 focus:outline-none focus:ring-2 ring-brand-500/20" />
+              </div>
             </div>
 
             <div>
@@ -548,7 +570,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
 
             <div className="space-y-3">
               <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest block">
-                {language === 'km' ? 'តំណភ្ជាប់បណ្ដាញសង្គម (ជាជម្រើស)' : 'Social profile details (optional)'}
+                {language === 'km' ? 'ព័ត៌មាន TikTok (ជាជម្រើស)' : 'TikTok details (optional)'}
               </label>
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 {language === 'km'
@@ -561,13 +583,6 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
                 onChange={(e) => setTiktokHandle(e.target.value)}
                 aria-label={language === 'km' ? 'ឈ្មោះ TikTok សម្រាប់បរិបទ AI (ជាជម្រើស)' : 'TikTok handle for AI context (optional)'}
                 placeholder={language === 'km' ? 'ឈ្មោះ TikTok (ជាជម្រើស)' : 'TikTok handle (optional), e.g. @mycompany'}
-                className="w-full px-4 py-3 bg-brand-50 border border-brand-100 dark:bg-slate-800 dark:border-slate-700 rounded-2xl text-sm text-brand-700 dark:text-slate-100 focus:outline-none focus:ring-2 ring-brand-500/20"
-              />
-              <input
-                type="url"
-                value={facebookPageUrl}
-                onChange={(e) => setFacebookPageUrl(e.target.value)}
-                placeholder="https://www.facebook.com/mycompany"
                 className="w-full px-4 py-3 bg-brand-50 border border-brand-100 dark:bg-slate-800 dark:border-slate-700 rounded-2xl text-sm text-brand-700 dark:text-slate-100 focus:outline-none focus:ring-2 ring-brand-500/20"
               />
             </div>

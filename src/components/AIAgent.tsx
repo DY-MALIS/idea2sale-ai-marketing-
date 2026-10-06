@@ -17,6 +17,7 @@ import { CreativeAutomationRequest } from '../types';
 import { downloadAgentDocument, isAgentDocumentCommand, type AgentDocument } from '../lib/agentDocument';
 import { AgentDocumentCard, AgentDocumentDialog } from './AgentDocumentCard';
 import { isContentPlanEditFollowup, isContentPlanEditPronounFollowup, isContentPlanEditRequest } from '../../shared/contentPlanEditIntent.js';
+import { isContentPlanCreationRequest } from '../../shared/agentIntent.js';
 
 const DEMO_AGENT_CONVERSATION_STORAGE_KEY = 'demo_agent_conversation';
 // Keep recent agent work visible long enough for users to return and reuse it.
@@ -25,9 +26,12 @@ const AGENT_MEMORY_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000;
 interface AgentMessage {
   role: 'user' | 'assistant';
   content: string;
+  agentPlan?: boolean;
   modality?: 'text' | 'voice';
   imageDataUrls?: string[];
   document?: AgentDocument;
+  audioUrl?: string;
+  audioPending?: boolean;
 }
 
 interface AgentConversationSession {
@@ -56,6 +60,20 @@ interface PlanItem {
   aspectRatio?: '9:16' | '16:9' | '1:1' | '3:4';
   selected: boolean;
 }
+
+const normalizePlanItems = (value: unknown): PlanItem[] => (Array.isArray(value) ? value : []).map((item: any) => ({
+  date: String(item.date || ''),
+  type: item.type === 'video' ? 'video' as const : 'image' as const,
+  topic: String(item.topic || ''),
+  prompt: String(item.prompt || ''),
+  headline: String(item.headline || ''),
+  cta: String(item.cta || ''),
+  voiceGender: item.voiceGender === 'Male' ? 'Male' as const : 'Female' as const,
+  voiceOverText: String(item.voiceOverText || ''),
+  performanceStyle: String(item.performanceStyle || ''),
+  aspectRatio: ['9:16', '16:9', '1:1', '3:4'].includes(item.aspectRatio) ? item.aspectRatio : item.type === 'video' ? '9:16' : '1:1',
+  selected: true,
+}));
 
 interface SavedPlanItem {
   id: string;
@@ -109,7 +127,7 @@ const sessionTitleFromMessages = (messages: AgentMessage[]) => (
 
 const buildSession = (messages: AgentMessage[], existingId?: string): AgentConversationSession | null => {
   const textOnly = messages
-    .map(({ role, content, modality, document }) => ({ role, content, ...(modality ? { modality } : {}), ...(document ? { document } : {}) }))
+    .map(({ role, content, modality, document, agentPlan }) => ({ role, content, ...(modality ? { modality } : {}), ...(document ? { document } : {}), ...(agentPlan ? { agentPlan } : {}) }))
     .filter((message) => message.content.trim());
   if (!textOnly.length) return null;
   return {
@@ -141,6 +159,8 @@ interface AgentBusinessContext {
   directory: { name: string; type: string }[];
   tiktokHandle: string;
   facebookPageUrl: string;
+  websiteUrl: string;
+  linkedinUrl: string;
   telegramChannelUrl: string;
 }
 
@@ -278,17 +298,23 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   // until the corresponding on-screen result or error is available.
   const handleLiveUserTurn = (session: number, transcript: string) => {
     const planEditCommand = isPlanEditMessage(transcript);
+    const agentPlanCommand = isAgentPlanMessage(transcript);
     const documentCommand = isAgentDocumentCommand(transcript);
-    const handledCommand = planEditCommand || documentCommand;
+    const handledCommand = planEditCommand || agentPlanCommand || documentCommand;
     if (session !== voiceSessionRef.current || !voiceActiveRef.current) return handledCommand;
     if (handledCommand) {
       setVoiceProcessing(true);
-      setVoiceCaption(planEditCommand
+      setVoiceCaption(planEditCommand || agentPlanCommand
         ? (language === 'km' ? 'កំពុងកែ Content Plan...' : 'Updating Content Plan...')
         : (language === 'km' ? 'កំពុងបង្កើតផែនការ និងឯកសារ...' : 'Creating your plan and document...'));
     }
     void (async () => {
       try {
+        if (agentPlanCommand) {
+          const answer = await askAgent(transcript, true);
+          if (session === voiceSessionRef.current && voiceActiveRef.current) setVoiceCaption(answer);
+          return;
+        }
         if (planEditCommand) {
           const answer = await editContentPlan(transcript);
           if (session === voiceSessionRef.current && voiceActiveRef.current) setVoiceCaption(answer);
@@ -394,7 +420,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           setIsSpeaking(false);
         },
         onUserTurnText: (text) => handleLiveUserTurn(session, text),
-        onUserTranscription: (text) => isAgentDocumentCommand(text) || isPlanEditMessage(text),
+        onUserTranscription: (text) => isAgentDocumentCommand(text) || isAgentPlanMessage(text) || isPlanEditMessage(text),
         // Every drop to the slow fallback path previously left no trace of
         // why -- reporting here is the only way to learn whether real users'
         // Gemini Live connections are failing at all, and if so why, without
@@ -437,6 +463,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const voiceGenderRef = useRef(voiceGender);
   const conversationEndRef = useRef<HTMLDivElement>(null);
   const requestControllerRef = useRef<AbortController | null>(null);
+  const audioControllersRef = useRef<Set<AbortController>>(new Set());
   const agentRequestActiveRef = useRef(false);
 
   // Content Plan: upload a CSV/Google Sheet content calendar, let the AI turn
@@ -468,20 +495,35 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   }
 
   const isPlanEditMessage = (message: string) => {
-    if (isContentPlanEditRequest(message)) return true;
+    const conversation = messagesRef.current;
+    const latestAgentPlan = [...conversation].reverse().find((item) => item.role === 'assistant' && item.agentPlan);
+    const last = conversation.at(-1);
+    const previousAssistant = last?.role === 'assistant' ? last : conversation.at(-2);
+    if (latestAgentPlan && (isContentPlanEditRequest(message)
+      || (previousAssistant?.agentPlan && isContentPlanEditFollowup(message)))) return false;
     if (!(planItems.length > 0 || savedPlanItems.length > 0)) return false;
+    if (isContentPlanEditRequest(message)) return true;
     // Only trust a bare pronoun reference ("change it...") with no assistant
     // context at all as the session's very first turn -- the plan card is the
     // only thing "it" could mean then. Once there's any conversation history,
     // require the previous assistant turn to have actually mentioned the plan,
     // or an unrelated "update it"/"change it" elsewhere in the chat would get
     // misrouted into a plan edit just because a saved plan happens to exist.
-    if (!messagesRef.current.length && isContentPlanEditPronounFollowup(message)) return true;
-    const last = messagesRef.current.at(-1);
-    const previousAssistant = last?.role === 'assistant' ? last : messagesRef.current.at(-2);
+    if (!conversation.length && isContentPlanEditPronounFollowup(message)) return true;
     return previousAssistant?.role === 'assistant'
       && /content\s*plan|ផែនការ/iu.test(previousAssistant.content)
       && isContentPlanEditFollowup(message);
+  };
+
+  const isAgentPlanMessage = (message: string) => {
+    if (isContentPlanCreationRequest(message)) return true;
+    const conversation = messagesRef.current;
+    const latestAgentPlan = [...conversation].reverse().find((item) => item.role === 'assistant' && item.agentPlan);
+    if (!latestAgentPlan) return false;
+    const last = conversation.at(-1);
+    const previousAssistant = last?.role === 'assistant' ? last : conversation.at(-2);
+    return isContentPlanEditRequest(message)
+      || Boolean(previousAssistant?.agentPlan && isContentPlanEditFollowup(message));
   };
 
   useEffect(() => {
@@ -527,7 +569,10 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     conversationEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages, loading]);
 
-  useEffect(() => () => requestControllerRef.current?.abort(), []);
+  useEffect(() => () => {
+    requestControllerRef.current?.abort();
+    audioControllersRef.current.forEach((controller) => controller.abort());
+  }, []);
   // Long-term memory: reload the saved conversation so the agent keeps context
   // across page reloads and sessions instead of forgetting everything the
   // moment the tab closes.
@@ -611,6 +656,8 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         directory: branding.directory,
         tiktokHandle: branding.tiktokHandle,
         facebookPageUrl: branding.facebookPageUrl,
+        websiteUrl: branding.websiteUrl,
+        linkedinUrl: branding.linkedinUrl,
         telegramChannelUrl: branding.telegramChannelUrl,
       });
     });
@@ -627,7 +674,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   // add real storage cost within a handful of exchanges, so they stay session-only.
   const persistConversation = (nextMessages: AgentMessage[], sessionsOverride = conversationSessions, sessionId = activeSessionId) => {
     if (!memoryLoadedRef.current) return;
-    const textOnly = nextMessages.map(({ role, content, modality, document }) => ({ role, content, ...(modality ? { modality } : {}), ...(document ? { document } : {}) }));
+    const textOnly = nextMessages.map(({ role, content, modality, document, agentPlan }) => ({ role, content, ...(modality ? { modality } : {}), ...(document ? { document } : {}), ...(agentPlan ? { agentPlan } : {}) }));
     const currentSession = buildSession(textOnly, sessionId);
     const sessions = currentSession
       ? [
@@ -833,19 +880,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Could not read this content plan.');
-      const items: PlanItem[] = (Array.isArray(data.items) ? data.items : []).map((item: any) => ({
-        date: item.date,
-        type: item.type === 'video' ? 'video' : 'image',
-        topic: item.topic || '',
-        prompt: item.prompt || '',
-        headline: item.headline || '',
-        cta: item.cta || '',
-        voiceGender: item.voiceGender === 'Male' ? 'Male' : 'Female',
-        voiceOverText: item.voiceOverText || '',
-        performanceStyle: item.performanceStyle || '',
-        aspectRatio: ['9:16', '16:9', '1:1', '3:4'].includes(item.aspectRatio) ? item.aspectRatio : item.type === 'video' ? '9:16' : '1:1',
-        selected: true,
-      }));
+      const items = normalizePlanItems(data.items);
       if (!items.length) {
         setPlanError(language === 'km'
           ? 'រកមិនឃើញកាលបរិច្ឆេទ ឬសំណើបង្កើតរូបភាព/វីដេអូច្បាស់លាស់ក្នុងឯកសារនេះទេ។'
@@ -1178,11 +1213,17 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     agentRequestActiveRef.current = true;
 
     const history = messagesRef.current.slice(-HISTORY_MESSAGES);
+    const latestAgentPlan = [...messagesRef.current].reverse().find((item) => item.role === 'assistant' && item.agentPlan);
+    const previousAssistant = history.at(-1)?.role === 'assistant' ? history.at(-1) : history.at(-2);
+    const agentPlanText = latestAgentPlan && (isContentPlanEditRequest(message)
+      || (previousAssistant?.agentPlan && isContentPlanEditFollowup(message)))
+      ? latestAgentPlan.content : undefined;
     // Must run before updateMessages mutates messagesRef.current below --
     // isPlanEditMessage's first-turn pronoun check depends on the message
     // list still being empty for a session's very first message, and
     // updateMessages immediately appends this user message into that ref.
     const planEditCommand = isPlanEditMessage(message);
+    const autoCreateRequested = autoCreateEnabledRef.current;
     const userMessage: AgentMessage = {
       role: 'user',
       content: message || (language === 'km' ? '(រូបភាពភ្ជាប់)' : '(Attached image)'),
@@ -1223,10 +1264,13 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           liveVoice: spoken,
           language,
           detectedLanguage: message ? detectMessageLanguage(message) : language,
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
           history,
+          agentPlanText,
           images: imagesForRequest.map((image) => ({ base64: image.base64, mimeType: image.mimeType })),
           businessContext: businessContext || undefined,
           contentPlan: contentPlanForAgent(),
+          autoCreateEnabled: autoCreateRequested,
         }),
       });
       const data = await response.json();
@@ -1236,10 +1280,33 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         ? (language === 'km' ? `ឯកសារ ${document.format.toUpperCase()} រួចរាល់៖ ${document.title}` : `${document.format.toUpperCase()} ready: ${document.title}`)
         : String(data.text || 'No response generated.').trim();
 
-      updateMessages([
-        ...pendingMessages,
-        { role: 'assistant', content: answer, modality: spoken ? 'voice' : 'text', ...(document ? { document } : {}) },
-      ]);
+      const assistantMessage: AgentMessage = { role: 'assistant', content: answer, modality: spoken ? 'voice' : 'text', ...(document ? { document } : {}), ...(data.agentPlan ? { agentPlan: true } : {}), ...(data.audioScript ? { audioPending: true } : {}) };
+      updateMessages([...pendingMessages, assistantMessage]);
+
+      if (data.audioScript) {
+        const audioController = new AbortController();
+        audioControllersRef.current.add(audioController);
+        void (async () => {
+          try {
+            const audioResponse = await fetch('/api/ai', {
+              method: 'POST', signal: audioController.signal,
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'ttsGenerate', input: String(data.audioScript).slice(0, 500), voice: voiceGenderRef.current === 'Male' ? 'onyx' : 'alloy', languageHint: message ? detectMessageLanguage(message) : language }),
+            });
+            const audioData = await audioResponse.json();
+            if (!audioResponse.ok || !audioData.audioUrl) throw new Error(audioData.error || 'Audio generation failed.');
+            if (messagesRef.current.includes(assistantMessage)) {
+              updateMessages(messagesRef.current.map((item) => item === assistantMessage ? { ...item, audioPending: false, audioUrl: audioData.audioUrl } : item));
+            }
+          } catch (audioError: any) {
+            if (audioError?.name !== 'AbortError' && messagesRef.current.includes(assistantMessage)) {
+              updateMessages(messagesRef.current.map((item) => item === assistantMessage ? { ...item, audioPending: false, content: `${answer}\n\n${language === 'km' ? 'បង្កើតសំឡេងមិនបាន៖' : 'Could not create audio:'} ${audioError?.message || 'Please try again.'}` } : item));
+            }
+          } finally {
+            audioControllersRef.current.delete(audioController);
+          }
+        })();
+      }
 
       if (document) {
         setDocumentDialog(document);
@@ -1250,7 +1317,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         return '';
       }
 
-      if (autoCreateEnabledRef.current && data.automation?.ready) {
+      if (autoCreateRequested && data.automation?.ready) {
         const request = triggerCreativeAutomation(data.automation, message ? detectMessageLanguage(message) : language);
         if (spoken) setVoiceCaption(automationCaption(request));
       }
@@ -1375,7 +1442,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           className="flex items-center gap-2 text-lg font-bold text-brand-700 dark:text-brand-300"
         >
           <CalendarClock size={20} />
-          <span>{language === 'km' ? 'ផែនការខ្លឹមសារ (Content Plan)' : 'Content Plan'}</span>
+          <span>{language === 'km' ? 'ផែនការដែលបានអាប់ឡូត (Uploaded Content Plan)' : 'Uploaded Content Plan'}</span>
           <motion.span animate={{ rotate: planOpen ? 180 : 0 }} className="text-brand-400">
             <ChevronDown size={18} />
           </motion.span>
@@ -1383,14 +1450,12 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
 
         {planOpen && (
           <div className="mt-4 space-y-4">
-            {isDemoMode || !user ? (
-              <p className="text-sm text-slate-500 dark:text-slate-400">
+            <>
+              {(isDemoMode || !user) && <p className="text-sm text-slate-500 dark:text-slate-400">
                 {language === 'km'
                   ? 'ត្រូវការគណនីពិត (មិនមែន demo) ដើម្បីប្រើមុខងារនេះ ព្រោះវាបង្កើតខ្លឹមសារនៅផ្ទៃខាងក្រោយដោយស្វ័យប្រវត្តិ។'
                   : 'This needs a real (non-demo) account, since it generates content automatically in the background.'}
-              </p>
-            ) : (
-              <>
+              </p>}
                 <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-400">
                   {language === 'km'
                     ? 'អាប់ឡូតឯកសារ Excel/CSV/PDF/Word/text ឬបិទភ្ជាប់ link Google Sheet ដែលមានកាលបរិច្ឆេទ + សំណើបង្កើតរូបភាព/វីដេអូ។ AI នឹងស្រង់ចេញជា prompt ត្រៀមរួច ហើយបង្កើតឲ្យស្វ័យប្រវត្តិនៅថ្ងៃដល់កំណត់ រួចផ្ញើទៅ Telegram Channel/Bot ដែលអ្នកបានភ្ជាប់។'
@@ -1506,7 +1571,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                     <button
                       type="button"
                       onClick={handleSavePlan}
-                      disabled={planSaving || !planItems.some((item) => item.selected)}
+                      disabled={planSaving || isDemoMode || !user || !planItems.some((item) => item.selected)}
                       className="flex items-center gap-2 rounded-xl bg-brand-700 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-brand-800 disabled:opacity-40"
                     >
                       {planSaving ? <Loader2 size={16} className="animate-spin" /> : <CalendarClock size={16} />}
@@ -1635,8 +1700,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                     </div>
                   </div>
                 )}
-              </>
-            )}
+            </>
           </div>
         )}
       </section>
@@ -1943,7 +2007,11 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                         <AgentDocumentCard document={message.document} language={language} onDownload={handleDocumentDownload} />
                       ) : message.modality === 'voice'
                         ? <p className="leading-relaxed">{language === 'km' ? 'ចម្លើយជាសំឡេង' : 'Voice reply'}</p>
-                        : <div className="prose prose-brand max-w-none"><Markdown>{message.content}</Markdown></div>}
+                        : <div className="space-y-3">
+                            <div className="prose prose-brand max-w-none"><Markdown>{message.content}</Markdown></div>
+                            {message.audioPending && <p role="status" className="flex items-center gap-2 text-xs text-brand-600"><Loader2 size={14} className="animate-spin" />{language === 'km' ? 'កំពុងបង្កើតសំឡេង...' : 'Creating audio...'}</p>}
+                            {message.audioUrl && <div className="space-y-2"><audio controls src={message.audioUrl} className="w-full" /><a href={message.audioUrl} download={`agent-audio.${message.audioUrl.startsWith('data:audio/wav') ? 'wav' : 'mp3'}`} className="text-xs font-semibold text-brand-600 underline">{language === 'km' ? 'ទាញយកសំឡេង' : 'Download audio'}</a></div>}
+                          </div>}
                     </div>
                     {isUser && (
                       <div className="mt-1 h-9 w-9 shrink-0 rounded-xl bg-white dark:bg-slate-800 border border-brand-200 text-brand-600 flex items-center justify-center">

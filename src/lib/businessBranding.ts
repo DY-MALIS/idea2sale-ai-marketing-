@@ -13,9 +13,11 @@ export interface BusinessBranding {
   telegramChannelUrl: string;
   tiktokHandle: string;
   facebookPageUrl: string;
+  websiteUrl: string;
+  linkedinUrl: string;
 }
 
-const emptyBranding = (): BusinessBranding => ({ businessName: '', businessDescription: '', logoDataUrl: '', directory: [], telegramBotUsername: '', telegramBotActive: false, telegramChannelUrl: '', tiktokHandle: '', facebookPageUrl: '' });
+const emptyBranding = (): BusinessBranding => ({ businessName: '', businessDescription: '', logoDataUrl: '', directory: [], telegramBotUsername: '', telegramBotActive: false, telegramChannelUrl: '', tiktokHandle: '', facebookPageUrl: '', websiteUrl: '', linkedinUrl: '' });
 
 // Read at the moment an asset/script is generated. The main tabs stay mounted
 // while Business Profile is edited, so mount-time state otherwise becomes stale.
@@ -38,6 +40,8 @@ export async function getLatestBusinessBranding(user: User | null, isDemoMode: b
       telegramChannelUrl: String(profile?.telegramChannelUrl || ''),
       tiktokHandle: String(profile?.tiktokHandle || ''),
       facebookPageUrl: String(profile?.facebookPageUrl || ''),
+      websiteUrl: String(profile?.websiteUrl || ''),
+      linkedinUrl: String(profile?.linkedinUrl || ''),
     };
   } catch (error) {
     console.error('Failed to load the latest business branding:', error);
