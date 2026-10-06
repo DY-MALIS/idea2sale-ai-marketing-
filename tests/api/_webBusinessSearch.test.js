@@ -125,6 +125,26 @@ it('merges complementary search passes and keeps more than twelve verified busin
   expect(businesses).toHaveLength(24);
 });
 
+it('checks shared source URLs while other search passes are still running', async () => {
+  let finishOtherPasses;
+  const otherPasses = new Promise((resolve) => { finishOtherPasses = resolve; });
+  mocks.webSearch
+    .mockResolvedValueOnce({ content: JSON.stringify({ businesses: [
+      { name: 'First Shop', phone: '012 111 111', sourceUrl: 'https://directory.example.com/shops' },
+      { name: 'Second Shop', phone: '012 222 222', sourceUrl: 'https://directory.example.com/shops' },
+    ] }) })
+    .mockImplementation(() => otherPasses);
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+
+  const search = searchBusinessesOnWeb({ searchTerms: 'shops' });
+  await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+  finishOtherPasses({ content: JSON.stringify({ businesses: [] }) });
+
+  const businesses = await search;
+  expect(businesses).toHaveLength(2);
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
+
 it('deduplicates a business found by several passes and merges its public contacts', async () => {
   mocks.webSearch
     .mockResolvedValueOnce({ content: JSON.stringify({ businesses: [{ name: 'Same Cafe', phone: '012 345 678', sourceUrl: 'https://same-cafe.example.com' }] }) })

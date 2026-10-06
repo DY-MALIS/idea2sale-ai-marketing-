@@ -4,7 +4,7 @@
 // round trip. The browser connects directly to Google (not through this app's
 // server) using a short-lived ephemeral token minted by api/_geminiLive.js, so
 // mic audio streams out and reply audio streams back with no per-turn HTTP
-// request at all -- that's what gets the ~0.5-1s response time instead of ~5-6s.
+// request at all.
 // Google's own server-side voice-activity detection decides when the user
 // started/stopped talking, so unlike the rest of this app's voice flow there is
 // no local silence-timeout logic here: audio just streams continuously while
@@ -16,6 +16,9 @@ const PLAYBACK_SAMPLE_RATE = 24000;
 // How often a chunk of captured mic audio is sent -- short enough to keep
 // latency low, long enough not to spam tiny messages over the socket.
 const SEND_CHUNK_MS = 200;
+// Allow a brief window for an incoming transcript to identify an app-handled
+// command, without holding an ordinary spoken reply until generation finishes.
+const REPLY_COMMAND_GRACE_MS = 300;
 
 export interface GeminiLiveHandlers {
   onOpen?: () => void;
@@ -201,6 +204,7 @@ export async function connectGeminiLive(
     signal?.removeEventListener('abort', onAbort);
     clearTimeout(readyTimeout);
     clearInterval(sendTimer);
+    clearTimeout(replyGateTimer);
     player.stopAll();
     processor.disconnect();
     source.disconnect();
@@ -268,11 +272,23 @@ export async function connectGeminiLive(
 
   let inputTranscriptBuffer = '';
   let suppressReplyAudio = false;
-  // The model may send audio before the finished input transcript. Hold it
-  // until the app can decide whether this turn creates a downloadable file.
-  // Sessions without an app-side turn handler keep normal streaming playback.
+  // The model may send audio before the input transcript. Give command turns a
+  // short chance to be recognized, then play ordinary replies as they stream.
   const gateReplyAudio = Boolean(handlers.onUserTurnText);
   let pendingReplyAudio: Int16Array[] = [];
+  let replyGateTimer: number | undefined;
+  let replyAudioReleased = false;
+  const clearReplyGate = () => {
+    clearTimeout(replyGateTimer);
+    replyGateTimer = undefined;
+  };
+  const releaseReplyAudio = () => {
+    clearReplyGate();
+    if (suppressReplyAudio || closed) return;
+    replyAudioReleased = true;
+    pendingReplyAudio.forEach((audio) => player.enqueue(audio));
+    pendingReplyAudio = [];
+  };
 
   socket.onmessage = (event) => {
     void (async () => {
@@ -296,6 +312,7 @@ export async function connectGeminiLive(
           if (handlers.onUserTranscription?.(inputTranscriptBuffer)) {
             suppressReplyAudio = true;
             pendingReplyAudio = [];
+            clearReplyGate();
             player.stopAll();
           }
         }
@@ -304,21 +321,26 @@ export async function connectGeminiLive(
           const inline = part?.inlineData;
           if (!suppressReplyAudio && inline?.data && /^audio\//.test(inline.mimeType || '')) {
             const audio = base64ToInt16Array(inline.data);
-            if (gateReplyAudio) pendingReplyAudio.push(audio);
-            else player.enqueue(audio);
+            if (gateReplyAudio && !replyAudioReleased) {
+              pendingReplyAudio.push(audio);
+              if (replyGateTimer === undefined) replyGateTimer = window.setTimeout(releaseReplyAudio, REPLY_COMMAND_GRACE_MS);
+            } else player.enqueue(audio);
           }
         }
         if (message?.serverContent?.interrupted) {
+          clearReplyGate();
           pendingReplyAudio = [];
+          replyAudioReleased = false;
           player.stopAll();
           handlers.onInterrupted?.();
         }
         if (message?.serverContent?.turnComplete) {
+          clearReplyGate();
           handlers.onTurnComplete?.();
           const spoken = inputTranscriptBuffer.trim();
           inputTranscriptBuffer = '';
-          // gateReplyAudio holds reply audio only so a turn transcribing to a
-          // document/plan command can be kept silent -- an occasional turn
+          // The brief audio gate lets a document/plan command stay silent.
+          // An occasional turn
           // with no transcript at all (a brief utterance, a VAD hiccup) isn't
           // evidence the connection itself is broken. This used to fail the
           // whole session over it, which tore down the fast, natural,
@@ -328,10 +350,12 @@ export async function connectGeminiLive(
           // disruptive than the small risk of speaking over a command that
           // happens to coincide with a missing transcript.
           const handledByApp = spoken ? handlers.onUserTurnText?.(spoken) === true : false;
-          if (!suppressReplyAudio && !handledByApp) pendingReplyAudio.forEach((audio) => player.enqueue(audio));
+          if (handledByApp) player.stopAll();
+          else releaseReplyAudio();
           pendingReplyAudio = [];
           player.markTurnComplete();
           suppressReplyAudio = false;
+          replyAudioReleased = false;
         }
       } catch (error) {
         fail(error instanceof Error ? error : new Error('Failed to parse Gemini Live message.'));

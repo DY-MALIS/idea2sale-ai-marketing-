@@ -80,6 +80,36 @@ const mapWithConcurrency = async (items, limit, mapper) => {
   return results;
 };
 
+// Start checking ordinary source URLs as soon as each search pass returns.
+// Keep one shared queue so overlapping passes cannot multiply the socket load,
+// and reuse checks for businesses found on the same directory page.
+const createReachabilityQueue = (limit) => {
+  const checks = new Map();
+  const waiting = [];
+  let active = 0;
+  const drain = () => {
+    while (active < limit && waiting.length) {
+      const { url, resolve } = waiting.shift();
+      active += 1;
+      urlIsReachable(url).then(resolve, () => resolve(false)).finally(() => {
+        active -= 1;
+        drain();
+      });
+    }
+  };
+  return (url) => {
+    if (!url) return Promise.resolve(false);
+    if (isSupportedPublicSocialUrl(url)) return Promise.resolve(true);
+    if (!checks.has(url)) {
+      checks.set(url, new Promise((resolve) => {
+        waiting.push({ url, resolve });
+        drain();
+      }));
+    }
+    return checks.get(url);
+  };
+};
+
 const jsonFromText = (text) => {
   const match = String(text || '').match(/\{[\s\S]*\}/);
   try {
@@ -316,6 +346,18 @@ export async function urlIsReachable(url, timeoutMs = 6000) {
 }
 
 export async function searchBusinessesOnWeb({ searchTerms, searchObjective = '', requiredSignal = '', entityScope = 'businesses', country = 'Cambodia', activityStartDate = '', activityEndDate = '', targetCount = 15, targetBusinessProfile = null, includeTargetBusiness = false }) {
+  const checkReachability = createReachabilityQueue(URL_VERIFICATION_CONCURRENCY);
+  const prefetchedSources = new Set();
+  const prefetchSources = (parsed) => {
+    for (const item of Array.isArray(parsed?.businesses) ? parsed.businesses : []) {
+      if (prefetchedSources.size >= MAX_BUSINESS_CANDIDATES) break;
+      if (!String(item?.name || '').trim()) continue;
+      const source = String(item?.sourceUrl || item?.website || '').trim().slice(0, 300);
+      if (!source || socialPlatformFromUrl(source) !== 'Web' || prefetchedSources.has(source)) continue;
+      prefetchedSources.add(source);
+      void checkReachability(source);
+    }
+  };
   // The web-search model commonly stops after the first five matches unless the
   // requested breadth is explicit. Keep the target bounded, but pass it into
   // every complementary search so an unspecified count still produces a useful
@@ -405,19 +447,26 @@ If you find no real businesses, return {"businesses": []}.`;
   const settledSearches = await Promise.allSettled(searchFocuses.map((focus) => (
     (async () => {
       const prompt = buildPrompt(focus);
-      if (!validProfileLogo) return generateOpenRouterWebSearch({ prompt, maxResults: 20 });
-      try {
-        return await generateOpenRouterWebSearch({ prompt, maxResults: 20, imageDataUrl: profileLogo });
-      } catch {
-        // Some configured text models reject image inputs. The owner-supplied
-        // name, introduction, and Page still ground a text-only search.
-        return generateOpenRouterWebSearch({ prompt, maxResults: 20 });
+      let response;
+      if (!validProfileLogo) {
+        response = await generateOpenRouterWebSearch({ prompt, maxResults: 20 });
+      } else {
+        try {
+          response = await generateOpenRouterWebSearch({ prompt, maxResults: 20, imageDataUrl: profileLogo });
+        } catch {
+          // Some configured text models reject image inputs. The owner-supplied
+          // name, introduction, and Page still ground a text-only search.
+          response = await generateOpenRouterWebSearch({ prompt, maxResults: 20 });
+        }
       }
+      const parsed = jsonFromText(response.content);
+      prefetchSources(parsed);
+      return parsed;
     })()
   )));
   const parsedResults = settledSearches
     .filter((result) => result.status === 'fulfilled')
-    .map((result) => jsonFromText(result.value.content));
+    .map((result) => result.value);
   if (!parsedResults.length) {
     const firstFailure = settledSearches.find((result) => result.status === 'rejected');
     throw firstFailure?.reason || new Error('Web business search failed.');
@@ -543,13 +592,11 @@ If you find no real businesses, return {"businesses": []}.`;
       if (listedPage && sourcePage !== listedPage) item.facebookPageUrl = '';
     }
     if (sourcePlatform === 'LinkedIn' && !validLinkedInUrl(checkUrl)) return null;
-    const reachable = checkUrl
-      ? (isSupportedPublicSocialUrl(checkUrl) || await urlIsReachable(checkUrl))
-      : false;
+    const reachable = await checkReachability(checkUrl);
     if (!reachable) return null;
     const activityChecks = [];
     for (const activity of item.recentActivities || []) {
-      if (isSupportedPublicSocialUrl(activity.sourceUrl) || await urlIsReachable(activity.sourceUrl)) activityChecks.push(activity);
+      if (await checkReachability(activity.sourceUrl)) activityChecks.push(activity);
     }
     return activityWindow ? { ...item, recentActivities: activityChecks } : item;
   });

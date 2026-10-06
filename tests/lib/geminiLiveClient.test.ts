@@ -130,7 +130,10 @@ describe('Gemini Live browser connection', () => {
     } as unknown as AudioContext;
 
     const onUserTurnText = vi.fn((text: string) => isAgentDocumentCommand(text));
-    const pending = connectGeminiLive('ephemeral-token', 'gemini-3.8-live', playbackContext, { onUserTurnText, onUserTranscription: () => false });
+    const pending = connectGeminiLive('ephemeral-token', 'gemini-3.8-live', playbackContext, {
+      onUserTurnText,
+      onUserTranscription: isAgentDocumentCommand,
+    });
     await vi.waitFor(() => expect(socket).toBeDefined());
     socket.readyState = FakeWebSocket.OPEN;
     socket.onopen();
@@ -156,6 +159,9 @@ describe('Gemini Live browser connection', () => {
     await Promise.resolve();
     expect(createBufferSource).not.toHaveBeenCalled();
     socket.onmessage({ data: JSON.stringify({ serverContent: { inputTranscription: { text: 'សូមបង្កើត plan សម្រាប់មួយខែ' } } }) });
+    await Promise.resolve();
+    vi.advanceTimersByTime(300);
+    expect(createBufferSource).not.toHaveBeenCalled();
     socket.onmessage({ data: JSON.stringify({ serverContent: { turnComplete: true } }) });
     await Promise.resolve();
     expect(onUserTurnText).toHaveBeenLastCalledWith('សូមបង្កើត plan សម្រាប់មួយខែ');
@@ -165,10 +171,26 @@ describe('Gemini Live browser connection', () => {
     socket.onmessage({ data: JSON.stringify({ serverContent: { inputTranscription: { text: 'hello' } } }) });
     await Promise.resolve();
     expect(createBufferSource).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(300);
+    expect(createBufferSource).toHaveBeenCalledOnce();
     socket.onmessage({ data: JSON.stringify({ serverContent: { turnComplete: true } }) });
     await Promise.resolve();
     expect(onUserTurnText).toHaveBeenLastCalledWith('hello');
     expect(createBufferSource).toHaveBeenCalledOnce();
+
+    // A late command transcript must still cut off any reply that started
+    // after the short grace period.
+    socket.onmessage({ data: JSON.stringify({ serverContent: { modelTurn: { parts: [{ inlineData: { mimeType: 'audio/pcm;rate=24000', data: audioData } }] } } }) });
+    await Promise.resolve();
+    vi.advanceTimersByTime(300);
+    expect(createBufferSource).toHaveBeenCalledTimes(2);
+    const lateCommandSource = createBufferSource.mock.results[1].value;
+    socket.onmessage({ data: JSON.stringify({ serverContent: { inputTranscription: { text: 'សូមបង្កើត plan សម្រាប់មួយខែ' } } }) });
+    await Promise.resolve();
+    expect(lateCommandSource.stop).toHaveBeenCalledOnce();
+    socket.onmessage({ data: JSON.stringify({ serverContent: { turnComplete: true } }) });
+    await Promise.resolve();
+    expect(createBufferSource).toHaveBeenCalledTimes(2);
   });
 
   it('plays the reply instead of killing the call when a turn has audio but no transcript', async () => {
