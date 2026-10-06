@@ -66,11 +66,30 @@ const floatTo16BitPcm = (input: Float32Array): Int16Array => {
 
 const downsampleTo16kHz = (input: Float32Array, inputSampleRate: number): Float32Array => {
   if (inputSampleRate === MIC_SAMPLE_RATE) return input;
+  // Phones and desktops don't agree on a native mic sample rate (44100 and
+  // 48000 are both common), so this always has real downsampling to do.
+  // Picking every Nth sample with no filtering lets content above the new
+  // Nyquist frequency fold back in as aliasing noise -- heard as a muffled,
+  // slightly broken voice and read by Gemini's transcriber as a worse signal
+  // than the mic actually captured. A one-pole low-pass ahead of the
+  // decimation removes that content first so every device's audio reaches
+  // Gemini at consistent quality rather than only the ones whose native rate
+  // happens to downsample cleanly.
+  const cutoffHz = MIC_SAMPLE_RATE / 2;
+  const rc = 1 / (2 * Math.PI * cutoffHz);
+  const dt = 1 / inputSampleRate;
+  const alpha = dt / (rc + dt);
+  const filtered = new Float32Array(input.length);
+  let prev = input.length ? input[0] : 0;
+  for (let i = 0; i < input.length; i += 1) {
+    prev += alpha * (input[i] - prev);
+    filtered[i] = prev;
+  }
   const ratio = inputSampleRate / MIC_SAMPLE_RATE;
-  const outputLength = Math.floor(input.length / ratio);
+  const outputLength = Math.floor(filtered.length / ratio);
   const output = new Float32Array(outputLength);
   for (let i = 0; i < outputLength; i += 1) {
-    output[i] = input[Math.floor(i * ratio)];
+    output[i] = filtered[Math.floor(i * ratio)];
   }
   return output;
 };
