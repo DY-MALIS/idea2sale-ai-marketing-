@@ -853,7 +853,7 @@ export async function startOpenRouterVideo({ prompt, images, referenceUrls, audi
   return { jobId, status: job.status, pollingUrl: job.polling_url, estimatedCost };
 }
 
-export async function pollOpenRouterVideo({ jobId }) {
+export async function pollOpenRouterVideo({ jobId, preferRemoteUrl = false }) {
   const statusResponse = await fetch(`${OPENROUTER_BASE_URL}/videos/${encodeURIComponent(jobId)}`, {
     headers: headers(null),
     signal: AbortSignal.timeout(TEXT_REQUEST_TIMEOUT_MS),
@@ -867,6 +867,21 @@ export async function pollOpenRouterVideo({ jobId }) {
   }
   if (status.status !== 'completed') {
     return { jobId, status: status.status, usage: status.usage };
+  }
+
+  // The polling response includes an unsigned, public download URL. Let the
+  // media store fetch it directly for interactive jobs so this function does
+  // not download and base64-encode the entire clip inside a serverless request.
+  const remoteUrl = status.unsigned_urls?.find((url) => {
+    try {
+      const parsed = new URL(url);
+      return parsed.protocol === 'https:' && !parsed.username && !parsed.password;
+    } catch {
+      return false;
+    }
+  });
+  if (preferRemoteUrl && remoteUrl) {
+    return { contentUrl: remoteUrl, jobId, status: status.status, usage: status.usage };
   }
 
   const contentResponse = await fetch(`${OPENROUTER_BASE_URL}/videos/${encodeURIComponent(jobId)}/content?index=0`, {

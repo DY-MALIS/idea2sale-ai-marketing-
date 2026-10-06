@@ -66,6 +66,19 @@ it('expands a short requested clip instead of rejecting an appropriate script', 
   expect(result.job.outputDuration).toBe(5);
 });
 
+it('handles an avatar failure that occurs while narration is still running', async () => {
+  let finishSpeech;
+  mocks.image.mockRejectedValue(new Error('Avatar image unavailable'));
+  mocks.speech.mockImplementation(() => new Promise((resolve) => { finishSpeech = resolve; }));
+  const upload = uploadStub();
+  const started = startKhmerVideoJob({}, { script: 'សួស្តី', prompt: 'Presenter' }, upload, { duration: 4 });
+  await Promise.resolve();
+  finishSpeech({ audioUrl: 'audio-data', duration: 3.4 });
+
+  await expect(started).rejects.toThrow('Avatar image unavailable');
+  expect(mocks.video).not.toHaveBeenCalled();
+});
+
 it('still rejects narration that exceeds the eight-second budget ceiling', async () => {
   mocks.image.mockResolvedValue({ imageUrl: 'portrait' });
   mocks.speech.mockResolvedValue({ audioUrl: 'audio' });

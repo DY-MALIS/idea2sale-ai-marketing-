@@ -49,9 +49,13 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
   // rewrites) narration work below should block it from starting. Awaited
   // just before it's actually needed, right after the narration pipeline
   // finishes and fittedDuration is known.
-  const imagePromise = images.length
+  const imagePromise = (images.length
     ? Promise.resolve({ imageUrl: `data:${images[0].mimeType};base64,${images[0].base64}` })
-    : generateOpenRouterImage({ prompt: visualPrompt(speech.avatarPrompt), aspectRatio, model: BUDGET_AVATAR_IMAGE_MODEL });
+    : generateOpenRouterImage({ prompt: visualPrompt(speech.avatarPrompt), aspectRatio, model: BUDGET_AVATAR_IMAGE_MODEL }))
+    // Attach the rejection handler immediately. Narration may take minutes,
+    // and an image request that fails before the later await would otherwise
+    // become an unhandled rejection and could terminate the function.
+    .then((image) => ({ image }), (error) => ({ error }));
 
   let spokenScript = speech.script;
   let scriptShortened = false;
@@ -139,7 +143,9 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
   if (!(narrationAudio.duration > 0 && narrationAudio.duration <= MAX_KHMER_CLIP_DURATION)) throw new Error('Khmer narration exceeds the maximum 8-second clip. Use a longer video workflow or adjust the delivery pace.');
   const fittedDuration = fitKhmerClipDurationToNarration(narrationAudio.duration, duration);
   assertVideoGenerationWithinBudget({ duration: fittedDuration, khmerSpeech: true, model: KHMER_VIDEO_MODEL });
-  const image = await imagePromise;
+  const imageResult = await imagePromise;
+  if ('error' in imageResult) throw imageResult.error;
+  const image = imageResult.image;
   const avatarImage = await uploadMediaDataUrl({ mediaDataUrl: image.imageUrl, mediaType: 'photo' });
   const avatarReferenceUrl = getOriginalImageKitUrl(avatarImage.mediaUrl, process.env.IMAGEKIT_URL_ENDPOINT || '');
   const exactKhmerTranscript = String(narrationAudio.spokenText || spokenScript || '').trim();
@@ -166,4 +172,3 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
     },
   };
 };
-

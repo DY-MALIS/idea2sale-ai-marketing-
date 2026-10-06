@@ -73,6 +73,7 @@ const TTS_FETCH_TIMEOUT_MS = 290000;
 const VIDEO_STATUS_POLL_INTERVAL_MS = 3000;
 const VIDEO_STATUS_MAX_POLLS = 80;
 const PENDING_VIDEO_JOBS_KEY = 'aime_pending_video_jobs_v1';
+const PENDING_VIDEO_STARTS_KEY = 'aime_pending_video_starts_v1';
 const fetchAiWithTimeout = (body: unknown, timeoutMs: number = AI_FETCH_TIMEOUT_MS, idToken?: string) => {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
@@ -99,6 +100,13 @@ interface PendingVideoJob {
   silentRequested?: boolean;
   resumeNarration?: { text: string; voice: string; languageHint: 'Khmer' | 'English'; performanceStyle: string };
   aspectRatio?: VideoAspectRatio;
+  createdAt: number;
+}
+
+interface PendingVideoStart {
+  fingerprint: string;
+  userId: string;
+  requestId: string;
   createdAt: number;
 }
 
@@ -154,6 +162,41 @@ const removePendingVideoJob = (userId: string, fingerprint: string) => {
 const latestPendingVideoJob = (userId: string) => readPendingVideoJobs()
   .filter((job) => job.userId === userId)
   .sort((left, right) => right.createdAt - left.createdAt)[0] || null;
+
+const readPendingVideoStarts = (): PendingVideoStart[] => {
+  try {
+    const value = JSON.parse(localStorage.getItem(PENDING_VIDEO_STARTS_KEY) || '[]');
+    return Array.isArray(value) ? value.filter((item) => item?.requestId && item?.fingerprint && item?.userId
+      && Date.now() - Number(item.createdAt || 0) < 6 * 60 * 1000) : [];
+  } catch {
+    return [];
+  }
+};
+
+const latestPendingVideoStart = (userId: string) => readPendingVideoStarts()
+  .filter((start) => start.userId === userId)
+  .sort((left, right) => right.createdAt - left.createdAt)[0] || null;
+
+const savePendingVideoStart = (start: PendingVideoStart) => {
+  try {
+    localStorage.setItem(PENDING_VIDEO_STARTS_KEY, JSON.stringify([
+      ...readPendingVideoStarts().filter((item) => !(item.userId === start.userId && item.fingerprint === start.fingerprint)),
+      start,
+    ].slice(-5)));
+  } catch (error) {
+    console.warn('Could not persist video start recovery state:', error);
+  }
+};
+
+const removePendingVideoStart = (userId: string, fingerprint: string) => {
+  try {
+    localStorage.setItem(PENDING_VIDEO_STARTS_KEY, JSON.stringify(
+      readPendingVideoStarts().filter((item) => !(item.userId === userId && item.fingerprint === fingerprint)),
+    ));
+  } catch {
+    // Best-effort cleanup only.
+  }
+};
 
 const uploadVideoDirectly = async (videoDataUrl: string, idToken: string): Promise<string> => {
   if (/^https:\/\//i.test(videoDataUrl)) return videoDataUrl;
@@ -402,9 +445,13 @@ const applyVoiceOver = async (
   knownDurations?: { video: number; audio: number },
 ): Promise<string> => {
   const { fetchFile } = await import('@ffmpeg/util');
-  const [videoBytes, audioBytes] = await Promise.all([
-    fetchFile(videoDataUrl), fetchFile(audioDataUrl),
-  ]);
+  let videoBytes: Uint8Array;
+  let audioBytes: Uint8Array;
+  try {
+    [videoBytes, audioBytes] = await Promise.all([fetchFile(videoDataUrl), fetchFile(audioDataUrl)]);
+  } catch {
+    throw new Error('The video is ready, but the browser could not download the clip or narration. Resume the saved job instead of generating a new video.');
+  }
   // Use the server's measured durations when available. For older saved jobs,
   // probe the same downloaded files that ffmpeg will mux; browser media
   // metadata can remain pending forever for these generated clips.
@@ -588,13 +635,23 @@ const verifyClipSpeech = async (video: string, expected: string) => {
 };
 
 const pollPendingVideoJob = async (pending: PendingVideoJob, idToken: string) => {
+  let networkFailures = 0;
   for (let attempt = 0; attempt < VIDEO_STATUS_MAX_POLLS; attempt += 1) {
     if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, VIDEO_STATUS_POLL_INTERVAL_MS));
-    const statusResponse = await fetchAiWithTimeout(
-      { action: 'videoStatus', jobId: pending.jobId },
-      VIDEO_STATUS_FETCH_TIMEOUT_MS,
-      idToken,
-    );
+    let statusResponse: Response;
+    try {
+      statusResponse = await fetchAiWithTimeout(
+        { action: 'videoStatus', jobId: pending.jobId },
+        VIDEO_STATUS_FETCH_TIMEOUT_MS,
+        idToken,
+      );
+    } catch (error) {
+      if ((error as Error)?.name === 'AbortError' || ++networkFailures >= 3) {
+        throw new Error('Connection lost while checking the video. The job is saved; use Resume processing video instead of generating a new one.');
+      }
+      continue;
+    }
+    networkFailures = 0;
     const statusData = await statusResponse.json();
     if (!statusResponse.ok) {
       if (/failed|cancelled|expired|belongs to another/i.test(String(statusData.error || ''))) {
@@ -635,6 +692,25 @@ const pollPendingVideoJob = async (pending: PendingVideoJob, idToken: string) =>
 };
 
 // Starts one Veo generation and polls until the clip is ready.
+const recoverVideoStart = async (requestId: string, idToken: string) => {
+  // The original server function can continue for up to five minutes after a
+  // browser transport failure. Keep looking for its job id through that tail.
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (attempt) await new Promise((resolve) => setTimeout(resolve, 3000));
+    let response: Response;
+    try {
+      response = await fetchAiWithTimeout({ action: 'videoRecover', requestId }, AI_FETCH_TIMEOUT_MS, idToken);
+    } catch {
+      throw new Error('Connection lost while checking the video start. Wait a moment, then try Generate again to check this request.');
+    }
+    const data = await response.json().catch(() => ({}));
+    if (response.status === 202) continue;
+    if (!response.ok) throw new Error(data.error || 'Could not check whether the video started.');
+    if (data.jobId) return data;
+  }
+  throw new Error('The video start is still processing. Try Generate again within a few minutes to check this request.');
+};
+
 const attemptGenerateVideoClip = async (
   prompt: string,
   images: { base64: string; mimeType: string }[],
@@ -666,9 +742,37 @@ const attemptGenerateVideoClip = async (
     if (pendingChanged) savePendingVideoJob(pending);
   }
   if (!pending) {
-    const response = await fetchAiWithTimeout({ action: 'videoGenerate', prompt, images, duration, aspectRatio, khmerSpeech }, VIDEO_STATUS_FETCH_TIMEOUT_MS, idToken);
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Video generation failed.');
+    const savedStart = readPendingVideoStarts().find((item) => item.userId === userId && item.fingerprint === fingerprint);
+    const start = savedStart || { fingerprint, userId, requestId: crypto.randomUUID(), createdAt: Date.now() };
+    if (!savedStart) savePendingVideoStart(start);
+    let data: any;
+    if (savedStart) {
+      data = await recoverVideoStart(start.requestId, idToken);
+    } else {
+      let response: Response | undefined;
+      try {
+        response = await fetchAiWithTimeout({ action: 'videoGenerate', prompt, images, duration, aspectRatio, khmerSpeech, requestId: start.requestId }, VIDEO_STATUS_FETCH_TIMEOUT_MS, idToken);
+      } catch {
+        // The paid provider may have accepted the job even if the browser lost
+        // the long start response. Query by request id rather than submit again.
+        data = await recoverVideoStart(start.requestId, idToken);
+      }
+      if (response) {
+        data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          // A gateway timeout can arrive as an HTML 5xx response after the
+          // provider accepted the paid job. Recover its id before allowing a
+          // fresh submission. A JSON error from our API is a known failure.
+          if (response.status >= 500 && !data.error) {
+            data = await recoverVideoStart(start.requestId, idToken);
+          } else {
+            removePendingVideoStart(userId, fingerprint);
+            throw new Error(data.error || 'Video generation failed.');
+          }
+        }
+        if (!data.jobId) data = await recoverVideoStart(start.requestId, idToken);
+      }
+    }
     if (!data.jobId) throw new Error('Video provider did not return a job id.');
     pending = {
       fingerprint,
@@ -685,6 +789,7 @@ const attemptGenerateVideoClip = async (
       createdAt: Date.now(),
     };
     savePendingVideoJob(pending);
+    removePendingVideoStart(userId, fingerprint);
   }
   if (khmerSpeech && !pending.narrationAudioUrl) throw new Error('Missing original Khmer reference audio.');
   return {
@@ -743,10 +848,12 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   const [mergingSegments, setMergingSegments] = useState(false);
   const [automationNotice, setAutomationNotice] = useState<string | null>(null);
   const [resumableVideoJob, setResumableVideoJob] = useState<PendingVideoJob | null>(null);
+  const [recoverableVideoStart, setRecoverableVideoStart] = useState<PendingVideoStart | null>(null);
   const handledAutomationRef = React.useRef<string | null>(null);
 
   React.useEffect(() => {
     setResumableVideoJob(user ? latestPendingVideoJob(user.uid) : null);
+    setRecoverableVideoStart(user ? latestPendingVideoStart(user.uid) : null);
   }, [user]);
 
   const videoHistory = useGenerationHistory(user, isDemoMode, 'video');
@@ -999,7 +1106,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   };
 
   const handleResumeVideo = async () => {
-    if (!user || !resumableVideoJob || loading || audioLoading) return;
+    if (!user || (!resumableVideoJob && !recoverableVideoStart) || loading || audioLoading) return;
     setLoading(true);
     setGeneratedVideo(null);
     setRecoverableVideoUrl(null);
@@ -1011,9 +1118,29 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         getLatestBusinessBranding(user, isDemoMode),
         resetFFmpeg(),
       ]);
-      let video = await pollPendingVideoJob(resumableVideoJob, idToken);
-      if (resumableVideoJob.resumeNarration) {
-        const narration = resumableVideoJob.resumeNarration;
+      let currentJob = resumableVideoJob;
+      if (!currentJob && recoverableVideoStart) {
+        const data = await recoverVideoStart(recoverableVideoStart.requestId, idToken);
+        currentJob = {
+          fingerprint: recoverableVideoStart.fingerprint,
+          userId: user.uid,
+          jobId: data.jobId,
+          narrationAudioUrl: data.narrationAudioUrl || undefined,
+          narrationDuration: Number(data.narrationDuration) || undefined,
+          outputDuration: Number(data.outputDuration) || undefined,
+          expectedScript: data.spokenScript || undefined,
+          aspectRatio: normalizeVideoAspectRatio(data.outputAspectRatio),
+          createdAt: Date.now(),
+        };
+        savePendingVideoJob(currentJob);
+        removePendingVideoStart(user.uid, recoverableVideoStart.fingerprint);
+        setRecoverableVideoStart(null);
+        setResumableVideoJob(currentJob);
+      }
+      if (!currentJob) throw new Error('No saved video job was found.');
+      let video = await pollPendingVideoJob(currentJob, idToken);
+      if (currentJob.resumeNarration) {
+        const narration = currentJob.resumeNarration;
         const ttsResponse = await fetchAiWithTimeout({
           action: 'ttsGenerate',
           input: narration.text,
@@ -1026,9 +1153,9 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         video = await applyVoiceOver(video, ttsData.audioUrl, 1);
       }
       let speechNeedsReview = false;
-      if (resumableVideoJob.expectedScript) {
+      if (currentJob.expectedScript) {
         try {
-          await verifyClipSpeech(video, resumableVideoJob.expectedScript);
+          await verifyClipSpeech(video, currentJob.expectedScript);
         } catch (verificationError) {
           console.warn('Resumed video speech needs manual review:', verificationError);
           speechNeedsReview = true;
@@ -1045,8 +1172,8 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         }
       }
       video = await uploadVideoDirectly(video, idToken);
-      if (resumableVideoJob.silentRequested) video = applyImageKitMuteTransform(video);
-      const resumedAspectRatio = normalizeVideoAspectRatio(resumableVideoJob.aspectRatio);
+      if (currentJob.silentRequested) video = applyImageKitMuteTransform(video);
+      const resumedAspectRatio = normalizeVideoAspectRatio(currentJob.aspectRatio);
       setGeneratedVideoAspectRatio(resumedAspectRatio);
       setVideoAspectRatio(resumedAspectRatio);
       setCaptionPlatform(resumedAspectRatio === '16:9' ? 'YouTube' : 'TikTok');
@@ -1057,19 +1184,20 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
           ? 'វីដេអូបានបញ្ចប់ ប៉ុន្តែសំឡេងត្រូវការពិនិត្យដោយដៃមុនផ្សព្វផ្សាយ។'
           : 'The video completed, but its speech needs manual review before publishing.');
       }
-      removePendingVideoJob(user.uid, resumableVideoJob.fingerprint);
+      removePendingVideoJob(user.uid, currentJob.fingerprint);
       setResumableVideoJob(null);
       notify(language === 'km' ? 'បានបន្ត និងបញ្ចប់វីដេអូដោយជោគជ័យ។' : 'The existing video job was resumed and completed.', 'success');
     } catch (error: any) {
       if (typeof error?.previewVideoUrl === 'string') {
         setRecoverableVideoUrl(error.previewVideoUrl);
-        setGeneratedVideoAspectRatio(normalizeVideoAspectRatio(resumableVideoJob.aspectRatio));
+        setGeneratedVideoAspectRatio(normalizeVideoAspectRatio(resumableVideoJob?.aspectRatio));
       }
       notify(error?.message || 'Could not resume the video job.', 'error');
     } finally {
       setWatermarking(false);
       setLoading(false);
       setResumableVideoJob(latestPendingVideoJob(user.uid));
+      setRecoverableVideoStart(latestPendingVideoStart(user.uid));
     }
   };
 
@@ -1342,7 +1470,10 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       notify(errorMessage, 'error');
     } finally {
       setLoading(false);
-      if (user) setResumableVideoJob(latestPendingVideoJob(user.uid));
+      if (user) {
+        setResumableVideoJob(latestPendingVideoJob(user.uid));
+        setRecoverableVideoStart(latestPendingVideoStart(user.uid));
+      }
     }
   };
 
@@ -1988,7 +2119,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                 )}
               </div>
             )}
-            {activeTool === 'video' && resumableVideoJob && (
+            {activeTool === 'video' && (resumableVideoJob || recoverableVideoStart) && (
               <button
                 type="button"
                 onClick={() => void handleResumeVideo()}

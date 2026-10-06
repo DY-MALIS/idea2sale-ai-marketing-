@@ -61,6 +61,7 @@ describe('video rate-limit policy', () => {
       failClosed: true,
     });
     expect(getAiRateLimitPolicy('videoStatus')).toMatchObject({ scope: 'video-status', failClosed: false });
+    expect(getAiRateLimitPolicy('videoRecover')).toMatchObject({ scope: 'video-status', failClosed: false });
     expect(getAiRateLimitPolicy('geminiLiveToken')).toMatchObject({ scope: 'ai-live-voice', failClosed: false });
     expect(getAiRateLimitPolicy('geminiLiveToken').limit).toBeGreaterThan(10);
     // Fires once per spoken turn during a call, so it shares the call's own

@@ -26,7 +26,7 @@ import { facebookBusinessPageKey } from './_socialUrls.js';
 import { researchCompetitors } from './_competitorResearch.js';
 import { researchMarketTrends } from './_marketTrendResearch.js';
 import { researchProductAudience } from './_productAudienceResearch.js';
-import { uploadMediaDataUrl } from './_imagekitUpload.js';
+import { uploadMediaDataUrl, uploadMediaRemoteUrl } from './_imagekitUpload.js';
 import { sendOutreachEmail } from './_email.js';
 import { extractDocumentText } from './_documentExtract.js';
 import { extractWebsiteText } from './_websiteExtract.js';
@@ -92,7 +92,7 @@ export const getAiRateLimitPolicy = (action) => {
       failClosed: true,
     };
   }
-  if (action === 'videoStatus') {
+  if (action === 'videoStatus' || action === 'videoRecover') {
     return { scope: 'video-status', limit: VIDEO_STATUS_RATE_LIMIT_PER_HOUR, failClosed: false };
   }
   // One token opens an entire bidirectional audio call. Starting a call must
@@ -972,7 +972,7 @@ export default async function handler(req, res) {
   const language = languageCode === 'km' ? 'Khmer' : 'English';
   let verifiedVideoUser = null;
 
-  if (action === 'videoGenerate' || action === 'videoStatus') {
+  if (action === 'videoGenerate' || action === 'videoStatus' || action === 'videoRecover') {
     try {
       verifiedVideoUser = await requireAiUser(req);
     } catch (error) {
@@ -2712,6 +2712,8 @@ Return ONLY a single valid JSON object with this exact structure:
 
     if (action === 'videoGenerate') {
       const prompt = String(req.body?.prompt || '').trim();
+      const requestId = String(req.body?.requestId || '').trim();
+      if (requestId && !/^[A-Za-z0-9_-]{16,100}$/.test(requestId)) return res.status(400).json({ error: 'Invalid video request id.' });
       // TikTok/Reels use portrait; a standard YouTube post uses landscape.
       // Reject every other stale/unsupported ratio instead of passing it through.
       const aspectRatio = resolveVideoAspectRatio(req.body?.aspectRatio);
@@ -2773,6 +2775,7 @@ Return ONLY a single valid JSON object with this exact structure:
           await initFirebaseAdmin().collection('video_jobs').doc(videoJobDocId(job.jobId)).set({
             userId: verifiedVideoUser.uid,
             jobId: job.jobId,
+            ...(requestId ? { requestId, startResponse: JSON.parse(JSON.stringify(responseBody)) } : {}),
             aspectRatio,
             status: 'PROCESSING',
             createdAt: new Date(),
@@ -2792,6 +2795,7 @@ Return ONLY a single valid JSON object with this exact structure:
         await initFirebaseAdmin().collection('video_jobs').doc(videoJobDocId(video.jobId)).set({
           userId: verifiedVideoUser.uid,
           jobId: video.jobId,
+          ...(requestId ? { requestId, startResponse: JSON.parse(JSON.stringify({ ...video, outputAspectRatio: aspectRatio })) } : {}),
           aspectRatio,
           status: 'PROCESSING',
           createdAt: new Date(),
@@ -2800,6 +2804,16 @@ Return ONLY a single valid JSON object with this exact structure:
         console.error('Could not persist video job ownership; the authenticated owner may still resume it:', jobStoreError?.message || jobStoreError);
       }
       return res.status(200).json({ ...video, outputAspectRatio: aspectRatio });
+    }
+
+    if (action === 'videoRecover') {
+      const requestId = String(req.body?.requestId || '').trim();
+      if (!/^[A-Za-z0-9_-]{16,100}$/.test(requestId)) return res.status(400).json({ error: 'Invalid video request id.' });
+      const matches = await initFirebaseAdmin().collection('video_jobs').where('requestId', '==', requestId).limit(3).get();
+      const owned = matches.docs.find((doc) => doc.data()?.userId === verifiedVideoUser.uid);
+      if (!owned) return res.status(202).json({ status: 'starting' });
+      const saved = owned.data();
+      return res.status(200).json(saved.startResponse || { jobId: saved.jobId, outputAspectRatio: saved.aspectRatio });
     }
 
     if (action === 'videoStatus') {
@@ -2828,13 +2842,23 @@ Return ONLY a single valid JSON object with this exact structure:
         // status polling anonymously.
         await jobRef.set({ userId: verifiedVideoUser.uid, jobId, status: 'PROCESSING', createdAt: new Date() }, { merge: true });
       }
-      const video = await pollOpenRouterVideo({ jobId });
-      if (video.videoUrl) {
-        const uploaded = await uploadMediaDataUrl({
-          mediaDataUrl: video.videoUrl,
-          mediaType: 'video',
-          folder: `video-results/${verifiedVideoUser.uid}`,
-        });
+      let video = await pollOpenRouterVideo({ jobId, preferRemoteUrl: true });
+      if (video.videoUrl || video.contentUrl) {
+        const folder = `video-results/${verifiedVideoUser.uid}`;
+        let uploaded;
+        if (video.contentUrl) {
+          try {
+            uploaded = await uploadMediaRemoteUrl({ mediaUrl: video.contentUrl, folder });
+          } catch (remoteError) {
+            // Some provider URLs can be read by us but not by ImageKit. Retain
+            // the authenticated content-endpoint route for those jobs.
+            console.warn('[api/ai] Remote video copy failed; trying authenticated download:', redactSecrets(remoteError?.message || 'Unknown error'));
+            video = await pollOpenRouterVideo({ jobId });
+          }
+        }
+        if (!uploaded) {
+          uploaded = await uploadMediaDataUrl({ mediaDataUrl: video.videoUrl, mediaType: 'video', folder });
+        }
         await jobRef.set({ status: 'DONE', mediaUrl: uploaded.mediaUrl, usage: video.usage || null, completedAt: new Date() }, { merge: true });
         return res.status(200).json({ ...video, videoUrl: uploaded.mediaUrl, outputAspectRatio: savedJob?.aspectRatio || undefined });
       }
@@ -2849,6 +2873,9 @@ Return ONLY a single valid JSON object with this exact structure:
     // actual HTTP response (and, for socialAgent, gets persisted into a user's
     // AI Agent chat history in Firestore) passes through here first.
     const message = redactSecrets(error?.message || '');
+    if (action === 'videoGenerate' || action === 'videoRecover' || action === 'videoStatus') {
+      console.error(`[api/ai] ${action} failed: ${message || 'Unknown error'}`);
+    }
     const keyError = /OPEN_ROUTER_API_KEY|unauthorized|invalid api[_ -]?key/i.test(message);
     return res.status(keyError ? 503 : Number.isInteger(error?.statusCode) && error.statusCode >= 400 && error.statusCode < 500 ? error.statusCode : 500).json({
       error: keyError ? 'OpenRouter API key is missing or invalid. Update OPEN_ROUTER_API_KEY in Vercel.' : message || 'AI generation failed.',

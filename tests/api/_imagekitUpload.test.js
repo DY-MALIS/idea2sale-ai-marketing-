@@ -6,6 +6,7 @@ import {
   getImageKitConfig,
   isImageKitMediaUrl,
   uploadMediaDataUrl,
+  uploadMediaRemoteUrl,
 } from '../../api/_imagekitUpload.js';
 
 const originalFetch = global.fetch;
@@ -61,6 +62,21 @@ describe('ImageKit delivery URLs', () => {
 });
 
 describe('server-side ImageKit upload', () => {
+  it('asks ImageKit to copy a public video URL without downloading it in this function', async () => {
+    configureImageKit();
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ url: 'https://ik.imagekit.io/acme/video-results/clip.mp4', fileId: 'video-id' }),
+    });
+
+    const result = await uploadMediaRemoteUrl({ mediaUrl: 'https://storage.example.com/clip.mp4', folder: '/video-results' });
+
+    expect(result).toMatchObject({ mediaType: 'video', fileId: 'video-id' });
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(global.fetch.mock.calls[0][1].body.get('file')).toBe('https://storage.example.com/clip.mp4');
+    expect(global.fetch.mock.calls[0][1].body.get('folder')).toBe('/video-results');
+  });
+
   it('keeps the private key server-side and returns durable upload metadata', async () => {
     configureImageKit();
     global.fetch = vi.fn().mockResolvedValue({

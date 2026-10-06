@@ -114,3 +114,42 @@ export const uploadMediaDataUrl = async ({ mediaDataUrl, mediaType, folder = '/g
     ...(Number(data.duration) > 0 ? { duration: Number(data.duration) } : {}),
   };
 };
+
+// ImageKit's upload API accepts a public HTTPS file URL. OpenRouter exposes
+// one for completed videos, so ImageKit can copy the clip without our function
+// first downloading it and sending its base64 representation back out.
+export const uploadMediaRemoteUrl = async ({ mediaUrl, folder = '/generation-history', fileName }) => {
+  let parsed;
+  try {
+    parsed = new URL(mediaUrl);
+  } catch {
+    throw new Error('Invalid remote video URL.');
+  }
+  if (parsed.protocol !== 'https:' || parsed.username || parsed.password) {
+    throw new Error('Invalid remote video URL.');
+  }
+  const { privateKey, publicKey } = getImageKitConfig();
+  const resolvedName = String(fileName || `video-${Date.now()}.mp4`).replace(/[^A-Za-z0-9.-]/g, '_');
+  const form = new FormData();
+  form.set('file', parsed.toString());
+  form.set('fileName', resolvedName);
+  form.set('folder', folder.startsWith('/') ? folder : `/${folder}`);
+  form.set('useUniqueFileName', 'true');
+  const response = await fetch(IMAGEKIT_UPLOAD_URL, {
+    method: 'POST',
+    signal: AbortSignal.timeout(120000),
+    headers: { Authorization: `Basic ${Buffer.from(`${privateKey}:`).toString('base64')}` },
+    body: form,
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data?.url) {
+    throw new Error(formatImageKitUploadError(data?.message || data?.error?.message, [publicKey, privateKey]));
+  }
+  return {
+    mediaUrl: applyImageKitDeliveryTransform(data.url, 'video'),
+    mediaType: 'video',
+    fileId: data.fileId,
+    filePath: data.filePath,
+    ...(Number(data.duration) > 0 ? { duration: Number(data.duration) } : {}),
+  };
+};

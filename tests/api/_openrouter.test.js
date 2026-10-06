@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { resolveOpenRouterTextModel, resolveOpenRouterImageModel, generateOpenRouterImage, generateOpenRouterText, generateOpenRouterWebSearch, normalizeForKhmerSpeech, redactSecrets, startOpenRouterVideo } from '../../api/_openrouter.js';
+import { resolveOpenRouterTextModel, resolveOpenRouterImageModel, generateOpenRouterImage, generateOpenRouterText, generateOpenRouterWebSearch, normalizeForKhmerSpeech, redactSecrets, startOpenRouterVideo, pollOpenRouterVideo } from '../../api/_openrouter.js';
 
 const originalEnv = { ...process.env };
 const originalFetch = global.fetch;
@@ -7,6 +7,21 @@ afterEach(() => {
   process.env = { ...originalEnv };
   global.fetch = originalFetch;
   vi.restoreAllMocks();
+});
+
+describe('completed video handoff', () => {
+  it('returns the public content URL without downloading the video for remote storage', async () => {
+    process.env.OPEN_ROUTER_API_KEY = 'test-key';
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ status: 'completed', unsigned_urls: ['https://storage.example.com/clip.mp4'], usage: { cost: 0.5 } }),
+    });
+
+    const result = await pollOpenRouterVideo({ jobId: 'job-123', preferRemoteUrl: true });
+
+    expect(result).toMatchObject({ jobId: 'job-123', status: 'completed', contentUrl: 'https://storage.example.com/clip.mp4' });
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
 });
 
 // Regression coverage for the "stale model in Vercel env vars" problem this
