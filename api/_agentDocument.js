@@ -1,5 +1,6 @@
 import { generateOpenRouterText, resolveOpenRouterTextModel } from './_openrouter.js';
 import { isMonthlyPlanRequest } from '../shared/agentDocumentIntent.js';
+import { isContentPlanCreationRequest } from '../shared/agentIntent.js';
 export { requestedAgentDocumentFormat } from '../shared/agentDocumentIntent.js';
 
 const value = (input, max = 500) => String(input ?? '').trim().slice(0, max);
@@ -76,11 +77,19 @@ export const dateMonthlyPlanRows = (document, dates, responseLanguage) => {
   return { ...document, sheets: [{ name: sheet.name, columns, rows }] };
 };
 
+export const contentPlanDayCount = (message) => {
+  if (isMonthlyPlanRequest(message)) return 30;
+  if (!isContentPlanCreationRequest(message)) return 0;
+  const text = String(message).replace(/[០-៩]/g, (digit) => String('០១២៣៤៥៦៧៨៩'.indexOf(digit)));
+  const count = text.match(/\b(\d{1,2})\s*(?:days?|posts?)\b|(?:days?|posts?)\s*(\d{1,2})\b|(\d{1,2})\s*(?:ថ្ងៃ|ចំណុច)/iu);
+  return Math.min(30, Math.max(1, count ? Number(count[1] || count[2] || count[3]) : 7));
+};
+
 export const generateAgentDocument = async ({ format, message, historyText, businessContextText, responseLanguage }) => {
-  const monthlyPlan = format === 'xlsx' && isMonthlyPlanRequest(message);
+  const planDays = format === 'xlsx' ? contentPlanDayCount(message) : 0;
   const model = resolveOpenRouterTextModel();
   const baseRequest = {
-    system: `Create the actual content for a downloadable ${format === 'xlsx' ? 'Excel workbook' : 'Word document'} requested by the user. Return only valid JSON. Write user-facing content in ${responseLanguage}; keep names and technical terms as the user used them. Use the recent conversation and saved business profile to resolve short follow-ups. Make a useful, complete first draft immediately. If the user asks for a template, include practical headings and example or blank-ready rows. Do not invent specific private figures or claim live research. Never include markdown fences.${monthlyPlan ? ' This is a direct command for a one-month plan: create one practical marketing content calendar row for each date supplied in this batch. Do not answer conversationally, ask questions, or return fewer dates. Make each daily idea distinct and actionable.' : ''}`,
+    system: `Create the actual content for a downloadable ${format === 'xlsx' ? 'Excel workbook' : 'Word document'} requested by the user. Return only valid JSON. Write user-facing content in ${responseLanguage}; keep names and technical terms as the user used them. Use the recent conversation and saved business profile to resolve short follow-ups. Make a useful, complete first draft immediately. If the user asks for a template, include practical headings and example or blank-ready rows. Do not invent specific private figures or claim live research. Never include markdown fences.${planDays ? ' This is a direct command for a dated content plan: create one practical marketing content calendar row for each date supplied in this batch. Do not answer conversationally, ask questions, or return fewer dates. Make each daily idea distinct and actionable.' : ''}`,
     model,
     temperature: 0.35,
     reasoningEffort: 'low',
@@ -110,16 +119,16 @@ export const generateAgentDocument = async ({ format, message, historyText, busi
     }
   };
 
-  if (monthlyPlan) {
-    const dates = nextThirtyBangkokDates();
+  if (planDays) {
+    const dates = nextThirtyBangkokDates().slice(0, planDays);
     // A single 30-row JSON reply can exhaust its output budget before closing
     // the object. Smaller complete replies are much more reliable for Khmer
     // content, and each batch can be retried without repeating the whole month.
-    const batches = await Promise.all([0, 10, 20].map((start) => {
+    const batches = await Promise.all(Array.from({ length: Math.ceil(planDays / 10) }, (_, batch) => batch * 10).map((start) => {
       const batchDates = dates.slice(start, start + 10);
       return generateReadableDocument({
         maxTokens: 5000,
-        prompt: `${requestContext}Create exactly one distinct, actionable content-calendar row for each of these 10 dates, in this order: ${batchDates.join(', ')}. Use columns Date, Platform, Format, Topic, Hook, CTA. Keep each cell concise and fill all 10 rows. Return exactly this JSON structure: ${xlsxStructure}`,
+        prompt: `${requestContext}Create exactly one distinct, actionable content-calendar row for each of these ${batchDates.length} dates, in this order: ${batchDates.join(', ')}. Use columns Date, Platform, Format, Topic, Hook, CTA. Keep each cell concise and fill all ${batchDates.length} rows. Return exactly this JSON structure: ${xlsxStructure}`,
       }, batchDates.length);
     }));
     const firstSheet = batches[0].sheets[0];

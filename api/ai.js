@@ -1273,7 +1273,7 @@ export default async function handler(req, res) {
         : 'No saved business profile yet.';
       const contentPlanText = agentContentPlanText(req.body, /content\s*plan|content\s*calendar|ផែនការ|កាលវិភាគ/iu.test(message) ? 14 : 3);
 
-      const documentFormat = requestedAgentDocumentFormat(message);
+      const documentFormat = requestedAgentDocumentFormat(message, { preferSpreadsheetForPlan: liveVoice });
       if (documentFormat) {
         if (liveVoice) console.log(`socialAgent(liveVoice): document command detected (${documentFormat}) for message: ${JSON.stringify(message.slice(0, 200))}`);
         const fullContentPlanText = agentContentPlanText(req.body, 60);
@@ -1471,7 +1471,7 @@ Response rules:
         .join('\n');
       const businessContext = businessContextFromBody(req.body);
       const contentPlanText = agentContentPlanText(req.body);
-      const documentFormat = requestedAgentDocumentFormat(message);
+      const documentFormat = requestedAgentDocumentFormat(message, { preferSpreadsheetForPlan: true });
       if (documentFormat) {
         console.log(`voiceAutomationCheck: document command detected (${documentFormat}) for message: ${JSON.stringify(message.slice(0, 200))}`);
         const fullContentPlanText = agentContentPlanText(req.body, 60);

@@ -3,9 +3,19 @@ import { strFromU8, unzipSync } from 'fflate';
 import readXlsxFile from 'read-excel-file/node';
 import mammoth from 'mammoth';
 import { createAgentDocumentBlob, isAgentDocumentCommand } from '../../src/lib/agentDocument';
-import { dateMonthlyPlanRows, nextThirtyBangkokDates, normalizeAgentDocument, requestedAgentDocumentFormat } from '../../api/_agentDocument.js';
+import { contentPlanDayCount, dateMonthlyPlanRows, nextThirtyBangkokDates, normalizeAgentDocument, requestedAgentDocumentFormat } from '../../api/_agentDocument.js';
 
 describe('agent document requests', () => {
+  it('routes seven-day spoken content plans and Khmer Excel requests to a workbook', () => {
+    const spokenPlan = 'សូមបង្កើត Content Plan ៧ ថ្ងៃសម្រាប់ DGACADEMY';
+    expect(requestedAgentDocumentFormat(spokenPlan)).toBeNull();
+    expect(requestedAgentDocumentFormat(spokenPlan, { preferSpreadsheetForPlan: true })).toBe('xlsx');
+    expect(contentPlanDayCount(spokenPlan)).toBe(7);
+    expect(requestedAgentDocumentFormat('សូមបង្កើត Content Plan ជាអិចសែល')).toBe('xlsx');
+    expect(requestedAgentDocumentFormat('ខ្ញុំចង់បាន Content Plan ជា Excel')).toBe('xlsx');
+    expect(requestedAgentDocumentFormat('How do I create an Excel content plan?', { preferSpreadsheetForPlan: true })).toBeNull();
+  });
+
   it('recognizes direct Khmer and English commands without treating advice as creation', () => {
     expect(requestedAgentDocumentFormat('សូមបង្កើតទម្រង់ Word សម្រាប់ផែនការមាតិកា')).toBe('docx');
     expect(requestedAgentDocumentFormat('Create an Excel content calendar')).toBe('xlsx');

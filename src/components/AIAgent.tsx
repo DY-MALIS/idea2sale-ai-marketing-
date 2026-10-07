@@ -297,24 +297,26 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   // app handle document and Content Plan commands. Those turns stay silent
   // until the corresponding on-screen result or error is available.
   const handleLiveUserTurn = (session: number, transcript: string) => {
-    const planEditCommand = isPlanEditMessage(transcript);
-    const agentPlanCommand = isAgentPlanMessage(transcript);
     const documentCommand = isAgentDocumentCommand(transcript);
+    const planEditCommand = !documentCommand && isPlanEditMessage(transcript);
+    const agentPlanCommand = !documentCommand && isAgentPlanMessage(transcript);
     const mediaCommand = shouldClassifyCreativeMedia(transcript, messagesRef.current
       .slice(-4).map((item) => `${item.role === 'assistant' ? 'Assistant' : 'User'}: ${item.content}`).join('\n'));
     const handledCommand = planEditCommand || agentPlanCommand || documentCommand;
     if (session !== voiceSessionRef.current || !voiceActiveRef.current) return handledCommand;
     if (handledCommand) {
       setVoiceProcessing(true);
-      setVoiceCaption(planEditCommand || agentPlanCommand
+      setVoiceCaption(planEditCommand
         ? (language === 'km' ? 'កំពុងកែ Content Plan...' : 'Updating Content Plan...')
-        : (language === 'km' ? 'កំពុងបង្កើតផែនការ និងឯកសារ...' : 'Creating your plan and document...'));
+        : agentPlanCommand
+          ? (language === 'km' ? 'កំពុងបង្កើត Content Plan ជា Excel...' : 'Creating your Excel content plan...')
+          : (language === 'km' ? 'កំពុងបង្កើតឯកសារ...' : 'Creating your document...'));
     }
     void (async () => {
       try {
         if (agentPlanCommand) {
           const answer = await askAgent(transcript, true);
-          if (session === voiceSessionRef.current && voiceActiveRef.current) setVoiceCaption(answer);
+          if (answer && session === voiceSessionRef.current && voiceActiveRef.current) setVoiceCaption(answer);
           return;
         }
         if (planEditCommand) {
