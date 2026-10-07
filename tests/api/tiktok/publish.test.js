@@ -52,7 +52,7 @@ vi.mock('../../../api/_youtube.js', () => ({
   publishVideoToYouTube: mockPublishYouTube,
 }));
 
-const { default: handler, publishVideoToTikTok, deliverOneScheduledTikTokPost } = await import('../../../api/tiktok/publish.js');
+const { default: handler, publishVideoToTikTok, deliverOneScheduledTikTokPost, applyTikTokPublishEvent } = await import('../../../api/tiktok/publish.js');
 
 const response = () => ({
   statusCode: 200,
@@ -96,6 +96,80 @@ it('sends an explicitly selected inbox upload even when the server default is di
   });
   expect(result).toMatchObject({ publishId: 'inbox-1', directPost: false });
   expect(fetchMock).toHaveBeenCalledTimes(2);
+});
+
+it('loads current TikTok creator settings for the signed-in owner', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url) => {
+    expect(String(url)).toContain('/creator_info/query/');
+    return { ok: true, json: async () => ({ data: { creator_nickname: 'Owner', privacy_level_options: ['SELF_ONLY'] }, error: { code: 'ok' } }) };
+  }));
+  const res = response();
+  await handler({ method: 'GET', query: { action: 'creatorInfo' }, headers: { authorization: 'Bearer id-token' } }, res);
+  expect(res.statusCode).toBe(200);
+  expect(res.body.creator.creator_nickname).toBe('Owner');
+});
+
+it('rejects a direct post before upload when privacy or consent was not selected', async () => {
+  const fetchMock = vi.fn(async () => ({
+    ok: true,
+    json: async () => ({ data: { privacy_level_options: ['SELF_ONLY'], max_video_post_duration_sec: 60 }, error: { code: 'ok' } }),
+  }));
+  vi.stubGlobal('fetch', fetchMock);
+  await expect(publishVideoToTikTok('token', {
+    videoUrl: 'data:video/mp4;base64,AQID', title: 'Caption', mode: 'direct',
+    directPostOptions: { privacyLevel: 'PUBLIC_TO_EVERYONE', durationSeconds: 8, consent: true },
+  })).rejects.toMatchObject({ code: 'privacy_level_option_mismatch' });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  await expect(publishVideoToTikTok('token', {
+    videoUrl: 'data:video/mp4;base64,AQID', title: 'Caption', mode: 'direct',
+    directPostOptions: { privacyLevel: 'SELF_ONLY', durationSeconds: 8, consent: false },
+  })).rejects.toMatchObject({ code: 'invalid_direct_post_settings' });
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+});
+
+it('uses the creator-selected direct post settings without defaulting interactions or branding on', async () => {
+  const fetchMock = vi.fn(async (url, options) => {
+    const target = String(url);
+    if (target.includes('/creator_info/query/')) return {
+      ok: true,
+      json: async () => ({ data: {
+        privacy_level_options: ['SELF_ONLY', 'PUBLIC_TO_EVERYONE'],
+        comment_disabled: false, duet_disabled: true, stitch_disabled: false,
+        max_video_post_duration_sec: 30,
+      }, error: { code: 'ok' } }),
+    };
+    if (target.includes('/publish/video/init/')) {
+      expect(JSON.parse(options.body).post_info).toMatchObject({
+        privacy_level: 'PUBLIC_TO_EVERYONE', disable_comment: true, disable_duet: true,
+        disable_stitch: false, brand_content_toggle: false, brand_organic_toggle: true,
+      });
+      return { ok: true, json: async () => ({ data: { publish_id: 'direct-1', upload_url: 'https://upload.example.com/put' }, error: { code: 'ok' } }) };
+    }
+    if (target === 'https://upload.example.com/put') return { ok: true };
+    throw new Error(`Unexpected fetch to ${target}`);
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  const result = await publishVideoToTikTok('token', {
+    videoUrl: 'data:video/mp4;base64,AQID', title: 'Caption', mode: 'direct',
+    directPostOptions: {
+      privacyLevel: 'PUBLIC_TO_EVERYONE', durationSeconds: 8, consent: true,
+      allowComment: false, allowDuet: true, allowStitch: true,
+      commercialDisclosure: true, ownBrand: true, brandedContent: false,
+    },
+  });
+  expect(result).toMatchObject({ publishId: 'direct-1', directPost: true });
+  expect(fetchMock).toHaveBeenCalledTimes(3);
+});
+
+it('waits for TikTok confirmation before marking a submitted Direct Post published', async () => {
+  const postUpdate = vi.fn();
+  const scheduledUpdate = vi.fn();
+  const db = { collection: vi.fn((name) => name === 'tiktok_posts'
+    ? { doc: () => ({ get: async () => ({ exists: true }), update: postUpdate }) }
+    : { where: () => ({ limit: () => ({ get: async () => ({ docs: [{ ref: { update: scheduledUpdate } }] }) }) }) }) };
+  expect(await applyTikTokPublishEvent(db, 'post.publish.complete', { publish_id: 'direct-1' })).toBe(true);
+  expect(postUpdate).toHaveBeenCalledWith(expect.objectContaining({ status: 'PUBLISH_COMPLETE' }));
+  expect(scheduledUpdate).toHaveBeenCalledWith(expect.objectContaining({ status: 'PUBLISHED' }));
 });
 
 it('records an inbox transfer as awaiting the creator instead of already published', async () => {

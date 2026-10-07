@@ -416,6 +416,11 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     e.preventDefault();
     setFormError(null);
 
+    if (platforms.includes('TIKTOK') && tiktokDeliveryMode === 'direct') {
+      setFormError('Scheduled Direct Post needs TikTok creator settings and explicit posting consent. Use Upload to TikTok until that flow is available.');
+      return;
+    }
+
     if (isAttachingHandoffMedia) {
       setFormError('Still attaching the generated media — please wait a moment and try again.');
       return;
@@ -842,12 +847,12 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                         className="w-full rounded-xl border border-brand-100 bg-brand-50 p-3 text-sm text-brand-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                       >
                         <option value="inbox">Upload to TikTok — finish posting in TikTok</option>
-                        <option value="direct">Public Direct Post — requires TikTok audit approval</option>
+                        <option value="direct" disabled>Scheduled Direct Post — pending TikTok review and post settings</option>
                       </select>
                       <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                         {tiktokDeliveryMode === 'inbox'
                           ? 'At the scheduled time, the video goes to your TikTok inbox. Open the notification in TikTok to review and publish it; the caption must be added there.'
-                          : 'TikTok may reject public Direct Post while the app audit is under review. Choose Upload to TikTok until approval.'}
+                          : 'Scheduled Direct Post is unavailable until creator settings and consent are added. Choose Upload to TikTok.'}
                       </p>
                     </div>
                   )}

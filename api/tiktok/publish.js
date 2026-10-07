@@ -90,6 +90,45 @@ async function tiktokJson(url, token, body) {
   return data;
 }
 
+const CREATOR_INFO_URL = 'https://open.tiktokapis.com/v2/post/publish/creator_info/query/';
+
+async function queryTikTokCreatorInfo(token) {
+  const response = await tiktokJson(CREATOR_INFO_URL, token, {});
+  return response?.data || {};
+}
+
+function directPostInfo(creator, options) {
+  const fail = (message, code = 'invalid_direct_post_settings') => {
+    throw Object.assign(new Error(message), { status: 400, code });
+  };
+  if (!options || options.consent !== true) fail('Review the TikTok post settings and agree before posting.');
+  const privacy = String(options.privacyLevel || '');
+  if (!Array.isArray(creator.privacy_level_options) || !creator.privacy_level_options.includes(privacy)) {
+    fail('Select one of the privacy options returned by your TikTok account.', 'privacy_level_option_mismatch');
+  }
+  const duration = Number(options.durationSeconds);
+  const maxDuration = Number(creator.max_video_post_duration_sec);
+  if (!Number.isFinite(duration) || duration <= 0) fail('Wait for the video duration to load before posting.');
+  if (Number.isFinite(maxDuration) && maxDuration > 0 && duration > maxDuration) {
+    fail(`This TikTok account can post videos up to ${maxDuration} seconds.`);
+  }
+  const disclosure = options.commercialDisclosure === true;
+  const ownBrand = disclosure && options.ownBrand === true;
+  const branded = disclosure && options.brandedContent === true;
+  if (disclosure && !ownBrand && !branded) fail('Choose Your brand or Branded content for a commercial post.');
+  if (branded && privacy === 'SELF_ONLY') fail('Branded content cannot be private. Choose another privacy option.');
+  return {
+    title: String(options.title || '').trim().slice(0, 2200),
+    privacy_level: privacy,
+    disable_comment: creator.comment_disabled === true || options.allowComment !== true,
+    disable_duet: creator.duet_disabled === true || options.allowDuet !== true,
+    disable_stitch: creator.stitch_disabled === true || options.allowStitch !== true,
+    brand_content_toggle: branded,
+    brand_organic_toggle: ownBrand,
+    is_aigc: true,
+  };
+}
+
 async function uploadVideo(uploadUrl, token, video) {
   const response = await fetch(uploadUrl, {
     method: 'PUT',
@@ -133,7 +172,7 @@ async function videoFromUrl(videoUrl) {
 // (Firebase Storage/ImageKit) since scheduled videos are uploaded ahead of time.
 // Both paths end up FILE_UPLOAD -- see videoFromUrl's comment for why the
 // https:// case can't use PULL_FROM_URL.
-export async function publishVideoToTikTok(token, { videoUrl, title: rawTitle, mode }) {
+export async function publishVideoToTikTok(token, { videoUrl, title: rawTitle, mode, directPostOptions }) {
   const title = String(rawTitle || 'AI Generated Content').slice(0, 2200);
   const postMode = String(mode || process.env.TIKTOK_POST_MODE || 'inbox').toLowerCase();
   if (!['direct', 'inbox'].includes(postMode)) {
@@ -147,6 +186,9 @@ export async function publishVideoToTikTok(token, { videoUrl, title: rawTitle, m
     ? 'https://open.tiktokapis.com/v2/post/publish/video/init/'
     : 'https://open.tiktokapis.com/v2/post/publish/inbox/video/init/';
 
+  const postInfo = directPost
+    ? directPostInfo(await queryTikTokCreatorInfo(token), { ...directPostOptions, title })
+    : null;
   const video = publicUrlRequest(videoUrl) ? await videoFromUrl(videoUrl) : videoFromDataUrl(videoUrl);
 
   if (!video) {
@@ -165,16 +207,7 @@ export async function publishVideoToTikTok(token, { videoUrl, title: rawTitle, m
 
   const body = directPost
     ? {
-        post_info: {
-          title,
-          privacy_level: process.env.TIKTOK_PRIVACY_LEVEL || 'SELF_ONLY',
-          disable_duet: false,
-          disable_comment: false,
-          disable_stitch: false,
-          brand_content_toggle: false,
-          brand_organic_toggle: true,
-          is_aigc: true,
-        },
+        post_info: postInfo,
         source_info: fileSourceInfo,
       }
     : { source_info: fileSourceInfo };
@@ -188,6 +221,17 @@ export async function publishVideoToTikTok(token, { videoUrl, title: rawTitle, m
   }
 
   return { publishId, directPost, title };
+}
+
+async function handleCreatorInfoRequest(req, res) {
+  const actorUid = await resolveActorUid(req);
+  const token = actorUid && getCookie(req, 'tiktok_owner') === actorUid ? getCookie(req, 'tiktok_token') : '';
+  if (!token) return res.status(401).json({ error: { message: 'Reconnect your TikTok account.', code: 'not_authenticated' } });
+  try {
+    return res.status(200).json({ creator: await queryTikTokCreatorInfo(token) });
+  } catch (error) {
+    return res.status(error.status || 500).json({ error: { message: error.message, code: error.code || 'creator_info_failed' } });
+  }
 }
 
 async function handlePublishRequest(req, res) {
@@ -208,6 +252,7 @@ async function handlePublishRequest(req, res) {
       videoUrl,
       title: req.body?.title,
       mode: req.body?.mode,
+      directPostOptions: req.body?.directPostOptions,
     });
 
     try {
@@ -286,11 +331,11 @@ export async function deliverOneScheduledTikTokPost(db, docRef, token) {
       // Inbox upload only transfers a draft. The creator must open TikTok and
       // finish the post; reporting it as PUBLISHED made failed expectations
       // impossible to diagnose from the Scheduler.
-      status: directPost ? 'PUBLISHED' : 'UPLOADED',
+      status: directPost ? 'SUBMITTED' : 'UPLOADED',
       tiktokPublishId: publishId || null,
       tiktokDeliveryMode: directPost ? 'direct' : 'inbox',
       ...(directPost
-        ? { publishedAt: admin.firestore.FieldValue.serverTimestamp() }
+        ? { submittedAt: admin.firestore.FieldValue.serverTimestamp() }
         : { uploadedAt: admin.firestore.FieldValue.serverTimestamp() }),
       errorMessage: null,
       tiktokErrorCode: null,
@@ -562,6 +607,33 @@ const WEBHOOK_REVOKE_REASONS = {
   5: 'the developer revoking access',
 };
 
+export async function applyTikTokPublishEvent(db, event, content) {
+  const status = {
+    'post.publish.inbox_delivered': 'SEND_TO_USER_INBOX',
+    'post.publish.complete': 'PUBLISH_COMPLETE',
+    'post.publish.failed': 'FAILED',
+    'post.publish.publicly_available': 'PUBLISH_COMPLETE',
+  }[event];
+  const publishId = String(content?.publish_id || '');
+  if (!status || !publishId || publishId.includes('/') || publishId.length > 128) return false;
+  const postRef = db.collection('tiktok_posts').doc(publishId);
+  const postSnapshot = await postRef.get();
+  if (!postSnapshot.exists) return false;
+  await postRef.update({
+    status,
+    ...(status === 'FAILED' ? { failReason: String(content?.reason || 'TikTok did not publish this video.').slice(0, 200) } : {}),
+    ...(content?.post_id ? { postId: String(content.post_id) } : {}),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+  if (status === 'PUBLISH_COMPLETE' || status === 'FAILED') {
+    const scheduled = await db.collection('scheduled_posts').where('tiktokPublishId', '==', publishId).limit(10).get();
+    await Promise.all(scheduled.docs.map((doc) => doc.ref.update(status === 'FAILED'
+      ? { status: 'FAILED', errorMessage: String(content?.reason || 'TikTok did not publish this video.').slice(0, 200), failedAt: admin.firestore.FieldValue.serverTimestamp() }
+      : { status: 'PUBLISHED', publishedAt: admin.firestore.FieldValue.serverTimestamp(), errorMessage: null })));
+  }
+  return true;
+}
+
 // TikTok's Webhooks product (see vercel.json's rewrite of /api/tiktok/webhook
 // to here -- a dedicated api/tiktok/webhook.js file would be the deployment's
 // 13th serverless function, which the Hobby plan rejects outright, the same
@@ -627,6 +699,10 @@ async function handleWebhookAction(req, res) {
       if (revoked) {
         await notifyAdmins(`TikTok disconnected the automation account (${reasonLabel}). Scheduled TikTok posts are paused until someone reconnects TikTok.`);
       }
+    } else if (String(payload?.event || '').startsWith('post.publish.')) {
+      const content = typeof payload?.content === 'string' ? JSON.parse(payload.content) : payload?.content;
+      const db = initFirebaseAdmin();
+      await applyTikTokPublishEvent(db, payload.event, content);
     }
   } catch (error) {
     console.error('TikTok webhook processing failed:', error?.message || error);
@@ -753,6 +829,10 @@ async function runYouTubeCron(req, res) {
 }
 
 export default async function handler(req, res) {
+  if (req.query?.action === 'creatorInfo') {
+    if (req.method !== 'GET') return res.status(405).json({ error: { message: 'Method not allowed' } });
+    return handleCreatorInfoRequest(req, res);
+  }
   if (req.query?.action === 'cron') {
     return runTikTokCron(req, res);
   }

@@ -628,6 +628,11 @@ const Scheduler: React.FC = () => {
                           TikTok accepted the upload. Open its inbox notification to review and publish the video.
                         </p>
                       )}
+                      {post.platform === 'TIKTOK' && post.status === 'SUBMITTED' && (
+                        <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                          TikTok is processing this Direct Post. Its final status will update after TikTok confirms it.
+                        </p>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-2 transition-opacity">

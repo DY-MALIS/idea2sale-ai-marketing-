@@ -40,6 +40,15 @@ type ToolType = 'video' | 'voice';
 type VoiceGender = 'Female' | 'Male';
 type VoicePersona = 'sreymom' | 'piseth';
 type VideoAspectRatio = CreativeAutomationRequest['aspectRatio'];
+type TikTokCreatorInfo = {
+  creator_nickname: string;
+  creator_username: string;
+  privacy_level_options: string[];
+  comment_disabled: boolean;
+  duet_disabled: boolean;
+  stitch_disabled: boolean;
+  max_video_post_duration_sec: number;
+};
 
 // Keep platform formats explicit: social short video is portrait while a
 // standard YouTube post is landscape. Unsupported legacy values stay portrait.
@@ -293,7 +302,7 @@ const cleanupFfmpegFiles = async (ffmpeg: any, names: string[]) => {
   }));
 };
 
-const GeneratedVideoPlayer: React.FC<{ src: string; language: 'km' | 'en'; aspectRatio: VideoAspectRatio }> = ({ src, language, aspectRatio }) => {
+const GeneratedVideoPlayer: React.FC<{ src: string; language: 'km' | 'en'; aspectRatio: VideoAspectRatio; onDuration?: (seconds: number) => void }> = ({ src, language, aspectRatio, onDuration }) => {
   const normalizedSrc = normalizeImageKitVideoUrl(src);
   const [playbackSrc, setPlaybackSrc] = useState(normalizedSrc);
   const [recovering, setRecovering] = useState(false);
@@ -353,6 +362,7 @@ const GeneratedVideoPlayer: React.FC<{ src: string; language: 'km' | 'en'; aspec
         controls
         playsInline
         preload="metadata"
+        onLoadedMetadata={(event) => { if (Number.isFinite(event.currentTarget.duration)) onDuration?.(event.currentTarget.duration); }}
         onCanPlay={() => { clearStallTimer(); setRecovering(false); setFailed(false); }}
         onPlaying={clearStallTimer}
         onWaiting={handleWaiting}
@@ -998,6 +1008,44 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   const [tiktokPostMode, setTikTokPostMode] = useState<'inbox' | 'direct'>('inbox');
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [tiktokUser, setTiktokUser] = useState<any>(null);
+  const [tiktokCreator, setTiktokCreator] = useState<TikTokCreatorInfo | null>(null);
+  const [tiktokCreatorError, setTiktokCreatorError] = useState('');
+  const [tiktokCreatorLoading, setTiktokCreatorLoading] = useState(false);
+  const [tiktokPrivacy, setTiktokPrivacy] = useState('');
+  const [tiktokAllowComment, setTiktokAllowComment] = useState(false);
+  const [tiktokAllowDuet, setTiktokAllowDuet] = useState(false);
+  const [tiktokAllowStitch, setTiktokAllowStitch] = useState(false);
+  const [tiktokCommercial, setTiktokCommercial] = useState(false);
+  const [tiktokOwnBrand, setTiktokOwnBrand] = useState(false);
+  const [tiktokBrandedContent, setTiktokBrandedContent] = useState(false);
+  const [tiktokConsent, setTiktokConsent] = useState(false);
+  const [tiktokVideoSeconds, setTiktokVideoSeconds] = useState<number | null>(null);
+
+  React.useEffect(() => { setTiktokVideoSeconds(null); }, [generatedVideo]);
+
+  React.useEffect(() => {
+    setTiktokCreator(null);
+    setTiktokCreatorError('');
+    setTiktokPrivacy('');
+    setTiktokConsent(false);
+    if (tiktokPostMode !== 'direct' || !tiktokUser || !user) return;
+    let cancelled = false;
+    setTiktokCreatorLoading(true);
+    void (async () => {
+      try {
+        const idToken = await user.getIdToken();
+        const response = await fetch('/api/tiktok/publish?action=creatorInfo', { headers: { Authorization: `Bearer ${idToken}` } });
+        const data = await response.json();
+        if (!response.ok || !data.creator) throw new Error(data.error?.message || 'Could not load TikTok posting settings.');
+        if (!cancelled) setTiktokCreator(data.creator);
+      } catch (error: any) {
+        if (!cancelled) setTiktokCreatorError(error?.message || 'Could not load TikTok posting settings.');
+      } finally {
+        if (!cancelled) setTiktokCreatorLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [tiktokPostMode, tiktokUser?.open_id, user?.uid]);
 
   const voicePersonas = {
     sreymom: {
@@ -1182,6 +1230,10 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       notify("Please generate or write a caption first.", 'error');
       return;
     }
+    if (tiktokPostMode === 'direct' && !directPostReady) {
+      notify('Choose TikTok privacy and consent after the account settings and video duration load.', 'error');
+      return;
+    }
     setIsPostingTikTok(true);
     try {
       const idToken = user ? await user.getIdToken().catch(() => null) : null;
@@ -1191,7 +1243,20 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
           'Content-Type': 'application/json',
           ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
         },
-        body: JSON.stringify({ videoUrl, title: aiCaption, mode: tiktokPostMode })
+        body: JSON.stringify({
+          videoUrl, title: aiCaption, mode: tiktokPostMode,
+          ...(tiktokPostMode === 'direct' ? { directPostOptions: {
+            privacyLevel: tiktokPrivacy,
+            durationSeconds: tiktokVideoSeconds,
+            allowComment: tiktokAllowComment,
+            allowDuet: tiktokAllowDuet,
+            allowStitch: tiktokAllowStitch,
+            commercialDisclosure: tiktokCommercial,
+            ownBrand: tiktokOwnBrand,
+            brandedContent: tiktokBrandedContent,
+            consent: tiktokConsent,
+          } } : {}),
+        })
       });
       const data = await res.json();
       if (res.ok) {
@@ -1210,6 +1275,13 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   };
 
   const tiktokDisplayName = tiktokUser?.display_name || tiktokUser?.username || tiktokUser?.open_id || 'TikTok user';
+  const directPostReady = Boolean(
+    tiktokCreator && tiktokPrivacy && tiktokCreator.privacy_level_options.includes(tiktokPrivacy)
+    && tiktokConsent && tiktokVideoSeconds && tiktokVideoSeconds > 0
+    && (!tiktokCreator.max_video_post_duration_sec || tiktokVideoSeconds <= tiktokCreator.max_video_post_duration_sec)
+    && (!tiktokCommercial || tiktokOwnBrand || tiktokBrandedContent)
+    && !(tiktokBrandedContent && tiktokPrivacy === 'SELF_ONLY')
+  );
 
   const handleOpenKeySelector = async () => {
     if (typeof window !== 'undefined' && (window as any).aistudio) {
@@ -2433,7 +2505,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                         {language === 'km' ? 'ទាញយកឈុត' : 'Download clip'} {index + 1}
                       </a>
                     </div>
-                  )) : <GeneratedVideoPlayer src={generatedVideo} language={language} aspectRatio={generatedVideoAspectRatio} />}
+                  )) : <GeneratedVideoPlayer src={generatedVideo} language={language} aspectRatio={generatedVideoAspectRatio} onDuration={setTiktokVideoSeconds} />}
                   {!videoNeedsReview && generatedVideoHasSpeech && (
                     <div className="rounded-2xl border border-brand-200 bg-brand-50 p-4 text-sm text-brand-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">
                       <label htmlFor="video-audio-offset" className="block font-bold">
@@ -2506,15 +2578,53 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                         className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                       >
                         <option value="inbox">Upload to TikTok — finish posting in TikTok</option>
-                        <option value="direct">Public Direct Post — requires TikTok audit approval</option>
+                        <option value="direct">Direct Post — public posting requires TikTok audit approval</option>
                       </select>
+                    </div>
+                  )}
+                  {tiktokUser && tiktokPostMode === 'direct' && (
+                    <div className="mb-3 space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-slate-800">
+                      {tiktokCreatorLoading && <p>Loading TikTok creator settings...</p>}
+                      {tiktokCreatorError && <p role="alert" className="text-red-700">{tiktokCreatorError} Reconnect TikTok if video.publish was recently approved.</p>}
+                      {tiktokCreator && (
+                        <>
+                          <p className="font-semibold">Posting to {tiktokCreator.creator_nickname || tiktokCreator.creator_username}</p>
+                          <p className="text-xs">Public visibility requires TikTok audit approval. Processing can take several minutes after upload.</p>
+                          <label className="block font-semibold" htmlFor="tiktok-privacy">Who can view this video?</label>
+                          <select id="tiktok-privacy" value={tiktokPrivacy} onChange={(event) => setTiktokPrivacy(event.target.value)} className="w-full rounded-lg border bg-white p-2">
+                            <option value="">Select visibility</option>
+                            {tiktokCreator.privacy_level_options.map((option) => (
+                              <option key={option} value={option} disabled={option === 'SELF_ONLY' && tiktokBrandedContent}>
+                                {option === 'PUBLIC_TO_EVERYONE' ? 'Everyone' : option === 'MUTUAL_FOLLOW_FRIENDS' ? 'Friends' : option === 'FOLLOWER_OF_CREATOR' ? 'Followers' : 'Only me'}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="text-xs">Video: {tiktokVideoSeconds?.toFixed(1) || 'loading'}s · Account limit: {tiktokCreator.max_video_post_duration_sec || 'unknown'}s</p>
+                          {([
+                            ['Allow comments', tiktokAllowComment, setTiktokAllowComment, tiktokCreator.comment_disabled],
+                            ['Allow Duet', tiktokAllowDuet, setTiktokAllowDuet, tiktokCreator.duet_disabled],
+                            ['Allow Stitch', tiktokAllowStitch, setTiktokAllowStitch, tiktokCreator.stitch_disabled],
+                          ] as const).map(([label, checked, setter, disabled]) => (
+                            <label key={label} className="flex items-center gap-2"><input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => setter(event.target.checked)} />{label}{disabled ? ' (disabled in TikTok)' : ''}</label>
+                          ))}
+                          <label className="flex items-center gap-2"><input type="checkbox" checked={tiktokCommercial} onChange={(event) => { setTiktokCommercial(event.target.checked); setTiktokOwnBrand(false); setTiktokBrandedContent(false); }} />This video promotes a brand, product or service</label>
+                          {tiktokCommercial && (
+                            <div className="space-y-2 pl-5">
+                              <label className="flex items-center gap-2"><input type="checkbox" checked={tiktokOwnBrand} onChange={(event) => setTiktokOwnBrand(event.target.checked)} />Your brand (Promotional content)</label>
+                              <label className="flex items-center gap-2"><input type="checkbox" checked={tiktokBrandedContent} disabled={tiktokPrivacy === 'SELF_ONLY'} onChange={(event) => setTiktokBrandedContent(event.target.checked)} />Branded content (Paid partnership)</label>
+                              {tiktokPrivacy === 'SELF_ONLY' && <p className="text-xs">Branded content cannot be private.</p>}
+                            </div>
+                          )}
+                          <label className="flex items-start gap-2 border-t pt-3"><input type="checkbox" checked={tiktokConsent} onChange={(event) => setTiktokConsent(event.target.checked)} />By posting, you agree to TikTok&apos;s {tiktokBrandedContent ? 'Branded Content Policy and ' : ''}Music Usage Confirmation.</label>
+                        </>
+                      )}
                     </div>
                   )}
                   <div className="flex flex-col gap-4 sm:flex-row">
                     {tiktokUser ? (
                       <button 
                         onClick={() => handlePostToTikTok(generatedVideo!)}
-                        disabled={isPostingTikTok || videoNeedsReview || performanceNeedsReview}
+                        disabled={isPostingTikTok || videoNeedsReview || performanceNeedsReview || (tiktokPostMode === 'direct' && !directPostReady)}
                         className="flex-1 bg-black text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-3 shadow-xl hover:bg-slate-900 transition-all disabled:opacity-50"
                       >
                         {isPostingTikTok ? <Loader2 size={20} className="animate-spin" /> : (

@@ -190,7 +190,7 @@ export interface SchedulePost {
   content: string;
   platform: 'TIKTOK' | 'YOUTUBE' | 'INSTAGRAM' | 'TWITTER' | 'TELEGRAM' | 'FACEBOOK';
   scheduledTime: string;
-  status: 'PENDING' | 'PROCESSING' | 'PUBLISHED' | 'UPLOADED' | 'FAILED';
+  status: 'PENDING' | 'PROCESSING' | 'SUBMITTED' | 'PUBLISHED' | 'UPLOADED' | 'FAILED';
   userId: string;
   aiSuggested: boolean;
   publishMode?: string;
