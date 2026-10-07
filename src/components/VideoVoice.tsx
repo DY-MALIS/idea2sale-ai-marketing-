@@ -29,6 +29,7 @@ import {
 import { CreativeAutomationRequest, ScheduleHandoffRequest } from '../types';
 import { getLatestBusinessBranding } from '../lib/businessBranding';
 import { ffprobeDurationSeconds, mp4DurationSeconds } from '../lib/mediaDuration';
+import { audioShiftFilter } from '../lib/videoAudioTiming';
 import { deleteGenerationHistory, GenerationHistoryEntry, saveGenerationHistory, useGenerationHistory } from '../lib/generationHistory';
 import HistoryPanel from './HistoryPanel';
 import { estimateVideoGenerationCostUsd, MAX_VIDEO_DURATION_SECONDS, MAX_VIDEO_GENERATION_COST_USD } from '../../shared/videoCost.js';
@@ -513,6 +514,32 @@ const applyVoiceOver = async (
   }
 };
 
+const shiftVideoAudio = async (videoUrl: string, offsetMs: number): Promise<string> => {
+  const { fetchFile } = await import('@ffmpeg/util');
+  const ffmpeg = await getFFmpeg();
+  try {
+    await ffmpeg.writeFile('sync_input.mp4', await fetchFile(getOriginalImageKitUrl(videoUrl)));
+    const code = await ffmpeg.exec([
+      '-y', '-i', 'sync_input.mp4',
+      '-map', '0:v:0', '-map', '0:a:0',
+      '-c:v', 'copy', '-filter:a', audioShiftFilter(offsetMs),
+      '-c:a', 'aac', '-b:a', '160k', '-ar', '48000',
+      '-shortest', '-movflags', '+faststart', 'sync_output.mp4',
+    ]);
+    if (code !== 0) throw new Error('Could not adjust the video audio timing.');
+    const data = await ffmpeg.readFile('sync_output.mp4');
+    const blob = new Blob([data.buffer], { type: 'video/mp4' });
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error('Could not save the adjusted video.'));
+      reader.readAsDataURL(blob);
+    });
+  } finally {
+    await cleanupFfmpegFiles(ffmpeg, ['sync_input.mp4', 'sync_output.mp4']);
+  }
+};
+
 const overlayLogoOnVideo = async (videoDataUrl: string, logoDataUrl: string): Promise<string> => {
   if (!logoDataUrl) return videoDataUrl;
   const ffmpeg = await getFFmpeg();
@@ -858,6 +885,10 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   const [selectedEnglishVoiceURI, setSelectedEnglishVoiceURI] = useState('');
   const [loading, setLoading] = useState(false);
   const [generatedVideo, setGeneratedVideo] = useState<string | null>(null);
+  const [generatedVideoHasSpeech, setGeneratedVideoHasSpeech] = useState(false);
+  const [lipSyncSourceVideo, setLipSyncSourceVideo] = useState<string | null>(null);
+  const [lipSyncOffsetMs, setLipSyncOffsetMs] = useState(0);
+  const [lipSyncBusy, setLipSyncBusy] = useState(false);
   const [recoverableVideoUrl, setRecoverableVideoUrl] = useState<string | null>(null);
   const [videoNeedsReview, setVideoNeedsReview] = useState(false);
   const [performanceNeedsReview, setPerformanceNeedsReview] = useState(false);
@@ -903,6 +934,9 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     setVideoNeedsReview(false);
     setPerformanceNeedsReview(false);
     setVideoVoiceQualityNotice(null);
+    setLipSyncSourceVideo(null);
+    setLipSyncOffsetMs(0);
+    setGeneratedVideoHasSpeech(Boolean(String(payload.voiceOverText || '').trim()));
     if (entry.mediaUrl) setGeneratedVideo(normalizeImageKitVideoUrl(entry.mediaUrl));
   };
   const deleteVideoHistory = (id: string) => { void deleteGenerationHistory({ user, isDemoMode, type: 'video', id }); };
@@ -1138,6 +1172,9 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     if (!user || (!resumableVideoJob && !recoverableVideoStart) || loading || audioLoading) return;
     setLoading(true);
     setGeneratedVideo(null);
+    setGeneratedVideoHasSpeech(false);
+    setLipSyncSourceVideo(null);
+    setLipSyncOffsetMs(0);
     setRecoverableVideoUrl(null);
     setVideoNeedsReview(false);
     setVideoVoiceQualityNotice(null);
@@ -1216,6 +1253,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       setVideoAspectRatio(resumedAspectRatio);
       setCaptionPlatform(resumedAspectRatio === '16:9' ? 'YouTube' : 'TikTok');
       setGeneratedVideo(video);
+      setGeneratedVideoHasSpeech(Boolean(currentJob.expectedScript || currentJob.resumeNarration));
       setVideoNeedsReview(speechNeedsReview);
       if (speechNeedsReview) {
         setVideoVoiceQualityNotice(language === 'km'
@@ -1276,6 +1314,9 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
 
     setLoading(true);
     setGeneratedVideo(null);
+    setGeneratedVideoHasSpeech(false);
+    setLipSyncSourceVideo(null);
+    setLipSyncOffsetMs(0);
     setRecoverableVideoUrl(null);
     setVideoNeedsReview(false);
     setPerformanceNeedsReview(false);
@@ -1460,6 +1501,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       if (silentRequested) video = applyImageKitMuteTransform(video);
       completedJobFingerprints.forEach((fingerprint) => removePendingVideoJob(user.uid, fingerprint));
       setGeneratedVideo(video);
+      setGeneratedVideoHasSpeech(Boolean(voiceOverContent) && !silentRequested);
       // The final result is already a small hosted URL, so history persistence
       // never sends the full video through /api/ai again.
       void (async () => {
@@ -1720,6 +1762,43 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       caption: captionOverride.trim() || aiCaption.trim() || videoPrompt.trim().slice(0, 900),
       preferredPlatform,
     });
+  };
+
+  const handleAdjustLipSync = async () => {
+    if (!generatedVideo || !user || !lipSyncOffsetMs || loading) return;
+    setLipSyncBusy(true);
+    setLoading(true);
+    try {
+      // Always start from the unadjusted clip so trying several offsets does
+      // not repeatedly discard the beginning or add silence to the same track.
+      const source = lipSyncSourceVideo || generatedVideo;
+      const adjusted = await shiftVideoAudio(source, lipSyncOffsetMs);
+      const idToken = await user.getIdToken();
+      const savedUrl = await uploadVideoDirectly(adjusted, idToken);
+      setLipSyncSourceVideo(source);
+      setGeneratedVideo(savedUrl);
+      setPerformanceNeedsReview(true);
+      setVideoVoiceQualityNotice(language === 'km'
+        ? 'បានកែពេលចាប់ផ្ដើមសំឡេង។ សូមមើល និងស្តាប់វីដេអូទាំងមូលមុនផ្សព្វផ្សាយ។ ប្រសិនបើទម្រង់មាត់ខុសពាក្យ ការផ្លាស់ទីសំឡេងមិនអាចកែបានទេ។'
+        : 'Audio timing adjusted. Watch the entire video before publishing. A timing shift cannot correct mouth shapes for different words.');
+      void saveGenerationHistory({
+        user, isDemoMode, type: 'video',
+        title: `Adjusted video audio (${lipSyncOffsetMs > 0 ? '+' : ''}${lipSyncOffsetMs} ms)`,
+        mediaUrl: savedUrl, mediaType: 'video',
+        payload: {
+          prompt: videoPrompt,
+          voiceOverText,
+          videoLanguage,
+          videoAspectRatio: generatedVideoAspectRatio,
+        },
+      }).catch((error) => console.error('Could not save adjusted video history:', error));
+      notify(language === 'km' ? 'បានកែសំឡេងវីដេអូ។ សូមពិនិត្យម្ដងទៀត។' : 'Video audio timing adjusted. Please review it again.', 'success');
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Could not adjust the video audio timing.', 'error');
+    } finally {
+      setLipSyncBusy(false);
+      setLoading(false);
+    }
   };
 
   const handleDownload = () => {
@@ -2228,7 +2307,9 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                 <div className="text-center space-y-4">
                   <Loader2 className="w-12 h-12 animate-spin text-brand-600 mx-auto" />
                   <p className="text-brand-700 font-bold">
-                    {watermarking
+                    {lipSyncBusy
+                      ? (language === 'km' ? 'កំពុងតម្រឹមសំឡេងវីដេអូ...' : 'Adjusting video audio timing...')
+                      : watermarking
                       ? t('addingLogo')
                       : addingVoiceOver
                         ? t('addingVoiceOver')
@@ -2259,6 +2340,37 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                       </a>
                     </div>
                   )) : <GeneratedVideoPlayer src={generatedVideo} language={language} aspectRatio={generatedVideoAspectRatio} />}
+                  {!videoNeedsReview && generatedVideoHasSpeech && (
+                    <div className="rounded-2xl border border-brand-200 bg-brand-50 p-4 text-sm text-brand-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">
+                      <label htmlFor="video-audio-offset" className="block font-bold">
+                        {language === 'km' ? 'តម្រឹមសំឡេងជាមួយមាត់' : 'Align audio with mouth movement'}
+                        {' · '}{lipSyncOffsetMs > 0 ? '+' : ''}{lipSyncOffsetMs} ms
+                      </label>
+                      <input
+                        id="video-audio-offset"
+                        type="range"
+                        min={-1000}
+                        max={1000}
+                        step={50}
+                        value={lipSyncOffsetMs}
+                        onChange={(event) => setLipSyncOffsetMs(Number(event.target.value))}
+                        className="mt-3 w-full accent-amber-600"
+                      />
+                      <p className="mt-2 text-xs leading-relaxed">
+                        {language === 'km'
+                          ? 'លេខអវិជ្ជមានធ្វើឱ្យសំឡេងមកមុន; លេខវិជ្ជមានធ្វើឱ្យសំឡេងមកក្រោយ។ កែបានតែការខុសពេលថេរ មិនអាចកែទម្រង់មាត់ខុសពាក្យបានទេ។'
+                          : 'Negative moves speech earlier; positive moves it later. This fixes a consistent timing offset, not incorrect mouth shapes.'}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => void handleAdjustLipSync()}
+                        disabled={!lipSyncOffsetMs || loading || !user}
+                        className="mt-3 rounded-xl bg-brand-600 px-4 py-2 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {language === 'km' ? 'កែ និងរក្សាវីដេអូថ្មី' : 'Apply and save corrected video'}
+                      </button>
+                    </div>
+                  )}
                   {(videoNeedsReview || performanceNeedsReview) && (
                     <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
                       <input
