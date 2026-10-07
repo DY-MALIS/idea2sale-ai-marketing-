@@ -23,3 +23,12 @@ export const lastAudibleSpeechSecond = (pcm: Uint8Array, sampleRate = 24000): nu
   }
   return lastActiveWindow < 0 ? null : (lastActiveWindow + 1) * windowSamples / sampleRate;
 };
+
+export const speechTailCutSecond = (speechEnd: number, videoDuration: number): number | null => {
+  if (!Number.isFinite(speechEnd) || !Number.isFinite(videoDuration)
+    || speechEnd <= 0 || videoDuration <= 0) return null;
+  // A three-second floor left more than a second of silent talking-mouth footage
+  // when a short narration ended around the two-second mark.
+  const cutAt = Math.min(videoDuration, Math.max(0.5, speechEnd + 0.2));
+  return videoDuration - cutAt >= 0.4 ? cutAt : null;
+};

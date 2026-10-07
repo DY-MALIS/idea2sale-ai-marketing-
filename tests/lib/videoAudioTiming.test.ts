@@ -5,7 +5,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import ffmpeg from 'ffmpeg-static';
-import { audioShiftFilter, lastAudibleSpeechSecond } from '../../src/lib/videoAudioTiming';
+import { audioShiftFilter, lastAudibleSpeechSecond, speechTailCutSecond } from '../../src/lib/videoAudioTiming';
 import { mp4DurationSeconds } from '../../src/lib/mediaDuration';
 
 const run = promisify(execFile);
@@ -33,12 +33,17 @@ it('shifts an existing audio track earlier or later without changing clip length
     expect(lastAudibleSpeechSecond(sourcePcm)).toBeCloseTo(0.9, 1);
     expect(lastAudibleSpeechSecond(new Uint8Array(sampleRate))).toBeNull();
     const trimmed = join(directory, 'trimmed.mp4');
-    await run(ffmpeg, ['-v', 'error', '-y', '-i', source, '-t', '3.000',
-      '-map', '0:v:0', '-map', '0:a:0', '-c:v', 'copy', '-c:a', 'copy', trimmed],
+    const cutAt = speechTailCutSecond(lastAudibleSpeechSecond(sourcePcm)!, 5);
+    expect(cutAt).toBeCloseTo(1.1, 1);
+    await run(ffmpeg, ['-v', 'error', '-y', '-i', source, '-t', cutAt!.toFixed(3),
+      '-map', '0:v:0', '-map', '0:a:0',
+      '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
+      '-filter:a', `atrim=end=${cutAt!.toFixed(3)},asetpts=PTS-STARTPTS`,
+      '-c:a', 'aac', '-b:a', '160k', trimmed],
     { windowsHide: true });
     const trimmedDuration = mp4DurationSeconds(await readFile(trimmed));
-    expect(trimmedDuration).toBeGreaterThanOrEqual(3);
-    expect(trimmedDuration).toBeLessThan(3.15);
+    expect(trimmedDuration).toBeGreaterThanOrEqual(1.1);
+    expect(trimmedDuration).toBeLessThan(1.25);
     for (const [offset, expectedOnset] of [[-250, 0.15], [0, 0.4], [250, 0.65]]) {
       const output = join(directory, `shifted-${offset}.mp4`);
       await run(ffmpeg, ['-v', 'error', '-y', '-i', source,
@@ -58,4 +63,6 @@ it('shifts an existing audio track earlier or later without changing clip length
 
 it('rejects adjustments beyond the supported range', () => {
   expect(() => audioShiftFilter(1001)).toThrow('within one second');
+  expect(speechTailCutSecond(1.86, 4)).toBeCloseTo(2.06, 2);
+  expect(speechTailCutSecond(3.8, 4)).toBeNull();
 });

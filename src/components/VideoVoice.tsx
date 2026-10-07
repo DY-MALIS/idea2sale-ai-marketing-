@@ -29,7 +29,7 @@ import {
 import { CreativeAutomationRequest, ScheduleHandoffRequest } from '../types';
 import { getLatestBusinessBranding } from '../lib/businessBranding';
 import { ffprobeDurationSeconds, mp4DurationSeconds } from '../lib/mediaDuration';
-import { audioShiftFilter, lastAudibleSpeechSecond } from '../lib/videoAudioTiming';
+import { audioShiftFilter, lastAudibleSpeechSecond, speechTailCutSecond } from '../lib/videoAudioTiming';
 import { deleteGenerationHistory, GenerationHistoryEntry, saveGenerationHistory, useGenerationHistory } from '../lib/generationHistory';
 import HistoryPanel from './HistoryPanel';
 import { estimateVideoGenerationCostUsd, MAX_VIDEO_DURATION_SECONDS, MAX_VIDEO_GENERATION_COST_USD } from '../../shared/videoCost.js';
@@ -560,11 +560,14 @@ const trimVideoAfterSpeech = async (videoUrl: string): Promise<{ videoDataUrl: s
     if (typeof pcm === 'string') throw new Error('Could not inspect video speech.');
     const speechEnd = lastAudibleSpeechSecond(pcm);
     if (speechEnd === null) throw new Error('No audible speech was found in this video.');
-    const cutAt = Math.min(videoDuration, Math.max(3, speechEnd + 0.2));
-    if (videoDuration - cutAt < 0.4) throw new Error('There is no long silent ending to remove.');
+    const cutAt = speechTailCutSecond(speechEnd, videoDuration);
+    if (cutAt === null) throw new Error('There is no long silent ending to remove.');
     const code = await ffmpeg.exec([
       '-y', '-i', 'speech_trim_input.mp4', '-t', cutAt.toFixed(3),
-      '-map', '0:v:0', '-map', '0:a:0', '-c:v', 'copy', '-c:a', 'copy',
+      '-map', '0:v:0', '-map', '0:a:0',
+      '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
+      '-filter:a', `atrim=end=${cutAt.toFixed(3)},asetpts=PTS-STARTPTS`,
+      '-c:a', 'aac', '-b:a', '160k',
       '-movflags', '+faststart', 'speech_trim_output.mp4',
     ]);
     if (code !== 0) throw new Error('Could not trim the video after speech.');
