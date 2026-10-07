@@ -78,36 +78,59 @@ export const dateMonthlyPlanRows = (document, dates, responseLanguage) => {
 
 export const generateAgentDocument = async ({ format, message, historyText, businessContextText, responseLanguage }) => {
   const monthlyPlan = format === 'xlsx' && isMonthlyPlanRequest(message);
-  const dates = monthlyPlan ? nextThirtyBangkokDates() : [];
-  const raw = await generateOpenRouterText({
-    system: `Create the actual content for a downloadable ${format === 'xlsx' ? 'Excel workbook' : 'Word document'} requested by the user. Return only valid JSON. Write user-facing content in ${responseLanguage}; keep names and technical terms as the user used them. Use the recent conversation and saved business profile to resolve short follow-ups. Make a useful, complete first draft immediately. If the user asks for a template, include practical headings and example or blank-ready rows. Do not invent specific private figures or claim live research. Never include markdown fences.${monthlyPlan ? ' This is a direct command for a one-month plan: create one practical marketing content calendar row for each of the 30 dates supplied. Do not answer conversationally, ask questions, or return fewer dates. Make each daily idea distinct and actionable.' : ''}`,
-    model: resolveOpenRouterTextModel(),
+  const model = resolveOpenRouterTextModel();
+  const baseRequest = {
+    system: `Create the actual content for a downloadable ${format === 'xlsx' ? 'Excel workbook' : 'Word document'} requested by the user. Return only valid JSON. Write user-facing content in ${responseLanguage}; keep names and technical terms as the user used them. Use the recent conversation and saved business profile to resolve short follow-ups. Make a useful, complete first draft immediately. If the user asks for a template, include practical headings and example or blank-ready rows. Do not invent specific private figures or claim live research. Never include markdown fences.${monthlyPlan ? ' This is a direct command for a one-month plan: create one practical marketing content calendar row for each date supplied in this batch. Do not answer conversationally, ask questions, or return fewer dates. Make each daily idea distinct and actionable.' : ''}`,
+    model,
     temperature: 0.35,
-    maxTokens: monthlyPlan ? 10_000 : 6500,
+    reasoningEffort: 'low',
     responseFormat: { type: 'json_object' },
-    prompt: `Saved business profile:\n${businessContextText}\n\nRecent conversation:\n${historyText || 'None'}\n\nLatest request:\n${message}\n\n${monthlyPlan ? `Create exactly one row per date, in this order: ${dates.join(', ')}. Use columns Date, Platform, Format, Topic, Hook, CTA. Keep each cell concise and fill all 30 rows.\n\n` : ''}Return exactly this JSON structure: ${format === 'xlsx'
-      ? '{"title":"workbook title","sheets":[{"name":"sheet name","columns":["column 1","column 2"],"rows":[["cell 1","cell 2"]]}]}. Include up to 3 sheets, 10 columns, and 40 meaningful rows per sheet.'
+  };
+  const requestContext = `Saved business profile:\n${businessContextText}\n\nRecent conversation:\n${historyText || 'None'}\n\nLatest request:\n${message}\n\n`;
+  const xlsxStructure = '{"title":"workbook title","sheets":[{"name":"sheet name","columns":["column 1","column 2"],"rows":[["cell 1","cell 2"]]}]}. Include up to 3 sheets, 10 columns, and 40 meaningful rows per sheet.';
+  const generateReadableDocument = async (request, expectedRows = 0) => {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const raw = await generateOpenRouterText({
+        ...baseRequest,
+        ...request,
+        prompt: `${request.prompt}${attempt ? '\n\nThe previous response was empty, malformed, or missing rows. Return one complete JSON object with every requested row.' : ''}`,
+      });
+      try {
+        const document = normalizeAgentDocument(raw, format);
+        if (expectedRows && (
+          document.sheets[0].columns.length < 6
+          || document.sheets[0].rows.length < expectedRows
+          || document.sheets[0].rows.slice(0, expectedRows).some((row) => row.filter(Boolean).length < 4)
+        )) throw new Error('The Excel workbook has missing content-plan rows.');
+        return document;
+      } catch (error) {
+        if (attempt) throw new Error('The AI could not produce a readable document. Please try again.');
+        console.warn('Agent document response was incomplete; retrying once:', error?.message || error);
+      }
+    }
+  };
+
+  if (monthlyPlan) {
+    const dates = nextThirtyBangkokDates();
+    // A single 30-row JSON reply can exhaust its output budget before closing
+    // the object. Smaller complete replies are much more reliable for Khmer
+    // content, and each batch can be retried without repeating the whole month.
+    const batches = await Promise.all([0, 10, 20].map((start) => {
+      const batchDates = dates.slice(start, start + 10);
+      return generateReadableDocument({
+        maxTokens: 5000,
+        prompt: `${requestContext}Create exactly one distinct, actionable content-calendar row for each of these 10 dates, in this order: ${batchDates.join(', ')}. Use columns Date, Platform, Format, Topic, Hook, CTA. Keep each cell concise and fill all 10 rows. Return exactly this JSON structure: ${xlsxStructure}`,
+      }, batchDates.length);
+    }));
+    const firstSheet = batches[0].sheets[0];
+    const rows = batches.flatMap((batch) => batch.sheets[0].rows.slice(0, 10));
+    return dateMonthlyPlanRows({ ...batches[0], sheets: [{ ...firstSheet, rows }] }, dates, responseLanguage);
+  }
+
+  return generateReadableDocument({
+    maxTokens: 6500,
+    prompt: `${requestContext}Return exactly this JSON structure: ${format === 'xlsx'
+      ? xlsxStructure
       : '{"title":"document title","sections":[{"heading":"section heading","paragraphs":["complete paragraph or bullet text"]}]}. Include useful detail in multiple sections.'}`,
   });
-  let document = normalizeAgentDocument(raw, format);
-  if (!monthlyPlan) return document;
-  if (document.sheets[0].rows.length < dates.length) {
-    const firstSheet = document.sheets[0];
-    const remainingDates = dates.slice(firstSheet.rows.length);
-    try {
-      const continuation = await generateOpenRouterText({
-        system: `Continue a monthly marketing content calendar. Return only valid JSON in ${responseLanguage}. Every requested date needs a distinct, actionable idea.`,
-        model: resolveOpenRouterTextModel(),
-        temperature: 0.35,
-        maxTokens: 7000,
-        responseFormat: { type: 'json_object' },
-        prompt: `Original request: ${message}\nBusiness: ${businessContextText}\nAlready covered dates: ${dates.slice(0, firstSheet.rows.length).join(', ')}\nFill ONLY these remaining dates, in order: ${remainingDates.join(', ')}. Return {"title":"Continuation","sheets":[{"name":"Plan","columns":["Date","Platform","Format","Topic","Hook","CTA"],"rows":[["date","platform","format","topic","hook","cta"]]}]}. Include exactly ${remainingDates.length} rows.`,
-      });
-      const extra = normalizeAgentDocument(continuation, 'xlsx');
-      document = { ...document, sheets: [{ ...firstSheet, rows: [...firstSheet.rows, ...extra.sheets[0].rows] }] };
-    } catch (error) {
-      console.error('Monthly plan continuation failed:', error?.message || error);
-    }
-  }
-  return dateMonthlyPlanRows(document, dates, responseLanguage);
 };
