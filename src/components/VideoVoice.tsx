@@ -33,6 +33,7 @@ import { deleteGenerationHistory, GenerationHistoryEntry, saveGenerationHistory,
 import HistoryPanel from './HistoryPanel';
 import { estimateVideoGenerationCostUsd, MAX_VIDEO_DURATION_SECONDS, MAX_VIDEO_GENERATION_COST_USD } from '../../shared/videoCost.js';
 import { videoOptionsFromRecoveredStart } from '../lib/videoRecoveryState';
+import { videoRequestFingerprint } from '../lib/videoRequestFingerprint';
 
 type ToolType = 'video' | 'voice';
 type VoiceGender = 'Female' | 'Male';
@@ -115,23 +116,6 @@ interface PendingVideoStart {
   aspectRatio?: VideoAspectRatio;
   createdAt: number;
 }
-
-const videoRequestFingerprint = (prompt: string, images: { base64: string; mimeType: string }[], duration: number, script = '', aspectRatio: VideoAspectRatio = '9:16') => {
-  const source = JSON.stringify({
-    prompt, duration, script, aspectRatio,
-    images: images.map((image) => ({
-      mimeType: image.mimeType,
-      length: image.base64.length,
-      sample: `${image.base64.slice(0, 48)}${image.base64.slice(-48)}`,
-    })),
-  });
-  let hash = 2166136261;
-  for (let index = 0; index < source.length; index += 1) {
-    hash ^= source.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(36);
-};
 
 const readPendingVideoJobs = (): PendingVideoJob[] => {
   try {
@@ -737,7 +721,7 @@ const attemptGenerateVideoClip = async (
   resumeOptions?: Pick<PendingVideoJob, 'silentRequested' | 'resumeNarration'>,
 ): Promise<{ videoUrl: string; narrationFallbackReason?: string; pendingFingerprint: string; expectedScript?: string; outputAspectRatio: VideoAspectRatio }> => {
   if (!idToken || !userId) throw new Error('Sign in before generating a video.');
-  const fingerprint = videoRequestFingerprint(prompt, images, duration, khmerSpeech?.script || '', aspectRatio);
+  const fingerprint = videoRequestFingerprint(prompt, images, duration, aspectRatio, khmerSpeech, resumeOptions);
   let pending = readPendingVideoJobs().find((job) => job.userId === userId && job.fingerprint === fingerprint);
   // Each field is filled in independently, exactly once, the first time it
   // becomes known -- never overwritten afterward. These two fields used to be
@@ -1277,7 +1261,8 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     // stale TikTok state from a restored/history job.
     const generationAspectRatio: VideoAspectRatio = aspectRatioOverride || '16:9';
     const generationVoiceGender = voiceGenderOverride || voiceGender;
-    const generationPerformanceStyle = performanceStyleOverride?.trim() || voicePersonas[voicePersona].style;
+    const generationVoicePersona: VoicePersona = generationVoiceGender === 'Male' ? 'piseth' : 'sreymom';
+    const generationPerformanceStyle = performanceStyleOverride?.trim() || voicePersonas[generationVoicePersona].style;
     setVideoAspectRatio(generationAspectRatio);
     setCaptionPlatform(generationAspectRatio === '16:9' ? 'YouTube' : 'TikTok');
     setGeneratedVideoAspectRatio(generationAspectRatio);
@@ -1368,9 +1353,9 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
             resumeNarration: voiceOverContent && !nativeKhmerSpeech
               ? {
                 text: voiceOverContent,
-                voice: voicePersonas[voicePersona].openRouterVoice,
+                voice: voicePersonas[generationVoicePersona].openRouterVoice,
                 languageHint: /[\u1780-\u17FF]/u.test(voiceOverContent) ? 'Khmer' : 'English',
-                performanceStyle: `${voicePersonas[voicePersona].style} Read the exact provided text like you are speaking in a real conversation, not reading a script. Use human emotion, natural rhythm, clear consonants, natural pacing. Avoid robotic or AI narration.`,
+                performanceStyle: `${voicePersonas[generationVoicePersona].style} Read the exact provided text like you are speaking in a real conversation, not reading a script. Use human emotion, natural rhythm, clear consonants, natural pacing. Avoid robotic or AI narration.`,
               }
               : undefined,
           });
@@ -1442,7 +1427,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       if (voiceOverContent && !nativeKhmerSpeech) {
         setAddingVoiceOver(true);
         try {
-          const persona = voicePersonas[voicePersona];
+          const persona = voicePersonas[generationVoicePersona];
           const hasKhmerText = /[ក-៿]/.test(voiceOverContent);
           const ttsResponse = await fetchAiWithTimeout({
             action: 'ttsGenerate',
@@ -1490,7 +1475,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
               videoLanguage: generationLanguage,
               voiceOverText: voiceOverContent,
               voiceGender: generationVoiceGender,
-              voicePersona,
+              voicePersona: generationVoicePersona,
               videoDuration: durationOverride || videoDuration,
               videoAspectRatio: generationAspectRatio,
             },
@@ -1554,7 +1539,10 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     setVideoLanguage(generationLanguage);
     setCaptionLanguage(generationLanguage);
     setVideoDuration(requestedDuration);
-    if (automationRequest.voiceGender) setVoiceGender(automationRequest.voiceGender);
+    if (automationRequest.voiceGender) {
+      setVoiceGender(automationRequest.voiceGender);
+      setVoicePersona(automationRequest.voiceGender === 'Male' ? 'piseth' : 'sreymom');
+    }
     const requestedAspectRatio = normalizeVideoAspectRatio(automationRequest.aspectRatio);
     setVideoAspectRatio(requestedAspectRatio);
     setCaptionPlatform(requestedAspectRatio === '16:9' ? 'YouTube' : 'TikTok');
