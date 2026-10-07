@@ -989,6 +989,8 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     setCaptionPlatform(restoredRatio === '16:9' ? 'YouTube' : 'TikTok');
     setActiveTool('video');
     setRecoverableVideoUrl(null);
+    setTiktokPublishResult(null);
+    setTiktokStatusError('');
     setVideoNeedsReview(false);
     setPerformanceNeedsReview(false);
     setVideoVoiceQualityNotice(null);
@@ -1020,6 +1022,9 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   const [tiktokBrandedContent, setTiktokBrandedContent] = useState(false);
   const [tiktokConsent, setTiktokConsent] = useState(false);
   const [tiktokVideoSeconds, setTiktokVideoSeconds] = useState<number | null>(null);
+  const [tiktokPublishResult, setTiktokPublishResult] = useState<{ publishId: string; mode: 'inbox' | 'direct'; status: string; failReason: string | null } | null>(null);
+  const [tiktokStatusError, setTiktokStatusError] = useState('');
+  const [tiktokStatusRefresh, setTiktokStatusRefresh] = useState(0);
 
   React.useEffect(() => { setTiktokVideoSeconds(null); }, [generatedVideo]);
 
@@ -1036,7 +1041,9 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         const idToken = await user.getIdToken();
         const response = await fetch('/api/tiktok/publish?action=creatorInfo', { headers: { Authorization: `Bearer ${idToken}` } });
         const data = await response.json();
-        if (!response.ok || !data.creator) throw new Error(data.error?.message || 'Could not load TikTok posting settings.');
+        if (!response.ok || !data.creator) throw new Error(data.error?.code === 'scope_not_authorized'
+          ? 'TikTok has not granted video.publish to this connection. Enable that scope in TikTok Developer Portal, then reconnect TikTok.'
+          : data.error?.message || 'Could not load TikTok posting settings.');
         if (!cancelled) setTiktokCreator(data.creator);
       } catch (error: any) {
         if (!cancelled) setTiktokCreatorError(error?.message || 'Could not load TikTok posting settings.');
@@ -1226,6 +1233,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
 
   const handlePostToTikTok = async (videoUrl: string) => {
     if (videoNeedsReview || performanceNeedsReview) return;
+    if (tiktokPublishResult && tiktokPublishResult.status !== 'FAILED') return;
     if (!aiCaption) {
       notify("Please generate or write a caption first.", 'error');
       return;
@@ -1260,9 +1268,13 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       });
       const data = await res.json();
       if (res.ok) {
+        setTiktokPublishResult({ publishId: data.publishId, mode: tiktokPostMode, status: 'PROCESSING_UPLOAD', failReason: null });
+        setTiktokStatusError('');
         notify(data.message || t('postedToTiktok'), 'success');
       } else {
-        throw new Error(data.error?.message || "Publishing failed");
+        throw new Error(data.error?.code === 'scope_not_authorized'
+          ? 'TikTok has not granted video.publish to this connection. Reconnect TikTok after enabling that scope.'
+          : data.error?.message || 'Publishing failed');
       }
     } catch (error: any) {
       const auditHint = tiktokPostMode === 'direct' && /integration guidelines|unaudited|private account/i.test(error.message || '')
@@ -1273,6 +1285,36 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       setIsPostingTikTok(false);
     }
   };
+
+  React.useEffect(() => {
+    const publishId = tiktokPublishResult?.publishId;
+    if (!publishId || !user) return;
+    let cancelled = false;
+    let attempts = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try {
+        const idToken = await user.getIdToken();
+        const response = await fetch(`/api/tiktok/publish?action=status&publishId=${encodeURIComponent(publishId)}`, {
+          headers: { Authorization: `Bearer ${idToken}` },
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error?.message || 'Could not check TikTok post status.');
+        if (cancelled) return;
+        setTiktokPublishResult((current) => current?.publishId === publishId
+          ? { ...current, status: data.status, failReason: data.failReason || null }
+          : current);
+        setTiktokStatusError('');
+        if (['PUBLISH_COMPLETE', 'SEND_TO_USER_INBOX', 'FAILED'].includes(data.status)) return;
+      } catch (error) {
+        if (!cancelled) setTiktokStatusError(error instanceof Error ? error.message : 'Could not check TikTok post status.');
+        return;
+      }
+      if (!cancelled && ++attempts < 18) timer = setTimeout(poll, 10_000);
+    };
+    timer = setTimeout(poll, 3_000);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [tiktokPublishResult?.publishId, tiktokStatusRefresh, user?.uid]);
 
   const tiktokDisplayName = tiktokUser?.display_name || tiktokUser?.username || tiktokUser?.open_id || 'TikTok user';
   const directPostReady = Boolean(
@@ -1294,6 +1336,8 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     if (!user || (!resumableVideoJob && !recoverableVideoStart) || loading || audioLoading) return;
     setLoading(true);
     setGeneratedVideo(null);
+    setTiktokPublishResult(null);
+    setTiktokStatusError('');
     setGeneratedVideoHasSpeech(false);
     setLipSyncSourceVideo(null);
     setLipSyncOffsetMs(0);
@@ -1435,6 +1479,8 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
 
     setLoading(true);
     setGeneratedVideo(null);
+    setTiktokPublishResult(null);
+    setTiktokStatusError('');
     setGeneratedVideoHasSpeech(false);
     setLipSyncSourceVideo(null);
     setLipSyncOffsetMs(0);
@@ -2643,11 +2689,30 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                       )}
                     </div>
                   )}
+                  {tiktokPublishResult && (
+                    <div className="mb-3 rounded-xl border border-brand-200 bg-brand-50 p-4 text-sm text-brand-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100" aria-live="polite">
+                      <p className="font-semibold">
+                        {tiktokPublishResult.status === 'PUBLISH_COMPLETE'
+                          ? 'TikTok confirmed this video was published.'
+                          : tiktokPublishResult.status === 'SEND_TO_USER_INBOX'
+                            ? 'Video delivered to your TikTok inbox. Open TikTok to finish posting.'
+                            : tiktokPublishResult.status === 'FAILED'
+                              ? `TikTok could not publish this video: ${tiktokPublishResult.failReason || 'Unknown reason'}`
+                              : tiktokPublishResult.mode === 'direct'
+                                ? 'Direct Post submitted. TikTok is still processing it.'
+                                : 'Video uploaded. TikTok is preparing your inbox notification.'}
+                      </p>
+                      {tiktokStatusError && <p className="mt-2 text-red-700">{tiktokStatusError}</p>}
+                      <button type="button" onClick={() => setTiktokStatusRefresh((value) => value + 1)} className="mt-2 font-semibold underline">
+                        Check TikTok status
+                      </button>
+                    </div>
+                  )}
                   <div className="flex flex-col gap-4 sm:flex-row">
                     {tiktokUser ? (
                       <button 
                         onClick={() => handlePostToTikTok(generatedVideo!)}
-                        disabled={isPostingTikTok || videoNeedsReview || performanceNeedsReview || (tiktokPostMode === 'direct' && !directPostReady)}
+                        disabled={isPostingTikTok || videoNeedsReview || performanceNeedsReview || (tiktokPublishResult !== null && tiktokPublishResult.status !== 'FAILED') || (tiktokPostMode === 'direct' && !directPostReady)}
                         className="flex-1 bg-black text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-3 shadow-xl hover:bg-slate-900 transition-all disabled:opacity-50"
                       >
                         {isPostingTikTok ? <Loader2 size={20} className="animate-spin" /> : (

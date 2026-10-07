@@ -74,6 +74,9 @@ npm run dev
 4. Leave `TIKTOK_POST_MODE=inbox` (default) until your TikTok app has been audited by TikTok — unaudited apps are
    restricted to private viewing regardless, and `direct` mode requires a `privacy_level` that matches what
    `/creator_info/query/` returns for the connected account.
+   The Developer Portal's **Direct Post** switch enables the API but does not remove the **Reapply** usage
+   restriction; TikTok must approve its audit before public Direct Post works. The app transfers videos with
+   `FILE_UPLOAD`, so **Verify domains** is not needed for this video flow (it applies to `PULL_FROM_URL`).
 5. **Scheduled/auto-post videos** (Smart Scheduler → TikTok) publish via a cron job
    (`api/tiktok/publish.js?action=cron`), not a browser session, so it needs its own persisted token: connect
    TikTok once (any "Connect TikTok" button) after deploying — `api/tiktok/callback.js` then stores the

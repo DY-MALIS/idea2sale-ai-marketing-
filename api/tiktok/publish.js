@@ -91,6 +91,7 @@ async function tiktokJson(url, token, body) {
 }
 
 const CREATOR_INFO_URL = 'https://open.tiktokapis.com/v2/post/publish/creator_info/query/';
+const POST_STATUS_URL = 'https://open.tiktokapis.com/v2/post/publish/status/fetch/';
 
 async function queryTikTokCreatorInfo(token) {
   const response = await tiktokJson(CREATOR_INFO_URL, token, {});
@@ -129,11 +130,10 @@ function directPostInfo(creator, options) {
   };
 }
 
-async function uploadVideo(uploadUrl, token, video) {
+async function uploadVideo(uploadUrl, video) {
   const response = await fetch(uploadUrl, {
     method: 'PUT',
     headers: {
-      Authorization: `Bearer ${token}`,
       'Content-Type': video.mimeType,
       'Content-Length': String(video.buffer.length),
       'Content-Range': `bytes 0-${video.buffer.length - 1}/${video.buffer.length}`,
@@ -215,10 +215,10 @@ export async function publishVideoToTikTok(token, { videoUrl, title: rawTitle, m
   const initData = await tiktokJson(endpoint, token, body);
   const publishId = initData?.data?.publish_id;
   const uploadUrl = initData?.data?.upload_url;
-
-  if (uploadUrl) {
-    await uploadVideo(uploadUrl, token, video);
+  if (!publishId || !uploadUrl) {
+    throw Object.assign(new Error('TikTok did not return a publish ID and upload URL.'), { status: 502, code: 'invalid_upload_response' });
   }
+  await uploadVideo(uploadUrl, video);
 
   return { publishId, directPost, title };
 }
@@ -231,6 +231,30 @@ async function handleCreatorInfoRequest(req, res) {
     return res.status(200).json({ creator: await queryTikTokCreatorInfo(token) });
   } catch (error) {
     return res.status(error.status || 500).json({ error: { message: error.message, code: error.code || 'creator_info_failed' } });
+  }
+}
+
+async function handleStatusRequest(req, res) {
+  const actorUid = await resolveActorUid(req);
+  const token = actorUid && getCookie(req, 'tiktok_owner') === actorUid ? getCookie(req, 'tiktok_token') : '';
+  if (!token) return res.status(401).json({ error: { message: 'Reconnect your TikTok account.', code: 'not_authenticated' } });
+  const publishId = String(req.query?.publishId || '');
+  if (!/^[\x21-\x7e]{1,64}$/.test(publishId)) {
+    return res.status(400).json({ error: { message: 'Invalid TikTok publish ID.', code: 'invalid_publish_id' } });
+  }
+  try {
+    const response = await tiktokJson(POST_STATUS_URL, token, { publish_id: publishId });
+    const data = response?.data || {};
+    if (!['PROCESSING_UPLOAD', 'PROCESSING_DOWNLOAD', 'SEND_TO_USER_INBOX', 'PUBLISH_COMPLETE', 'FAILED'].includes(data.status)) {
+      throw Object.assign(new Error('TikTok returned an unknown post status.'), { status: 502, code: 'invalid_status_response' });
+    }
+    return res.status(200).json({
+      publishId,
+      status: data.status,
+      failReason: data.fail_reason ? String(data.fail_reason) : null,
+    });
+  } catch (error) {
+    return res.status(error.status || 500).json({ error: { message: error.message, code: error.code || 'status_failed' } });
   }
 }
 
@@ -829,6 +853,10 @@ async function runYouTubeCron(req, res) {
 }
 
 export default async function handler(req, res) {
+  if (req.query?.action === 'status') {
+    if (req.method !== 'GET') return res.status(405).json({ error: { message: 'Method not allowed' } });
+    return handleStatusRequest(req, res);
+  }
   if (req.query?.action === 'creatorInfo') {
     if (req.method !== 'GET') return res.status(405).json({ error: { message: 'Method not allowed' } });
     return handleCreatorInfoRequest(req, res);

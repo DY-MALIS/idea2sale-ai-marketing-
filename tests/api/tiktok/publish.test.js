@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import crypto from 'node:crypto';
 
 const {
   mockGetCookie, mockRecordTikTokPostSync, mockVerifyIdToken, mockLogAudit, mockScheduleQstash,
@@ -98,6 +99,15 @@ it('sends an explicitly selected inbox upload even when the server default is di
   expect(fetchMock).toHaveBeenCalledTimes(2);
 });
 
+it('does not claim an upload succeeded when TikTok omits the upload URL', async () => {
+  const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ data: { publish_id: 'incomplete-1' }, error: { code: 'ok' } }) }));
+  vi.stubGlobal('fetch', fetchMock);
+  await expect(publishVideoToTikTok('token', {
+    videoUrl: 'data:video/mp4;base64,AQID', title: 'Test video', mode: 'inbox',
+  })).rejects.toMatchObject({ code: 'invalid_upload_response' });
+  expect(fetchMock).toHaveBeenCalledOnce();
+});
+
 it('loads current TikTok creator settings for the signed-in owner', async () => {
   vi.stubGlobal('fetch', vi.fn(async (url) => {
     expect(String(url)).toContain('/creator_info/query/');
@@ -107,6 +117,32 @@ it('loads current TikTok creator settings for the signed-in owner', async () => 
   await handler({ method: 'GET', query: { action: 'creatorInfo' }, headers: { authorization: 'Bearer id-token' } }, res);
   expect(res.statusCode).toBe(200);
   expect(res.body.creator.creator_nickname).toBe('Owner');
+});
+
+it('checks the real TikTok status for the connected owner', async () => {
+  const fetchMock = vi.fn(async (url, options) => {
+    expect(String(url)).toContain('/publish/status/fetch/');
+    expect(JSON.parse(options.body)).toEqual({ publish_id: 'v_pub_file~123' });
+    return { ok: true, json: async () => ({ data: { status: 'PUBLISH_COMPLETE' }, error: { code: 'ok' } }) };
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  const res = response();
+  await handler({ method: 'GET', query: { action: 'status', publishId: 'v_pub_file~123' }, headers: { authorization: 'Bearer id-token' } }, res);
+  expect(res.statusCode).toBe(200);
+  expect(res.body).toEqual({ publishId: 'v_pub_file~123', status: 'PUBLISH_COMPLETE', failReason: null });
+});
+
+it('does not disclose TikTok status without the connected owner or a valid publish ID', async () => {
+  const fetchMock = vi.fn();
+  vi.stubGlobal('fetch', fetchMock);
+  mockVerifyIdToken.mockResolvedValueOnce({ uid: 'another-owner' });
+  const unauthorized = response();
+  await handler({ method: 'GET', query: { action: 'status', publishId: 'v_pub_file~123' }, headers: { authorization: 'Bearer id-token' } }, unauthorized);
+  expect(unauthorized.statusCode).toBe(401);
+  const invalid = response();
+  await handler({ method: 'GET', query: { action: 'status', publishId: 'bad id' }, headers: { authorization: 'Bearer id-token' } }, invalid);
+  expect(invalid.statusCode).toBe(400);
+  expect(fetchMock).not.toHaveBeenCalled();
 });
 
 it('rejects a direct post before upload when privacy or consent was not selected', async () => {
@@ -145,7 +181,11 @@ it('uses the creator-selected direct post settings without defaulting interactio
       });
       return { ok: true, json: async () => ({ data: { publish_id: 'direct-1', upload_url: 'https://upload.example.com/put' }, error: { code: 'ok' } }) };
     }
-    if (target === 'https://upload.example.com/put') return { ok: true };
+    if (target === 'https://upload.example.com/put') {
+      expect(options.headers.Authorization).toBeUndefined();
+      expect(options.headers['Content-Range']).toBe('bytes 0-2/3');
+      return { ok: true };
+    }
     throw new Error(`Unexpected fetch to ${target}`);
   });
   vi.stubGlobal('fetch', fetchMock);
@@ -170,6 +210,22 @@ it('waits for TikTok confirmation before marking a submitted Direct Post publish
   expect(await applyTikTokPublishEvent(db, 'post.publish.complete', { publish_id: 'direct-1' })).toBe(true);
   expect(postUpdate).toHaveBeenCalledWith(expect.objectContaining({ status: 'PUBLISH_COMPLETE' }));
   expect(scheduledUpdate).toHaveBeenCalledWith(expect.objectContaining({ status: 'PUBLISHED' }));
+});
+
+it('accepts a correctly signed TikTok posting webhook and updates the post', async () => {
+  vi.stubEnv('TIKTOK_CLIENT_SECRET', 'test-secret');
+  const update = vi.fn();
+  mockInitFirebaseAdmin.mockReturnValue({
+    collection: () => ({ doc: () => ({ get: async () => ({ exists: true }), update }),
+      where: () => ({ limit: () => ({ get: async () => ({ docs: [] }) }) }) }),
+  });
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const rawBody = JSON.stringify({ event: 'post.publish.complete', content: JSON.stringify({ publish_id: 'direct-1' }) });
+  const signature = crypto.createHmac('sha256', 'test-secret').update(`${timestamp}.${rawBody}`).digest('hex');
+  const res = response();
+  await handler({ method: 'POST', query: { action: 'webhook' }, headers: { 'tiktok-signature': `t=${timestamp},s=${signature}` }, rawBody }, res);
+  expect(res.statusCode).toBe(200);
+  expect(update).toHaveBeenCalledWith(expect.objectContaining({ status: 'PUBLISH_COMPLETE' }));
 });
 
 it('records an inbox transfer as awaiting the creator instead of already published', async () => {
