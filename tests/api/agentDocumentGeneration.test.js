@@ -7,6 +7,8 @@ vi.mock('../../api/_openrouter.js', () => ({
 }));
 
 import { generateAgentDocument } from '../../api/_agentDocument.js';
+import { createAgentDocumentBlob } from '../../src/lib/agentDocument.ts';
+import readXlsxFile from 'read-excel-file/node';
 
 const request = {
   format: 'xlsx',
@@ -80,5 +82,23 @@ describe('agent document generation', () => {
     const document = await generateAgentDocument({ ...request, format: 'docx', message: 'Create a Word profile' });
     expect(document.sections[0].paragraphs).toEqual(['Useful content']);
     expect(mocks.generateText).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns a readable Excel draft when both model replies are malformed', async () => {
+    mocks.generateText.mockResolvedValue('{"title":"Broken","sheets":[{"rows":[');
+    const document = await generateAgentDocument({ ...request, message: 'Create a 7 day Excel content plan' });
+    expect(document.title).toMatch(/Draft/);
+    expect(document.sheets[0].rows).toHaveLength(7);
+    expect(document.sheets[0].rows[0][3]).toContain('DGACADEMY');
+    expect(mocks.generateText).toHaveBeenCalledTimes(2);
+    const bytes = new Uint8Array(await createAgentDocumentBlob(document).arrayBuffer());
+    const sheets = await readXlsxFile(Buffer.from(bytes));
+    expect(sheets[0].data).toHaveLength(8);
+  });
+
+  it('does not mask provider errors with a draft plan', async () => {
+    mocks.generateText.mockRejectedValue(new Error('OpenRouter account is unavailable.'));
+    await expect(generateAgentDocument({ ...request, message: 'Create a 7 day Excel content plan' })).rejects.toThrow('OpenRouter account is unavailable.');
+    expect(mocks.generateText).toHaveBeenCalledTimes(1);
   });
 });

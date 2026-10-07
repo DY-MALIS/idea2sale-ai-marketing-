@@ -1337,7 +1337,10 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     } catch (error: any) {
       if (error?.name !== 'AbortError') {
         const errorMessage = error?.message || (language === 'km' ? 'Agent មិនអាចឆ្លើយបាននៅពេលនេះ។' : 'The agent could not respond right now.');
-        if (spoken) notify(errorMessage, 'error');
+        if (spoken) {
+          setVoiceCaption(errorMessage);
+          notify(errorMessage, 'error');
+        }
         else updateMessages([...pendingMessages, { role: 'assistant', content: errorMessage, modality: 'text' }]);
       }
       return '';

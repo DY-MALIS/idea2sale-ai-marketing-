@@ -84,6 +84,7 @@ describe('Gemini Live browser connection', () => {
     socket.onmessage({ data: JSON.stringify({ serverContent: { turnComplete: true } }) });
     await Promise.resolve();
     expect(onPlaybackComplete).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1200);
     sources[0].onended();
     expect(onPlaybackComplete).toHaveBeenCalledOnce();
     processor.onaudioprocess({ inputBuffer: { getChannelData: () => new Float32Array([0.25, -0.25]) } });
@@ -95,6 +96,7 @@ describe('Gemini Live browser connection', () => {
     expect(onAudioStart).toHaveBeenCalledTimes(2);
     socket.onmessage({ data: JSON.stringify({ serverContent: { turnComplete: true } }) });
     await Promise.resolve();
+    vi.advanceTimersByTime(1200);
     sources[1].onended();
     expect(onPlaybackComplete).toHaveBeenCalledTimes(2);
     session.close();
@@ -149,11 +151,13 @@ describe('Gemini Live browser connection', () => {
     expect(onUserTurnText).not.toHaveBeenCalled();
     socket.onmessage({ data: JSON.stringify({ serverContent: { turnComplete: true } }) });
     await Promise.resolve();
+    vi.advanceTimersByTime(150);
     expect(onUserTurnText).toHaveBeenCalledExactlyOnceWith('create a video for me');
 
     // A turn with no speech (just silence/VAD) must not re-fire with stale text.
     socket.onmessage({ data: JSON.stringify({ serverContent: { turnComplete: true } }) });
     await Promise.resolve();
+    vi.advanceTimersByTime(1200);
     expect(onUserTurnText).toHaveBeenCalledOnce();
 
     const audioData = Buffer.from(new Int16Array([100, -100]).buffer).toString('base64');
@@ -167,6 +171,7 @@ describe('Gemini Live browser connection', () => {
     expect(createBufferSource).not.toHaveBeenCalled();
     socket.onmessage({ data: JSON.stringify({ serverContent: { turnComplete: true } }) });
     await Promise.resolve();
+    vi.advanceTimersByTime(150);
     expect(onUserTurnText).toHaveBeenLastCalledWith('សូមបង្កើត plan សម្រាប់មួយខែ');
     expect(createBufferSource).not.toHaveBeenCalled();
 
@@ -178,6 +183,7 @@ describe('Gemini Live browser connection', () => {
     expect(createBufferSource).toHaveBeenCalledOnce();
     socket.onmessage({ data: JSON.stringify({ serverContent: { turnComplete: true } }) });
     await Promise.resolve();
+    vi.advanceTimersByTime(150);
     expect(onUserTurnText).toHaveBeenLastCalledWith('hello');
     expect(createBufferSource).toHaveBeenCalledOnce();
 
@@ -193,7 +199,56 @@ describe('Gemini Live browser connection', () => {
     expect(lateCommandSource.stop).toHaveBeenCalledOnce();
     socket.onmessage({ data: JSON.stringify({ serverContent: { turnComplete: true } }) });
     await Promise.resolve();
+    vi.advanceTimersByTime(150);
     expect(createBufferSource).toHaveBeenCalledTimes(2);
+  });
+
+  it('delivers a Content Plan command whose final transcript arrives after turnComplete', async () => {
+    vi.useFakeTimers();
+    let socket: any;
+    const FakeWebSocket = class {
+      static OPEN = 1;
+      static CONNECTING = 0;
+      readyState = 0;
+      onopen: (() => void) | null = null;
+      onmessage: ((event: { data: string }) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+      constructor() { socket = this; }
+      send() {}
+      close() { this.readyState = 3; }
+    };
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [{ stop: vi.fn() }] }) } });
+    vi.stubGlobal('window', { setInterval, setTimeout });
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    const playbackContext = {
+      sampleRate: 16000, currentTime: 0, destination: {},
+      createMediaStreamSource: () => ({ connect: vi.fn(), disconnect: vi.fn() }),
+      createScriptProcessor: () => ({ connect: vi.fn(), disconnect: vi.fn(), onaudioprocess: null }),
+      createBuffer: () => ({ duration: 0.1, copyToChannel: vi.fn() }),
+      createBufferSource: () => ({ connect: vi.fn(), start: vi.fn(), stop: vi.fn(), onended: null }),
+      close: vi.fn().mockResolvedValue(undefined),
+    } as unknown as AudioContext;
+    const onUserTurnText = vi.fn((text: string) => isAgentDocumentCommand(text));
+    const pending = connectGeminiLive('ephemeral-token', 'gemini-3.8-live', playbackContext, { onUserTurnText, onUserTranscription: isAgentDocumentCommand });
+    await vi.waitFor(() => expect(socket).toBeDefined());
+    socket.readyState = FakeWebSocket.OPEN;
+    socket.onopen();
+    socket.onmessage({ data: JSON.stringify({ setupComplete: {} }) });
+    const session = await pending;
+
+    socket.onmessage({ data: JSON.stringify({ serverContent: { turnComplete: true } }) });
+    await Promise.resolve();
+    vi.advanceTimersByTime(500);
+    expect(onUserTurnText).not.toHaveBeenCalled();
+    socket.onmessage({ data: JSON.stringify({ serverContent: { inputTranscription: { text: 'សូមបង្កើត Content ' } } }) });
+    await Promise.resolve();
+    vi.advanceTimersByTime(100);
+    socket.onmessage({ data: JSON.stringify({ serverContent: { inputTranscription: { text: 'Plan ៧ ថ្ងៃជា Excel' } } }) });
+    await Promise.resolve();
+    vi.advanceTimersByTime(150);
+    expect(onUserTurnText).toHaveBeenCalledExactlyOnceWith('សូមបង្កើត Content Plan ៧ ថ្ងៃជា Excel');
+    session.close();
   });
 
   it('plays the reply instead of killing the call when a turn has audio but no transcript', async () => {
@@ -243,6 +298,7 @@ describe('Gemini Live browser connection', () => {
     socket.onmessage({ data: JSON.stringify({ serverContent: { modelTurn: { parts: [{ inlineData: { mimeType: 'audio/pcm;rate=24000', data: audioData } }] } } }) });
     socket.onmessage({ data: JSON.stringify({ serverContent: { turnComplete: true } }) });
     await Promise.resolve();
+    vi.advanceTimersByTime(1200);
 
     // The held audio plays and the call stays open -- it must not be treated
     // as a fatal connection error that forces a fallback to the slow,

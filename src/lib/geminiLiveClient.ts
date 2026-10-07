@@ -19,6 +19,11 @@ const SEND_CHUNK_MS = 200;
 // Allow a brief window for an incoming transcript to identify an app-handled
 // command, without holding an ordinary spoken reply until generation finishes.
 const REPLY_COMMAND_GRACE_MS = 300;
+// Gemini sends inputTranscription independently of turnComplete, with no
+// guaranteed ordering. Give the final transcript a short chance to arrive
+// before deciding that a completed voice turn had no app command.
+const TRANSCRIPT_SETTLE_MS = 150;
+const LATE_TRANSCRIPT_WAIT_MS = 1200;
 // Google's own voice-activity detection decides when the user has stopped
 // talking before it starts replying -- the default silence window it waits
 // out is the biggest piece of the "speaking -> hearing a reply" gap this
@@ -213,6 +218,7 @@ export async function connectGeminiLive(
   let pendingSamples: Float32Array[] = [];
   let closed = false;
   let ready = false;
+  let turnCompletionTimer: number | undefined;
 
   const socket = new WebSocket(`${GEMINI_LIVE_WS_URL}?access_token=${encodeURIComponent(ephemeralToken)}`);
   let settleConnect: ((session: GeminiLiveSession) => void) | null = null;
@@ -232,6 +238,7 @@ export async function connectGeminiLive(
     clearTimeout(readyTimeout);
     clearInterval(sendTimer);
     clearTimeout(replyGateTimer);
+    clearTimeout(turnCompletionTimer);
     player.stopAll();
     processor.disconnect();
     source.disconnect();
@@ -317,6 +324,7 @@ export async function connectGeminiLive(
   let pendingReplyAudio: Int16Array[] = [];
   let replyGateTimer: number | undefined;
   let replyAudioReleased = false;
+  let turnCompletePending = false;
   const clearReplyGate = () => {
     clearTimeout(replyGateTimer);
     replyGateTimer = undefined;
@@ -327,6 +335,28 @@ export async function connectGeminiLive(
     replyAudioReleased = true;
     pendingReplyAudio.forEach((audio) => player.enqueue(audio));
     pendingReplyAudio = [];
+  };
+  const finishCompletedTurn = () => {
+    clearTimeout(turnCompletionTimer);
+    turnCompletionTimer = undefined;
+    if (!turnCompletePending || closed) return;
+    turnCompletePending = false;
+    clearReplyGate();
+    const spoken = inputTranscriptBuffer.trim();
+    inputTranscriptBuffer = '';
+    const handledByApp = spoken ? handlers.onUserTurnText?.(spoken) === true : false;
+    if (handledByApp) player.stopAll();
+    else releaseReplyAudio();
+    pendingReplyAudio = [];
+    player.markTurnComplete();
+    suppressReplyAudio = false;
+    replyAudioReleased = false;
+    lastTranscriptAt = 0;
+    latencyLoggedForTurn = false;
+  };
+  const scheduleCompletedTurn = (delayMs: number) => {
+    clearTimeout(turnCompletionTimer);
+    turnCompletionTimer = window.setTimeout(finishCompletedTurn, delayMs);
   };
 
   socket.onmessage = (event) => {
@@ -349,6 +379,7 @@ export async function connectGeminiLive(
         if (typeof transcriptChunk === 'string' && transcriptChunk) {
           inputTranscriptBuffer += transcriptChunk;
           lastTranscriptAt = performance.now();
+          if (turnCompletePending) scheduleCompletedTurn(TRANSCRIPT_SETTLE_MS);
           if (handlers.onUserTranscription?.(inputTranscriptBuffer)) {
             suppressReplyAudio = true;
             pendingReplyAudio = [];
@@ -380,29 +411,9 @@ export async function connectGeminiLive(
           handlers.onInterrupted?.();
         }
         if (message?.serverContent?.turnComplete) {
-          clearReplyGate();
           handlers.onTurnComplete?.();
-          const spoken = inputTranscriptBuffer.trim();
-          inputTranscriptBuffer = '';
-          // The brief audio gate lets a document/plan command stay silent.
-          // An occasional turn
-          // with no transcript at all (a brief utterance, a VAD hiccup) isn't
-          // evidence the connection itself is broken. This used to fail the
-          // whole session over it, which tore down the fast, natural,
-          // interruptible Gemini Live call and dropped back to the slow
-          // turn-based fallback for the rest of the conversation merely
-          // because one turn's transcript didn't come through -- far more
-          // disruptive than the small risk of speaking over a command that
-          // happens to coincide with a missing transcript.
-          const handledByApp = spoken ? handlers.onUserTurnText?.(spoken) === true : false;
-          if (handledByApp) player.stopAll();
-          else releaseReplyAudio();
-          pendingReplyAudio = [];
-          player.markTurnComplete();
-          suppressReplyAudio = false;
-          replyAudioReleased = false;
-          lastTranscriptAt = 0;
-          latencyLoggedForTurn = false;
+          turnCompletePending = true;
+          scheduleCompletedTurn(inputTranscriptBuffer.trim() ? TRANSCRIPT_SETTLE_MS : LATE_TRANSCRIPT_WAIT_MS);
         }
       } catch (error) {
         fail(error instanceof Error ? error : new Error('Failed to parse Gemini Live message.'));

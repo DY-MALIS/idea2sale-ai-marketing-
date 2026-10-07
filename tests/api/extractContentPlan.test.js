@@ -73,6 +73,26 @@ it('returns an AI-created Content Planner in the chat instead of uploaded-plan i
   expect(mocks.text).toHaveBeenCalledTimes(1);
 });
 
+it.each([
+  ['voiceAutomationCheck', 'Create a 7 day content plan in Excel'],
+  ['socialAgent', 'Create a 7 day content plan'],
+])('returns an Excel document for a Live Voice plan through %s', async (action, message) => {
+  mocks.text.mockImplementation(async ({ prompt }) => {
+    const dates = prompt.match(/in this order: ([\d,\s-]+)/)?.[1].match(/\d{4}-\d{2}-\d{2}/g) || [];
+    return JSON.stringify({ title: 'Sample plan', sheets: [{
+      name: 'Plan', columns: ['Date', 'Platform', 'Format', 'Topic', 'Hook', 'CTA'],
+      rows: dates.map((date) => [date, 'Facebook', 'Post', 'Helpful tip', 'Learn something useful', 'Message us']),
+    }] });
+  });
+  const res = responseRecorder();
+  await handler({ method: 'POST', headers: {}, body: {
+    action, message, liveVoice: true, detectedLanguage: 'en', language: 'en',
+  } }, res);
+  expect(res.statusCode).toBe(200);
+  expect(res.body.document).toMatchObject({ format: 'xlsx', sheets: [{ rows: expect.any(Array) }] });
+  expect(res.body.document.sheets[0].rows).toHaveLength(7);
+});
+
 it('dates a new planner in the browser time zone near the UTC day boundary', async () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-10-05T18:30:00Z'));

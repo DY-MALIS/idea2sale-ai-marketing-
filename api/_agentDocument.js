@@ -119,7 +119,7 @@ export const generateAgentDocument = async ({ format, message, historyText, busi
         const responseParseFailed = error instanceof SyntaxError;
         const documentParseFailed = /generated document could not be read|document has no content|workbook has no rows|missing content-plan rows/i.test(String(error?.message || ''));
         if (!responseParseFailed && !documentParseFailed) throw error;
-        if (attempt) throw new Error('The AI could not produce a readable document. Please try again.');
+        if (attempt) throw Object.assign(new Error('The AI could not produce a readable document. Please try again.'), { code: 'incomplete_document' });
         console.warn('Agent document response was incomplete; retrying once:', error?.message || error);
       }
     }
@@ -127,6 +127,25 @@ export const generateAgentDocument = async ({ format, message, historyText, busi
 
   if (planDays) {
     const dates = nextThirtyBangkokDates().slice(0, planDays);
+    const businessName = value(String(businessContextText || '').match(/^Business name:\s*(.+)$/m)?.[1], 80).replace(/^not set$/i, '');
+    let usedFallback = false;
+    const fallbackBatch = (batchDates) => {
+      const english = responseLanguage === 'English';
+      const themes = english
+        ? ['Introduce the business', 'Answer a customer question', 'Explain a common problem', 'Share a practical tip', 'Show how the service works', 'Address a misconception', 'Share a customer benefit', 'Compare two options', 'Explain the next step', 'Invite questions']
+        : ['ណែនាំអាជីវកម្ម', 'ឆ្លើយសំណួរអតិថិជន', 'ពន្យល់បញ្ហាទូទៅ', 'ចែករំលែកគន្លឹះ', 'បង្ហាញរបៀបប្រើសេវា', 'កែការយល់ច្រឡំ', 'បង្ហាញអត្ថប្រយោជន៍', 'ប្រៀបធៀបជម្រើស', 'ពន្យល់ជំហានបន្ទាប់', 'អញ្ជើញឱ្យសួរ'];
+      return {
+        format: 'xlsx', title: english ? 'Draft Content Plan' : 'ផែនការមាតិកាព្រាង',
+        sheets: [{ name: 'Content Plan', columns: ['Date', 'Platform', 'Format', 'Topic', 'Hook', 'CTA'],
+          rows: batchDates.map((date) => {
+            const index = dates.indexOf(date);
+            const theme = themes[index % themes.length];
+            return english
+              ? [date, index % 3 === 0 ? 'TikTok' : 'Facebook', index % 3 === 0 ? 'Video' : 'Post', `${businessName ? `${businessName}: ` : ''}${theme}`, `What should customers know about ${theme.toLowerCase()}?`, 'Message us to learn more']
+              : [date, index % 3 === 0 ? 'TikTok' : 'Facebook', index % 3 === 0 ? 'វីដេអូ' : 'ផុស', `${businessName ? `${businessName}: ` : ''}${theme}`, `តើអ្នកដឹងអ្វីខ្លះអំពី${theme}?`, 'ផ្ញើសារមកសួរបន្ថែម'];
+          }) }],
+      };
+    };
     // A single 30-row JSON reply can exhaust its output budget before closing
     // the object. Smaller complete replies are much more reliable for Khmer
     // content, and each batch can be retried without repeating the whole month.
@@ -135,11 +154,20 @@ export const generateAgentDocument = async ({ format, message, historyText, busi
       return generateReadableDocument({
         maxTokens: 5000,
         prompt: `${requestContext}Create exactly one distinct, actionable content-calendar row for each of these ${batchDates.length} dates, in this order: ${batchDates.join(', ')}. Use columns Date, Platform, Format, Topic, Hook, CTA. Keep each cell concise and fill all ${batchDates.length} rows. Return exactly this JSON structure: ${xlsxStructure}`,
-      }, batchDates.length);
+      }, batchDates.length).catch((error) => {
+        if (error?.code !== 'incomplete_document') throw error;
+        // Two malformed completions should not leave a spoken plan request with
+        // no workbook. Only this recoverable model-output failure gets a
+        // clearly titled draft; authentication and provider errors still fail.
+        console.warn('Agent content-plan batch was incomplete; using a reviewable draft:', error.message);
+        usedFallback = true;
+        return fallbackBatch(batchDates);
+      });
     }));
     const firstSheet = batches[0].sheets[0];
     const rows = batches.flatMap((batch) => batch.sheets[0].rows.slice(0, 10));
-    return dateMonthlyPlanRows({ ...batches[0], sheets: [{ ...firstSheet, rows }] }, dates, responseLanguage);
+    const assembled = { ...batches[0], ...(usedFallback ? { title: responseLanguage === 'English' ? 'Draft Content Plan' : 'ផែនការមាតិកាព្រាង' } : {}), sheets: [{ ...firstSheet, rows }] };
+    return dateMonthlyPlanRows(assembled, dates, responseLanguage);
   }
 
   return generateReadableDocument({
