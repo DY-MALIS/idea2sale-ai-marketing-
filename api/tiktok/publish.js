@@ -351,7 +351,7 @@ export async function deliverOneScheduledTikTokPost(db, docRef, token) {
   } catch (error) {
     const code = error?.code || null;
     const message = code === 'unaudited_client_can_only_post_to_private_accounts'
-      ? 'Public Direct Post needs TikTok audit approval. Use Upload to TikTok and finish posting in the TikTok app.'
+      ? 'Until this app passes TikTok audit, Direct Post requires a private creator account and Only me video visibility. Use Upload to TikTok to deliver a draft instead.'
       : error?.message || 'TikTok publish failed.';
     await docRef.update({
       status: 'FAILED',

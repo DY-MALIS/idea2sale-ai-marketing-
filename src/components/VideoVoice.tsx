@@ -1262,12 +1262,17 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       if (res.ok) {
         notify(data.message || t('postedToTiktok'), 'success');
       } else {
-        throw new Error(data.error?.message || "Publishing failed");
+        throw Object.assign(new Error(data.error?.message || "Publishing failed"), {
+          code: data.error?.code,
+        });
       }
     } catch (error: any) {
-      const auditHint = tiktokPostMode === 'direct' && /integration guidelines|unaudited|private account/i.test(error.message || '')
-        ? '\n\nTikTok has not approved public Direct Post yet. Select Upload to TikTok and finish posting in the TikTok app.'
-        : '';
+      const auditHint = tiktokPostMode !== 'direct' ? ''
+        : error?.code === 'unaudited_client_can_only_post_to_private_accounts'
+          ? '\n\nTikTok requires the creator account itself to be private until this app passes audit. Choosing "Only me" for the video is not enough. Set the account to private in TikTok, or select Upload to TikTok to deliver a draft.'
+          : /integration guidelines|unaudited|private account/i.test(error.message || '')
+            ? '\n\nTikTok rejected Direct Post under the current account or app restrictions. Select Upload to TikTok to deliver a draft.'
+            : '';
       notify(`${t('postFailed')}: ${error.message}${auditHint}`, 'error');
     } finally {
       setIsPostingTikTok(false);
