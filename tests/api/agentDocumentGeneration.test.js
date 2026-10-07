@@ -72,4 +72,13 @@ describe('agent document generation', () => {
     expect(document.sections[0].paragraphs[0]).toBe('AI training and systems');
     expect(mocks.generateText).toHaveBeenCalledTimes(2);
   });
+
+  it('retries a truncated OpenRouter HTTP JSON body without exposing a parser error', async () => {
+    mocks.generateText
+      .mockRejectedValueOnce(new SyntaxError("Expected ',' or ']' after array element in JSON"))
+      .mockResolvedValueOnce(JSON.stringify({ title: 'Draft', sections: [{ heading: 'About', paragraphs: ['Useful content'] }] }));
+    const document = await generateAgentDocument({ ...request, format: 'docx', message: 'Create a Word profile' });
+    expect(document.sections[0].paragraphs).toEqual(['Useful content']);
+    expect(mocks.generateText).toHaveBeenCalledTimes(2);
+  });
 });

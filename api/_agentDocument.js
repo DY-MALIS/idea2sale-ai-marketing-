@@ -99,12 +99,12 @@ export const generateAgentDocument = async ({ format, message, historyText, busi
   const xlsxStructure = '{"title":"workbook title","sheets":[{"name":"sheet name","columns":["column 1","column 2"],"rows":[["cell 1","cell 2"]]}]}. Include up to 3 sheets, 10 columns, and 40 meaningful rows per sheet.';
   const generateReadableDocument = async (request, expectedRows = 0) => {
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      const raw = await generateOpenRouterText({
-        ...baseRequest,
-        ...request,
-        prompt: `${request.prompt}${attempt ? '\n\nThe previous response was empty, malformed, or missing rows. Return one complete JSON object with every requested row.' : ''}`,
-      });
       try {
+        const raw = await generateOpenRouterText({
+          ...baseRequest,
+          ...request,
+          prompt: `${request.prompt}${attempt ? '\n\nThe previous response was empty, malformed, or missing rows. Return one complete JSON object with every requested row.' : ''}`,
+        });
         const document = normalizeAgentDocument(raw, format);
         if (expectedRows && (
           document.sheets[0].columns.length < 6
@@ -113,6 +113,12 @@ export const generateAgentDocument = async ({ format, message, historyText, busi
         )) throw new Error('The Excel workbook has missing content-plan rows.');
         return document;
       } catch (error) {
+        // A truncated HTTP JSON body can fail inside generateOpenRouterText,
+        // before normalizeAgentDocument sees the model text. Retry that same
+        // recoverable parse failure without retrying credential or credit errors.
+        const responseParseFailed = error instanceof SyntaxError;
+        const documentParseFailed = /generated document could not be read|document has no content|workbook has no rows|missing content-plan rows/i.test(String(error?.message || ''));
+        if (!responseParseFailed && !documentParseFailed) throw error;
         if (attempt) throw new Error('The AI could not produce a readable document. Please try again.');
         console.warn('Agent document response was incomplete; retrying once:', error?.message || error);
       }
