@@ -83,10 +83,10 @@ describe('native Khmer video speech', () => {
     expect(prepared.avatarPrompt).toContain('face occupies at least one third');
     expect(prepared.avatarPrompt).toContain('mouth gently closed');
     expect(prepared.motionPrompt).toContain('TOP PRIORITY: PRECISE AUDIO-DRIVEN HUMAN SPEECH');
-    expect(prepared.motionPrompt).toContain('1.1x energy');
-    expect(prepared.motionPrompt).toContain('two compact meaning-based hand or task gestures');
+    expect(prepared.motionPrompt).toContain('ordinary real-world speed');
+    expect(prepared.motionPrompt).toContain('three distinct compact meaning-based hand or task gestures');
     expect(prepared.motionPrompt).toContain('finishes in 0.35 to 0.55 seconds');
-    expect(prepared.motionPrompt).toContain('Never stretch one gesture across a phrase');
+    expect(prepared.motionPrompt).toContain('spaced across the clip');
     expect(prepared.mode).toBe('edge-seedance');
     expect(prepared.performanceStyle).toContain('natural Cambodian conversational voice');
     expect(prepared.performanceStyle).toContain('Fully pronounce every Khmer consonant');
@@ -94,7 +94,7 @@ describe('native Khmer video speech', () => {
     expect(prepared.motionPrompt).toContain('No pose freezes longer than 0.3 seconds');
     expect(prepared.motionPrompt).toContain('synchronized frame by frame');
     expect(prepared.motionPrompt).toContain('LIVELY DELIVERY');
-    expect(prepared.motionPrompt).toContain('never a flat, bored, or mannequin-still stare');
+    expect(prepared.motionPrompt).toContain('never a flat or mannequin-still stare');
     expect(prepared.prompt.length + prepared.motionPrompt.length).toBeLessThan(1400);
     expect(mocks.narration).not.toHaveBeenCalled();
   });
