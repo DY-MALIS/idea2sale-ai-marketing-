@@ -618,9 +618,12 @@ FINAL VIDEO OVERRIDE: Khmer plan videos use a Khmer neural speech track and an a
 // exact name into the script itself. Adding the raw name afterward can switch
 // the Khmer TTS voice to English and overrun the clip.
 const parseContentPlanItems = (text) => {
-  const parsed = jsonFromText(text, []);
+  const parsed = jsonFromText(text, null);
+  if (!parsed || (!Array.isArray(parsed) && !Array.isArray(parsed.items))) {
+    throw new Error('The generated Content Plan could not be read.');
+  }
   const rows = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.items) ? parsed.items : [];
-  return rows
+  const items = rows
   .filter((item) => item && /^\d{4}-\d{2}-\d{2}$/.test(item.date) && item.prompt)
   .map((item) => ({
     date: item.date,
@@ -639,6 +642,8 @@ const parseContentPlanItems = (text) => {
     }),
   }))
   .slice(0, 60);
+  if (rows.length && !items.length) throw new Error('The generated Content Plan has no readable dated rows.');
+  return items;
 };
 
 const normalizeMediaPrompt = async (prompt, mediaType) => {
@@ -1684,7 +1689,7 @@ Response rules:
       // a calendar tab appearing after other tabs doesn't get truncated away.
       planText = planText.slice(0, 60000);
 
-      const text = await generateOpenRouterText({
+      const planRequest = {
         // Gemini, not the default text model -- the video prompt below embeds a
         // literal Khmer sentence for the video model to pronounce verbatim, and
         // that sentence is only as good as the Khmer it's written in. Gemini's
@@ -1696,9 +1701,20 @@ Response rules:
         prompt: `Here is the raw content plan (CSV or pasted spreadsheet text, possibly several sheets):\n\n${planText}\n\nToday's date is ${new Date().toISOString().slice(0, 10)}. For every row that has both a date (in any format: YYYY-MM-DD, DD/MM/YYYY, MM/DD/YYYY, a written date like "10 Sep" or "ថ្ងៃទី១០ខែកញ្ញា", a spreadsheet serial date, or an Excel date string) and a topic/title/headline/description/campaign for that post (it does not need to describe a visual, and does not need to be phrased as a request), produce one JSON object with:
 ${contentPlanItemFieldRules(language, `the date normalized to YYYY-MM-DD (infer the year as ${new Date().getFullYear()} if missing, or the following year if that date has already passed this year; if the format is genuinely ambiguous, e.g. "03/04", prefer DD/MM since this plan is for a Cambodian business)`)}
 Only skip a row if it truly has no date, or has a date but no topic/title/description of any kind, or is clearly a header/blank/totals/KPI row. When in doubt about whether a row qualifies, include it rather than skip it. Return ONLY a valid JSON array of these objects, no markdown, no commentary. Return an empty array only if the text has no calendar-like rows whatsoever.`,
-      });
-
-      return res.status(200).json({ items: parseContentPlanItems(text) });
+      };
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          const text = await generateOpenRouterText({
+            ...planRequest,
+            ...(attempt ? { prompt: `${planRequest.prompt}\n\nThe previous response was unreadable. Return one complete, valid JSON array with all dated rows.` } : {}),
+          });
+          return res.status(200).json({ items: parseContentPlanItems(text) });
+        } catch (error) {
+          if (!(error instanceof SyntaxError) && !/generated Content Plan (?:could not be read|has no readable dated rows)/i.test(String(error?.message || ''))) throw error;
+          if (attempt) return res.status(502).json({ error: 'The Content Plan could not be read after retrying. Please try again.' });
+          console.warn('Content Plan extraction response was unreadable; retrying once:', error?.message || error);
+        }
+      }
     }
 
     // Comprehensive Facebook Customer & Competitor Scanner with Video Planning Calendar

@@ -250,6 +250,59 @@ it('extracts a content plan from an uploaded PDF/Word/text file, not just CSV/Ex
   expect(mocks.text.mock.calls[0][0].prompt).toContain('grand opening');
 });
 
+it('retries a truncated extraction reply instead of reporting an empty plan', async () => {
+  mocks.text.mockResolvedValueOnce('[{"date":"2026-10-10",').mockResolvedValueOnce(JSON.stringify([
+    { date: '2026-10-10', type: 'image', topic: 'Opening', prompt: 'A bright storefront' },
+  ]));
+  const res = responseRecorder();
+  await handler({ method: 'POST', headers: {}, body: {
+    action: 'extractContentPlan', planText: '2026-10-10, Opening', language: 'en',
+  } }, res);
+  expect(res.statusCode).toBe(200);
+  expect(res.body.items).toHaveLength(1);
+  expect(mocks.text).toHaveBeenCalledTimes(2);
+});
+
+it('returns an explicit error after two unreadable extraction replies', async () => {
+  mocks.text.mockResolvedValue('[{"date":"2026-10-10",');
+  const res = responseRecorder();
+  await handler({ method: 'POST', headers: {}, body: {
+    action: 'extractContentPlan', planText: '2026-10-10, Opening', language: 'en',
+  } }, res);
+  expect(res.statusCode).toBe(502);
+  expect(res.body.error).toMatch(/could not be read/i);
+  expect(mocks.text).toHaveBeenCalledTimes(2);
+});
+
+it('retries a malformed provider JSON body but preserves provider failures', async () => {
+  mocks.text.mockRejectedValueOnce(new SyntaxError('Unexpected end of JSON input')).mockResolvedValueOnce('[]');
+  const req = { method: 'POST', headers: {}, body: {
+    action: 'extractContentPlan', planText: 'Campaign notes without dates', language: 'en',
+  } };
+  const recovered = responseRecorder();
+  await handler(req, recovered);
+  expect(recovered.statusCode).toBe(200);
+  expect(mocks.text).toHaveBeenCalledTimes(2);
+
+  mocks.text.mockReset().mockRejectedValue(new Error('Provider unavailable'));
+  const failed = responseRecorder();
+  await handler(req, failed);
+  expect(failed.statusCode).toBeGreaterThanOrEqual(500);
+  expect(failed.body.error).toMatch(/Provider unavailable/);
+  expect(mocks.text).toHaveBeenCalledTimes(1);
+});
+
+it('accepts a valid empty plan without an unnecessary retry', async () => {
+  mocks.text.mockResolvedValue('[]');
+  const res = responseRecorder();
+  await handler({ method: 'POST', headers: {}, body: {
+    action: 'extractContentPlan', planText: 'Campaign notes without dates', language: 'en',
+  } }, res);
+  expect(res.statusCode).toBe(200);
+  expect(res.body.items).toEqual([]);
+  expect(mocks.text).toHaveBeenCalledTimes(1);
+});
+
 it('surfaces a document-extraction failure for a file type it cannot read', async () => {
   const req = {
     method: 'POST',
