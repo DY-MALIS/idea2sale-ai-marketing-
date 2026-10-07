@@ -8,9 +8,15 @@ import {
 } from '../../shared/videoCost.js';
 
 describe('video cost ceiling', () => {
-  it('keeps standard and Khmer 8-second videos below $0.80', () => {
-    expect(estimateVideoGenerationCostUsd({ duration: 8, model: STANDARD_VIDEO_MODEL })).toBeLessThanOrEqual(MAX_VIDEO_GENERATION_COST_USD);
-    expect(estimateVideoGenerationCostUsd({ duration: 8, khmerSpeech: true, model: KHMER_VIDEO_MODEL })).toBeLessThanOrEqual(MAX_VIDEO_GENERATION_COST_USD);
+  it('uses the 720p video-only rates for every supported duration', () => {
+    for (const [duration, standard, alternate, khmer] of [
+      [4, 0.17, 0.3524, 0.4524], [6, 0.23, 0.5036, 0.6036], [8, 0.29, 0.6548, 0.7548],
+    ]) {
+      expect(estimateVideoGenerationCostUsd({ duration, model: STANDARD_VIDEO_MODEL })).toBe(standard);
+      expect(estimateVideoGenerationCostUsd({ duration, model: KHMER_VIDEO_MODEL })).toBe(alternate);
+      expect(estimateVideoGenerationCostUsd({ duration, khmerSpeech: true, model: KHMER_VIDEO_MODEL })).toBe(khmer);
+      expect(khmer).toBeLessThanOrEqual(MAX_VIDEO_GENERATION_COST_USD);
+    }
   });
 
   it('rejects longer or unknown-model generations before submission', () => {

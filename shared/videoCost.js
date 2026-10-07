@@ -6,12 +6,14 @@ export const KHMER_VIDEO_MODEL = 'bytedance/seedance-2.0-mini';
 export const BUDGET_AVATAR_IMAGE_MODEL = 'bytedance-seed/seedream-5-0-pro';
 export const VIDEO_RESOLUTION = '720p';
 
-// Current OpenRouter 720p list prices. The estimates intentionally include a
+// Current OpenRouter 720p video-only list prices. startOpenRouterVideo sends
+// generate_audio: false for Veo, and Seedance lists the same video rate with
+// or without generated audio. The estimates intentionally include a
 // reserve for prompt normalization and, for Khmer presenter videos, avatar
-// image + narration generation. This keeps the entire user action under the
-// $0.80 ceiling rather than budgeting only for the final /videos request.
+// image + narration generation. The $0.80 check limits this estimate; actual
+// provider charges can differ if prices change or preparation needs retries.
 const VIDEO_COST_PER_SECOND_USD = Object.freeze({
-  [STANDARD_VIDEO_MODEL]: 0.05,
+  [STANDARD_VIDEO_MODEL]: 0.03,
   [KHMER_VIDEO_MODEL]: 0.0756,
 });
 

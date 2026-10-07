@@ -182,6 +182,21 @@ describe('OpenRouter text token budgets', () => {
 });
 
 describe('OpenRouter video audio', () => {
+  it('requests video-only Veo at 720p, matching the displayed cost estimate', async () => {
+    process.env.OPEN_ROUTER_API_KEY = 'test-key';
+    delete process.env.OPEN_ROUTER_VIDEO_MODEL;
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 'video-job', status: 'pending' }),
+    });
+    global.fetch = fetchMock;
+
+    const job = await startOpenRouterVideo({ prompt: 'Silent product shot', duration: 8, aspectRatio: '16:9' });
+    const requestBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(requestBody).toMatchObject({ model: 'google/veo-3.1-lite', resolution: '720p', generate_audio: false, duration: 8 });
+    expect(job.estimatedCost).toBe(0.29);
+  });
+
   it('requests an audible output when Seedance receives narration audio', async () => {
     process.env.OPEN_ROUTER_API_KEY = 'test-key';
     const fetchMock = vi.fn().mockResolvedValue({

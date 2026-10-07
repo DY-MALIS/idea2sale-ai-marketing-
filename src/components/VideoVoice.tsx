@@ -32,7 +32,7 @@ import { ffprobeDurationSeconds, mp4DurationSeconds } from '../lib/mediaDuration
 import { audioShiftFilter, lastAudibleSpeechSecond, speechTailCutSecond } from '../lib/videoAudioTiming';
 import { deleteGenerationHistory, GenerationHistoryEntry, saveGenerationHistory, useGenerationHistory } from '../lib/generationHistory';
 import HistoryPanel from './HistoryPanel';
-import { estimateVideoGenerationCostUsd, MAX_VIDEO_DURATION_SECONDS, MAX_VIDEO_GENERATION_COST_USD } from '../../shared/videoCost.js';
+import { estimateVideoGenerationCostUsd, KHMER_VIDEO_MODEL, MAX_VIDEO_DURATION_SECONDS, MAX_VIDEO_GENERATION_COST_USD } from '../../shared/videoCost.js';
 import { videoOptionsFromRecoveredStart } from '../lib/videoRecoveryState';
 import { videoRequestFingerprint } from '../lib/videoRequestFingerprint';
 
@@ -2009,6 +2009,12 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   const estimatedKhmerSpeech = voiceOverEnabled && (voiceOverText.trim()
     ? /[\u1780-\u17ff]/u.test(voiceOverText)
     : videoLanguage === 'Khmer');
+  // Production may override the standard Veo model with the other approved
+  // budget model. The browser cannot read that server-only setting, so show
+  // the bounded range rather than a precise-looking price for the wrong model.
+  const estimatedVideoCost = estimatedKhmerSpeech
+    ? `$${estimateVideoGenerationCostUsd({ duration: MAX_VIDEO_DURATION_SECONDS, khmerSpeech: true }).toFixed(2)}`
+    : `$${estimateVideoGenerationCostUsd({ duration: videoDuration }).toFixed(2)}–$${estimateVideoGenerationCostUsd({ duration: videoDuration, model: KHMER_VIDEO_MODEL }).toFixed(2)}`;
 
   return (
     <div className="max-w-6xl mx-auto space-y-10">
@@ -2175,8 +2181,8 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                   </div>
                   <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">
                     {language === 'km'
-                      ? `${estimatedKhmerSpeech ? 'តម្លៃអតិបរមាប៉ាន់ស្មាន' : 'តម្លៃប៉ាន់ស្មាន'}៖ $${estimateVideoGenerationCostUsd({ duration: estimatedKhmerSpeech ? MAX_VIDEO_DURATION_SECONDS : videoDuration, khmerSpeech: estimatedKhmerSpeech }).toFixed(2)} · កំណត់អតិបរមា $${MAX_VIDEO_GENERATION_COST_USD.toFixed(2)}`
-                      : `${estimatedKhmerSpeech ? 'Estimated maximum' : 'Estimated cost'}: $${estimateVideoGenerationCostUsd({ duration: estimatedKhmerSpeech ? MAX_VIDEO_DURATION_SECONDS : videoDuration, khmerSpeech: estimatedKhmerSpeech }).toFixed(2)} · Maximum $${MAX_VIDEO_GENERATION_COST_USD.toFixed(2)}`}
+                      ? `${estimatedKhmerSpeech ? 'តម្លៃប៉ាន់ស្មាន' : 'ចន្លោះតម្លៃប៉ាន់ស្មាន'}៖ ${estimatedVideoCost} · កម្រិតប៉ាន់ស្មាន $${MAX_VIDEO_GENERATION_COST_USD.toFixed(2)}`
+                      : `${estimatedKhmerSpeech ? 'Estimated cost' : 'Estimated cost range'}: ${estimatedVideoCost} · Estimate limit $${MAX_VIDEO_GENERATION_COST_USD.toFixed(2)}`}
                   </p>
                   {estimatedKhmerSpeech && (
                     <p className="text-xs text-slate-600 dark:text-slate-300">
