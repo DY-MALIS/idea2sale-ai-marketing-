@@ -42,8 +42,8 @@ export async function preparePlanVideoSpeech(item) {
   const visual = visualOnlyVideoPrompt(prompt);
   const presenter = item.voiceGender === 'Male' ? 'young adult Cambodian man, age 18 to 25' : 'young adult Cambodian woman, age 18 to 25';
   const gesturePlan = duration === 8
-    ? 'Perform three distinct compact hand or task gestures: one in the first 1.5 seconds, one around seconds 3-4, and one around seconds 6-7.'
-    : 'Perform two distinct compact hand or task gestures: one near the start and one in the final third.';
+    ? 'Perform three distinct compact hand or task gestures near the start, middle and end of the audible narration.'
+    : 'Perform two distinct compact hand or task gestures near the start and end of the audible narration.';
   return {
     script,
     mode: 'edge-seedance',

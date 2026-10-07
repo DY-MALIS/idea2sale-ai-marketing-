@@ -17,12 +17,14 @@ const visualPrompt = (prompt = '') => `${prompt}\nVISUAL TEXT RULE: Do not gener
 
 export const fitKhmerClipDurationToNarration = (narrationDuration, requestedDuration) => {
   const requested = [4, 6, 8].includes(Number(requestedDuration)) ? Number(requestedDuration) : 8;
-  // Seedance supports every whole-second duration from 4 through 15, unlike
-  // Veo's fixed 4/6/8 choices. Honor the user's chosen length; only expand a
-  // shorter choice when the measured narration needs more room.
+  // The provider can animate a talking mouth throughout a requested 8-second
+  // clip even when the supplied narration ends after only a few seconds.
+  // Bound the speaking shot to the measured waveform instead of leaving a
+  // long silent tail with continuing mouth motion. A longer narration can
+  // still expand a shorter requested clip within the eight-second cost cap.
   const measured = Number(narrationDuration);
   if (!Number.isFinite(measured) || measured <= 0) return requested;
-  const fitted = Math.max(requested, MIN_KHMER_CLIP_DURATION, Math.ceil(measured + 0.05));
+  const fitted = Math.max(MIN_KHMER_CLIP_DURATION, Math.ceil(measured + 0.05));
   return Math.min(MAX_KHMER_CLIP_DURATION, fitted);
 };
 
@@ -156,7 +158,7 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
     // Khmer presenter video (including avatar + narration reserve) under $0.80.
     model: KHMER_VIDEO_MODEL,
     khmerSpeech: true,
-    prompt: `${visualPrompt(speech.prompt)}\n${speech.motionPrompt}\nLANGUAGE LOCK: The English wording in these production directions describes visuals only. Never infer, invent, speak, or visibly articulate any English word. The only speech and mouth movement is Cambodian Khmer from the supplied audio waveform. KHMER PHONEME TRANSCRIPT (exact, never translate or paraphrase): ${JSON.stringify(exactKhmerTranscript)}. AUDIO MASTER CLOCK: ${narrationAudio.duration.toFixed(2)} seconds inside a ${fittedDuration}-second clip. The supplied waveform is authoritative: start the matching visible mouth shape on every Khmer phoneme and stop precisely on the last phoneme. ZERO-LATENCY LIP SYNC: each mouth shape must open or close on the exact same frame as its matching phoneme's sound, never one or more frames after it. A mouth that is still closed, still opening, or still mid-transition after its phoneme is already audible is a failure. Do not let the lips lag, trail, drift behind, catch up to, or echo the audio at any point in the clip -- re-anchor to the waveform every phoneme rather than letting a small delay accumulate over the clip. Speech, lips, jaw, tongue and cheeks remain synchronized frame by frame at natural 1x. Do not use generic talking-mouth animation. Keep the lips closed before the first phoneme and after the final phoneme. Keep the head mostly forward and stable. Body and hand reactions use crisp fast-natural 1.1x energy without motion blur. Complete each gesture in 0.35 to 0.55 seconds. After speech, continue natural task actions at a normal pace until the full clip ends. Never freeze, stretch, ease or slow any movement.`,
+    prompt: `${visualPrompt(speech.prompt)}\n${speech.motionPrompt}\nLANGUAGE LOCK: The English wording in these production directions describes visuals only. Never infer, invent, speak, or visibly articulate any English word. The only speech and mouth movement is Cambodian Khmer from the supplied audio waveform. KHMER PHONEME TRANSCRIPT (exact, never translate or paraphrase): ${JSON.stringify(exactKhmerTranscript)}. AUDIO MASTER CLOCK: ${narrationAudio.duration.toFixed(2)} seconds inside a ${fittedDuration}-second clip. The supplied waveform is authoritative: start the matching visible mouth shape on every Khmer phoneme and stop precisely on the last phoneme. ZERO-LATENCY LIP SYNC: each mouth shape must open or close on the exact same frame as its matching phoneme's sound, never one or more frames after it. A mouth that is still closed, still opening, or still mid-transition after its phoneme is already audible is a failure. Do not let the lips lag, trail, drift behind, catch up to, or echo the audio at any point in the clip -- re-anchor to the waveform every phoneme rather than letting a small delay accumulate over the clip. Speech, lips, jaw, tongue and cheeks remain synchronized frame by frame at natural 1x. Do not use generic talking-mouth animation. Keep the lips closed before the first phoneme. HARD MOUTH STOP: by ${narrationAudio.duration.toFixed(2)} seconds the speaker finishes the final phoneme, closes their mouth, and stays silent for the rest of the clip. Keep the head mostly forward and stable. Body and hand reactions use crisp fast-natural 1.1x energy without motion blur. Complete each gesture in 0.35 to 0.55 seconds. After speech, continue natural task actions at a normal pace until the full clip ends. Never freeze, stretch, ease or slow any movement.`,
     duration: fittedDuration,
     aspectRatio,
     referenceUrls: [avatarReferenceUrl],

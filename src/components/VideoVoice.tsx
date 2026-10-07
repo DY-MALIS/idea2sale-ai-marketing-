@@ -29,7 +29,7 @@ import {
 import { CreativeAutomationRequest, ScheduleHandoffRequest } from '../types';
 import { getLatestBusinessBranding } from '../lib/businessBranding';
 import { ffprobeDurationSeconds, mp4DurationSeconds } from '../lib/mediaDuration';
-import { audioShiftFilter } from '../lib/videoAudioTiming';
+import { audioShiftFilter, lastAudibleSpeechSecond } from '../lib/videoAudioTiming';
 import { deleteGenerationHistory, GenerationHistoryEntry, saveGenerationHistory, useGenerationHistory } from '../lib/generationHistory';
 import HistoryPanel from './HistoryPanel';
 import { estimateVideoGenerationCostUsd, MAX_VIDEO_DURATION_SECONDS, MAX_VIDEO_GENERATION_COST_USD } from '../../shared/videoCost.js';
@@ -540,6 +540,50 @@ const shiftVideoAudio = async (videoUrl: string, offsetMs: number): Promise<stri
   }
 };
 
+const trimVideoAfterSpeech = async (videoUrl: string): Promise<{ videoDataUrl: string; duration: number }> => {
+  const { fetchFile } = await import('@ffmpeg/util');
+  const videoBytes = await fetchFile(getOriginalImageKitUrl(videoUrl));
+  const ffmpeg = await getFFmpeg();
+  try {
+    let videoDuration = mp4DurationSeconds(videoBytes);
+    await ffmpeg.writeFile('speech_trim_input.mp4', videoBytes.slice());
+    if (!(videoDuration && videoDuration > 0)) {
+      videoDuration = await ffprobeDurationSeconds(ffmpeg, 'speech_trim_input.mp4', 'speech_trim_duration.txt');
+    }
+    if (!(videoDuration && videoDuration > 0)) throw new Error('Could not measure video length.');
+    const extractCode = await ffmpeg.exec([
+      '-y', '-i', 'speech_trim_input.mp4', '-map', '0:a:0',
+      '-ac', '1', '-ar', '24000', '-f', 's16le', 'speech_trim_audio.pcm',
+    ]);
+    if (extractCode !== 0) throw new Error('Could not read speech from this video.');
+    const pcm = await ffmpeg.readFile('speech_trim_audio.pcm');
+    if (typeof pcm === 'string') throw new Error('Could not inspect video speech.');
+    const speechEnd = lastAudibleSpeechSecond(pcm);
+    if (speechEnd === null) throw new Error('No audible speech was found in this video.');
+    const cutAt = Math.min(videoDuration, Math.max(3, speechEnd + 0.2));
+    if (videoDuration - cutAt < 0.4) throw new Error('There is no long silent ending to remove.');
+    const code = await ffmpeg.exec([
+      '-y', '-i', 'speech_trim_input.mp4', '-t', cutAt.toFixed(3),
+      '-map', '0:v:0', '-map', '0:a:0', '-c:v', 'copy', '-c:a', 'copy',
+      '-movflags', '+faststart', 'speech_trim_output.mp4',
+    ]);
+    if (code !== 0) throw new Error('Could not trim the video after speech.');
+    const data = await ffmpeg.readFile('speech_trim_output.mp4');
+    const blob = new Blob([data.buffer], { type: 'video/mp4' });
+    const videoDataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error('Could not save the trimmed video.'));
+      reader.readAsDataURL(blob);
+    });
+    return { videoDataUrl, duration: cutAt };
+  } finally {
+    await cleanupFfmpegFiles(ffmpeg, [
+      'speech_trim_input.mp4', 'speech_trim_audio.pcm', 'speech_trim_output.mp4', 'speech_trim_duration.txt',
+    ]);
+  }
+};
+
 const overlayLogoOnVideo = async (videoDataUrl: string, logoDataUrl: string): Promise<string> => {
   if (!logoDataUrl) return videoDataUrl;
   const ffmpeg = await getFFmpeg();
@@ -889,6 +933,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   const [lipSyncSourceVideo, setLipSyncSourceVideo] = useState<string | null>(null);
   const [lipSyncOffsetMs, setLipSyncOffsetMs] = useState(0);
   const [lipSyncBusy, setLipSyncBusy] = useState(false);
+  const [trimmingSpeechTail, setTrimmingSpeechTail] = useState(false);
   const [recoverableVideoUrl, setRecoverableVideoUrl] = useState<string | null>(null);
   const [videoNeedsReview, setVideoNeedsReview] = useState(false);
   const [performanceNeedsReview, setPerformanceNeedsReview] = useState(false);
@@ -1806,6 +1851,38 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     }
   };
 
+  const handleTrimAfterSpeech = async () => {
+    if (!generatedVideo || !user || loading) return;
+    setTrimmingSpeechTail(true);
+    setLoading(true);
+    try {
+      const { videoDataUrl, duration } = await trimVideoAfterSpeech(generatedVideo);
+      const savedUrl = await uploadVideoDirectly(videoDataUrl, await user.getIdToken());
+      setGeneratedVideo(savedUrl);
+      setLipSyncSourceVideo(null);
+      setLipSyncOffsetMs(0);
+      setPerformanceNeedsReview(true);
+      setVideoVoiceQualityNotice(language === 'km'
+        ? 'បានកាត់ចុងវីដេអូក្រោយសំឡេងចប់។ សូមមើល និងស្តាប់លទ្ធផលទាំងមូលមុនផ្សព្វផ្សាយ។'
+        : 'The silent ending was removed. Watch and listen to the full result before publishing.');
+      void saveGenerationHistory({
+        user, isDemoMode, type: 'video',
+        title: 'Video trimmed after speech', mediaUrl: savedUrl, mediaType: 'video',
+        payload: {
+          prompt: videoPrompt, voiceOverText, videoLanguage,
+          videoDuration: duration, videoAspectRatio: generatedVideoAspectRatio,
+          hasSpeech: true,
+        },
+      }).catch((error) => console.error('Could not save trimmed video history:', error));
+      notify(language === 'km' ? 'បានកាត់ចុងវីដេអូ។ សូមពិនិត្យម្ដងទៀត។' : 'Silent ending removed. Please review the video again.', 'success');
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Could not trim the video after speech.', 'error');
+    } finally {
+      setTrimmingSpeechTail(false);
+      setLoading(false);
+    }
+  };
+
   const handleDownload = () => {
     if (activeTool === 'video' && generatedVideo) {
       const link = document.createElement('a');
@@ -2026,6 +2103,13 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                       ? `${estimatedKhmerSpeech ? 'តម្លៃអតិបរមាប៉ាន់ស្មាន' : 'តម្លៃប៉ាន់ស្មាន'}៖ $${estimateVideoGenerationCostUsd({ duration: estimatedKhmerSpeech ? MAX_VIDEO_DURATION_SECONDS : videoDuration, khmerSpeech: estimatedKhmerSpeech }).toFixed(2)} · កំណត់អតិបរមា $${MAX_VIDEO_GENERATION_COST_USD.toFixed(2)}`
                       : `${estimatedKhmerSpeech ? 'Estimated maximum' : 'Estimated cost'}: $${estimateVideoGenerationCostUsd({ duration: estimatedKhmerSpeech ? MAX_VIDEO_DURATION_SECONDS : videoDuration, khmerSpeech: estimatedKhmerSpeech }).toFixed(2)} · Maximum $${MAX_VIDEO_GENERATION_COST_USD.toFixed(2)}`}
                   </p>
+                  {estimatedKhmerSpeech && (
+                    <p className="text-xs text-slate-600 dark:text-slate-300">
+                      {language === 'km'
+                        ? 'រយៈពេលដែលជ្រើសជាអតិបរមា។ វីដេអូនិយាយអាចខ្លីជាងនេះ ដើម្បីឱ្យមាត់ឈប់ពេលសំឡេងចប់។'
+                        : 'The selected length is a maximum. A speaking clip may be shorter so mouth movement ends with the narration.'}
+                    </p>
+                  )}
                 </div>
 
                 {/* Khmer Voice-over Section */}
@@ -2312,7 +2396,9 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                 <div className="text-center space-y-4">
                   <Loader2 className="w-12 h-12 animate-spin text-brand-600 mx-auto" />
                   <p className="text-brand-700 font-bold">
-                    {lipSyncBusy
+                    {trimmingSpeechTail
+                      ? (language === 'km' ? 'កំពុងកាត់ចុងវីដេអូក្រោយសំឡេងចប់...' : 'Removing the silent video ending...')
+                      : lipSyncBusy
                       ? (language === 'km' ? 'កំពុងតម្រឹមសំឡេងវីដេអូ...' : 'Adjusting video audio timing...')
                       : watermarking
                       ? t('addingLogo')
@@ -2373,6 +2459,14 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                         className="mt-3 rounded-xl bg-brand-600 px-4 py-2 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {language === 'km' ? 'កែ និងរក្សាវីដេអូថ្មី' : 'Apply and save corrected video'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleTrimAfterSpeech()}
+                        disabled={loading || !user}
+                        className="ml-2 mt-3 rounded-xl border border-brand-300 px-4 py-2 font-bold text-brand-700 disabled:cursor-not-allowed disabled:opacity-50 dark:text-brand-300"
+                      >
+                        {language === 'km' ? 'កាត់ចុងក្រោយសំឡេងចប់' : 'Remove video after speech ends'}
                       </button>
                     </div>
                   )}

@@ -85,7 +85,7 @@ describe('native Khmer video speech', () => {
     expect(prepared.motionPrompt).toContain('TOP PRIORITY: PRECISE AUDIO-DRIVEN HUMAN SPEECH');
     expect(prepared.motionPrompt).toContain('ordinary real-world speed');
     expect(prepared.motionPrompt).toContain('three distinct compact hand or task gestures');
-    expect(prepared.motionPrompt).toContain('one around seconds 6-7');
+    expect(prepared.motionPrompt).toContain('start, middle and end of the audible narration');
     expect(prepared.motionPrompt).toContain('finishes in 0.35 to 0.55 seconds');
     expect(prepared.mode).toBe('edge-seedance');
     expect(prepared.performanceStyle).toContain('natural Cambodian conversational voice');

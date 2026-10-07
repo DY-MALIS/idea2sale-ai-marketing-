@@ -1,11 +1,12 @@
 import { expect, it } from 'vitest';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import ffmpeg from 'ffmpeg-static';
-import { audioShiftFilter } from '../../src/lib/videoAudioTiming';
+import { audioShiftFilter, lastAudibleSpeechSecond } from '../../src/lib/videoAudioTiming';
+import { mp4DurationSeconds } from '../../src/lib/mediaDuration';
 
 const run = promisify(execFile);
 const sampleRate = 24000;
@@ -22,10 +23,22 @@ it('shifts an existing audio track earlier or later without changing clip length
   const source = join(directory, 'speech.mp4');
   try {
     await run(ffmpeg, ['-v', 'error', '-y',
-      '-f', 'lavfi', '-i', 'color=c=blue:s=64x64:r=25:d=2',
+      '-f', 'lavfi', '-i', 'color=c=blue:s=64x64:r=25:d=5',
       '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=24000:duration=0.5',
-      '-filter:a', 'adelay=400:all=1,apad', '-t', '2', '-c:v', 'libx264', '-c:a', 'aac', source],
+      '-filter:a', 'adelay=400:all=1,apad', '-t', '5', '-c:v', 'libx264', '-c:a', 'aac', source],
     { windowsHide: true });
+    const { stdout: sourcePcm } = await run(ffmpeg, ['-v', 'error', '-i', source,
+      '-ac', '1', '-ar', String(sampleRate), '-f', 's16le', 'pipe:1'],
+    { encoding: 'buffer', windowsHide: true, maxBuffer: 1024 * 1024 });
+    expect(lastAudibleSpeechSecond(sourcePcm)).toBeCloseTo(0.9, 1);
+    expect(lastAudibleSpeechSecond(new Uint8Array(sampleRate))).toBeNull();
+    const trimmed = join(directory, 'trimmed.mp4');
+    await run(ffmpeg, ['-v', 'error', '-y', '-i', source, '-t', '3.000',
+      '-map', '0:v:0', '-map', '0:a:0', '-c:v', 'copy', '-c:a', 'copy', trimmed],
+    { windowsHide: true });
+    const trimmedDuration = mp4DurationSeconds(await readFile(trimmed));
+    expect(trimmedDuration).toBeGreaterThanOrEqual(3);
+    expect(trimmedDuration).toBeLessThan(3.15);
     for (const [offset, expectedOnset] of [[-250, 0.15], [0, 0.4], [250, 0.65]]) {
       const output = join(directory, `shifted-${offset}.mp4`);
       await run(ffmpeg, ['-v', 'error', '-y', '-i', source,
