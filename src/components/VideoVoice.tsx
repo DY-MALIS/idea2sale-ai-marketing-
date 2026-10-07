@@ -934,9 +934,11 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     setVideoNeedsReview(false);
     setPerformanceNeedsReview(false);
     setVideoVoiceQualityNotice(null);
-    setLipSyncSourceVideo(null);
-    setLipSyncOffsetMs(0);
-    setGeneratedVideoHasSpeech(Boolean(String(payload.voiceOverText || '').trim()));
+    setLipSyncSourceVideo(typeof payload.lipSyncSourceVideo === 'string' && /^https:\/\//.test(payload.lipSyncSourceVideo)
+      ? payload.lipSyncSourceVideo : null);
+    setLipSyncOffsetMs(typeof payload.lipSyncOffsetMs === 'number' && Math.abs(payload.lipSyncOffsetMs) <= 1000
+      ? payload.lipSyncOffsetMs : 0);
+    setGeneratedVideoHasSpeech(payload.hasSpeech === true || Boolean(String(payload.voiceOverText || '').trim()));
     if (entry.mediaUrl) setGeneratedVideo(normalizeImageKitVideoUrl(entry.mediaUrl));
   };
   const deleteVideoHistory = (id: string) => { void deleteGenerationHistory({ user, isDemoMode, type: 'video', id }); };
@@ -1790,6 +1792,9 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
           voiceOverText,
           videoLanguage,
           videoAspectRatio: generatedVideoAspectRatio,
+          hasSpeech: true,
+          lipSyncSourceVideo: source,
+          lipSyncOffsetMs,
         },
       }).catch((error) => console.error('Could not save adjusted video history:', error));
       notify(language === 'km' ? 'បានកែសំឡេងវីដេអូ។ សូមពិនិត្យម្ដងទៀត។' : 'Video audio timing adjusted. Please review it again.', 'success');
