@@ -182,7 +182,7 @@ describe('OpenRouter text token budgets', () => {
 });
 
 describe('OpenRouter video audio', () => {
-  it('requests video-only Veo at 720p, matching the displayed cost estimate', async () => {
+  it.each(['9:16', '16:9'])('requests video-only Veo at 720p for %s, matching the displayed cost estimate', async (aspectRatio) => {
     process.env.OPEN_ROUTER_API_KEY = 'test-key';
     delete process.env.OPEN_ROUTER_VIDEO_MODEL;
     const fetchMock = vi.fn().mockResolvedValue({
@@ -191,9 +191,9 @@ describe('OpenRouter video audio', () => {
     });
     global.fetch = fetchMock;
 
-    const job = await startOpenRouterVideo({ prompt: 'Silent product shot', duration: 8, aspectRatio: '16:9' });
+    const job = await startOpenRouterVideo({ prompt: 'Silent product shot', duration: 8, aspectRatio });
     const requestBody = JSON.parse(fetchMock.mock.calls[0][1].body);
-    expect(requestBody).toMatchObject({ model: 'google/veo-3.1-lite', resolution: '720p', generate_audio: false, duration: 8 });
+    expect(requestBody).toMatchObject({ model: 'google/veo-3.1-lite', resolution: '720p', generate_audio: false, duration: 8, aspect_ratio: aspectRatio });
     expect(job.estimatedCost).toBe(0.29);
   });
 

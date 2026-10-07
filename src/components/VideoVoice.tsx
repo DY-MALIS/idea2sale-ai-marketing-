@@ -1416,10 +1416,9 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     if (loading || audioLoading) return;
     const promptText = typeof promptOverride === 'string' ? promptOverride.trim() : videoPrompt.trim();
     const generationLanguage = languageOverride || videoLanguage;
-    // The interactive generator is intentionally landscape-first. Automated
-    // jobs may still pass an explicit ratio, but a manual click must never reuse
-    // stale TikTok state from a restored/history job.
-    const generationAspectRatio: VideoAspectRatio = aspectRatioOverride || '16:9';
+    // An automated request can override the format selected in the generator.
+    // Manual requests use the visible platform choice, including restored jobs.
+    const generationAspectRatio: VideoAspectRatio = aspectRatioOverride || videoAspectRatio;
     const generationVoiceGender = voiceGenderOverride || voiceGender;
     const generationVoicePersona: VoicePersona = generationVoiceGender === 'Male' ? 'piseth' : 'sreymom';
     const generationPerformanceStyle = performanceStyleOverride?.trim() || voicePersonas[generationVoicePersona].style;
@@ -2096,8 +2095,24 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                   <label className="text-[10px] font-bold uppercase tracking-widest text-brand-400">
                     {language === 'km' ? 'Platform និងទម្រង់វីដេអូ' : 'Platform and video format'}
                   </label>
-                  <div className="rounded-2xl border border-brand-200 bg-brand-50 p-4 text-center text-sm font-black text-brand-700 shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-brand-300">
-                    {language === 'km' ? 'ទម្រង់ផ្ដេក 16:9 (ចាក់សោ)' : 'Landscape 16:9 (locked)'}
+                  <div className="grid grid-cols-2 gap-2 rounded-2xl border border-brand-200 bg-brand-50 p-2 dark:border-slate-600 dark:bg-slate-800" role="group" aria-label={language === 'km' ? 'ជ្រើសទម្រង់វីដេអូ' : 'Choose video format'}>
+                    {(['TikTok', 'YouTube'] as const).map((platform) => (
+                      <button
+                        key={platform}
+                        type="button"
+                        onClick={() => selectVideoPlatform(platform)}
+                        disabled={loading || audioLoading}
+                        aria-pressed={videoAspectRatio === (platform === 'TikTok' ? '9:16' : '16:9')}
+                        className={cn(
+                          'rounded-xl px-3 py-3 text-sm font-black transition-colors disabled:cursor-not-allowed disabled:opacity-60',
+                          videoAspectRatio === (platform === 'TikTok' ? '9:16' : '16:9')
+                            ? 'bg-white text-brand-700 shadow-sm dark:bg-slate-700 dark:text-brand-300'
+                            : 'text-brand-500 hover:bg-white/70 dark:text-slate-300 dark:hover:bg-slate-700/70',
+                        )}
+                      >
+                        {platform} {platform === 'TikTok' ? '9:16' : '16:9'}
+                      </button>
+                    ))}
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -2447,7 +2462,9 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                 {loading || audioLoading
                   ? t('generating')
                   : activeTool === 'video'
-                    ? (language === 'km' ? 'បង្កើតវីដេអូផ្ដេក 16:9' : 'Generate landscape video 16:9')
+                    ? (language === 'km'
+                      ? `បង្កើតវីដេអូ ${videoAspectRatio === '9:16' ? 'TikTok 9:16' : 'YouTube 16:9'}`
+                      : `Generate ${videoAspectRatio === '9:16' ? 'TikTok 9:16' : 'YouTube 16:9'} video`)
                     : t('generateWithAi')}
               </span>
             </button>
