@@ -869,7 +869,13 @@ export async function pollOpenRouterVideo({ jobId, preferRemoteUrl = false }) {
     throw error;
   }
   if (status.status === 'failed' || status.status === 'cancelled' || status.status === 'expired') {
-    throw new Error(redactSecrets(status.error) || `OpenRouter video generation ${status.status}.`);
+    const providerError = typeof status.error === 'string'
+      ? status.error
+      : status.error?.message || status.error?.code || '';
+    const error = new Error(redactSecrets(providerError) || `OpenRouter video generation ${status.status}.`);
+    error.videoTerminal = true;
+    error.providerCode = String(status.error?.code || '');
+    throw error;
   }
   if (status.status !== 'completed') {
     return { jobId, status: status.status, usage: status.usage };

@@ -34,6 +34,7 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
   aspectRatio = item.aspectRatio || '9:16',
   generateAudio,
   allowScriptShortening = false,
+  allowImageFallback = false,
 } = {}) => {
   const preparationStartedAt = Date.now();
   const hasKhmerSpeech = speech.mode !== 'silent';
@@ -175,6 +176,9 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
     if (!imagePrivacyRejection) throw error;
     if (images.length) {
       throw Object.assign(new Error('The video provider rejected the uploaded starting image because it may show an identifiable person. Remove or replace that image, then generate again.'), { statusCode: 400 });
+    }
+    if (!allowImageFallback) {
+      throw Object.assign(new Error('The video provider rejected the automatically generated presenter image. Change the scene or presenter description before creating this scheduled video.'), { statusCode: 400 });
     }
     // A 400 rejection has no video job ID. For the automatically generated
     // presenter only, retry once with the same narration but no image input.

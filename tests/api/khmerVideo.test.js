@@ -68,7 +68,7 @@ it('retries a rejected automatic presenter image once with Khmer audio only', as
     .mockResolvedValueOnce({ jobId: 'audio-only-job' });
   const result = await startKhmerVideoJob(
     {}, { script: 'សួស្តី', prompt: 'Presenter from the reference image', motionPrompt: 'Normal speed' },
-    uploadStub(), { duration: 4 },
+    uploadStub(), { duration: 4, allowImageFallback: true },
   );
 
   expect(mocks.video).toHaveBeenCalledTimes(2);
@@ -80,6 +80,19 @@ it('retries a rejected automatic presenter image once with Khmer audio only', as
   expect(mocks.video.mock.calls[1][0].prompt).not.toContain('from the reference image');
   expect(result.job.jobId).toBe('audio-only-job');
   expect(result.imageFallbackReason).toContain('rejected');
+});
+
+it('does not publish an audio-only fallback from an unattended scheduled video', async () => {
+  mocks.image.mockResolvedValue({ imageUrl: 'generated-portrait' });
+  mocks.speech.mockResolvedValue({ audioUrl: 'audio-data', duration: 3.4 });
+  mocks.video.mockRejectedValue(Object.assign(new Error('image rejected'), {
+    statusCode: 400,
+    providerCode: 'InputImageSensitiveContentDetected.PrivacyInformation',
+  }));
+  await expect(startKhmerVideoJob(
+    {}, { script: 'សួស្តី', prompt: 'Presenter' }, uploadStub(), { duration: 4 },
+  )).rejects.toThrow('Change the scene or presenter description');
+  expect(mocks.video).toHaveBeenCalledTimes(1);
 });
 
 it('does not silently discard an uploaded image rejected by the provider', async () => {

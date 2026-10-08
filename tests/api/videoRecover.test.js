@@ -9,13 +9,16 @@ const mocks = vi.hoisted(() => ({
   setStart: vi.fn(),
   deleteStart: vi.fn(),
   set: vi.fn(),
+  getJob: vi.fn(),
   startVideo: vi.fn(),
+  pollVideo: vi.fn(),
   text: vi.fn(),
 }));
 
 vi.mock('../../api/_openrouter.js', async (importOriginal) => ({
   ...(await importOriginal()),
   startOpenRouterVideo: mocks.startVideo,
+  pollOpenRouterVideo: mocks.pollVideo,
   generateOpenRouterText: mocks.text,
 }));
 vi.mock('../../api/_firebaseAdmin.js', () => ({
@@ -25,7 +28,7 @@ vi.mock('../../api/_firebaseAdmin.js', () => ({
       doc: () => ({ get: mocks.getStart, create: mocks.createStart, set: mocks.setStart, delete: mocks.deleteStart }),
     }) : ({
       where: () => ({ limit: () => ({ get: mocks.get }) }),
-      doc: () => ({ set: mocks.set }),
+      doc: () => ({ set: mocks.set, get: mocks.getJob }),
     }),
   }),
 }));
@@ -54,6 +57,7 @@ describe('video start recovery', () => {
     mocks.setStart.mockResolvedValue(undefined);
     mocks.deleteStart.mockResolvedValue(undefined);
     mocks.set.mockResolvedValue(undefined);
+    mocks.getJob.mockResolvedValue({ exists: true, data: () => ({ userId: 'owner-1' }) });
   });
 
   it('returns the original paid job only to its owner', async () => {
@@ -118,10 +122,24 @@ describe('video start recovery', () => {
       prompt: 'A short video of a training room', duration: 4, aspectRatio: '16:9',
     } }, res);
     expect(res.statusCode).toBe(400);
-    expect(res.body.error).toMatch(/remove or replace the starting image/i);
+    expect(res.body.error).toMatch(/different starting image/i);
     expect(res.body.error).not.toContain('HTTP 400');
     expect(mocks.deleteStart).toHaveBeenCalledTimes(1);
     expect(mocks.set).not.toHaveBeenCalled();
+  });
+
+  it('reports a terminal failed video job with an actionable image error', async () => {
+    mocks.pollVideo.mockRejectedValue(Object.assign(new Error('upstream error object'), {
+      videoTerminal: true,
+      providerCode: 'InputImageSensitiveContentDetected.PrivacyInformation',
+    }));
+    const res = responseRecorder();
+    await handler({ method: 'POST', headers: { authorization: 'Bearer valid-token' }, body: {
+      action: 'videoStatus', jobId: 'paid-job',
+    } }, res);
+    expect(res.statusCode).toBe(500);
+    expect(res.body).toMatchObject({ code: 'VIDEO_JOB_TERMINAL' });
+    expect(res.body.error).toMatch(/different starting image/i);
   });
 
   it('does not start a second paid job for the same request while the first is preparing', async () => {

@@ -2800,6 +2800,10 @@ Return ONLY a single valid JSON object with this exact structure:
           images,
           aspectRatio,
           allowScriptShortening: item.allowScriptShortening,
+          // The interactive result remains behind the user's visual review.
+          // Scheduled videos publish automatically, so they keep the stricter
+          // default and must not silently drop a rejected presenter image.
+          allowImageFallback: true,
           // The reference waveform guides mouth movement. The browser muxes
           // that exact narration into the final clip, so a second provider
           // audio render can introduce different words or reject the video.
@@ -2962,13 +2966,14 @@ Return ONLY a single valid JSON object with this exact structure:
       console.error(`[api/ai] ${action} failed: ${message || 'Unknown error'}`);
     }
     const keyError = /OPEN_ROUTER_API_KEY|unauthorized|invalid api[_ -]?key/i.test(message);
-    const imageRejected = action === 'videoGenerate'
+    const imageRejected = (action === 'videoGenerate' || action === 'videoStatus')
       && /InputImageSensitiveContentDetected/i.test(`${error?.providerCode || ''} ${message}`);
     return res.status(keyError ? 503 : Number.isInteger(error?.statusCode) && error.statusCode >= 400 && error.statusCode < 500 ? error.statusCode : 500).json({
+      ...(error?.videoTerminal ? { code: 'VIDEO_JOB_TERMINAL' } : {}),
       error: keyError
         ? 'OpenRouter API key is missing or invalid. Update OPEN_ROUTER_API_KEY in Vercel.'
         : imageRejected
-          ? 'The video provider rejected a presenter image because it may show an identifiable person. Remove or replace the starting image, or try a scene without a speaking presenter.'
+          ? 'The video provider rejected a presenter image because it may show an identifiable person. Try a different starting image or scene for a new video.'
           : message || 'AI generation failed.',
     });
   }

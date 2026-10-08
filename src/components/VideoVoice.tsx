@@ -733,7 +733,8 @@ const pollPendingVideoJob = async (pending: PendingVideoJob, idToken: string) =>
     networkFailures = 0;
     const statusData = await statusResponse.json();
     if (!statusResponse.ok) {
-      if (/failed|cancelled|expired|belongs to another/i.test(String(statusData.error || ''))) {
+      if (statusData.code === 'VIDEO_JOB_TERMINAL'
+        || /failed|cancelled|expired|belongs to another/i.test(String(statusData.error || ''))) {
         removePendingVideoJob(pending.userId, pending.fingerprint);
       }
       throw new Error(statusData.error || 'Video generation failed.');
@@ -1390,6 +1391,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       setGeneratedVideo(video);
       setGeneratedVideoHasSpeech(Boolean(currentJob.expectedScript || currentJob.resumeNarration));
       setVideoNeedsReview(speechNeedsReview);
+      setPerformanceNeedsReview(Boolean(currentJob.expectedScript));
       if (speechNeedsReview) {
         setVideoVoiceQualityNotice(language === 'km'
           ? 'វីដេអូបានបញ្ចប់ ប៉ុន្តែសំឡេងត្រូវការពិនិត្យដោយដៃមុនផ្សព្វផ្សាយ។'
