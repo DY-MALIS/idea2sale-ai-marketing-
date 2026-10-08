@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   getStart: vi.fn(),
   createStart: vi.fn(),
   setStart: vi.fn(),
+  deleteStart: vi.fn(),
   set: vi.fn(),
   startVideo: vi.fn(),
   text: vi.fn(),
@@ -21,7 +22,7 @@ vi.mock('../../api/_firebaseAdmin.js', () => ({
   default: { auth: () => ({ verifyIdToken: mocks.verifyIdToken }) },
   initFirebaseAdmin: () => ({
     collection: (name) => name === 'video_starts' ? ({
-      doc: () => ({ get: mocks.getStart, create: mocks.createStart, set: mocks.setStart }),
+      doc: () => ({ get: mocks.getStart, create: mocks.createStart, set: mocks.setStart, delete: mocks.deleteStart }),
     }) : ({
       where: () => ({ limit: () => ({ get: mocks.get }) }),
       doc: () => ({ set: mocks.set }),
@@ -51,6 +52,7 @@ describe('video start recovery', () => {
     mocks.getStart.mockResolvedValue({ exists: false });
     mocks.createStart.mockResolvedValue(undefined);
     mocks.setStart.mockResolvedValue(undefined);
+    mocks.deleteStart.mockResolvedValue(undefined);
     mocks.set.mockResolvedValue(undefined);
   });
 
@@ -103,6 +105,23 @@ describe('video start recovery', () => {
     }), { merge: true });
     expect(mocks.createStart).toHaveBeenCalledWith(expect.objectContaining({ status: 'PREPARING', userId: 'owner-1' }));
     expect(mocks.setStart).toHaveBeenCalledWith(expect.objectContaining({ jobId: 'paid-job', status: 'PROCESSING' }), { merge: true });
+  });
+
+  it('clears a provider-rejected start so a retry cannot get stranded', async () => {
+    mocks.startVideo.mockRejectedValue(Object.assign(new Error('HTTP 400: provider image rejection'), {
+      statusCode: 400,
+      providerCode: 'InputImageSensitiveContentDetected.PrivacyInformation',
+    }));
+    const res = responseRecorder();
+    await handler({ method: 'POST', headers: { authorization: 'Bearer valid-token' }, body: {
+      action: 'videoGenerate', requestId: '12345678-1234-1234-1234-123456789abc',
+      prompt: 'A short video of a training room', duration: 4, aspectRatio: '16:9',
+    } }, res);
+    expect(res.statusCode).toBe(400);
+    expect(res.body.error).toMatch(/remove or replace the starting image/i);
+    expect(res.body.error).not.toContain('HTTP 400');
+    expect(mocks.deleteStart).toHaveBeenCalledTimes(1);
+    expect(mocks.set).not.toHaveBeenCalled();
   });
 
   it('does not start a second paid job for the same request while the first is preparing', async () => {

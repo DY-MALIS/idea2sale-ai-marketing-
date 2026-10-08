@@ -182,6 +182,28 @@ describe('OpenRouter text token budgets', () => {
 });
 
 describe('OpenRouter video audio', () => {
+  it('preserves the provider status and code for a rejected reference image', async () => {
+    process.env.OPEN_ROUTER_API_KEY = 'test-key';
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: async () => ({ error: {
+        code: 'InputImageSensitiveContentDetected.PrivacyInformation',
+        message: 'Input image may contain a real person.',
+      } }),
+    });
+
+    await expect(startOpenRouterVideo({
+      prompt: 'A presenter speaking', duration: 4,
+      model: 'bytedance/seedance-2.0-mini',
+      referenceUrls: ['https://example.com/presenter.jpg'],
+      audioReferenceUrls: ['https://example.com/narration.mp3'],
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      providerCode: 'InputImageSensitiveContentDetected.PrivacyInformation',
+    });
+  });
+
   it('requests an audible output when Seedance receives narration audio', async () => {
     process.env.OPEN_ROUTER_API_KEY = 'test-key';
     const fetchMock = vi.fn().mockResolvedValue({

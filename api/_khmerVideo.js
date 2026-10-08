@@ -153,7 +153,7 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
   const avatarImage = await uploadMediaDataUrl({ mediaDataUrl: image.imageUrl, mediaType: 'photo' });
   const avatarReferenceUrl = getOriginalImageKitUrl(avatarImage.mediaUrl, process.env.IMAGEKIT_URL_ENDPOINT || '');
   const exactKhmerTranscript = String(narrationAudio.spokenText || spokenScript || '').trim();
-  const job = await startOpenRouterVideo({
+  const videoRequest = {
     // Mini retains image/audio reference support while keeping an 8-second
     // Khmer presenter video (including avatar + narration reserve) under $0.80.
     model: KHMER_VIDEO_MODEL,
@@ -164,10 +164,33 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
     referenceUrls: [avatarReferenceUrl],
     audioReferenceUrls: [narrationAudio.mediaUrl],
     generateAudio,
-  });
+  };
+  let job;
+  let imageFallbackReason = '';
+  try {
+    job = await startOpenRouterVideo(videoRequest);
+  } catch (error) {
+    const imagePrivacyRejection = error?.statusCode === 400
+      && /InputImageSensitiveContentDetected/i.test(`${error?.providerCode || ''} ${error?.message || ''}`);
+    if (!imagePrivacyRejection) throw error;
+    if (images.length) {
+      throw Object.assign(new Error('The video provider rejected the uploaded starting image because it may show an identifiable person. Remove or replace that image, then generate again.'), { statusCode: 400 });
+    }
+    // A 400 rejection has no video job ID. For the automatically generated
+    // presenter only, retry once with the same narration but no image input.
+    // Keep a single accepted paid job and never retry a failed poll/completion.
+    imageFallbackReason = 'The video provider rejected the generated presenter image. The clip was created from the scene and narration without a starting image.';
+    const textOnlyPrompt = videoRequest.prompt.replace(/from the reference image/gi, 'described in the scene');
+    job = await startOpenRouterVideo({
+      ...videoRequest,
+      prompt: `${textOnlyPrompt}\nNo reference image is supplied. Create the presenter from this scene description and synchronize the mouth to the supplied Khmer audio.`,
+      referenceUrls: [],
+    });
+  }
   return {
     job: { ...job, outputDuration: fittedDuration },
     avatarImage,
+    imageFallbackReason,
     narrationAudio: {
       ...narrationAudio,
       provider: audio.provider || audio.model || 'unknown',

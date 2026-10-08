@@ -975,6 +975,7 @@ export default async function handler(req, res) {
   const languageCode = String(req.body?.language || 'en');
   const language = languageCode === 'km' ? 'Khmer' : 'English';
   let verifiedVideoUser = null;
+  let videoStartRef = null;
 
   if (action === 'videoGenerate' || action === 'videoStatus' || action === 'videoRecover') {
     try {
@@ -2746,6 +2747,7 @@ Return ONLY a single valid JSON object with this exact structure:
           // Firestore create() is atomic. A second browser call with this ID
           // cannot start another paid provider job, even during a slow start.
           await startRef.create({ userId: verifiedVideoUser.uid, requestId, requestHash, status: 'PREPARING', startedAt: new Date() });
+          videoStartRef = startRef;
         } catch (claimError) {
           if (Number(claimError?.code) !== 6 && claimError?.code !== 'already-exists') throw claimError;
           const saved = (await startRef.get()).data();
@@ -2793,7 +2795,7 @@ Return ONLY a single valid JSON object with this exact structure:
           return res.status(400).json({ error: 'A Khmer script was provided for a silent video. Remove the script or the silent instruction.' });
         }
         const { uploadMediaDataUrl } = await import('./telegram/run-scheduled.js');
-        const { job, narrationAudio } = await startKhmerVideoJob(item, speech, uploadMediaDataUrl, {
+        const { job, narrationAudio, imageFallbackReason } = await startKhmerVideoJob(item, speech, uploadMediaDataUrl, {
           duration,
           images,
           aspectRatio,
@@ -2811,6 +2813,7 @@ Return ONLY a single valid JSON object with this exact structure:
           outputDuration: job.outputDuration,
           narrationProvider: narrationAudio.provider,
           narrationFallbackReason: narrationAudio.fallbackReason,
+          imageFallbackReason,
           spokenScript: narrationAudio.spokenText || speech.script,
         };
         if (startRef) {
@@ -2942,6 +2945,14 @@ Return ONLY a single valid JSON object with this exact structure:
 
     return res.status(400).json({ error: 'Unknown AI action.' });
   } catch (error) {
+    // A provider 400 is a definite pre-job rejection. Remove its reservation
+    // so a lost browser response can safely retry this same request ID rather
+    // than waiting ten minutes on a job that was never accepted.
+    if (action === 'videoGenerate' && error?.statusCode === 400 && videoStartRef) {
+      await videoStartRef.delete().catch((cleanupError) => {
+        console.error('Could not clear rejected video start:', cleanupError?.message || cleanupError);
+      });
+    }
     // Last-resort safety net, on top of the redaction already applied at each
     // throw site in _openrouter.js -- every error message that reaches an
     // actual HTTP response (and, for socialAgent, gets persisted into a user's
@@ -2951,8 +2962,14 @@ Return ONLY a single valid JSON object with this exact structure:
       console.error(`[api/ai] ${action} failed: ${message || 'Unknown error'}`);
     }
     const keyError = /OPEN_ROUTER_API_KEY|unauthorized|invalid api[_ -]?key/i.test(message);
+    const imageRejected = action === 'videoGenerate'
+      && /InputImageSensitiveContentDetected/i.test(`${error?.providerCode || ''} ${message}`);
     return res.status(keyError ? 503 : Number.isInteger(error?.statusCode) && error.statusCode >= 400 && error.statusCode < 500 ? error.statusCode : 500).json({
-      error: keyError ? 'OpenRouter API key is missing or invalid. Update OPEN_ROUTER_API_KEY in Vercel.' : message || 'AI generation failed.',
+      error: keyError
+        ? 'OpenRouter API key is missing or invalid. Update OPEN_ROUTER_API_KEY in Vercel.'
+        : imageRejected
+          ? 'The video provider rejected a presenter image because it may show an identifiable person. Remove or replace the starting image, or try a scene without a speaking presenter.'
+          : message || 'AI generation failed.',
     });
   }
 }

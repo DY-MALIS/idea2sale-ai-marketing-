@@ -56,6 +56,53 @@ it('can render the narration and lip motion together when provider audio is requ
     generateAudio: true,
   }));
 });
+
+it('retries a rejected automatic presenter image once with Khmer audio only', async () => {
+  mocks.image.mockResolvedValue({ imageUrl: 'generated-portrait' });
+  mocks.speech.mockResolvedValue({ audioUrl: 'audio-data', duration: 3.4, provider: 'edge' });
+  mocks.video
+    .mockRejectedValueOnce(Object.assign(new Error('input image content[1] may contain a real person'), {
+      statusCode: 400,
+      providerCode: 'InputImageSensitiveContentDetected.PrivacyInformation',
+    }))
+    .mockResolvedValueOnce({ jobId: 'audio-only-job' });
+  const result = await startKhmerVideoJob(
+    {}, { script: 'សួស្តី', prompt: 'Presenter from the reference image', motionPrompt: 'Normal speed' },
+    uploadStub(), { duration: 4 },
+  );
+
+  expect(mocks.video).toHaveBeenCalledTimes(2);
+  expect(mocks.video.mock.calls[0][0].referenceUrls).toEqual(['https://image']);
+  expect(mocks.video.mock.calls[1][0]).toMatchObject({
+    referenceUrls: [], audioReferenceUrls: ['https://audio'], duration: 4,
+  });
+  expect(mocks.video.mock.calls[1][0].prompt).toContain('No reference image is supplied');
+  expect(mocks.video.mock.calls[1][0].prompt).not.toContain('from the reference image');
+  expect(result.job.jobId).toBe('audio-only-job');
+  expect(result.imageFallbackReason).toContain('rejected');
+});
+
+it('does not silently discard an uploaded image rejected by the provider', async () => {
+  mocks.speech.mockResolvedValue({ audioUrl: 'audio-data', duration: 3.4 });
+  mocks.video.mockRejectedValue(Object.assign(new Error('image rejected'), {
+    statusCode: 400,
+    providerCode: 'InputImageSensitiveContentDetected.PrivacyInformation',
+  }));
+  await expect(startKhmerVideoJob(
+    {}, { script: 'សួស្តី', prompt: 'Presenter' }, uploadStub(),
+    { duration: 4, images: [{ mimeType: 'image/png', base64: 'AAAA' }] },
+  )).rejects.toThrow('Remove or replace that image');
+  expect(mocks.video).toHaveBeenCalledTimes(1);
+});
+
+it('does not resubmit a video for unrelated provider failures', async () => {
+  mocks.image.mockResolvedValue({ imageUrl: 'generated-portrait' });
+  mocks.speech.mockResolvedValue({ audioUrl: 'audio-data', duration: 3.4 });
+  mocks.video.mockRejectedValue(Object.assign(new Error('provider unavailable'), { statusCode: 503 }));
+  await expect(startKhmerVideoJob({}, { script: 'សួស្តី', prompt: 'Presenter' }, uploadStub(), { duration: 4 }))
+    .rejects.toThrow('provider unavailable');
+  expect(mocks.video).toHaveBeenCalledTimes(1);
+});
 it('expands a short requested clip instead of rejecting an appropriate script', async () => {
   mocks.image.mockResolvedValue({ imageUrl: 'portrait' });
   mocks.speech.mockResolvedValue({ audioUrl: 'audio' });

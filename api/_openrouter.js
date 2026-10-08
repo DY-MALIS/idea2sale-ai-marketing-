@@ -68,7 +68,10 @@ const openRouterJson = async (path, body, timeoutMs = MEDIA_REQUEST_TIMEOUT_MS) 
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(redactSecrets(data?.error?.message || data?.message || 'OpenRouter request failed.'));
+    const error = new Error(redactSecrets(data?.error?.message || data?.message || 'OpenRouter request failed.'));
+    error.statusCode = response.status;
+    error.providerCode = String(data?.error?.code || '');
+    throw error;
   }
 
   return data;

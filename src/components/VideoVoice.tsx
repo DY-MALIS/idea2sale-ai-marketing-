@@ -109,12 +109,17 @@ interface PendingVideoJob {
   narrationDuration?: number;
   outputDuration?: number;
   narrationFallbackReason?: string;
+  imageFallbackReason?: string;
   expectedScript?: string;
   silentRequested?: boolean;
   resumeNarration?: { text: string; voice: string; languageHint: 'Khmer' | 'English'; performanceStyle: string };
   aspectRatio?: VideoAspectRatio;
   createdAt: number;
 }
+
+const presenterImageFallbackNotice = (language: 'km' | 'en') => language === 'km'
+  ? 'សេវាបានបដិសេធរូប presenter ដែលបង្កើតស្វ័យប្រវត្តិ។ វីដេអូនេះប្រើការពិពណ៌នាឈុត និងសំឡេងខ្មែរជំនួស។ សូមមើល និងស្តាប់ចលនាមាត់មុនផ្សព្វផ្សាយ។'
+  : 'The video provider rejected the automatically generated presenter image. This clip uses the scene description and Khmer audio instead. Review the person and lip sync before publishing.';
 
 interface PendingVideoStart {
   fingerprint: string;
@@ -803,7 +808,7 @@ const attemptGenerateVideoClip = async (
   idToken?: string,
   userId?: string,
   resumeOptions?: Pick<PendingVideoJob, 'silentRequested' | 'resumeNarration'>,
-): Promise<{ videoUrl: string; narrationFallbackReason?: string; pendingFingerprint: string; expectedScript?: string; outputAspectRatio: VideoAspectRatio }> => {
+): Promise<{ videoUrl: string; narrationFallbackReason?: string; imageFallbackReason?: string; pendingFingerprint: string; expectedScript?: string; outputAspectRatio: VideoAspectRatio }> => {
   if (!idToken || !userId) throw new Error('Sign in before generating a video.');
   const fingerprint = videoRequestFingerprint(prompt, images, duration, aspectRatio, khmerSpeech, resumeOptions);
   let pending = readPendingVideoJobs().find((job) => job.userId === userId && job.fingerprint === fingerprint);
@@ -895,6 +900,7 @@ const attemptGenerateVideoClip = async (
       narrationDuration: Number(data.narrationDuration) || undefined,
       outputDuration: Number(data.outputDuration) || undefined,
       narrationFallbackReason: data.narrationFallbackReason || undefined,
+      imageFallbackReason: data.imageFallbackReason || undefined,
       expectedScript: data.spokenScript || khmerSpeech?.script || undefined,
       silentRequested: start.silentRequested,
       resumeNarration: start.resumeNarration,
@@ -908,6 +914,7 @@ const attemptGenerateVideoClip = async (
   return {
     videoUrl: await pollPendingVideoJob(pending, idToken),
     narrationFallbackReason: pending.narrationFallbackReason || undefined,
+    imageFallbackReason: pending.imageFallbackReason || undefined,
     pendingFingerprint: fingerprint,
     expectedScript: pending.expectedScript || undefined,
     outputAspectRatio: normalizeVideoAspectRatio(pending.aspectRatio),
@@ -1330,6 +1337,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
           narrationAudioUrl: data.narrationAudioUrl || undefined,
           narrationDuration: Number(data.narrationDuration) || undefined,
           outputDuration: Number(data.outputDuration) || undefined,
+          imageFallbackReason: data.imageFallbackReason || undefined,
           ...videoOptionsFromRecoveredStart(recoverableVideoStart, data),
           aspectRatio: normalizeVideoAspectRatio(data.outputAspectRatio || recoverableVideoStart.aspectRatio),
           createdAt: Date.now(),
@@ -1386,6 +1394,9 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         setVideoVoiceQualityNotice(language === 'km'
           ? 'វីដេអូបានបញ្ចប់ ប៉ុន្តែសំឡេងត្រូវការពិនិត្យដោយដៃមុនផ្សព្វផ្សាយ។'
           : 'The video completed, but its speech needs manual review before publishing.');
+      }
+      if (currentJob.imageFallbackReason) {
+        setVideoVoiceQualityNotice((current) => [current, presenterImageFallbackNotice(language)].filter(Boolean).join(' '));
       }
       removePendingVideoJob(user.uid, currentJob.fingerprint);
       setResumableVideoJob(null);
@@ -1452,6 +1463,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     setSegmentProgress(null);
     setMergingSegments(false);
     let usedKhmerVoiceFallback = false;
+    let usedImageFallback = false;
     const completedJobFingerprints: string[] = [];
     try {
       if (!user) throw new Error('Sign in before generating a video.');
@@ -1535,6 +1547,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         setGeneratedVideoAspectRatio(generatedClip.outputAspectRatio);
         let clip = generatedClip.videoUrl;
         if (generatedClip.narrationFallbackReason) usedKhmerVoiceFallback = true;
+        if (generatedClip.imageFallbackReason) usedImageFallback = true;
         // A fully silent result can be muted reliably by ImageKit after the
         // final upload. Only mixed spoken/silent segment videos still need a
         // per-segment browser edit before concatenation.
@@ -1661,6 +1674,9 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         : (language === 'km'
           ? 'បានប្រើសំឡេងខ្មែរបែបធម្មជាតិ និងផ្ទៀងផ្ទាត់ពាក្យដោយស្វ័យប្រវត្តិ។ សូមមើល និងស្តាប់ ដើម្បីបញ្ជាក់អារម្មណ៍ ល្បឿន ចលនាមាត់ និងកាយវិការមុនផ្សព្វផ្សាយ។'
           : 'Expressive Khmer reference audio is attached and the words were checked automatically. Review emotion, pace, lip sync and gestures before publishing.'));
+      if (usedImageFallback) {
+        setVideoVoiceQualityNotice((current) => [current, presenterImageFallbackNotice(language)].filter(Boolean).join(' '));
+      }
       return;
     } catch (error: any) {
       console.error(error);
