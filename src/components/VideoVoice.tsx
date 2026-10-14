@@ -35,6 +35,7 @@ import HistoryPanel from './HistoryPanel';
 import { estimateVideoGenerationCostUsd, KHMER_VIDEO_MODEL, MAX_VIDEO_DURATION_SECONDS, MAX_VIDEO_GENERATION_COST_USD } from '../../shared/videoCost.js';
 import { videoOptionsFromRecoveredStart } from '../lib/videoRecoveryState';
 import { videoRequestFingerprint } from '../lib/videoRequestFingerprint';
+import { resolveAutomationProductImageUrl } from '../lib/productImageMatch';
 
 type ToolType = 'video' | 'voice';
 type VoiceGender = 'Female' | 'Male';
@@ -1548,10 +1549,12 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       ]);
       // Resolved from this fresh read, not the mount-cached picker list, for
       // the same staleness guarantee every other business-context field here
-      // already relies on.
+      // already relies on. Automation-triggered calls never set
+      // selectedProductImageId (see resolveAutomationProductImageUrl), so they
+      // fall back to a text-match against the request's own prompt.
       const selectedProductImageUrl = selectedProductImageId
         ? businessContext.productImages.find((image) => image.id === selectedProductImageId)?.imageUrl
-        : undefined;
+        : resolveAutomationProductImageUrl(promptText, businessContext.productImages);
       if (!voiceOverContent && narrationRequested && voiceOverTextOverride === undefined) {
         voiceOverContent = extractVideoDialogue(promptText).script;
       }

@@ -611,6 +611,8 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
               voiceGender: data.voiceGender === 'Male' ? 'Male' : 'Female',
               voiceOverText: String(data.voiceOverText || ''),
               performanceStyle: String(data.performanceStyle || ''),
+              productImageUrl: String(data.productImageUrl || ''),
+              productImageLabel: String(data.productImageLabel || ''),
               aspectRatio: ['9:16', '16:9', '1:1', '3:4'].includes(data.aspectRatio) ? data.aspectRatio : data.type === 'video' ? '9:16' : '1:1',
               status: data.status || 'PENDING',
               errorMessage: data.errorMessage || undefined,
