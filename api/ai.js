@@ -15,7 +15,7 @@ import { createGeminiLiveEphemeralToken } from './_geminiLive.js';
 import { liveVoiceLanguageInstruction } from './_liveVoiceInstruction.js';
 import { preparePlanVideoSpeech } from './_videoSpeech.js';
 import { startKhmerVideoJob } from './_khmerVideo.js';
-import { preserveKhmerDuringTranslation, compareKhmerTranscript, KHMER_SCRIPT_ONLY_INSTRUCTION } from '../shared/videoSpeech.js';
+import { preserveKhmerDuringTranslation, compareKhmerTranscript, isKhmerOnlyNarration, KHMER_SCRIPT_ONLY_INSTRUCTION } from '../shared/videoSpeech.js';
 import { initFirebaseAdmin } from './_firebaseAdmin.js';
 import admin from './_firebaseAdmin.js';
 import { checkRateLimit, getClientIp } from './_rateLimit.js';
@@ -862,12 +862,44 @@ Aspect ratio defaults: poster=3:4 unless the user names another format, TikTok/R
   // already instructed (businessContentInstruction requireName) to weave the
   // exact name into the script itself. Adding the raw name afterward can
   // switch the Khmer TTS voice to English and overrun the clip.
-  const voiceOverText = String(plan.voiceOverText || '').trim().slice(0, 2000);
+  let voiceOverText = String(plan.voiceOverText || '').trim().slice(0, 2000);
+  // The classifier can describe a Khmer request correctly but still return an
+  // English script. The video creator selects its narration pipeline from the
+  // script itself, so validate the script before a paid video job can start.
+  const userSpeechTurns = [
+    ...historyText.split('\n').filter((line) => line.startsWith('User: ')).slice(-4),
+    message,
+  ];
+  const khmerSpeechPattern = /(?:និយាយ|សំឡេង|សម្លេង).{0,40}(?:ភាសាខ្មែរ|ខ្មែរ)|\b(?:speak|speaking|spoken|narrat\w*|voice[ -]?over|dialogue)\b.{0,40}\b(?:Cambodian )?Khmer\b|\bKhmer\b.{0,40}\b(?:speech|voice|narrat\w*|dialogue)\b/iu;
+  const englishSpeechPattern = /(?:និយាយ|សំឡេង|សម្លេង).{0,40}(?:ភាសាអង់គ្លេស|អង់គ្លេស)|\b(?:speak|speaking|spoken|narrat\w*|voice[ -]?over|dialogue)\b.{0,40}\bEnglish\b|\bEnglish\b.{0,40}\b(?:speech|voice|narrat\w*|dialogue)\b/iu;
+  const explicitSpeechLanguage = userSpeechTurns.reduce((selected, turn) => {
+    const asksKhmer = khmerSpeechPattern.test(turn);
+    const asksEnglish = englishSpeechPattern.test(turn);
+    return asksKhmer && !asksEnglish ? 'km' : asksEnglish && !asksKhmer ? 'en' : selected;
+  }, null);
+  const requireKhmerSpeech = plan.kind === 'video' && plan.voiceOverWanted === true
+    && (explicitSpeechLanguage === 'km' || (explicitSpeechLanguage !== 'en' && responseLanguage !== 'English'));
+  if (requireKhmerSpeech && voiceOverText && !isKhmerOnlyNarration(voiceOverText)) {
+    try {
+      const rewritten = await generateOpenRouterText({
+        model: resolveOpenRouterTextModel(model),
+        temperature: 0,
+        maxTokens: 500,
+        reasoningEffort: 'low',
+        system: `Rewrite the supplied short video narration in natural Cambodian Khmer. Return only the words to speak, with no label or explanation. Preserve its meaning and fit within ${duration} seconds. ${KHMER_SCRIPT_ONLY_INSTRUCTION}`,
+        prompt: voiceOverText,
+      });
+      if (isKhmerOnlyNarration(String(rewritten || '').trim())) voiceOverText = String(rewritten).trim().slice(0, 2000);
+    } catch (error) {
+      console.warn('Could not repair Khmer video narration:', error?.message || error);
+    }
+  }
   // Narration must be an explicit true/false decision for video, never inferred from silence — a video
   // is only ready once that choice is made, and if narration was wanted, the script must be filled in too.
+  const invalidKhmerSpeech = requireKhmerSpeech && voiceOverText.length > 0 && !isKhmerOnlyNarration(voiceOverText);
   const narrationSettled = plan.kind !== 'video'
     || plan.voiceOverWanted === false
-    || (plan.voiceOverWanted === true && voiceOverText.length > 0);
+    || (plan.voiceOverWanted === true && voiceOverText.length > 0 && !invalidKhmerSpeech);
 
   return {
     ready: Boolean(plan.ready && prompt.length >= 20 && narrationSettled),
@@ -893,7 +925,9 @@ Aspect ratio defaults: poster=3:4 unless the user names another format, TikTok/R
     performanceStyle: plan.kind === 'video' && plan.voiceOverWanted === true
       ? String(plan.performanceStyle || '').trim().slice(0, 1000)
       : undefined,
-    missing: String(plan.missing || '').trim().slice(0, 300),
+    missing: invalidKhmerSpeech
+      ? 'មិនអាចរៀបអត្ថបទសំឡេងខ្មែរបានទេ។ សូមបញ្ជាម្ដងទៀត។'
+      : String(plan.missing || '').trim().slice(0, 300),
   };
 };
 
@@ -2722,7 +2756,7 @@ Return ONLY a single valid JSON object with this exact structure:
       const systemInstruction = `You are aime.angkorgate AI Agent in a live, bidirectional, voice-only call with a creator or small business owner. Listen to incoming audio and respond directly with spoken audio. ${liveVoiceLanguageInstruction(voiceLanguage)} When the user commands creation of a Word or Excel file, remain silent for that turn; the app creates and displays the file. Keep other answers useful and conversational, with concrete advice where relevant. Do not read markdown, headings, or bullet symbols aloud. Speak like a real, warm human being on a phone call -- never a flat, evenly-paced, robotic monotone that just reads words aloud. Let your pitch genuinely rise and fall within and across sentences the way real speech does: fall gently at the end of statements, lift at the end of genuine questions, lift briefly with real excitement or a good idea. Stress only the one or two words that actually carry each sentence's meaning and let the rest sit lighter and quicker around them -- do not give every word equal weight like a machine does. Leave a brief natural beat, like a small breath, between separate ideas instead of running everything together at one constant rhythm. Match your energy to the content: relaxed and easy for small talk, confident and clear for a concrete next step, genuinely interested when the user shares something about their business. Use the loose, informal phrasing a real person would actually say out loud, not the tidy phrasing of something written to be read. ${genderStyle} When speaking Khmer, sound like a native Cambodian speaker having a relaxed one-on-one conversation, never a foreign accent: crisp initial and final consonants, correct vowel length, and clearly separated words with no merging or slurring between them. Fully pronounce every Khmer syllable, including word endings, at a comfortable unhurried pace -- never rush, swallow endings, or run words together. ${CAMBODIA_MARKET_CONTEXT}${businessContentInstruction(businessContext)} Spoken reply language follows the user's audio and the speech-language choice above, never the language of this business context or the app interface. Never answer Khmer speech in English or Hindi.`;
       const ephemeral = await createGeminiLiveEphemeralToken({
         voiceName,
-        systemInstruction: `${systemInstruction} If the user directly asks you to create a plan for one month, remain silent for that turn too; the app creates and displays the monthly Excel plan. If the user asks to edit an existing Content Plan or a dated row, remain silent for that turn; the app updates the plan card and reports the saved result on screen. When the user asks for an image or video to be made, a separate background process (not you) decides whether enough detail was given and performs the actual generation -- you do not know its outcome, so give one short, honest, non-committal acknowledgment (e.g. "Sure, one moment" / "Got it, let's see") rather than confidently saying it has started, describing what it will look like, or claiming it is done; never invent a result.`,
+        systemInstruction: `${systemInstruction} If the user directly asks you to create a plan for one month, remain silent for that turn too; the app creates and displays the monthly Excel plan. If the user asks to edit an existing Content Plan or a dated row, remain silent for that turn; the app updates the plan card and reports the saved result on screen. When the user asks for an image or video to be made, remain silent for that turn. The app checks the request and shows whether generation actually started. Never say or imply that a video exists, invite the user to watch it, or claim generation has started before the app confirms it.`,
       });
       return res.status(200).json(ephemeral);
     }

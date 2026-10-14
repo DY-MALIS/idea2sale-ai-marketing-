@@ -34,11 +34,11 @@ describe('Gemini Live browser connection', () => {
     vi.stubGlobal('window', { setInterval, setTimeout });
     vi.stubGlobal('WebSocket', FakeWebSocket);
     const playbackContext = {
-      sampleRate: 16000,
+      sampleRate: 24000,
       currentTime: 0,
       destination: {},
       createMediaStreamSource: () => ({ connect: vi.fn(), disconnect: vi.fn() }),
-      createScriptProcessor: () => (processor = { connect: vi.fn(), disconnect: vi.fn(), onaudioprocess: null }),
+      createScriptProcessor: vi.fn(() => (processor = { connect: vi.fn(), disconnect: vi.fn(), onaudioprocess: null })),
       createBuffer: () => ({ duration: 0.1, copyToChannel: vi.fn() }),
       createBufferSource: () => {
         const source = { connect: vi.fn(), start: vi.fn(), stop: vi.fn(), onended: null as (() => void) | null };
@@ -68,13 +68,13 @@ describe('Gemini Live browser connection', () => {
       },
     } });
 
-    processor.onaudioprocess({ inputBuffer: { getChannelData: () => new Float32Array([0.5, -0.5]) } });
+    processor.onaudioprocess({ inputBuffer: { getChannelData: () => new Float32Array(1024).fill(0.5) } });
     vi.advanceTimersByTime(200);
     expect(sent).toHaveLength(1);
     socket.onmessage({ data: JSON.stringify({ setupComplete: {} }) });
     const session = await pending;
-    processor.onaudioprocess({ inputBuffer: { getChannelData: () => new Float32Array([0.5, -0.5]) } });
-    vi.advanceTimersByTime(200);
+    expect((playbackContext.createScriptProcessor as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(1024, 1, 1);
+    processor.onaudioprocess({ inputBuffer: { getChannelData: () => new Float32Array(1024).fill(0.5) } });
     expect(sent[1].realtimeInput.audio).toMatchObject({ mimeType: 'audio/pcm;rate=16000', data: expect.any(String) });
     expect(sent[1].realtimeInput).not.toHaveProperty('mediaChunks');
     const audioData = Buffer.from(new Int16Array([100, -100]).buffer).toString('base64');
@@ -84,17 +84,22 @@ describe('Gemini Live browser connection', () => {
     socket.onmessage({ data: JSON.stringify({ serverContent: { turnComplete: true } }) });
     await Promise.resolve();
     expect(onPlaybackComplete).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1200);
     sources[0].onended();
     expect(onPlaybackComplete).toHaveBeenCalledOnce();
-    processor.onaudioprocess({ inputBuffer: { getChannelData: () => new Float32Array([0.25, -0.25]) } });
-    vi.advanceTimersByTime(200);
+    processor.onaudioprocess({ inputBuffer: { getChannelData: () => new Float32Array(1024).fill(0.25) } });
     expect(sent[2].realtimeInput.audio).toMatchObject({ mimeType: 'audio/pcm;rate=16000', data: expect.any(String) });
+    const streamedSamples = [sent[1], sent[2]].reduce((count, message) => (
+      count + Buffer.from(message.realtimeInput.audio.data, 'base64').byteLength / 2
+    ), 0);
+    expect(streamedSamples).toBe(1365);
     expect(socket.readyState).toBe(FakeWebSocket.OPEN);
     socket.onmessage({ data: JSON.stringify({ serverContent: { modelTurn: { parts: [{ inlineData: { mimeType: 'audio/pcm;rate=24000', data: audioData } }] } } }) });
     await Promise.resolve();
     expect(onAudioStart).toHaveBeenCalledTimes(2);
     socket.onmessage({ data: JSON.stringify({ serverContent: { turnComplete: true } }) });
     await Promise.resolve();
+    vi.advanceTimersByTime(1200);
     sources[1].onended();
     expect(onPlaybackComplete).toHaveBeenCalledTimes(2);
     session.close();
@@ -149,12 +154,31 @@ describe('Gemini Live browser connection', () => {
     expect(onUserTurnText).not.toHaveBeenCalled();
     socket.onmessage({ data: JSON.stringify({ serverContent: { turnComplete: true } }) });
     await Promise.resolve();
+    vi.advanceTimersByTime(150);
     expect(onUserTurnText).toHaveBeenCalledExactlyOnceWith('create a video for me');
 
     // A turn with no speech (just silence/VAD) must not re-fire with stale text.
     socket.onmessage({ data: JSON.stringify({ serverContent: { turnComplete: true } }) });
     await Promise.resolve();
+    vi.advanceTimersByTime(1200);
     expect(onUserTurnText).toHaveBeenCalledOnce();
+
+    // Gemini can finish the turn before its final transcription chunk arrives.
+    socket.onmessage({ data: JSON.stringify({ serverContent: { inputTranscription: { text: 'create a ' } } }) });
+    socket.onmessage({ data: JSON.stringify({ serverContent: { turnComplete: true } }) });
+    await Promise.resolve();
+    socket.onmessage({ data: JSON.stringify({ serverContent: { inputTranscription: { text: 'video of coffee' } } }) });
+    await Promise.resolve();
+    vi.advanceTimersByTime(150);
+    expect(onUserTurnText).toHaveBeenLastCalledWith('create a video of coffee');
+    expect(onUserTurnText).toHaveBeenCalledTimes(2);
+
+    socket.onmessage({ data: JSON.stringify({ serverContent: { turnComplete: true } }) });
+    await Promise.resolve();
+    socket.onmessage({ data: JSON.stringify({ serverContent: { inputTranscription: { text: 'បង្កើតវីដេអូអំពីកាហ្វេ' } } }) });
+    await Promise.resolve();
+    vi.advanceTimersByTime(150);
+    expect(onUserTurnText).toHaveBeenLastCalledWith('បង្កើតវីដេអូអំពីកាហ្វេ');
 
     const audioData = Buffer.from(new Int16Array([100, -100]).buffer).toString('base64');
     // Gemini can begin its spoken reply before the user's final transcript arrives.
@@ -167,6 +191,7 @@ describe('Gemini Live browser connection', () => {
     expect(createBufferSource).not.toHaveBeenCalled();
     socket.onmessage({ data: JSON.stringify({ serverContent: { turnComplete: true } }) });
     await Promise.resolve();
+    vi.advanceTimersByTime(150);
     expect(onUserTurnText).toHaveBeenLastCalledWith('សូមបង្កើត plan សម្រាប់មួយខែ');
     expect(createBufferSource).not.toHaveBeenCalled();
 
@@ -178,6 +203,7 @@ describe('Gemini Live browser connection', () => {
     expect(createBufferSource).toHaveBeenCalledOnce();
     socket.onmessage({ data: JSON.stringify({ serverContent: { turnComplete: true } }) });
     await Promise.resolve();
+    vi.advanceTimersByTime(150);
     expect(onUserTurnText).toHaveBeenLastCalledWith('hello');
     expect(createBufferSource).toHaveBeenCalledOnce();
 
@@ -193,6 +219,7 @@ describe('Gemini Live browser connection', () => {
     expect(lateCommandSource.stop).toHaveBeenCalledOnce();
     socket.onmessage({ data: JSON.stringify({ serverContent: { turnComplete: true } }) });
     await Promise.resolve();
+    vi.advanceTimersByTime(150);
     expect(createBufferSource).toHaveBeenCalledTimes(2);
   });
 
@@ -243,6 +270,7 @@ describe('Gemini Live browser connection', () => {
     socket.onmessage({ data: JSON.stringify({ serverContent: { modelTurn: { parts: [{ inlineData: { mimeType: 'audio/pcm;rate=24000', data: audioData } }] } } }) });
     socket.onmessage({ data: JSON.stringify({ serverContent: { turnComplete: true } }) });
     await Promise.resolve();
+    vi.advanceTimersByTime(300);
 
     // The held audio plays and the call stays open -- it must not be treated
     // as a fatal connection error that forces a fallback to the slow,

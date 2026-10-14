@@ -20,6 +20,7 @@ it('does not run the media classifier for ordinary follow-ups after a past video
   expect(shouldClassifyCreativeMedia('How can I sell more coffee?', history)).toBe(false);
   expect(shouldClassifyCreativeMedia('What is video marketing?', history)).toBe(false);
   expect(shouldClassifyCreativeMedia('Create a video of pouring coffee', '')).toBe(true);
+  expect(shouldClassifyCreativeMedia('How do I create a video?', '')).toBe(false);
   expect(shouldClassifyCreativeMedia('Go ahead', history)).toBe(true);
   expect(shouldClassifyCreativeMedia('With Khmer narration', history)).toBe(true);
   expect(shouldClassifyCreativeMedia('Go ahead', 'User: Create a video of coffee\nAssistant: The video is starting.\nUser: Thanks\nAssistant: You are welcome.')).toBe(false);

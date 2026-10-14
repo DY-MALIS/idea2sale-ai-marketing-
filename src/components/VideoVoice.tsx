@@ -809,6 +809,7 @@ const attemptGenerateVideoClip = async (
   idToken?: string,
   userId?: string,
   resumeOptions?: Pick<PendingVideoJob, 'silentRequested' | 'resumeNarration'>,
+  onJobAccepted?: () => void,
 ): Promise<{ videoUrl: string; narrationFallbackReason?: string; imageFallbackReason?: string; pendingFingerprint: string; expectedScript?: string; outputAspectRatio: VideoAspectRatio }> => {
   if (!idToken || !userId) throw new Error('Sign in before generating a video.');
   const fingerprint = videoRequestFingerprint(prompt, images, duration, aspectRatio, khmerSpeech, resumeOptions);
@@ -912,6 +913,7 @@ const attemptGenerateVideoClip = async (
     removePendingVideoStart(userId, fingerprint);
   }
   if (khmerSpeech && !pending.narrationAudioUrl) throw new Error('Missing original Khmer reference audio.');
+  onJobAccepted?.();
   return {
     videoUrl: await pollPendingVideoJob(pending, idToken),
     narrationFallbackReason: pending.narrationFallbackReason || undefined,
@@ -973,6 +975,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   const [segmentProgress, setSegmentProgress] = useState<{ current: number; total: number } | null>(null);
   const [mergingSegments, setMergingSegments] = useState(false);
   const [automationNotice, setAutomationNotice] = useState<string | null>(null);
+  const [automationNoticeKind, setAutomationNoticeKind] = useState<'pending' | 'success' | 'error'>('pending');
   const [resumableVideoJob, setResumableVideoJob] = useState<PendingVideoJob | null>(null);
   const [recoverableVideoStart, setRecoverableVideoStart] = useState<PendingVideoStart | null>(null);
   const handledAutomationRef = React.useRef<string | null>(null);
@@ -1540,7 +1543,13 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                 performanceStyle: `${voicePersonas[generationVoicePersona].style} Read the exact provided text like you are speaking in a real conversation, not reading a script. Use human emotion, natural rhythm, clear consonants, natural pacing. Avoid robotic or AI narration.`,
               }
               : undefined,
-          });
+          },
+          typeof promptOverride === 'string' ? () => {
+            setAutomationNoticeKind('pending');
+            setAutomationNotice(language === 'km'
+              ? 'ម៉ាស៊ីនបង្កើតវីដេអូបានទទួលសំណើ ហើយកំពុងដំណើរការ...'
+              : 'The video provider accepted the job and is processing it...');
+          } : undefined);
         if (allowScriptShorteningOverride && segments.length === 1 && generatedClip.expectedScript
           && generatedClip.expectedScript !== spokenSegments?.[i]) {
           voiceOverContent = generatedClip.expectedScript;
@@ -1562,6 +1571,12 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
             setGeneratedVideo(clip);
             setRetainedClips([...clipUrls, clip]);
             setVideoNeedsReview(true);
+            if (typeof promptOverride === 'string') {
+              setAutomationNoticeKind('error');
+              setAutomationNotice(language === 'km'
+                ? 'វីដេអូបានបង្កើត ប៉ុន្តែសំឡេងត្រូវពិនិត្យមុនប្រើ។ សូមមើលវីដេអូខាងក្រោម។'
+                : 'Video was generated, but its speech needs review. See the video below.');
+            }
             setSegmentProgress(null);
             setVideoVoiceQualityNotice(language === 'km'
               ? 'មិនអាចផ្ទៀងផ្ទាត់សំឡេងបាន។ ឈុតដែលបានបង្កើតរក្សាទុកនៅខាងក្រោមសម្រាប់មើល ស្តាប់ និងទាញយក។ ការផ្សព្វផ្សាយត្រូវបានបិទ។ ការបង្កើតម្ដងទៀតអាចចំណាយបន្ថែម។'
@@ -1643,6 +1658,10 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       if (silentRequested) video = applyImageKitMuteTransform(video);
       completedJobFingerprints.forEach((fingerprint) => removePendingVideoJob(user.uid, fingerprint));
       setGeneratedVideo(video);
+      if (typeof promptOverride === 'string') {
+        setAutomationNoticeKind('success');
+        setAutomationNotice(language === 'km' ? 'វីដេអូបានបង្កើតរួច។ សូមពិនិត្យមើលខាងក្រោម។' : 'Video is ready. Review it below.');
+      }
       setGeneratedVideoHasSpeech(Boolean(voiceOverContent) && !silentRequested);
       // The final result is already a small hosted URL, so history persistence
       // never sends the full video through /api/ai again.
@@ -1696,6 +1715,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
             : 'Video generation failed for an unknown reason. Please try again.';
       if (/OPEN_ROUTER_API_KEY|api key/i.test(errorMessage)) setNeedsApiKey(true);
       if (typeof promptOverride === 'string') {
+        setAutomationNoticeKind('error');
         setAutomationNotice(language === 'km'
           ? `ការបង្កើតវីដេអូតាមបញ្ជាមិនបានបញ្ចប់៖ ${errorMessage}`
           : `Commanded video did not finish: ${errorMessage}`);
@@ -1737,11 +1757,8 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       setVoiceOverEnabled(true);
       setVoiceOverText(requestedVoiceOver);
     }
-    setAutomationNotice(
-      language === 'km'
-        ? `Agent បានរៀប brief សម្រាប់ ${automationRequest.platform} ហើយកំពុងបង្កើតវីដេអូស្វ័យប្រវត្តិ${requestedVoiceOver ? ' ជាមួយសំឡេងខ្មែរ' : ''}។`
-        : `The agent prepared a ${automationRequest.platform} brief and started automatic video creation${requestedVoiceOver ? ' with a Khmer voice-over' : ''}.`,
-    );
+    setAutomationNoticeKind('pending');
+    setAutomationNotice(language === 'km' ? 'កំពុងរៀបចំសំណើវីដេអូ...' : 'Preparing the video request...');
     onAutomationConsumed?.(automationRequest.id);
     void handleGenerateVideo(automationRequest.prompt, generationLanguage, requestedVoiceOver, requestedDuration, requestedAspectRatio,
       automationRequest.voiceGender, automationRequest.performanceStyle, automationRequest.allowScriptShortening);
@@ -2037,8 +2054,8 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     <div className="max-w-6xl mx-auto space-y-10">
       <ToastHost />
       {automationNotice && (
-        <div className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-semibold text-emerald-800">
-          <Sparkles size={18} className="shrink-0" />
+        <div role="status" className={`flex items-center gap-3 rounded-2xl border px-5 py-4 text-sm font-semibold ${automationNoticeKind === 'error' ? 'border-red-200 bg-red-50 text-red-800' : automationNoticeKind === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
+          {automationNoticeKind === 'pending' ? <Loader2 size={18} className="shrink-0 animate-spin" /> : <Sparkles size={18} className="shrink-0" />}
           <span>{automationNotice}</span>
         </div>
       )}

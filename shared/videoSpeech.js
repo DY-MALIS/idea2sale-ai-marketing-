@@ -8,6 +8,12 @@ export const wantsSilentVideo = (prompt = '') => /\b(?:silent|no (?:speech|voice
 // after the first one was fixed.
 export const KHMER_SCRIPT_ONLY_INSTRUCTION = 'Write every word in Khmer script only -- spell out any English word, abbreviation or number phonetically in Khmer letters (for example AI as "អេ អាយ") instead of leaving Latin letters, because the Khmer-only text-to-speech voice cannot read Latin script and will switch languages mid-sentence on any word left unspelled.';
 
+export function isKhmerOnlyNarration(value) {
+  const script = String(value || '').trim();
+  return /\p{Script=Khmer}/u.test(script)
+    && ![...script].some((character) => (/\p{L}/u.test(character) && !/\p{Script=Khmer}/u.test(character)) || /\p{N}/u.test(character));
+}
+
 // Quoted dialogue supports mixed languages, numbers and punctuation. Legacy
 // unquoted dialogue ends at a sentence boundary, newline or stage direction.
 export function extractVideoDialogue(prompt = '') {

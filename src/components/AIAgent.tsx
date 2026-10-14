@@ -192,6 +192,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [voiceConnecting, setVoiceConnecting] = useState(false);
   const [voiceProcessing, setVoiceProcessing] = useState(false);
+  const [voiceTransport, setVoiceTransport] = useState<'connecting' | 'live' | 'fallback' | null>(null);
   // The voice orb UI replaces the chat transcript while a call is active, so
   // without this the user never sees what was just said or created -- only
   // hears it. Holds the latest reply text (and, when a content/plan/video
@@ -254,13 +255,17 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     return request;
   };
 
+  const videoSignInMessage = () => language === 'km'
+    ? 'ការបង្កើតវីដេអូមិនទាន់ចាប់ផ្តើមទេ។ សូមចូលគណនីពិត រួចបញ្ជាម្តងទៀត។'
+    : 'Video generation has not started. Sign in to your account, then try again.';
+
   // "Create a video/plan" needs a visible brief, not just the orb's spoken
   // audio -- builds the same on-screen caption from a triggered request's
   // sanitized fields, whichever voice path (fast Live or fallback) produced it.
   const automationCaption = (request: CreativeAutomationRequest): string => {
     const km = language === 'km';
     const headline = request.kind === 'video'
-      ? (km ? `កំពុងបង្កើតវីដេអូ (${request.platform} • ${request.aspectRatio} • ${request.duration || 8}s)` : `Creating a video (${request.platform} • ${request.aspectRatio} • ${request.duration || 8}s)`)
+      ? (km ? `កំពុងរៀបចំសំណើវីដេអូ (${request.platform} • ${request.aspectRatio} • ${request.duration || 8}s)` : `Preparing video request (${request.platform} • ${request.aspectRatio} • ${request.duration || 8}s)`)
       : (km ? `កំពុងបង្កើតរូបភាព (${request.platform} • ${request.aspectRatio})` : `Creating an image (${request.platform} • ${request.aspectRatio})`);
     return [headline, request.headline, request.voiceOverText, request.cta].filter((part) => part && part.trim()).join('\n\n');
   };
@@ -268,6 +273,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const startFallbackVoice = (session: number) => {
     if (session !== voiceSessionRef.current || !voiceActiveRef.current) return;
     if (fallbackSessionRef.current) return;
+    setVoiceTransport('fallback');
     geminiLiveActiveRef.current = false;
     geminiLiveSessionRef.current = null;
     const audioElement = fallbackAudioRef.current || new Audio();
@@ -302,7 +308,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     const agentPlanCommand = !documentCommand && isAgentPlanMessage(transcript);
     const mediaCommand = shouldClassifyCreativeMedia(transcript, messagesRef.current
       .slice(-4).map((item) => `${item.role === 'assistant' ? 'Assistant' : 'User'}: ${item.content}`).join('\n'));
-    const handledCommand = planEditCommand || agentPlanCommand || documentCommand;
+    const handledCommand = planEditCommand || agentPlanCommand || documentCommand || mediaCommand;
     if (session !== voiceSessionRef.current || !voiceActiveRef.current) return handledCommand;
     if (handledCommand) {
       setVoiceProcessing(true);
@@ -310,7 +316,9 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         ? (language === 'km' ? 'កំពុងកែ Content Plan...' : 'Updating Content Plan...')
         : agentPlanCommand
           ? (language === 'km' ? 'កំពុងបង្កើត Content Plan ជា Excel...' : 'Creating your Excel content plan...')
-          : (language === 'km' ? 'កំពុងបង្កើតឯកសារ...' : 'Creating your document...'));
+          : mediaCommand
+            ? (language === 'km' ? 'កំពុងពិនិត្យសំណើបង្កើតរូប/វីដេអូ...' : 'Checking your image/video request...')
+            : (language === 'km' ? 'កំពុងបង្កើតឯកសារ...' : 'Creating your document...'));
     }
     void (async () => {
       try {
@@ -367,12 +375,31 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         }
         if (!data.automation?.ready || !autoCreateEnabledRef.current) {
           if (mediaCommand && session === voiceSessionRef.current) {
-            setVoiceCaption(!autoCreateEnabledRef.current
+            const caption = !autoCreateEnabledRef.current
               ? (language === 'km' ? 'សូមបើកការបង្កើតរូប/វីដេអូស្វ័យប្រវត្តិ រួចបញ្ជាម្ដងទៀត។' : 'Turn on automatic image/video creation, then ask again.')
               : String(data.automation?.missing || (language === 'km'
                 ? 'មិនទាន់ចាប់ផ្ដើមបង្កើតទេ។ សូមបញ្ជាក់ប្រធានបទ និងសំឡេងដែលចង់បាន។'
-                : 'Creation has not started. Please clarify the subject and narration.')));
+                : 'Creation has not started. Please clarify the subject and narration.'));
+            setVoiceCaption(caption);
+            // Keep the original spoken request and the one missing-detail
+            // question. A follow-up such as "yes" or "create it" needs both
+            // turns to finish the brief and start the generator.
+            if (autoCreateEnabledRef.current) updateMessages([
+              ...messagesRef.current,
+              { role: 'user', content: transcript, modality: 'voice' },
+              { role: 'assistant', content: caption, modality: 'voice' },
+            ]);
           }
+          return;
+        }
+        if (data.automation.kind === 'video' && !user) {
+          const caption = videoSignInMessage();
+          setVoiceCaption(caption);
+          updateMessages([
+            ...messagesRef.current,
+            { role: 'user', content: transcript, modality: 'voice' },
+            { role: 'assistant', content: caption, modality: 'voice' },
+          ]);
           return;
         }
         const request = triggerCreativeAutomation(data.automation, detectedLanguage);
@@ -432,7 +459,9 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           setIsSpeaking(false);
         },
         onUserTurnText: (text) => handleLiveUserTurn(session, text),
-        onUserTranscription: (text) => isAgentDocumentCommand(text) || isAgentPlanMessage(text) || isPlanEditMessage(text),
+        onUserTranscription: (text) => isAgentDocumentCommand(text) || isAgentPlanMessage(text) || isPlanEditMessage(text)
+          || shouldClassifyCreativeMedia(text, messagesRef.current
+            .slice(-4).map((item) => `${item.role === 'assistant' ? 'Assistant' : 'User'}: ${item.content}`).join('\n')),
         // Every drop to the slow fallback path previously left no trace of
         // why -- reporting here is the only way to learn whether real users'
         // Gemini Live connections are failing at all, and if so why, without
@@ -447,6 +476,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       }
       geminiLiveActiveRef.current = true;
       geminiLiveSessionRef.current = geminiSession;
+      setVoiceTransport('live');
       setVoiceConnecting(false);
       return true;
     } catch (error) {
@@ -1149,6 +1179,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     setLiveVoiceEnabled(false);
     setVoiceConnecting(false);
     setVoiceProcessing(false);
+    setVoiceTransport(null);
     liveConnectionControllerRef.current?.abort();
     liveConnectionControllerRef.current = null;
     fallbackSessionRef.current?.close();
@@ -1183,6 +1214,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     setLiveVoiceEnabled(true);
     setVoiceConnecting(true);
     setVoiceProcessing(false);
+    setVoiceTransport('connecting');
     setIsSpeaking(false);
     setVoiceCaption('');
     setVoiceDocument(null);
@@ -1288,14 +1320,16 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'AI Agent failed.');
       const document = data.document as AgentDocument | undefined;
-      const answer = document
+      const videoNeedsSignIn = autoCreateRequested && data.automation?.ready
+        && data.automation.kind === 'video' && !user;
+      const answer = videoNeedsSignIn ? videoSignInMessage() : document
         ? (language === 'km' ? `ឯកសារ ${document.format.toUpperCase()} រួចរាល់៖ ${document.title}` : `${document.format.toUpperCase()} ready: ${document.title}`)
         : String(data.text || 'No response generated.').trim();
 
-      const assistantMessage: AgentMessage = { role: 'assistant', content: answer, modality: spoken ? 'voice' : 'text', ...(document ? { document } : {}), ...(data.agentPlan ? { agentPlan: true } : {}), ...(data.audioScript ? { audioPending: true } : {}) };
+      const assistantMessage: AgentMessage = { role: 'assistant', content: answer, modality: spoken ? 'voice' : 'text', ...(document ? { document } : {}), ...(data.agentPlan ? { agentPlan: true } : {}), ...(data.audioScript && !videoNeedsSignIn ? { audioPending: true } : {}) };
       updateMessages([...pendingMessages, assistantMessage]);
 
-      if (data.audioScript) {
+      if (data.audioScript && !videoNeedsSignIn) {
         const audioController = new AbortController();
         audioControllersRef.current.add(audioController);
         void (async () => {
@@ -1329,7 +1363,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         return '';
       }
 
-      if (autoCreateRequested && data.automation?.ready) {
+      if (autoCreateRequested && data.automation?.ready && !videoNeedsSignIn) {
         const request = triggerCreativeAutomation(data.automation, message ? detectMessageLanguage(message) : language);
         if (spoken) setVoiceCaption(automationCaption(request));
       }
@@ -1814,9 +1848,15 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
             </div>
             {liveVoiceEnabled && (
               <p className="text-xs font-medium text-brand-600 dark:text-brand-300" role="status">
-                {language === 'km'
-                  ? 'សន្ទនាសំឡេងផ្ទាល់កំពុងដំណើរការ។ ចុចម្តងទៀតដើម្បីបញ្ចប់ការហៅ។'
-                  : 'Live audio call is active. Press Live Voice again to end the call.'}
+                {voiceTransport === 'fallback'
+                  ? (language === 'km'
+                    ? 'កំពុងប្រើសំឡេងបម្រុង ដែលឆ្លើយយឺតជាង Live។ បិទហើយបើកម្តងទៀតដើម្បីសាកភ្ជាប់ Live។'
+                    : 'Using slower backup voice. Turn Live Voice off and on to retry the realtime connection.')
+                  : voiceTransport === 'connecting'
+                    ? (language === 'km' ? 'កំពុងភ្ជាប់សំឡេងផ្ទាល់...' : 'Connecting realtime voice...')
+                    : (language === 'km'
+                      ? 'សន្ទនាសំឡេងផ្ទាល់កំពុងដំណើរការ។ ចុចម្តងទៀតដើម្បីបញ្ចប់ការហៅ។'
+                      : 'Realtime voice is active. Press Live Voice again to end the call.')}
               </p>
             )}
             {voiceRetryAt > Date.now() && (

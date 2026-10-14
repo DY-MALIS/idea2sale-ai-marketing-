@@ -21,6 +21,7 @@ export const isStandaloneAudioRequest = (message) => {
 export const shouldClassifyCreativeMedia = (message, historyText = '') => {
   const text = String(message || '').trim();
   if (isContentPlanCreationRequest(text) || isStandaloneAudioRequest(text)) return false;
+  if (adviceQuestion.test(text)) return false;
   if (mediaNoun.test(text) && creationVerb.test(text)) return true;
   const recentHistory = String(historyText).slice(-1500);
   const lastAssistant = recentHistory.split('\n').filter((line) => line.startsWith('Assistant:')).at(-1) || '';

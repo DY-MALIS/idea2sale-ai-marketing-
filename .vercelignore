@@ -1,0 +1,17 @@
+node_modules/
+node_modules.locked-backup/
+.npm-cache/
+build/
+dist/
+coverage/
+*.log
+.env*
+!.env.example
+.git/
+.vercel/
+.vscode/
+scratchpad/
+scratch_test_*.mjs
+artifacts/
+dev-server.pid
+tests/api/telegram/image.png

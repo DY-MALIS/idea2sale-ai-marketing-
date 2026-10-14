@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { preserveKhmerDuringTranslation, splitKhmerScript, nativeSpeechPrompt, compareKhmerTranscript, extractVideoDialogue, visualOnlyVideoPrompt, wantsSilentVideo } from '../../shared/videoSpeech.js';
+import { preserveKhmerDuringTranslation, splitKhmerScript, nativeSpeechPrompt, compareKhmerTranscript, extractVideoDialogue, visualOnlyVideoPrompt, wantsSilentVideo, isKhmerOnlyNarration } from '../../shared/videoSpeech.js';
 const mocks = vi.hoisted(() => ({ narration: vi.fn(), transcribe: vi.fn() }));
 vi.mock('../../api/_khmerNarration.js', () => ({ createKhmerNarration: mocks.narration }));
 vi.mock('../../api/_openrouter.js', () => ({
@@ -10,6 +10,12 @@ import { preparePlanVideoSpeech, verifyUploadedVideoSpeech } from '../../api/_vi
 afterEach(() => { vi.resetAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe('native Khmer video speech', () => {
+  it('requires an entirely Khmer-script narration for a Khmer voice request', () => {
+    expect(isKhmerOnlyNarration('សួស្តី មិត្តភក្តិ។')).toBe(true);
+    for (const script of ['Hello សួស្តី', 'សួស្តី AI', 'សួស្តី 24', 'សួស្តី สวัสดี', 'Hello']) {
+      expect(isKhmerOnlyNarration(script)).toBe(false);
+    }
+  });
   it('preserves mixed Khmer dialogue with English product names and numbers', async () => {
     const line = 'សួស្តី AI ជួយការងារ 24 ម៉ោង។';
     expect((await preparePlanVideoSpeech({prompt:`A presenter says in Khmer: ${line}`})).script).toBe(line);
