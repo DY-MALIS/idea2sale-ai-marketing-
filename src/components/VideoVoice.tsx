@@ -746,7 +746,20 @@ const pollPendingVideoJob = async (pending: PendingVideoJob, idToken: string) =>
     }
     if (statusData.videoUrl) {
       const playableVideoUrl = normalizeImageKitVideoUrl(statusData.videoUrl);
-      if (!pending.narrationAudioUrl) return playableVideoUrl;
+      if (!pending.narrationAudioUrl) {
+        // expectedScript is only ever set when this job was originally a
+        // Khmer-narrated request (see attemptGenerateVideoClip and
+        // videoOptionsFromRecoveredStart). A narrated job reaching here with
+        // no narrationAudioUrl means the recovery path (videoRecover's
+        // video_jobs fallback, api/ai.js) returned an incomplete response
+        // missing the narration fields -- not a silent request. The only
+        // caller of this function that skips attemptGenerateVideoClip's own
+        // "Missing original Khmer reference audio" guard is the "Resume
+        // processing video" flow, which would otherwise silently deliver a
+        // real paid clip with no audio and no indication anything was wrong.
+        if (pending.expectedScript) throw new Error('Missing original Khmer reference audio. Use Resume processing video again, or contact support if this keeps happening.');
+        return playableVideoUrl;
+      }
       try {
         // Older narration uploads were accidentally given image-only ImageKit
         // transformations. Strip those parameters so already-paid resumable
