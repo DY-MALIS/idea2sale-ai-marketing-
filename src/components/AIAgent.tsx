@@ -17,6 +17,7 @@ import { CreativeAutomationRequest } from '../types';
 import { downloadAgentDocument, isAgentDocumentCommand, type AgentDocument } from '../lib/agentDocument';
 import { AgentDocumentCard, AgentDocumentDialog } from './AgentDocumentCard';
 import { isContentPlanEditFollowup, isContentPlanEditPronounFollowup, isContentPlanEditRequest } from '../../shared/contentPlanEditIntent.js';
+import { shouldCompleteVoiceAutomation } from '../../shared/voiceAutomationSession.js';
 import { isContentPlanCreationRequest, shouldClassifyCreativeMedia } from '../../shared/agentIntent.js';
 
 const DEMO_AGENT_CONVERSATION_STORAGE_KEY = 'demo_agent_conversation';
@@ -304,6 +305,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   // app handle document and Content Plan commands. Those turns stay silent
   // until the corresponding on-screen result or error is available.
   const handleLiveUserTurn = (session: number, transcript: string) => {
+    const autoCreateRequested = autoCreateEnabledRef.current;
     const documentCommand = isAgentDocumentCommand(transcript);
     const planEditCommand = !documentCommand && isPlanEditMessage(transcript);
     const agentPlanCommand = !documentCommand && isAgentPlanMessage(transcript);
@@ -360,7 +362,16 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           }
           return;
         }
-        if (!documentCommand && (session !== voiceSessionRef.current || !voiceActiveRef.current)) return;
+        // Ending the voice call advances voiceSessionRef, but a media command
+        // already accepted by the server still needs to reach its generator.
+        // Ignore results only after a different voice session has started.
+        if (!documentCommand && !shouldCompleteVoiceAutomation({
+          commandSession: session,
+          currentSession: voiceSessionRef.current,
+          voiceActive: voiceActiveRef.current,
+          mounted: voiceCommandMountedRef.current,
+        })) return;
+        if (documentCommand && !voiceCommandMountedRef.current) return;
         if (data.document) {
           const document = data.document as AgentDocument;
           const caption = language === 'km' ? `ឯកសារ ${document.format.toUpperCase()} រួចរាល់៖ ${document.title}` : `${document.format.toUpperCase()} ready: ${document.title}`;
@@ -374,9 +385,9 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           ]);
           return;
         }
-        if (!data.automation?.ready || !autoCreateEnabledRef.current) {
+        if (!data.automation?.ready || !autoCreateRequested) {
           if (mediaCommand && session === voiceSessionRef.current) {
-            const caption = !autoCreateEnabledRef.current
+            const caption = !autoCreateRequested
               ? (language === 'km' ? 'សូមបើកការបង្កើតរូប/វីដេអូស្វ័យប្រវត្តិ រួចបញ្ជាម្ដងទៀត។' : 'Turn on automatic image/video creation, then ask again.')
               : String(data.automation?.missing || (language === 'km'
                 ? 'មិនទាន់ចាប់ផ្ដើមបង្កើតទេ។ សូមបញ្ជាក់ប្រធានបទ និងសំឡេងដែលចង់បាន។'
@@ -385,7 +396,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
             // Keep the original spoken request and the one missing-detail
             // question. A follow-up such as "yes" or "create it" needs both
             // turns to finish the brief and start the generator.
-            if (autoCreateEnabledRef.current) updateMessages([
+            if (autoCreateRequested) updateMessages([
               ...messagesRef.current,
               { role: 'user', content: transcript, modality: 'voice' },
               { role: 'assistant', content: caption, modality: 'voice' },
@@ -494,6 +505,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     }
   };
   const voiceSessionRef = useRef(0);
+  const voiceCommandMountedRef = useRef(true);
   const [businessContext, setBusinessContext] = useState<AgentBusinessContext | null>(null);
   // Speech language is independent of the UI language. Auto allows Khmer,
   // English, and mixed turns; explicit choices guide the live audio model.
@@ -1241,13 +1253,17 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     }
   };
 
-  useEffect(() => () => {
-    voiceSessionRef.current += 1;
-    voiceActiveRef.current = false;
-    liveConnectionControllerRef.current?.abort();
-    geminiLiveSessionRef.current?.close();
-    fallbackSessionRef.current?.close();
-    if (voiceRetryTimerRef.current) clearTimeout(voiceRetryTimerRef.current);
+  useEffect(() => {
+    voiceCommandMountedRef.current = true;
+    return () => {
+      voiceCommandMountedRef.current = false;
+      voiceSessionRef.current += 1;
+      voiceActiveRef.current = false;
+      liveConnectionControllerRef.current?.abort();
+      geminiLiveSessionRef.current?.close();
+      fallbackSessionRef.current?.close();
+      if (voiceRetryTimerRef.current) clearTimeout(voiceRetryTimerRef.current);
+    };
   }, []);
 
   const askAgent = async (messageOverride?: string, spoken = false): Promise<string> => {
