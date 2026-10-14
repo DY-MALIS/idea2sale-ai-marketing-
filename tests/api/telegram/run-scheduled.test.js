@@ -124,6 +124,45 @@ it('starts an approved plan video once, saves its job ID, and schedules the poll
   }));
 });
 
+it('passes the plan item\'s saved product image through to the Khmer video job', async () => {
+  process.env.CRON_SECRET = 'cron-test';
+  process.env.QSTASH_TOKEN = 'qstash-test';
+  process.env.APP_URL = 'https://aime.example.test';
+  const patches = [];
+  const item = {
+    status: 'PENDING', type: 'video', userId: 'owner', prompt: 'Cambodian training video', duration: 8,
+    productImageUrl: 'https://ik.imagekit.io/test/product.png',
+  };
+  const planRef = {
+    get: async () => ({ exists: true, id: 'planvideo456', data: () => item }),
+    update: async (patch) => { patches.push(patch); Object.assign(item, patch); },
+  };
+  planMocks.db = {
+    collection: (name) => ({ doc: () => name === 'content_plan_items'
+      ? planRef
+      : { get: async () => ({ data: () => ({ businessName: 'DGACADEMY' }) }) } }),
+    runTransaction: async (fn) => fn({
+      get: (ref) => ref.get(),
+      update: (_ref, patch) => { patches.push(patch); Object.assign(item, patch); },
+    }),
+  };
+  planMocks.preparePlanVideoSpeech.mockResolvedValue({ mode: 'edge-seedance', script: 'សូមស្វាគមន៍', prompt: 'Training presenter' });
+  planMocks.startKhmerVideoJob.mockResolvedValue({
+    job: { jobId: 'paid-video-job' },
+    avatarImage: { mediaUrl: 'https://ik.imagekit.io/test/avatar.png' },
+    narrationAudio: { mediaUrl: 'https://ik.imagekit.io/test/voice.mp3', spokenText: 'សូមស្វាគមន៍', duration: 4 },
+  });
+  planMocks.publishJSON.mockResolvedValue({ messageId: 'poll-message' });
+  const res = createMockRes();
+
+  await scheduledHandler({ method: 'POST', headers: { authorization: 'Bearer cron-test' }, query: { planVideoId: 'planvideo456' } }, res);
+
+  expect(planMocks.startKhmerVideoJob).toHaveBeenCalledWith(
+    expect.anything(), expect.anything(), expect.anything(),
+    expect.objectContaining({ productImageUrl: 'https://ik.imagekit.io/test/product.png' }),
+  );
+});
+
 describe('truncateForTelegram', () => {
   it('leaves short text untouched', () => {
     expect(truncateForTelegram('hello', 1024)).toBe('hello');

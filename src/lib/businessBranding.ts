@@ -1,13 +1,14 @@
 import { doc, getDoc } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { db } from './firebase';
-import type { BusinessDirectoryEntry, BusinessProfileData } from '../types';
+import type { BusinessDirectoryEntry, BusinessProductImage, BusinessProfileData } from '../types';
 
 export interface BusinessBranding {
   businessName: string;
   businessDescription: string;
   logoDataUrl: string;
   directory: BusinessDirectoryEntry[];
+  productImages: BusinessProductImage[];
   telegramBotUsername: string;
   telegramBotActive: boolean;
   telegramChannelUrl: string;
@@ -17,7 +18,7 @@ export interface BusinessBranding {
   linkedinUrl: string;
 }
 
-const emptyBranding = (): BusinessBranding => ({ businessName: '', businessDescription: '', logoDataUrl: '', directory: [], telegramBotUsername: '', telegramBotActive: false, telegramChannelUrl: '', tiktokHandle: '', facebookPageUrl: '', websiteUrl: '', linkedinUrl: '' });
+const emptyBranding = (): BusinessBranding => ({ businessName: '', businessDescription: '', logoDataUrl: '', directory: [], productImages: [], telegramBotUsername: '', telegramBotActive: false, telegramChannelUrl: '', tiktokHandle: '', facebookPageUrl: '', websiteUrl: '', linkedinUrl: '' });
 
 // Read at the moment an asset/script is generated. The main tabs stay mounted
 // while Business Profile is edited, so mount-time state otherwise becomes stale.
@@ -35,6 +36,7 @@ export async function getLatestBusinessBranding(user: User | null, isDemoMode: b
       businessDescription: String(profile?.businessDescription || '').trim(),
       logoDataUrl: String(profile?.logoDataUrl || ''),
       directory: Array.isArray(profile?.directory) ? profile.directory : [],
+      productImages: Array.isArray(profile?.productImages) ? profile.productImages : [],
       telegramBotUsername: String(profile?.telegramBotUsername || ''),
       telegramBotActive: Boolean(profile?.telegramBotActive),
       telegramChannelUrl: String(profile?.telegramChannelUrl || ''),

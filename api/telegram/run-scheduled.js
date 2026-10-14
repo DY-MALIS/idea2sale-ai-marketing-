@@ -297,6 +297,10 @@ const startPlanVideoJob = (item, speech) => {
     generateAudio: false,
     allowScriptShortening: item.scriptEditedByUser !== true,
     aspectRatio: item.aspectRatio || '9:16',
+    // Picked from the user's own saved profile gallery when the plan item was
+    // created (AIAgent.tsx) -- trusted the same way businessName/voiceOverText
+    // already are on this document, no separate ownership re-check needed.
+    productImageUrl: item.productImageUrl || '',
   });
 };
 

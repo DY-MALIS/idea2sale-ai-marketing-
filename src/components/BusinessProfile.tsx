@@ -1,18 +1,22 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Upload, FileText, Building2, User, Plus, Trash2, Save, CheckCircle2, Loader2, Send, Bot, ArrowRight } from 'lucide-react';
+import { X, Upload, FileText, Building2, User, Plus, Trash2, Save, CheckCircle2, Loader2, Send, Bot, ArrowRight, Image as ImageIcon } from 'lucide-react';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { cn } from '../lib/utils';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
-import { BusinessDirectoryEntry, BusinessProfileData } from '../types';
+import { BusinessDirectoryEntry, BusinessProductImage, BusinessProfileData } from '../types';
 import { recordAuditEvent } from '../lib/auditClient';
 import { withUploadTimeout } from '../lib/withUploadTimeout';
 import { channelUsernameFromProfile } from '../../shared/telegramDestination.js';
 
 const DEMO_STORAGE_KEY = 'demo_business_profile';
 const LOGO_MAX_DIMENSION = 256;
+// Matches the fidelity bar VideoVoice.tsx already uses for its own
+// (non-persistent) starting-image reference feature.
+const PRODUCT_IMAGE_MAX_DIMENSION = 1280;
+const MAX_PRODUCT_IMAGES = 12;
 
 const validHttpUrl = (value: string, allowedHosts?: string[]): boolean => {
   try {
@@ -34,10 +38,10 @@ const getLocalProfile = (): BusinessProfileData => {
   } catch {
     // fall through to default
   }
-  return { businessName: '', logoDataUrl: '', directory: [], telegramBotToken: '', telegramChatId: '' };
+  return { businessName: '', logoDataUrl: '', directory: [], productImages: [], telegramBotToken: '', telegramChatId: '' };
 };
 
-const resizeImageToDataUrl = (file: File): Promise<string> =>
+const resizeImageToDataUrl = (file: File, maxDimension: number = LOGO_MAX_DIMENSION): Promise<string> =>
   new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error('Could not read this image file.'));
@@ -45,7 +49,7 @@ const resizeImageToDataUrl = (file: File): Promise<string> =>
       const img = new Image();
       img.onerror = () => reject(new Error('Could not load this image file.'));
       img.onload = () => {
-        const scale = Math.min(1, LOGO_MAX_DIMENSION / Math.max(img.width, img.height));
+        const scale = Math.min(1, maxDimension / Math.max(img.width, img.height));
         const width = Math.max(1, Math.round(img.width * scale));
         const height = Math.max(1, Math.round(img.height * scale));
         const canvas = document.createElement('canvas');
@@ -97,6 +101,8 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
   const [businessDescription, setBusinessDescription] = useState('');
   const [logoDataUrl, setLogoDataUrl] = useState('');
   const [directory, setDirectory] = useState<BusinessDirectoryEntry[]>([]);
+  const [productImages, setProductImages] = useState<BusinessProductImage[]>([]);
+  const [productImageUploading, setProductImageUploading] = useState(false);
   const [telegramBotToken, setTelegramBotToken] = useState('');
   const [savedTelegramBotToken, setSavedTelegramBotToken] = useState('');
   const [telegramChatId, setTelegramChatId] = useState('');
@@ -120,7 +126,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
     let cancelled = false;
     const load = async () => {
       setLoading(true);
-      setBusinessName(''); setBusinessDescription(''); setLogoDataUrl(''); setDirectory([]);
+      setBusinessName(''); setBusinessDescription(''); setLogoDataUrl(''); setDirectory([]); setProductImages([]);
       setTelegramBotToken(''); setTelegramChatId(''); setTelegramChannelUrl('');
       setSavedTelegramBotToken('');
       setTiktokHandle(''); setFacebookPageUrl(''); setWebsiteUrl(''); setLinkedinUrl(''); setTelegramBotActive(false);
@@ -132,6 +138,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
           setBusinessDescription(local.businessDescription || '');
           setLogoDataUrl(local.logoDataUrl);
           setDirectory(local.directory || []);
+          setProductImages(local.productImages || []);
           setTelegramBotToken(local.telegramBotToken || '');
           setSavedTelegramBotToken(local.telegramBotToken || '');
           setTelegramChatId(local.telegramChatId || '');
@@ -149,6 +156,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
             setBusinessDescription(data.businessDescription || '');
             setLogoDataUrl(data.logoDataUrl || '');
             setDirectory(data.directory || []);
+            setProductImages(Array.isArray(data.productImages) ? data.productImages : []);
             setTelegramBotToken(data.telegramBotToken || '');
             setSavedTelegramBotToken(data.telegramBotToken || '');
             setTelegramChatId(data.telegramChatId || '');
@@ -159,7 +167,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
             setLinkedinUrl(data.linkedinUrl || '');
             setTelegramBotActive(Boolean(data.telegramBotActive));
           } else {
-            setBusinessName(''); setBusinessDescription(''); setLogoDataUrl(''); setDirectory([]);
+            setBusinessName(''); setBusinessDescription(''); setLogoDataUrl(''); setDirectory([]); setProductImages([]);
             setTelegramBotToken(''); setTelegramChatId(''); setTelegramChannelUrl('');
             setSavedTelegramBotToken('');
             setTiktokHandle(''); setFacebookPageUrl(''); setWebsiteUrl(''); setLinkedinUrl(''); setTelegramBotActive(false);
@@ -187,6 +195,56 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
     } catch (err: any) {
       setError(err.message || t('businessProfileLoadError'));
     }
+  };
+
+  const handleProductImagesSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    const remainingSlots = Math.max(MAX_PRODUCT_IMAGES - productImages.length, 0);
+    for (const file of files.slice(0, remainingSlots)) {
+      try {
+        const dataUrl = await resizeImageToDataUrl(file, PRODUCT_IMAGE_MAX_DIMENSION);
+        const defaultLabel = file.name.replace(/\.[^.]+$/, '').slice(0, 60);
+        if (isDemoMode || !user) {
+          // Demo profiles are persisted whole to localStorage, so a plain data
+          // URL is fine here -- unlike the real Firestore doc, there is no
+          // 1MB/doc limit forcing an ImageKit upload for this mode.
+          setProductImages((current) => [
+            ...current,
+            { id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, label: defaultLabel, imageUrl: dataUrl, fileId: '', filePath: '' },
+          ]);
+          continue;
+        }
+        setProductImageUploading(true);
+        const idToken = await user.getIdToken();
+        const response = await withUploadTimeout(fetch('/api/ai', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+          body: JSON.stringify({ action: 'uploadProductImage', imageDataUrl: dataUrl }),
+        }));
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'Could not upload this product photo.');
+        setProductImages((current) => [
+          ...current,
+          { id: data.fileId || `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, label: defaultLabel, imageUrl: data.imageUrl, fileId: data.fileId || '', filePath: data.filePath || '' },
+        ]);
+      } catch (err: any) {
+        setError(err.message || t('businessProfileLoadError'));
+      } finally {
+        setProductImageUploading(false);
+      }
+    }
+  };
+
+  const handleRemoveProductImage = (id: string) => {
+    // No ImageKit deletion here -- consistent with every other image in this
+    // app (logo replace, generation history, etc.): only the reference is
+    // dropped, leaving the file in storage.
+    setProductImages((current) => current.filter((image) => image.id !== id));
+  };
+
+  const handleProductImageLabelChange = (id: string, label: string) => {
+    setProductImages((current) => current.map((image) => (image.id === id ? { ...image, label: label.slice(0, 60) } : image)));
   };
 
   const handleIntroFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -290,6 +348,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
       businessDescription: businessDescription.trim().slice(0, 1000),
       logoDataUrl,
       directory,
+      productImages: productImages.map((image) => ({ ...image, label: image.label.trim().slice(0, 60) })),
       telegramBotToken: telegramBotToken.trim(),
       telegramChatId: telegramChatId.trim(),
       telegramChannelUrl: channelUrl,
@@ -463,6 +522,47 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
                   ? (language === 'km' ? 'កំពុងអាន...' : 'Reading file...')
                   : (language === 'km' ? 'ឬ Upload ឯកសារណែនាំក្រុមហ៊ុន (.txt, .pdf, .docx, .json, .js, .html...)' : 'Or upload a company intro file (.txt, .pdf, .docx, .json, .js, .html...)')}
               </button>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest block">
+                {language === 'km' ? 'រូបភាពផលិតផល (ជាជម្រើស)' : 'Product Images (optional)'}
+              </label>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {language === 'km'
+                  ? 'Upload រូបភាពផលិតផលពិតប្រាកដ (ឧទាហរណ៍ ផលិតផល skincare ឬភេសជ្ជៈ) ដើម្បីឲ្យវីដេអូ AI បង្ហាញផលិតផលនេះពិតប្រាកដ។'
+                  : 'Upload real photos of your products (e.g. a skincare item or drink) so generated videos can show the actual product.'}
+              </p>
+              <div className="flex flex-wrap gap-3">
+                {productImages.map((image) => (
+                  <div key={image.id} className="w-24 shrink-0 space-y-1">
+                    <div className="relative h-24 w-24">
+                      <img src={image.imageUrl} alt={image.label || 'Product'} className="h-full w-full object-cover rounded-xl" />
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveProductImage(image.id)}
+                        className="absolute -top-2 -right-2 flex h-6 w-6 items-center justify-center rounded-full bg-slate-900/80 text-white text-xs font-bold hover:bg-red-500 transition-colors"
+                      >
+                        ×
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      value={image.label}
+                      onChange={(e) => handleProductImageLabelChange(image.id, e.target.value)}
+                      maxLength={60}
+                      placeholder={language === 'km' ? 'ឈ្មោះផលិតផល' : 'Product name'}
+                      className="w-full px-2 py-1 bg-brand-50 border border-brand-100 dark:bg-slate-800 dark:border-slate-700 rounded-lg text-[11px] text-brand-700 dark:text-slate-100 focus:outline-none focus:ring-2 ring-brand-500/20"
+                    />
+                  </div>
+                ))}
+                {productImages.length < MAX_PRODUCT_IMAGES && (
+                  <label className="flex h-24 w-24 shrink-0 flex-col items-center justify-center border-2 border-dashed border-brand-200 rounded-2xl bg-brand-50 hover:bg-brand-100 transition-all cursor-pointer">
+                    {productImageUploading ? <Loader2 className="animate-spin text-brand-300" size={28} /> : <ImageIcon className="text-brand-300" size={28} />}
+                    <input type="file" accept="image/*" multiple className="hidden" onChange={handleProductImagesSelected} disabled={productImageUploading} />
+                  </label>
+                )}
+              </div>
             </div>
 
             <div className="space-y-3">

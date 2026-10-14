@@ -69,6 +69,7 @@ describe('video rate-limit policy', () => {
     expect(getAiRateLimitPolicy('voiceAutomationCheck')).toMatchObject({ scope: 'ai-live-voice', failClosed: false });
     expect(getAiRateLimitPolicy('copyGenerate')).toMatchObject({ scope: 'ai' });
     expect(getAiRateLimitPolicy('videoStatus').limit).toBeGreaterThan(80);
+    expect(getAiRateLimitPolicy('uploadProductImage')).toMatchObject({ scope: 'product-image-upload', failClosed: false });
   });
 });
 

@@ -27,3 +27,12 @@ it('keeps separate recovered videos for different English narration', () => {
   expect(videoRequestFingerprint(prompt, [], 4, '16:9', undefined, { resumeNarration: { ...options.resumeNarration, text: 'Goodbye' } })).not.toBe(original);
   expect(videoRequestFingerprint(prompt, [], 4, '16:9', undefined, { resumeNarration: { ...options.resumeNarration, voice: 'onyx' } })).not.toBe(original);
 });
+
+it('treats a changed product-image selection as a different request', () => {
+  const original = videoRequestFingerprint(prompt, images, 4, '16:9', speech, { silentRequested: false });
+  expect(videoRequestFingerprint(prompt, images, 4, '16:9', speech, { silentRequested: false }, undefined)).toBe(original);
+  expect(videoRequestFingerprint(prompt, images, 4, '16:9', speech, { silentRequested: false }, 'https://product-a.jpg'))
+    .not.toBe(original);
+  expect(videoRequestFingerprint(prompt, images, 4, '16:9', speech, { silentRequested: false }, 'https://product-a.jpg'))
+    .not.toBe(videoRequestFingerprint(prompt, images, 4, '16:9', speech, { silentRequested: false }, 'https://product-b.jpg'));
+});

@@ -214,6 +214,15 @@ export interface BusinessDirectoryEntry {
   type: 'COMPANY' | 'INDIVIDUAL';
 }
 
+export interface BusinessProductImage {
+  id: string;
+  label: string;
+  imageUrl: string;
+  // Empty in demo mode (no ImageKit upload happens there).
+  fileId: string;
+  filePath: string;
+}
+
 export interface BusinessProfileData {
   businessName: string;
   logoDataUrl: string;
@@ -223,6 +232,9 @@ export interface BusinessProfileData {
   // rather than working from the business name alone.
   businessDescription?: string;
   directory: BusinessDirectoryEntry[];
+  // Real product photos the AI presenter can hold/showcase in a generated
+  // video instead of an AI-invented lookalike (see api/_khmerVideo.js).
+  productImages?: BusinessProductImage[];
   // Publishing uses this owner's bot and public channel username, or their
   // numeric chat ID when no username is saved. There is no shared fallback.
   telegramBotToken?: string;

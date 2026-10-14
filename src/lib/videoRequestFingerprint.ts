@@ -26,11 +26,13 @@ export const videoRequestFingerprint = (
   aspectRatio: string,
   khmerSpeech?: VideoSpeech,
   resumeOptions?: ResumeOptions,
+  productImageUrl?: string,
 ) => {
   const source = JSON.stringify({
     prompt, images, duration, aspectRatio, khmerSpeech,
     silentRequested: resumeOptions?.silentRequested,
     resumeNarration: resumeOptions?.resumeNarration,
+    productImageUrl,
   });
   let hash = 2166136261;
   for (let index = 0; index < source.length; index += 1) {

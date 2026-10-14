@@ -26,7 +26,7 @@ import { facebookBusinessPageKey } from './_socialUrls.js';
 import { researchCompetitors } from './_competitorResearch.js';
 import { researchMarketTrends } from './_marketTrendResearch.js';
 import { researchProductAudience } from './_productAudienceResearch.js';
-import { uploadMediaDataUrl, uploadMediaRemoteUrl } from './_imagekitUpload.js';
+import { isImageKitMediaUrl, uploadMediaDataUrl, uploadMediaRemoteUrl } from './_imagekitUpload.js';
 import { sendOutreachEmail } from './_email.js';
 import { extractDocumentText } from './_documentExtract.js';
 import { extractWebsiteText } from './_websiteExtract.js';
@@ -94,6 +94,12 @@ export const getAiRateLimitPolicy = (action) => {
   }
   if (action === 'videoStatus' || action === 'videoRecover') {
     return { scope: 'video-status', limit: VIDEO_STATUS_RATE_LIMIT_PER_HOUR, failClosed: false };
+  }
+  // A durable profile asset, not a disposable per-generation upload -- a
+  // generous but bounded allowance is enough to stop abuse without getting in
+  // the way of someone legitimately building out a product catalog.
+  if (action === 'uploadProductImage') {
+    return { scope: 'product-image-upload', limit: 40, failClosed: false };
   }
   // One token opens an entire bidirectional audio call. Starting a call must
   // not spend the same quota used by typed chat and other AI tools.
@@ -1039,7 +1045,7 @@ export default async function handler(req, res) {
   let verifiedVideoUser = null;
   let videoStartRef = null;
 
-  if (action === 'videoGenerate' || action === 'videoStatus' || action === 'videoRecover') {
+  if (action === 'videoGenerate' || action === 'videoStatus' || action === 'videoRecover' || action === 'uploadProductImage') {
     try {
       verifiedVideoUser = await requireAiUser(req);
     } catch (error) {
@@ -2607,6 +2613,24 @@ Return ONLY a single valid JSON object with this exact structure:
       return res.status(200).json(uploaded);
     }
 
+    // A real product photo saved to the business's own profile (unlike
+    // uploadMedia above) -- a durable catalog asset the signed-in owner
+    // builds up over time, so it gets its own auth-required action and a
+    // permanent per-user folder instead of the shared, unauthenticated
+    // /generation-history bucket.
+    if (action === 'uploadProductImage') {
+      const imageDataUrl = String(req.body?.imageDataUrl || '');
+      if (!/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/i.test(imageDataUrl)) {
+        return res.status(400).json({ error: 'Choose a product photo to upload.' });
+      }
+      const uploaded = await uploadMediaDataUrl({
+        mediaDataUrl: imageDataUrl,
+        mediaType: 'photo',
+        folder: `/business-product-images/${verifiedVideoUser.uid}`,
+      });
+      return res.status(200).json({ imageUrl: uploaded.mediaUrl, fileId: uploaded.fileId, filePath: uploaded.filePath });
+    }
+
     // Automated lead outreach (Facebook Scanner "Send Email" action). Signed-in
     // only -- unlike every other action in this file, this one sends real mail
     // to a real third-party inbox, so a guest/demo session must not be able to
@@ -2808,13 +2832,31 @@ Return ONLY a single valid JSON object with this exact structure:
       // Reject every other stale/unsupported ratio instead of passing it through.
       const aspectRatio = resolveVideoAspectRatio(req.body?.aspectRatio);
       if (!prompt) return res.status(400).json({ error: 'Video prompt is required.' });
+      // A real product photo from the caller's own saved profile gallery (see
+      // BusinessProfile.tsx's "Product Images" section) -- re-verify it's
+      // actually in that profile rather than trusting any same-endpoint
+      // ImageKit URL, since (unlike the avatar/narration references this app
+      // already uploads itself) this URL arrives fresh from the client on
+      // every call.
+      let productImageUrl = '';
+      const rawProductImageUrl = String(req.body?.productImageUrl || '').trim();
+      if (rawProductImageUrl) {
+        if (!isImageKitMediaUrl(rawProductImageUrl)) return res.status(400).json({ error: 'Invalid product image reference.' });
+        try {
+          const savedProfile = (await initFirebaseAdmin().collection('business_profiles').doc(verifiedVideoUser.uid).get()).data();
+          const savedProductImages = Array.isArray(savedProfile?.productImages) ? savedProfile.productImages : [];
+          if (savedProductImages.some((image) => image?.imageUrl === rawProductImageUrl)) productImageUrl = rawProductImageUrl;
+        } catch (error) {
+          console.error('Could not verify selected product image ownership:', error?.message || error);
+        }
+      }
       let startRef = null;
       if (requestId) {
         const db = initFirebaseAdmin();
         startRef = db.collection('video_starts').doc(videoStartDocId(verifiedVideoUser.uid, requestId));
         const requestHash = createHash('sha256').update(JSON.stringify({
           prompt, duration: req.body?.duration, aspectRatio, images: req.body?.images,
-          khmerSpeech: req.body?.khmerSpeech,
+          khmerSpeech: req.body?.khmerSpeech, productImageUrl,
         })).digest('hex');
         try {
           // Firestore create() is atomic. A second browser call with this ID
@@ -2882,6 +2924,7 @@ Return ONLY a single valid JSON object with this exact structure:
           // that exact narration into the final clip, so a second provider
           // audio render can introduce different words or reject the video.
           generateAudio: false,
+          productImageUrl,
         });
         const responseBody = {
           ...job,

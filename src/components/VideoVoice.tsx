@@ -26,7 +26,7 @@ import {
   getOriginalImageKitUrl,
   normalizeImageKitVideoUrl,
 } from '../../shared/imageKitUrl.js';
-import { CreativeAutomationRequest, ScheduleHandoffRequest } from '../types';
+import { BusinessProductImage, CreativeAutomationRequest, ScheduleHandoffRequest } from '../types';
 import { getLatestBusinessBranding } from '../lib/businessBranding';
 import { ffprobeDurationSeconds, mp4DurationSeconds } from '../lib/mediaDuration';
 import { audioShiftFilter, lastAudibleSpeechSecond, speechTailCutSecond } from '../lib/videoAudioTiming';
@@ -806,13 +806,14 @@ const attemptGenerateVideoClip = async (
   duration: number,
   aspectRatio: VideoAspectRatio,
   khmerSpeech?: { script: string; voiceGender: string; businessName?: string; performanceStyle?: string; allowScriptShortening?: boolean },
+  productImageUrl?: string,
   idToken?: string,
   userId?: string,
   resumeOptions?: Pick<PendingVideoJob, 'silentRequested' | 'resumeNarration'>,
   onJobAccepted?: () => void,
 ): Promise<{ videoUrl: string; narrationFallbackReason?: string; imageFallbackReason?: string; pendingFingerprint: string; expectedScript?: string; outputAspectRatio: VideoAspectRatio }> => {
   if (!idToken || !userId) throw new Error('Sign in before generating a video.');
-  const fingerprint = videoRequestFingerprint(prompt, images, duration, aspectRatio, khmerSpeech, resumeOptions);
+  const fingerprint = videoRequestFingerprint(prompt, images, duration, aspectRatio, khmerSpeech, resumeOptions, productImageUrl);
   let pending = readPendingVideoJobs().find((job) => job.userId === userId && job.fingerprint === fingerprint);
   // Each field is filled in independently, exactly once, the first time it
   // becomes known -- never overwritten afterward. These two fields used to be
@@ -859,7 +860,7 @@ const attemptGenerateVideoClip = async (
           // Retry the exact same request ID. The server's atomic reservation
           // ensures that a delayed original submission cannot start a second
           // paid job if it eventually reaches the server.
-          const response = await fetchAiWithTimeout({ action: 'videoGenerate', prompt, images, duration, aspectRatio, khmerSpeech, requestId: start.requestId }, VIDEO_GENERATE_FETCH_TIMEOUT_MS, idToken);
+          const response = await fetchAiWithTimeout({ action: 'videoGenerate', prompt, images, duration, aspectRatio, khmerSpeech, productImageUrl, requestId: start.requestId }, VIDEO_GENERATE_FETCH_TIMEOUT_MS, idToken);
           data = await response.json().catch(() => ({}));
           if (!response.ok) throw new Error(data.error || 'Could not retry the video start.');
           if (!data.jobId) data = await recoverVideoStart(start.requestId, idToken);
@@ -871,7 +872,7 @@ const attemptGenerateVideoClip = async (
     } else {
       let response: Response | undefined;
       try {
-        response = await fetchAiWithTimeout({ action: 'videoGenerate', prompt, images, duration, aspectRatio, khmerSpeech, requestId: start.requestId }, VIDEO_GENERATE_FETCH_TIMEOUT_MS, idToken);
+        response = await fetchAiWithTimeout({ action: 'videoGenerate', prompt, images, duration, aspectRatio, khmerSpeech, productImageUrl, requestId: start.requestId }, VIDEO_GENERATE_FETCH_TIMEOUT_MS, idToken);
       } catch {
         // The paid provider may have accepted the job even if the browser lost
         // the long start response. Query by request id rather than submit again.
@@ -968,6 +969,8 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   const [audioLoading, setAudioLoading] = useState(false);
   const [needsApiKey, setNeedsApiKey] = useState(false);
   const [videoImages, setVideoImages] = useState<{ base64: string; mimeType: string }[]>([]);
+  const [businessProductImages, setBusinessProductImages] = useState<BusinessProductImage[]>([]);
+  const [selectedProductImageId, setSelectedProductImageId] = useState<string | null>(null);
   const [videoDuration, setVideoDuration] = useState<number>(8);
   const [videoAspectRatio, setVideoAspectRatio] = useState<VideoAspectRatio>('16:9');
   const [generatedVideoAspectRatio, setGeneratedVideoAspectRatio] = useState<VideoAspectRatio>('16:9');
@@ -984,6 +987,22 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     setResumableVideoJob(user ? latestPendingVideoJob(user.uid) : null);
     setRecoverableVideoStart(user ? latestPendingVideoStart(user.uid) : null);
   }, [user]);
+
+  // Populates the product-image picker only -- the actual generate request
+  // re-reads business context fresh each time (see handleGenerateVideo) for
+  // the same staleness guarantee every other field here already relies on.
+  React.useEffect(() => {
+    let cancelled = false;
+    const loadProductImages = () => getLatestBusinessBranding(user, isDemoMode).then((branding) => {
+      if (!cancelled) setBusinessProductImages(branding.productImages);
+    });
+    void loadProductImages();
+    window.addEventListener('business-profile-updated', loadProductImages);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('business-profile-updated', loadProductImages);
+    };
+  }, [user, isDemoMode]);
 
   const videoHistory = useGenerationHistory(user, isDemoMode, 'video');
   const restoreVideoHistory = (entry: GenerationHistoryEntry) => {
@@ -1527,6 +1546,12 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         user.getIdToken(),
         resetFFmpeg(),
       ]);
+      // Resolved from this fresh read, not the mount-cached picker list, for
+      // the same staleness guarantee every other business-context field here
+      // already relies on.
+      const selectedProductImageUrl = selectedProductImageId
+        ? businessContext.productImages.find((image) => image.id === selectedProductImageId)?.imageUrl
+        : undefined;
       if (!voiceOverContent && narrationRequested && voiceOverTextOverride === undefined) {
         voiceOverContent = extractVideoDialogue(promptText).script;
       }
@@ -1580,6 +1605,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
             performanceStyle: generationPerformanceStyle,
             allowScriptShortening: allowScriptShorteningOverride === true,
           } : undefined,
+          spokenSegments?.[i] ? selectedProductImageUrl : undefined,
           idToken,
           user.uid,
           {
@@ -2245,6 +2271,34 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                     )}
                   </div>
                 </div>
+                {businessProductImages.length > 0 && (
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">
+                      {language === 'km' ? 'រូបភាពផលិតផល (ជាជម្រើស)' : 'Product Image (optional)'}
+                    </label>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      {language === 'km'
+                        ? 'ជ្រើសរើសផលិតផលមួយពី profile ដើម្បីឲ្យវីដេអូបង្ហាញផលិតផលនេះពិតប្រាកដ (ប្រើបានតែពេលមានសំលេងខ្មែរ)។'
+                        : 'Pick a saved product so the AI presenter shows this exact product (only applies to Khmer-narrated videos).'}
+                    </p>
+                    <div className="flex flex-wrap gap-3">
+                      {businessProductImages.map((image) => (
+                        <button
+                          key={image.id}
+                          type="button"
+                          title={image.label}
+                          onClick={() => setSelectedProductImageId((current) => (current === image.id ? null : image.id))}
+                          className={cn(
+                            'h-20 w-20 shrink-0 rounded-xl overflow-hidden border-2 transition-all',
+                            selectedProductImageId === image.id ? 'border-brand-600 ring-2 ring-brand-500/30' : 'border-transparent hover:border-brand-200'
+                          )}
+                        >
+                          <img src={image.imageUrl} alt={image.label || 'Product'} className="h-full w-full object-cover" />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div className="space-y-2">
                   <div className="flex justify-between items-center">
                     <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">{t('sceneDescriptionLabel')}</label>

@@ -284,3 +284,70 @@ it('rejects an over-budget duration before any paid preparation starts', async (
   expect(mocks.video).not.toHaveBeenCalled();
   expect(upload).not.toHaveBeenCalled();
 });
+
+it('sends the presenter and a saved product photo as two reference images with a product instruction', async () => {
+  mocks.speech.mockResolvedValue({ audioUrl: 'audio-data', duration: 3.4, provider: 'gemini' });
+  mocks.video.mockResolvedValue({ jobId: 'job' });
+  vi.stubEnv('IMAGEKIT_URL_ENDPOINT', 'https://ik.imagekit.io/test');
+  const upload = uploadStub({ imageUrl: 'https://ik.imagekit.io/test/avatar.png?tr=w-1280' });
+  const result = await startKhmerVideoJob(
+    { voiceGender: 'Female' },
+    { script: 'សួស្តី', prompt: 'Presenter', motionPrompt: 'Normal speed' },
+    upload,
+    { duration: 4, images: [{ mimeType: 'image/png', base64: 'AAAA' }], productImageUrl: 'https://ik.imagekit.io/test/product.png?tr=w-1280' },
+  );
+  expect(mocks.video).toHaveBeenCalledWith(expect.objectContaining({
+    referenceUrls: ['https://ik.imagekit.io/test/avatar.png', 'https://ik.imagekit.io/test/product.png'],
+  }));
+  expect(mocks.video.mock.calls[0][0].prompt).toContain('PRODUCT REFERENCE');
+  expect(mocks.video.mock.calls[0][0].prompt).toContain('Reference image 2');
+  expect(mocks.video.mock.calls[0][0].prompt).toContain('Never invent a different product');
+  expect(result.job.jobId).toBe('job');
+});
+
+it('omits the product reference entirely when none is supplied (regression guard)', async () => {
+  mocks.speech.mockResolvedValue({ audioUrl: 'audio-data', duration: 3.4, provider: 'gemini' });
+  mocks.video.mockResolvedValue({ jobId: 'job' });
+  const upload = uploadStub();
+  await startKhmerVideoJob(
+    {}, { script: 'សួស្តី', prompt: 'Presenter', motionPrompt: 'Normal speed' }, upload,
+    { duration: 4, images: [{ mimeType: 'image/png', base64: 'AAAA' }] },
+  );
+  expect(mocks.video.mock.calls[0][0].referenceUrls).toEqual(['https://image']);
+  expect(mocks.video.mock.calls[0][0].prompt).not.toContain('PRODUCT REFERENCE');
+});
+
+it('drops the product photo and retries once before touching the presenter handling', async () => {
+  mocks.speech.mockResolvedValue({ audioUrl: 'audio-data', duration: 3.4, provider: 'gemini' });
+  mocks.video
+    .mockRejectedValueOnce(Object.assign(new Error('input image content[1] may contain a real person'), {
+      statusCode: 400,
+      providerCode: 'InputImageSensitiveContentDetected.PrivacyInformation',
+    }))
+    .mockResolvedValueOnce({ jobId: 'presenter-only-job' });
+  const upload = uploadStub();
+  const result = await startKhmerVideoJob(
+    {}, { script: 'សួស្តី', prompt: 'Presenter', motionPrompt: 'Normal speed' }, upload,
+    { duration: 4, images: [{ mimeType: 'image/png', base64: 'AAAA' }], productImageUrl: 'https://product.jpg' },
+  );
+  expect(mocks.video).toHaveBeenCalledTimes(2);
+  expect(mocks.video.mock.calls[0][0].referenceUrls).toEqual(['https://image', 'https://product.jpg']);
+  expect(mocks.video.mock.calls[1][0].referenceUrls).toEqual(['https://image']);
+  expect(mocks.video.mock.calls[1][0].prompt).not.toContain('PRODUCT REFERENCE');
+  expect(result.job.jobId).toBe('presenter-only-job');
+  expect(result.imageFallbackReason).toContain('product photo');
+});
+
+it('falls through to the existing presenter-image error when the product-dropped retry is also rejected', async () => {
+  mocks.speech.mockResolvedValue({ audioUrl: 'audio-data', duration: 3.4, provider: 'gemini' });
+  mocks.video.mockRejectedValue(Object.assign(new Error('image rejected'), {
+    statusCode: 400,
+    providerCode: 'InputImageSensitiveContentDetected.PrivacyInformation',
+  }));
+  const upload = uploadStub();
+  await expect(startKhmerVideoJob(
+    {}, { script: 'សួស្តី', prompt: 'Presenter' }, upload,
+    { duration: 4, images: [{ mimeType: 'image/png', base64: 'AAAA' }], productImageUrl: 'https://product.jpg' },
+  )).rejects.toThrow('Remove or replace that image');
+  expect(mocks.video).toHaveBeenCalledTimes(2);
+});

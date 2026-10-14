@@ -13,7 +13,7 @@ import { connectGeminiLive, GeminiLiveSession } from '../lib/geminiLiveClient';
 import { reportClientError } from '../lib/errorReporting';
 import { startVoiceConversationFallback, type VoiceConversationFallback } from '../lib/voiceConversationFallback';
 import { getLatestBusinessBranding } from '../lib/businessBranding';
-import { CreativeAutomationRequest } from '../types';
+import { BusinessProductImage, CreativeAutomationRequest } from '../types';
 import { downloadAgentDocument, isAgentDocumentCommand, type AgentDocument } from '../lib/agentDocument';
 import { AgentDocumentCard, AgentDocumentDialog } from './AgentDocumentCard';
 import { isContentPlanEditFollowup, isContentPlanEditPronounFollowup, isContentPlanEditRequest } from '../../shared/contentPlanEditIntent.js';
@@ -59,6 +59,11 @@ interface PlanItem {
   scriptEditedByUser?: boolean;
   performanceStyle?: string;
   aspectRatio?: '9:16' | '16:9' | '1:1' | '3:4';
+  // A real product photo (from the business's saved profile gallery) the AI
+  // presenter should hold/showcase in this video item -- see
+  // api/_khmerVideo.js.
+  productImageUrl?: string;
+  productImageLabel?: string;
   selected: boolean;
 }
 
@@ -73,6 +78,8 @@ const normalizePlanItems = (value: unknown): PlanItem[] => (Array.isArray(value)
   voiceOverText: String(item.voiceOverText || ''),
   performanceStyle: String(item.performanceStyle || ''),
   aspectRatio: ['9:16', '16:9', '1:1', '3:4'].includes(item.aspectRatio) ? item.aspectRatio : item.type === 'video' ? '9:16' : '1:1',
+  productImageUrl: String(item.productImageUrl || ''),
+  productImageLabel: String(item.productImageLabel || ''),
   selected: true,
 }));
 
@@ -88,6 +95,8 @@ interface SavedPlanItem {
   voiceOverText?: string;
   performanceStyle?: string;
   aspectRatio?: '9:16' | '16:9' | '1:1' | '3:4';
+  productImageUrl?: string;
+  productImageLabel?: string;
   status: 'PENDING' | 'PROCESSING' | 'DONE' | 'FAILED' | 'REVIEW' | 'READY';
   errorMessage?: string;
   resultMediaUrl?: string;
@@ -158,6 +167,7 @@ interface AgentBusinessContext {
   businessName: string;
   businessDescription: string;
   directory: { name: string; type: string }[];
+  productImages: BusinessProductImage[];
   tiktokHandle: string;
   facebookPageUrl: string;
   websiteUrl: string;
@@ -709,6 +719,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         businessName: branding.businessName,
         businessDescription: branding.businessDescription,
         directory: branding.directory,
+        productImages: branding.productImages,
         tiktokHandle: branding.tiktokHandle,
         facebookPageUrl: branding.facebookPageUrl,
         websiteUrl: branding.websiteUrl,
@@ -1012,6 +1023,11 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     setPlanItems((items) => items.map((item, i) => (i === index ? { ...item, voiceOverText, scriptEditedByUser: true } : item)));
   };
 
+  const updatePlanProductImage = (index: number, productImageUrl: string) => {
+    const productImageLabel = businessContext?.productImages?.find((image) => image.imageUrl === productImageUrl)?.label || '';
+    setPlanItems((items) => items.map((item, i) => (i === index ? { ...item, productImageUrl, productImageLabel } : item)));
+  };
+
   const handleSavePlan = async () => {
     if (!user || isDemoMode) return;
     const selectedItems = planItems.filter((item) => item.selected);
@@ -1060,7 +1076,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           businessName: businessContext?.businessName || '',
           ...(item.type === 'image'
             ? { headline: item.headline || '', cta: item.cta || '', aspectRatio: item.aspectRatio || '1:1' }
-            : { voiceGender: item.voiceGender || 'Female', voiceOverText: item.voiceOverText || '', scriptEditedByUser: item.scriptEditedByUser === true, duration: 8, performanceStyle: item.performanceStyle || '', aspectRatio: item.aspectRatio || '9:16', voiceOverWanted: true, voiceOverMode: 'edge-seedance' }),
+            : { voiceGender: item.voiceGender || 'Female', voiceOverText: item.voiceOverText || '', scriptEditedByUser: item.scriptEditedByUser === true, duration: 8, performanceStyle: item.performanceStyle || '', aspectRatio: item.aspectRatio || '9:16', voiceOverWanted: true, voiceOverMode: 'edge-seedance', productImageUrl: item.productImageUrl || '' }),
           status: 'PENDING',
           createdAt: serverTimestamp(),
         });
@@ -1617,6 +1633,19 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                                   maxLength={500}
                                   className="w-full rounded-lg border border-brand-200 bg-white p-2 text-sm text-brand-800 outline-none focus:ring-2 focus:ring-brand-500/20 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                                 />
+                                {Boolean(businessContext?.productImages?.length) && (
+                                  <select
+                                    aria-label={language === 'km' ? 'ផលិតផលសម្រាប់បង្ហាញក្នុងវីដេអូ' : 'Product to show in this video'}
+                                    value={item.productImageUrl || ''}
+                                    onChange={(event) => updatePlanProductImage(index, event.target.value)}
+                                    className="w-full rounded-lg border border-brand-200 bg-white p-2 text-xs text-brand-800 outline-none focus:ring-2 focus:ring-brand-500/20 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                                  >
+                                    <option value="">{language === 'km' ? '— គ្មានផលិតផល —' : '— No product —'}</option>
+                                    {businessContext?.productImages?.map((image) => (
+                                      <option key={image.id} value={image.imageUrl}>{image.label || image.id}</option>
+                                    ))}
+                                  </select>
+                                )}
                               </div>
                             )}
                           </div>
