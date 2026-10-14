@@ -30,8 +30,8 @@ it('uses the same measured audio and supplied portrait for manual video lip sync
   expect(mocks.video.mock.calls[0][0].prompt).toContain('Never infer, invent, speak, or visibly articulate any English word');
   expect(mocks.video.mock.calls[0][0].prompt).toContain('Do not use generic talking-mouth animation');
   expect(mocks.video.mock.calls[0][0].prompt).toContain('Speech, lips, jaw, tongue and cheeks remain synchronized frame by frame at natural 1x');
-  expect(mocks.video.mock.calls[0][0].prompt).toContain('fast-natural 1.1x energy');
-  expect(mocks.video.mock.calls[0][0].prompt).toContain('Complete each gesture in 0.35 to 0.55 seconds');
+  expect(mocks.video.mock.calls[0][0].prompt).toContain('crisp natural real-world energy');
+  expect(mocks.video.mock.calls[0][0].prompt).toContain('flowing from one gesture into the next with no held pose or freeze');
   expect(mocks.video.mock.calls[0][0].prompt).toContain('synchronized frame by frame');
   expect(mocks.video.mock.calls[0][0].prompt).toContain('Never freeze, stretch, ease or slow any movement');
   expect(mocks.video.mock.calls[0][0].prompt).toContain('ZERO-LATENCY LIP SYNC');
