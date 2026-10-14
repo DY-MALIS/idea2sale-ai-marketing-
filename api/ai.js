@@ -2856,7 +2856,12 @@ Return ONLY a single valid JSON object with this exact structure:
         startRef = db.collection('video_starts').doc(videoStartDocId(verifiedVideoUser.uid, requestId));
         const requestHash = createHash('sha256').update(JSON.stringify({
           prompt, duration: req.body?.duration, aspectRatio, images: req.body?.images,
-          khmerSpeech: req.body?.khmerSpeech, productImageUrl,
+          // Hash the raw client-submitted value, not the post-verification
+          // `productImageUrl` -- that one depends on a fallible Firestore read
+          // (caught above, resolving to '' on failure), so an identical retry
+          // could hash differently if the read transiently failed once and
+          // succeeded the next time, wrongly looking like a different request.
+          khmerSpeech: req.body?.khmerSpeech, productImageUrl: rawProductImageUrl,
         })).digest('hex');
         try {
           // Firestore create() is atomic. A second browser call with this ID

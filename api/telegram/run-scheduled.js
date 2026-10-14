@@ -289,18 +289,32 @@ export const uploadTelegramMediaUrl = async ({ token, chatId, mediaUrl, mediaTyp
   return { messageId: data.result?.message_id || null };
 };
 
-const startPlanVideoJob = (item, speech) => {
+const startPlanVideoJob = async (item, speech) => {
   const requestedDuration = Number(item.duration);
   const duration = [4, 6, 8].includes(requestedDuration) ? requestedDuration : 8;
+  // content_plan_items is a client-writable collection (scoped to the owning
+  // userId, same as every other field on it) -- a crafted/buggy write could set
+  // productImageUrl to an arbitrary URL bypassing the picker UI, which would
+  // otherwise be sent straight to the paid OpenRouter provider as a reference
+  // image unchecked. Re-verify against the owner's saved gallery, same as the
+  // interactive videoGenerate path in api/ai.js.
+  let productImageUrl = '';
+  const rawProductImageUrl = String(item.productImageUrl || '').trim();
+  if (rawProductImageUrl) {
+    try {
+      const savedProfile = (await initFirebaseAdmin().collection('business_profiles').doc(item.userId).get()).data();
+      const savedProductImages = Array.isArray(savedProfile?.productImages) ? savedProfile.productImages : [];
+      if (savedProductImages.some((image) => image?.imageUrl === rawProductImageUrl)) productImageUrl = rawProductImageUrl;
+    } catch (error) {
+      console.error('Could not verify selected product image ownership:', error?.message || error);
+    }
+  }
   return startKhmerVideoJob(item, speech, uploadMediaDataUrl, {
     duration,
     generateAudio: false,
     allowScriptShortening: item.scriptEditedByUser !== true,
     aspectRatio: item.aspectRatio || '9:16',
-    // Picked from the user's own saved profile gallery when the plan item was
-    // created (AIAgent.tsx) -- trusted the same way businessName/voiceOverText
-    // already are on this document, no separate ownership re-check needed.
-    productImageUrl: item.productImageUrl || '',
+    productImageUrl,
   });
 };
 

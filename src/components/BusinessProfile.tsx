@@ -197,42 +197,48 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
     }
   };
 
+  const uploadOneProductImage = async (file: File) => {
+    const dataUrl = await resizeImageToDataUrl(file, PRODUCT_IMAGE_MAX_DIMENSION);
+    const defaultLabel = file.name.replace(/\.[^.]+$/, '').slice(0, 60);
+    if (isDemoMode || !user) {
+      // Demo profiles are persisted whole to localStorage, so a plain data
+      // URL is fine here -- unlike the real Firestore doc, there is no
+      // 1MB/doc limit forcing an ImageKit upload for this mode.
+      setProductImages((current) => [
+        ...current,
+        { id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, label: defaultLabel, imageUrl: dataUrl, fileId: '', filePath: '' },
+      ]);
+      return;
+    }
+    const idToken = await user.getIdToken();
+    const response = await withUploadTimeout(fetch('/api/ai', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+      body: JSON.stringify({ action: 'uploadProductImage', imageDataUrl: dataUrl }),
+    }));
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'Could not upload this product photo.');
+    setProductImages((current) => [
+      ...current,
+      { id: data.fileId || `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, label: defaultLabel, imageUrl: data.imageUrl, fileId: data.fileId || '', filePath: data.filePath || '' },
+    ]);
+  };
+
   const handleProductImagesSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     e.target.value = '';
     const remainingSlots = Math.max(MAX_PRODUCT_IMAGES - productImages.length, 0);
-    for (const file of files.slice(0, remainingSlots)) {
-      try {
-        const dataUrl = await resizeImageToDataUrl(file, PRODUCT_IMAGE_MAX_DIMENSION);
-        const defaultLabel = file.name.replace(/\.[^.]+$/, '').slice(0, 60);
-        if (isDemoMode || !user) {
-          // Demo profiles are persisted whole to localStorage, so a plain data
-          // URL is fine here -- unlike the real Firestore doc, there is no
-          // 1MB/doc limit forcing an ImageKit upload for this mode.
-          setProductImages((current) => [
-            ...current,
-            { id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, label: defaultLabel, imageUrl: dataUrl, fileId: '', filePath: '' },
-          ]);
-          continue;
-        }
-        setProductImageUploading(true);
-        const idToken = await user.getIdToken();
-        const response = await withUploadTimeout(fetch('/api/ai', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-          body: JSON.stringify({ action: 'uploadProductImage', imageDataUrl: dataUrl }),
-        }));
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.error || 'Could not upload this product photo.');
-        setProductImages((current) => [
-          ...current,
-          { id: data.fileId || `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, label: defaultLabel, imageUrl: data.imageUrl, fileId: data.fileId || '', filePath: data.filePath || '' },
-        ]);
-      } catch (err: any) {
+    const selected = files.slice(0, remainingSlots);
+    if (!selected.length) return;
+    setProductImageUploading(true);
+    try {
+      // Independent uploads -- run them in parallel rather than waiting for
+      // each full resize+upload round trip before starting the next.
+      await Promise.all(selected.map((file) => uploadOneProductImage(file).catch((err: any) => {
         setError(err.message || t('businessProfileLoadError'));
-      } finally {
-        setProductImageUploading(false);
-      }
+      })));
+    } finally {
+      setProductImageUploading(false);
     }
   };
 
