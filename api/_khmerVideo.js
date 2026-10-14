@@ -157,6 +157,17 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
   const image = imageResult.image;
   const avatarImage = await uploadMediaDataUrl({ mediaDataUrl: image.imageUrl, mediaType: 'photo' });
   const avatarReferenceUrl = getOriginalImageKitUrl(avatarImage.mediaUrl, process.env.IMAGEKIT_URL_ENDPOINT || '');
+  // startOpenRouterVideo silently drops any referenceUrls entry that isn't an
+  // https:// URL (api/_openrouter.js), and a Khmer presenter request always
+  // carries audioReferenceUrls -- so an unusable avatar reference doesn't
+  // surface as "avatar upload failed" but as the paid provider rejecting the
+  // resulting audio-only request ("reference_audio cannot be the only
+  // reference input"), after the narration cost (and sometimes a real video
+  // submission attempt) has already been spent. Fail loudly here instead,
+  // before any of that money is at risk.
+  if (!/^https:\/\//.test(avatarReferenceUrl)) {
+    throw new Error('Could not prepare the presenter image for this video (upload returned no usable URL). Please try generating again.');
+  }
   const normalizedProductImageUrl = productImageUrl
     ? getOriginalImageKitUrl(productImageUrl, process.env.IMAGEKIT_URL_ENDPOINT || '')
     : '';

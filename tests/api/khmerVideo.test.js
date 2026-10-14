@@ -120,7 +120,7 @@ it('expands a short requested clip instead of rejecting an appropriate script', 
   mocks.image.mockResolvedValue({ imageUrl: 'portrait' });
   mocks.speech.mockResolvedValue({ audioUrl: 'audio' });
   mocks.video.mockResolvedValue({ jobId: 'job' });
-  const upload = uploadStub({ audioDuration: 4.5, imageUrl: 'image' });
+  const upload = uploadStub({ audioDuration: 4.5, imageUrl: 'https://image' });
   const result = await startKhmerVideoJob({}, { script: 'សួស្តី' }, upload, { duration: 4 });
   expect(mocks.video).toHaveBeenCalledWith(expect.objectContaining({ duration: 5 }));
   expect(result.job.outputDuration).toBe(5);
@@ -274,6 +274,20 @@ it('bounds the speaking shot to narration and expands only when narration requir
   expect(mocks.video.mock.calls[0][0].prompt).toContain('HARD MOUTH STOP: by 2.50 seconds');
   expect(mocks.video.mock.calls[0][0].prompt).toContain('until the full clip ends');
   expect(result.job.outputDuration).toBe(4);
+});
+
+it('fails loudly instead of submitting an audio-only request when the avatar upload returns no usable URL', async () => {
+  // Reproduces a real failure: the primary avatar image model timed out, the
+  // fallback model's upload produced no usable mediaUrl, and nothing caught
+  // it -- startOpenRouterVideo silently drops a non-https referenceUrls entry,
+  // so the paid provider rejected the resulting audio-only request instead of
+  // this app explaining what actually went wrong.
+  mocks.image.mockResolvedValue({ imageUrl: 'data:image/png;base64,AAAA' });
+  mocks.speech.mockResolvedValue({ audioUrl: 'audio-data', duration: 3.4 });
+  const upload = vi.fn(async ({ mediaType }) => (mediaType === 'audio' ? { mediaUrl: 'https://audio', duration: 3.4 } : { mediaUrl: '' }));
+  await expect(startKhmerVideoJob({}, { script: 'សួស្តី', prompt: 'Presenter' }, upload, { duration: 4 }))
+    .rejects.toThrow('Could not prepare the presenter image');
+  expect(mocks.video).not.toHaveBeenCalled();
 });
 
 it('rejects an over-budget duration before any paid preparation starts', async () => {
