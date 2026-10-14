@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { preserveKhmerDuringTranslation, splitKhmerScript, nativeSpeechPrompt, compareKhmerTranscript, extractVideoDialogue, visualOnlyVideoPrompt, wantsSilentVideo } from '../../shared/videoSpeech.js';
+import { preserveKhmerDuringTranslation, splitKhmerScript, nativeSpeechPrompt, compareKhmerTranscript, extractVideoDialogue, visualOnlyVideoPrompt, wantsSilentVideo, isKhmerOnlyNarration } from '../../shared/videoSpeech.js';
 const mocks = vi.hoisted(() => ({ narration: vi.fn(), transcribe: vi.fn() }));
 vi.mock('../../api/_khmerNarration.js', () => ({ createKhmerNarration: mocks.narration }));
 vi.mock('../../api/_openrouter.js', () => ({
@@ -10,11 +10,23 @@ import { preparePlanVideoSpeech, verifyUploadedVideoSpeech } from '../../api/_vi
 afterEach(() => { vi.resetAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe('native Khmer video speech', () => {
-  it('preserves mixed Khmer dialogue with English product names and numbers', async () => {
+  it('requires an entirely Khmer-script narration for a Khmer voice request', () => {
+    expect(isKhmerOnlyNarration('សួស្តី មិត្តភក្តិ។')).toBe(true);
+    for (const script of ['Hello សួស្តី', 'សួស្តី AI', 'សួស្តី 24', 'សួស្តី สวัสดี', 'Hello']) {
+      expect(isKhmerOnlyNarration(script)).toBe(false);
+    }
+  });
+  it('repairs AI-authored mixed dialogue before a paid Khmer video starts', async () => {
     const line = 'សួស្តី AI ជួយការងារ 24 ម៉ោង។';
-    expect((await preparePlanVideoSpeech({prompt:`A presenter says in Khmer: ${line}`})).script).toBe(line);
+    mocks.narration.mockResolvedValue('សួស្តី បច្ចេកវិទ្យាជួយការងាររាល់ថ្ងៃ។');
+    expect((await preparePlanVideoSpeech({prompt:`A presenter says in Khmer: ${line}`})).script).toBe('សួស្តី បច្ចេកវិទ្យាជួយការងាររាល់ថ្ងៃ។');
     expect(extractVideoDialogue(`says in Khmer: "${line}". Office lighting.`)).toEqual({script:line,visual:'speaks to the camera. Office lighting.'});
     expect(extractVideoDialogue(`says in Khmer: “${line}” (no subtitles)` ).script).toBe(line);
+    expect(mocks.narration).toHaveBeenCalledWith(expect.stringContaining(line), 8, undefined);
+  });
+  it('rejects a user-edited mixed script before a paid video starts', async () => {
+    await expect(preparePlanVideoSpeech({ prompt: 'Office', voiceOverText: 'សួស្តី Example', allowScriptShortening: false }))
+      .rejects.toThrow('Khmer script only');
     expect(mocks.narration).not.toHaveBeenCalled();
   });
   it('distinguishes native speech without overdubbing from an actual silent request', () => {
@@ -99,7 +111,7 @@ describe('native Khmer video speech', () => {
     expect(mocks.narration).not.toHaveBeenCalled();
   });
   it('does not reject a visually short Khmer script from combining-mark character counts', async () => {
-    const script = 'បង្កើនប្រសិទ្ធភាពការងាររបស់អ្នកឲ្យលឿនជាមួយ AI និង DGACADEMY ថ្ងៃនេះ។';
+    const script = 'បង្កើនប្រសិទ្ធភាពការងាររបស់អ្នកឲ្យលឿនជាមួយបច្ចេកវិទ្យា និងក្រុមការងាររបស់យើងថ្ងៃនេះ។';
     expect(script.length).toBeGreaterThan(4 * 12);
     const prepared = await preparePlanVideoSpeech({ prompt: 'Office', voiceOverText: script, duration: 4 });
     expect(prepared.script).toBe(script);
@@ -111,6 +123,15 @@ describe('native Khmer video speech', () => {
     mocks.narration.mockClear();
     expect((await preparePlanVideoSpeech({prompt:'Office',voiceOverWanted:false})).mode).toBe('silent');
     expect(mocks.narration).not.toHaveBeenCalled();
+  });
+  it('keeps explicit Khmer narration when a visual prompt says no native speech', async () => {
+    const prepared = await preparePlanVideoSpeech({
+      prompt: 'Presenter in a cafe. No speech or dialogue from the video model.',
+      voiceOverWanted: true,
+      voiceOverText: 'សួស្តី មកទស្សនាហាងយើង។',
+    });
+    expect(prepared.mode).toBe('edge-seedance');
+    expect(prepared.script).toBe('សួស្តី មកទស្សនាហាងយើង។');
   });
   it('blocks delivery verification on missing audio or mismatched transcription', async () => {
     vi.stubEnv('IMAGEKIT_PUBLIC_KEY', 'public_test');

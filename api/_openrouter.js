@@ -68,7 +68,10 @@ const openRouterJson = async (path, body, timeoutMs = MEDIA_REQUEST_TIMEOUT_MS) 
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(redactSecrets(data?.error?.message || data?.message || 'OpenRouter request failed.'));
+    const error = new Error(redactSecrets(data?.error?.message || data?.message || 'OpenRouter request failed.'));
+    error.statusCode = response.status;
+    error.providerCode = String(data?.error?.code || '');
+    throw error;
   }
 
   return data;
@@ -866,7 +869,13 @@ export async function pollOpenRouterVideo({ jobId, preferRemoteUrl = false }) {
     throw error;
   }
   if (status.status === 'failed' || status.status === 'cancelled' || status.status === 'expired') {
-    throw new Error(redactSecrets(status.error) || `OpenRouter video generation ${status.status}.`);
+    const providerError = typeof status.error === 'string'
+      ? status.error
+      : status.error?.message || status.error?.code || '';
+    const error = new Error(redactSecrets(providerError) || `OpenRouter video generation ${status.status}.`);
+    error.videoTerminal = true;
+    error.providerCode = String(status.error?.code || '');
+    throw error;
   }
   if (status.status !== 'completed') {
     return { jobId, status: status.status, usage: status.usage };

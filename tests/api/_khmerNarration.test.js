@@ -20,11 +20,13 @@ describe('Khmer narration', () => {
     expect(mocks.edge).toHaveBeenCalledWith({ input: 'សួស្តី', voice: 'km-KH-SreymomNeural', rate: '+6%' });
     expect(mocks.gemini).not.toHaveBeenCalled();
   });
-  it('does not replace a failed Khmer voice with unchecked generative speech', async () => {
+  it('falls back to Gemini when the Khmer neural voice is completely unavailable', async () => {
     vi.stubEnv('KHMER_TTS_PROVIDER', '');
     mocks.edge.mockRejectedValue(new Error('voice unavailable'));
-    await expect(generateKhmerSpeech({ input: 'សួស្តី' })).rejects.toThrow('voice unavailable');
-    expect(mocks.gemini).not.toHaveBeenCalled();
+    mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,YXVkaW8=', provider: 'gemini' });
+    const result = await generateKhmerSpeech({ input: 'សួស្តី' });
+    expect(result).toMatchObject({ provider: 'gemini', spokenText: 'សួស្តី', fallbackReason: expect.any(String) });
+    expect(mocks.gemini).toHaveBeenCalledTimes(1);
   });
   it('plays a natural Agent voice immediately, without a verification round-trip', async () => {
     vi.stubEnv('KHMER_TTS_PROVIDER', '');
@@ -75,6 +77,35 @@ describe('Khmer narration', () => {
     expect(result.fallbackReason).toContain('unclear');
   });
 
+  it('keeps verified Gemini speech when a second transcription recognizes the same Khmer waveform', async () => {
+    mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,YXVkaW8=', provider: 'gemini' });
+    mocks.transcribe.mockResolvedValueOnce('ខុសទាំងស្រុង').mockResolvedValueOnce('សួស្តី');
+    const result = await generateKhmerSpeech({ input: 'សួស្តី', targetDuration: 4 });
+    expect(result).toMatchObject({ provider: 'gemini', spokenText: 'សួស្តី' });
+    expect(mocks.gemini).toHaveBeenCalledTimes(1);
+    expect(mocks.transcribe.mock.calls[0][0]).not.toHaveProperty('model');
+    expect(mocks.edge).not.toHaveBeenCalled();
+  });
+
+  it('retries a failed transcription before discarding the generated speech', async () => {
+    mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,YXVkaW8=', provider: 'gemini' });
+    mocks.transcribe.mockRejectedValueOnce(new Error('STT unavailable')).mockResolvedValueOnce('សួស្តី');
+    const result = await generateKhmerSpeech({ input: 'សួស្តី', targetDuration: 4 });
+    expect(result).toMatchObject({ provider: 'gemini', spokenText: 'សួស្តី' });
+    expect(mocks.transcribe).toHaveBeenCalledTimes(2);
+    expect(mocks.edge).not.toHaveBeenCalled();
+  });
+
+  it('retries a changed Gemini read with simple directions before using Edge', async () => {
+    mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,YXVkaW8=', provider: 'gemini' });
+    mocks.transcribe.mockResolvedValueOnce('ខុសទាំងស្រុង').mockResolvedValueOnce('ខុសទាំងស្រុង').mockResolvedValueOnce('សួស្តី');
+    const result = await generateKhmerSpeech({ input: 'សួស្តី', targetDuration: 4 });
+    expect(result).toMatchObject({ provider: 'gemini', spokenText: 'សួស្តី' });
+    expect(mocks.gemini).toHaveBeenCalledTimes(2);
+    expect(mocks.gemini.mock.calls[1][0].performanceStyle).toContain('Read only the exact script');
+    expect(mocks.edge).not.toHaveBeenCalled();
+  });
+
   it('uses the requested measured rate when an overlong read is retried with Edge', async () => {
     mocks.edge.mockResolvedValue({ audioUrl: 'fitted-khmer', provider: 'edge' });
     const result = await generateKhmerSpeech({ input: 'សួស្តី', targetDuration: 8, forceEdge: true, edgeRate: '+14%' });
@@ -101,11 +132,29 @@ describe('Khmer narration', () => {
     expect(mocks.edge).toHaveBeenCalledWith({ input: 'សួស្តី', voice: 'km-KH-PisethNeural', rate: '+6%' });
   });
 
-  it('surfaces failure when both expressive and fallback voices fail', async () => {
+  it('surfaces the Edge failure when expressive, fallback and last-resort voices all fail', async () => {
     mocks.gemini.mockRejectedValue(new Error('provider unavailable'));
     mocks.edge.mockRejectedValue(new Error('auth failed'));
     await expect(generateKhmerSpeech({ input: 'សួស្តី' })).rejects.toThrow('auth failed');
     expect(mocks.translate).not.toHaveBeenCalled();
+  });
+  it('verifies the last-resort Gemini take the same way as the primary one during a paid video', async () => {
+    vi.stubEnv('KHMER_TTS_PROVIDER', '');
+    mocks.edge.mockRejectedValue(new Error('Unexpected server response: 403'));
+    mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,YXVkaW8=', provider: 'gemini' });
+    mocks.transcribe.mockResolvedValue('សួស្តី');
+    const result = await generateKhmerSpeech({ input: 'សួស្តី', targetDuration: 4 });
+    expect(result).toMatchObject({ provider: 'gemini', spokenText: 'សួស្តី' });
+    expect(mocks.transcribe).toHaveBeenCalledTimes(1);
+    expect(mocks.gemini).toHaveBeenCalledTimes(1);
+  });
+  it('does not deliver a last-resort Gemini take whose transcript never matches the script', async () => {
+    vi.stubEnv('KHMER_TTS_PROVIDER', '');
+    mocks.edge.mockRejectedValue(new Error('Unexpected server response: 403'));
+    mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,YXVkaW8=', provider: 'gemini' });
+    mocks.transcribe.mockResolvedValue('ខុសទាំងស្រុង');
+    await expect(generateKhmerSpeech({ input: 'សួស្តី', targetDuration: 4 })).rejects.toThrow('Unexpected server response: 403');
+    expect(mocks.gemini).toHaveBeenCalledTimes(2);
   });
   it('keeps a spoken Agent reply available when Edge returns empty audio', async () => {
     const script = '\u179f\u17bd\u179f\u17d2\u178f\u17b8';
@@ -119,6 +168,11 @@ describe('Khmer narration', () => {
   it('rejects generated scripts in the wrong language', async () => {
     mocks.text.mockResolvedValue('Hello');
     await expect(createKhmerNarration('product')).rejects.toThrow('Khmer narration');
+  });
+  it('rejects generated scripts that still mix Khmer with an unknown Latin word', async () => {
+    mocks.text.mockResolvedValue('សួស្តី Example');
+    await expect(createKhmerNarration('product')).rejects.toThrow('Khmer narration');
+    expect(mocks.text).toHaveBeenCalledTimes(2);
   });
   it('retries once when a script leaves an English loanword unspelled, pointing the retry at that exact word', async () => {
     mocks.text.mockResolvedValueOnce('សួស្តី automation។').mockResolvedValueOnce('សួស្តី អូតូម៉ាស្យូង។');

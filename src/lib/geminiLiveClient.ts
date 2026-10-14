@@ -13,9 +13,9 @@
 const GEMINI_LIVE_WS_URL = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained';
 const MIC_SAMPLE_RATE = 16000;
 const PLAYBACK_SAMPLE_RATE = 24000;
-// How often a chunk of captured mic audio is sent -- short enough to keep
-// latency low, long enough not to spam tiny messages over the socket.
-const SEND_CHUNK_MS = 200;
+// At the requested 24 kHz capture rate this is about 43 ms of microphone
+// audio per callback, so the server can detect the end of speech promptly.
+const MIC_BUFFER_FRAMES = 1024;
 // Allow a brief window for an incoming transcript to identify an app-handled
 // command, without holding an ordinary spoken reply until generation finishes.
 const REPLY_COMMAND_GRACE_MS = 300;
@@ -69,8 +69,8 @@ const floatTo16BitPcm = (input: Float32Array): Int16Array => {
   return output;
 };
 
-const downsampleTo16kHz = (input: Float32Array, inputSampleRate: number): Float32Array => {
-  if (inputSampleRate === MIC_SAMPLE_RATE) return input;
+const createMicDownsampler = (inputSampleRate: number) => {
+  if (inputSampleRate === MIC_SAMPLE_RATE) return (input: Float32Array) => input;
   // Phones and desktops don't agree on a native mic sample rate (44100 and
   // 48000 are both common), so this always has real downsampling to do.
   // Picking every Nth sample with no filtering lets content above the new
@@ -84,19 +84,25 @@ const downsampleTo16kHz = (input: Float32Array, inputSampleRate: number): Float3
   const rc = 1 / (2 * Math.PI * cutoffHz);
   const dt = 1 / inputSampleRate;
   const alpha = dt / (rc + dt);
-  const filtered = new Float32Array(input.length);
-  let prev = input.length ? input[0] : 0;
-  for (let i = 0; i < input.length; i += 1) {
-    prev += alpha * (input[i] - prev);
-    filtered[i] = prev;
-  }
   const ratio = inputSampleRate / MIC_SAMPLE_RATE;
-  const outputLength = Math.floor(filtered.length / ratio);
-  const output = new Float32Array(outputLength);
-  for (let i = 0; i < outputLength; i += 1) {
-    output[i] = filtered[Math.floor(i * ratio)];
-  }
-  return output;
+  let previous = 0;
+  let initialized = false;
+  let inputIndex = 0;
+  let nextOutputAt = 0;
+  return (input: Float32Array): Float32Array => {
+    const output = new Float32Array(Math.ceil(input.length / ratio) + 1);
+    let outputLength = 0;
+    for (const sample of input) {
+      if (!initialized) { previous = sample; initialized = true; }
+      previous += alpha * (sample - previous);
+      if (inputIndex >= nextOutputAt) {
+        output[outputLength++] = previous;
+        nextOutputAt += ratio;
+      }
+      inputIndex += 1;
+    }
+    return output.subarray(0, outputLength);
+  };
 };
 
 const int16ArrayToBase64 = (samples: Int16Array): string => {
@@ -211,11 +217,12 @@ export async function connectGeminiLive(
   // Reuse the context created and resumed in the button click. A fresh context
   // after the async token/microphone requests can remain suspended on iOS.
   const captureContext = playbackContext;
+  const downsampleMic = createMicDownsampler(captureContext.sampleRate);
   const source = captureContext.createMediaStreamSource(stream);
   // ScriptProcessorNode is deprecated but supported in the browsers this
-  // interface targets. It lets us send short PCM chunks continuously.
-  const processor = captureContext.createScriptProcessor(4096, 1, 1);
-  let pendingSamples: Float32Array[] = [];
+  // interface targets. Send each short PCM chunk as it arrives; batching
+  // several callbacks behind a timer adds avoidable latency to every turn.
+  const processor = captureContext.createScriptProcessor(MIC_BUFFER_FRAMES, 1, 1);
   let closed = false;
   let ready = false;
   let turnCompletionTimer: number | undefined;
@@ -236,7 +243,6 @@ export async function connectGeminiLive(
     closed = true;
     signal?.removeEventListener('abort', onAbort);
     clearTimeout(readyTimeout);
-    clearInterval(sendTimer);
     clearTimeout(replyGateTimer);
     clearTimeout(turnCompletionTimer);
     player.stopAll();
@@ -260,20 +266,7 @@ export async function connectGeminiLive(
 
   processor.onaudioprocess = (event: AudioProcessingEvent) => {
     if (!ready || socket.readyState !== WebSocket.OPEN) return;
-    pendingSamples.push(new Float32Array(event.inputBuffer.getChannelData(0)));
-  };
-  source.connect(processor);
-  processor.connect(captureContext.destination);
-
-  const flushMicAudio = () => {
-    if (!ready || !pendingSamples.length || socket.readyState !== WebSocket.OPEN) return;
-    const totalLength = pendingSamples.reduce((sum, chunk) => sum + chunk.length, 0);
-    const merged = new Float32Array(totalLength);
-    let offset = 0;
-    for (const chunk of pendingSamples) { merged.set(chunk, offset); offset += chunk.length; }
-    pendingSamples = [];
-
-    const downsampled = downsampleTo16kHz(merged, captureContext.sampleRate);
+    const downsampled = downsampleMic(event.inputBuffer.getChannelData(0));
     const pcm16 = floatTo16BitPcm(downsampled);
     socket.send(JSON.stringify({
       realtimeInput: {
@@ -281,7 +274,8 @@ export async function connectGeminiLive(
       },
     }));
   };
-  const sendTimer = window.setInterval(flushMicAudio, SEND_CHUNK_MS);
+  source.connect(processor);
+  processor.connect(captureContext.destination);
 
   socket.onopen = () => {
     socket.send(JSON.stringify({

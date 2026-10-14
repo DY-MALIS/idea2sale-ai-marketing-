@@ -2,6 +2,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   text: vi.fn(),
+  narration: vi.fn(),
   checkRateLimit: vi.fn(),
 }));
 
@@ -17,7 +18,7 @@ vi.mock('../../api/_openrouter.js', () => ({
   resolveOpenRouterTextModel: () => 'test-model',
   redactSecrets: (value) => String(value || ''),
 }));
-vi.mock('../../api/_khmerNarration.js', () => ({ createKhmerNarration: vi.fn(), generateKhmerConversationSpeech: vi.fn(), generateKhmerSpeech: vi.fn() }));
+vi.mock('../../api/_khmerNarration.js', () => ({ createKhmerNarration: mocks.narration, generateKhmerConversationSpeech: vi.fn(), generateKhmerSpeech: vi.fn() }));
 vi.mock('../../api/_videoSpeech.js', () => ({ preparePlanVideoSpeech: vi.fn() }));
 vi.mock('../../api/_khmerVideo.js', () => ({ startKhmerVideoJob: vi.fn() }));
 vi.mock('../../api/_firebaseAdmin.js', () => ({
@@ -186,16 +187,17 @@ it('continues a video brief after the user answers the narration question', asyn
     history: [{ role: 'user', content: 'Create a video of coffee' }, { role: 'assistant', content: 'Do you want Khmer narration?' }],
   } }, res);
   expect(res.statusCode).toBe(200);
-  expect(res.body.automation).toMatchObject({ ready: true, kind: 'video', aspectRatio: '9:16', voiceOverText: expect.stringContaining('កាហ្វេ') });
+  expect(res.body.automation).toMatchObject({ ready: true, kind: 'video', aspectRatio: '9:16',
+    voiceOverWanted: true, voiceOverText: expect.stringContaining('កាហ្វេ') });
   expect(mocks.text).toHaveBeenCalledTimes(1);
 });
 
 it('hands a completed spoken video command to the same generator brief', async () => {
-  mocks.text.mockResolvedValue(JSON.stringify({
+  mocks.text.mockResolvedValueOnce(JSON.stringify({
     ready: true, kind: 'video', platform: 'YouTube', duration: 8,
     prompt: 'Photorealistic Cambodian instructor demonstrating a training workflow in a classroom, no readable text',
     voiceOverWanted: true, voiceOverText: 'ស្វែងយល់ពីការប្រើ AI ក្នុងការងារប្រចាំថ្ងៃ។', voiceGender: 'Female', missing: '',
-  }));
+  })).mockResolvedValueOnce('ស្វែងយល់ពីការប្រើបច្ចេកវិទ្យាឆ្លាតវៃក្នុងការងារប្រចាំថ្ងៃ។');
   const res = responseRecorder();
   await handler({ method: 'POST', headers: {}, body: {
     action: 'voiceAutomationCheck', message: 'Create a video about our training with Khmer narration',
@@ -203,7 +205,40 @@ it('hands a completed spoken video command to the same generator brief', async (
   } }, res);
 
   expect(res.statusCode).toBe(200);
-  expect(res.body.automation).toMatchObject({ ready: true, kind: 'video', aspectRatio: '16:9', duration: 8 });
+  expect(res.body.automation).toMatchObject({ ready: true, kind: 'video', aspectRatio: '16:9', duration: 8, voiceOverWanted: true,
+    voiceOverText: 'ស្វែងយល់ពីការប្រើបច្ចេកវិទ្យាឆ្លាតវៃក្នុងការងារប្រចាំថ្ងៃ។' });
+});
+
+it('writes Khmer narration for a complete voice command when the classifier asks for a script', async () => {
+  mocks.text.mockResolvedValue(JSON.stringify({
+    ready: false, kind: 'video', platform: 'General', duration: 8,
+    prompt: 'Photorealistic Cambodian barista pouring fresh coffee for a customer in a cafe, no readable text',
+    voiceOverWanted: true, voiceOverText: '',
+    missing: 'សូមផ្តល់អត្ថបទខ្លីៗជាភាសាខ្មែរដែលអ្នកចង់ឲ្យវីដេអូនិយាយ?',
+  }));
+  mocks.narration.mockResolvedValue('កាហ្វេស្រស់របស់យើងធ្វើឱ្យពេលព្រឹកកាន់តែរីករាយ។');
+  const res = responseRecorder();
+  await handler({ method: 'POST', headers: {}, body: {
+    action: 'voiceAutomationCheck', message: 'បង្កើតវីដេអូអំពីកាហ្វេ ហើយឲ្យនិយាយជាភាសាខ្មែរ', detectedLanguage: 'km',
+  } }, res);
+  expect(res.statusCode).toBe(200);
+  expect(res.body.automation).toMatchObject({ ready: true, kind: 'video', voiceOverWanted: true,
+    voiceOverText: 'កាហ្វេស្រស់របស់យើងធ្វើឱ្យពេលព្រឹកកាន់តែរីករាយ។', missing: '' });
+  expect(mocks.narration).toHaveBeenCalledOnce();
+});
+
+it('preserves an explicit silent video choice through Agent classification', async () => {
+  mocks.text.mockResolvedValue(JSON.stringify({
+    ready: true, kind: 'video', platform: 'Facebook', duration: 8,
+    prompt: 'Photorealistic coffee being poured in a quiet Cambodian cafe, no readable text',
+    voiceOverWanted: false, voiceOverText: '', missing: '',
+  }));
+  const res = responseRecorder();
+  await handler({ method: 'POST', headers: {}, body: {
+    action: 'voiceAutomationCheck', message: 'Create a silent video of coffee being poured', detectedLanguage: 'en',
+  } }, res);
+  expect(res.statusCode).toBe(200);
+  expect(res.body.automation).toMatchObject({ ready: true, kind: 'video', voiceOverWanted: false, voiceOverText: '' });
 });
 
 it('returns the missing-detail question for an incomplete spoken video command', async () => {

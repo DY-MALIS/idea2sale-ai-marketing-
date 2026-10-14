@@ -1,13 +1,69 @@
 import { generateOpenRouterText, generateTranslateSpeech, normalizeForKhmerSpeech, transcribeAudioWithOpenRouter } from './_openrouter.js';
 import { synthesizeKhmerSpeechViaEdge } from './_edgeSpeech.js';
 import { generateGeminiSpeech } from './_geminiSpeech.js';
-import { compareKhmerTranscript, KHMER_SCRIPT_ONLY_INSTRUCTION } from '../shared/videoSpeech.js';
+import { compareKhmerTranscript, isKhmerOnlyNarration, KHMER_SCRIPT_ONLY_INSTRUCTION } from '../shared/videoSpeech.js';
 
 const edgeKhmerVoice = (voice) => {
   const selected = String(voice || '').toLowerCase();
   return selected === 'male' || selected === 'onyx' || selected.includes('piseth')
     ? 'km-KH-PisethNeural'
     : 'km-KH-SreymomNeural';
+};
+
+const WAV_PREFIX = 'data:audio/wav;base64,';
+
+// Khmer transcription can vary between passes on the same correct waveform.
+// Confirm a mismatch once before discarding paid TTS audio.
+const matchesKhmerScript = async (audio, expectedScript) => {
+  if (!audio.audioUrl?.startsWith(WAV_PREFIX)) throw new Error('Expressive voice returned unsupported audio.');
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const transcript = await transcribeAudioWithOpenRouter({
+        audioBase64: audio.audioUrl.slice(WAV_PREFIX.length),
+        format: 'wav',
+        languageHint: 'Khmer',
+        timeoutMs: 30_000,
+      });
+      if (compareKhmerTranscript(expectedScript, transcript).passed) return true;
+    } catch (error) {
+      console.warn('Khmer speech transcription attempt failed:', error?.message || error);
+    }
+  }
+  return false;
+};
+
+// Generates one Gemini take and, for a duration-bound video narration
+// (targetSeconds set), confirms by transcription that it actually says the
+// requested script before trusting it -- an unverified take can mispronounce
+// or change words, which is worse than falling through to another provider.
+// Never throws; returns null so every caller (first choice or last resort)
+// can fall through to its own next step the same way.
+const generateVerifiedGeminiTake = async ({ spokenInput, voice, performanceStyle, context, voiceOverride, targetSeconds }) => {
+  let generated;
+  try {
+    generated = await generateGeminiSpeech({ input: spokenInput, voice, performanceStyle, context, voiceOverride });
+  } catch (error) {
+    console.warn('Gemini Khmer speech attempt failed:', error?.message || error);
+    return null;
+  }
+  if (!(Number.isFinite(targetSeconds) && targetSeconds >= 4 && targetSeconds <= 8)) return generated;
+  // Re-transcribing to check the waveform doubles this call's latency with a
+  // second network round-trip -- worth paying for a paid video, where a
+  // changed word is a wasted render.
+  if (await matchesKhmerScript(generated, spokenInput)) return generated;
+  // A simpler direction often gives Gemini a faithful Khmer read when the
+  // detailed performance direction causes changed words. Keep the exact same
+  // script and verify this take too before giving up.
+  try {
+    generated = await generateGeminiSpeech({
+      input: spokenInput, voice, voiceOverride, context: '',
+      performanceStyle: 'Speak clearly in natural Cambodian Khmer. Read only the exact script.',
+    });
+  } catch (error) {
+    console.warn('Gemini Khmer retry failed:', error?.message || error);
+    return null;
+  }
+  return (await matchesKhmerScript(generated, spokenInput)) ? generated : null;
 };
 
 export async function generateKhmerSpeech({
@@ -33,64 +89,62 @@ export async function generateKhmerSpeech({
   // Khmer transcription confirms that it actually says the requested words.
   // Other narration keeps its existing provider choice.
   const useEdgeOnly = forceEdge || (!preferNaturalVoice && String(process.env.KHMER_TTS_PROVIDER || '').trim().toLowerCase() !== 'gemini');
+  // The AI Agent's live conversation always uses the Aoede/Achird pair (chosen
+  // by ear against the alternatives -- see the comment on generateGeminiSpeech's
+  // voiceOverride param), regardless of which narration voice name was passed
+  // in; narration keeps Kore/Charon.
+  const voiceOverride = preferNaturalVoice ? (edgeKhmerVoice(voice) === 'km-KH-PisethNeural' ? 'Achird' : 'Aoede') : undefined;
   if (!useEdgeOnly) {
-    try {
-      // The AI Agent's live conversation always uses the Aoede/Achird pair
-      // (chosen by ear against the alternatives -- see the comment on
-      // generateGeminiSpeech's voiceOverride param), regardless of which
-      // narration voice name was passed in; narration keeps Kore/Charon.
-      const voiceOverride = preferNaturalVoice ? (edgeKhmerVoice(voice) === 'km-KH-PisethNeural' ? 'Achird' : 'Aoede') : undefined;
-      const generated = await generateGeminiSpeech({ input: spokenInput, voice, performanceStyle: clearKhmerStyle, context, voiceOverride });
-      // Re-transcribing to check the waveform doubles this call's latency with
-      // a second network round-trip -- worth paying for a paid video (targetSeconds
-      // set, checked below), where a changed word is a wasted render, but not for
-      // a live spoken reply: preferNaturalVoice skips it so the conversation gets
-      // the Gemini audio immediately, falling back to Edge below only if the
-      // Gemini call itself fails outright.
-      if (Number.isFinite(targetSeconds) && targetSeconds >= 4 && targetSeconds <= 8) {
-        const wavPrefix = 'data:audio/wav;base64,';
-        if (!generated.audioUrl?.startsWith(wavPrefix)) throw new Error('Expressive voice returned unsupported audio.');
-        const transcript = await transcribeAudioWithOpenRouter({
-          audioBase64: generated.audioUrl.slice(wavPrefix.length),
-          format: 'wav',
-          languageHint: 'Khmer',
-          model: process.env.OPEN_ROUTER_STT_MODEL || 'google/chirp-3',
-          // This is one verification step before a video job can even start.
-          // A slow STT gateway must not consume the function's whole 300s.
-          timeoutMs: 30_000,
-        });
-        if (!compareKhmerTranscript(spokenInput, transcript).passed) {
-          throw new Error('Gemini voice did not clearly match the Khmer script.');
-        }
-      }
-      return {
-        ...generated,
-        spokenText: spokenInput,
-      };
-    } catch (error) {
-      console.error('Natural Khmer Gemini speech failed; using Edge Khmer neural fallback:', error?.message || error);
-    }
+    // Not awaited inside a try: generateVerifiedGeminiTake never throws, so a
+    // null result (outright failure, or an unverified/mismatched take) just
+    // falls through to Edge below -- not for a live spoken reply, though:
+    // preferNaturalVoice always skips verification so the conversation gets
+    // the Gemini audio immediately.
+    const generated = await generateVerifiedGeminiTake({ spokenInput, voice, performanceStyle: clearKhmerStyle, context, voiceOverride, targetSeconds });
+    if (generated) return { ...generated, spokenText: spokenInput };
+    console.error('Natural Khmer Gemini speech failed or did not clearly match the script; using Edge Khmer neural fallback.');
   }
 
-  const fallback = await synthesizeKhmerSpeechViaEdge({
-    input: spokenInput,
-    voice: edgeKhmerVoice(voice),
-    // Targeted presenter clips need a slightly brisker fallback cadence than
-    // standalone speech. A measured overrun can request a stronger one-time
-    // correction without changing or truncating the script.
-    rate: /^\+\d{1,2}%$/.test(String(edgeRate || ''))
-      ? String(edgeRate)
-      : (timingDirection ? '+12%' : '+6%'),
-  });
-  return {
-    ...fallback,
-    spokenText: spokenInput,
-    fallbackReason: forceEdge
-      ? 'The expressive read exceeded the clip duration; a brisk Khmer neural voice preserved the full script.'
-      : useEdgeOnly
-        ? ''
-      : 'Expressive Khmer voice was unavailable or unclear; standard Khmer neural voice was used.',
-  };
+  try {
+    const fallback = await synthesizeKhmerSpeechViaEdge({
+      input: spokenInput,
+      voice: edgeKhmerVoice(voice),
+      // Targeted presenter clips need a slightly brisker fallback cadence than
+      // standalone speech. A measured overrun can request a stronger one-time
+      // correction without changing or truncating the script.
+      rate: /^\+\d{1,2}%$/.test(String(edgeRate || ''))
+        ? String(edgeRate)
+        : (timingDirection ? '+12%' : '+6%'),
+    });
+    return {
+      ...fallback,
+      spokenText: spokenInput,
+      fallbackReason: forceEdge
+        ? 'The expressive read exceeded the clip duration; a brisk Khmer neural voice preserved the full script.'
+        : useEdgeOnly
+          ? ''
+        : 'Expressive Khmer voice was unavailable or unclear; standard Khmer neural voice was used.',
+    };
+  } catch (edgeError) {
+    // Edge's neural voice is an unofficial Microsoft endpoint this app doesn't
+    // control (see _edgeSpeech.js) -- it can reject every request at once
+    // (rotated token, blocked IP, outage). That would otherwise fail every
+    // video whenever Edge is the configured provider, or whenever a narration
+    // overran its clip budget and got forced onto Edge for the rate
+    // correction above. Gemini has no speech-rate control, so this take may
+    // run a little long, but that's recoverable (the clip gets capped/trimmed
+    // elsewhere) while a thrown error here is not. Verified the same way as
+    // the primary Gemini path -- an unchecked take can mispronounce the
+    // script, which is worse than surfacing the original Edge failure.
+    console.error('Edge Khmer speech failed; trying Gemini as a verified last resort:', edgeError?.message || edgeError);
+    const generated = await generateVerifiedGeminiTake({ spokenInput, voice, performanceStyle: clearKhmerStyle, context, voiceOverride, targetSeconds });
+    if (!generated) throw edgeError;
+    return {
+      ...generated,
+      spokenText: spokenInput,
+      fallbackReason: 'The Khmer neural voice was unavailable; a standard Khmer voice was used instead.',
+    };
+  }
 }
 
 // Conversation audio needs a playable reply even when both expressive Gemini
@@ -125,8 +179,9 @@ export async function createKhmerNarration(prompt, duration = 8, businessName = 
     const strayWords = [...new Set(normalizeForKhmerSpeech(text).match(/[A-Za-z]{2,}/g) || [])].join(', ');
     text = await generateOpenRouterText({ model: process.env.OPEN_ROUTER_CONTENT_PLAN_MODEL || 'google/gemini-3.1-pro-preview', system, prompt: buildPrompt(strayWords), reasoningEffort: 'low', timeoutMs: 45_000 });
   }
-  if (!/[\u1780-\u17ff]/.test(text || '')) throw new Error('Could not generate a Khmer narration script. Please enter Khmer text.');
-  return text.trim();
+  const normalized = normalizeForKhmerSpeech(text || '');
+  if (!isKhmerOnlyNarration(normalized)) throw new Error('Could not generate a Khmer narration script. Please enter Khmer text.');
+  return normalized;
 }
 
 // The scanner and daily plan create their own scripts. If one is too long or

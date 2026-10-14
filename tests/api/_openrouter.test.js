@@ -24,6 +24,23 @@ describe('completed video handoff', () => {
   });
 });
 
+it('marks an asynchronously failed video job as terminal even when the provider error is an object', async () => {
+  process.env.OPEN_ROUTER_API_KEY = 'test-key';
+  global.fetch = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      status: 'failed',
+      error: { code: 'InputImageSensitiveContentDetected.PrivacyInformation', message: 'Input image rejected.' },
+    }),
+  });
+
+  await expect(pollOpenRouterVideo({ jobId: 'job-123' })).rejects.toMatchObject({
+    message: 'Input image rejected.',
+    videoTerminal: true,
+    providerCode: 'InputImageSensitiveContentDetected.PrivacyInformation',
+  });
+});
+
 // Regression coverage for the "stale model in Vercel env vars" problem this
 // session ran into: OPEN_ROUTER_MODEL/OPEN_ROUTER_AGENT_MODEL can be set to an
 // old model name directly in Vercel, outside this repo entirely -- these
@@ -195,6 +212,54 @@ describe('OpenRouter video audio', () => {
     const requestBody = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(requestBody).toMatchObject({ model: 'google/veo-3.1-lite', resolution: '720p', generate_audio: false, duration: 8, aspect_ratio: aspectRatio });
     expect(job.estimatedCost).toBe(0.29);
+  });
+
+  it('submits only the narration reference when no presenter image is available', async () => {
+    process.env.OPEN_ROUTER_API_KEY = 'test-key';
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 'audio-only-job', status: 'pending' }),
+    });
+    global.fetch = fetchMock;
+
+    await startOpenRouterVideo({
+      prompt: 'Cambodian presenter speaks to camera',
+      model: 'bytedance/seedance-2.0-mini',
+      duration: 4,
+      khmerSpeech: true,
+      referenceUrls: [],
+      audioReferenceUrls: ['https://example.com/narration.mp3'],
+      generateAudio: false,
+    });
+
+    const requestBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(requestBody.frame_images).toBeUndefined();
+    expect(requestBody.input_references).toEqual([
+      { type: 'audio_url', audio_url: { url: 'https://example.com/narration.mp3' } },
+    ]);
+    expect(requestBody.generate_audio).toBe(false);
+  });
+
+  it('preserves the provider status and code for a rejected reference image', async () => {
+    process.env.OPEN_ROUTER_API_KEY = 'test-key';
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: async () => ({ error: {
+        code: 'InputImageSensitiveContentDetected.PrivacyInformation',
+        message: 'Input image may contain a real person.',
+      } }),
+    });
+
+    await expect(startOpenRouterVideo({
+      prompt: 'A presenter speaking', duration: 4,
+      model: 'bytedance/seedance-2.0-mini',
+      referenceUrls: ['https://example.com/presenter.jpg'],
+      audioReferenceUrls: ['https://example.com/narration.mp3'],
+    })).rejects.toMatchObject({
+      statusCode: 400,
+      providerCode: 'InputImageSensitiveContentDetected.PrivacyInformation',
+    });
   });
 
   it('requests an audible output when Seedance receives narration audio', async () => {

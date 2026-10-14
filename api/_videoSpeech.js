@@ -1,6 +1,6 @@
 import { createKhmerNarration } from './_khmerNarration.js';
 import { normalizeForKhmerSpeech, transcribeAudioWithOpenRouter } from './_openrouter.js';
-import { compareKhmerTranscript, extractVideoDialogue, nativeSpeechPrompt, visualOnlyVideoPrompt, wantsSilentVideo } from '../shared/videoSpeech.js';
+import { compareKhmerTranscript, extractVideoDialogue, isKhmerOnlyNarration, nativeSpeechPrompt, visualOnlyVideoPrompt, wantsSilentVideo } from '../shared/videoSpeech.js';
 import { applyImageKitAudioExtractionTransform, isImageKitMediaUrl } from './_imagekitUpload.js';
 
 const wait = (milliseconds) => new Promise(resolve => setTimeout(resolve, milliseconds));
@@ -26,13 +26,22 @@ export async function preparePlanVideoSpeech(item) {
   const prompt = String(item.prompt || '');
   const requestedDuration = Number(item.duration);
   const duration = [4, 6, 8].includes(requestedDuration) ? requestedDuration : 8;
-  if (item.voiceOverWanted === false || wantsSilentVideo(prompt)) return { prompt: nativeSpeechPrompt(prompt, ''), script: '', mode: 'silent' };
+  if (item.voiceOverWanted === false || (item.voiceOverWanted !== true && wantsSilentVideo(prompt))) {
+    return { prompt: nativeSpeechPrompt(prompt, ''), script: '', mode: 'silent' };
+  }
   // Calendar imports may embed exact dialogue in older English visual prompts.
   const embedded = extractVideoDialogue(prompt).script;
-  const script = normalizeForKhmerSpeech(String(
-    item.voiceOverText || embedded || await createKhmerNarration(prompt, duration, item.businessName),
-  ));
-  if (!/[\u1780-\u17ff]/u.test(script)) throw new Error('Khmer dialogue is required for this plan video.');
+  const suppliedScript = String(item.voiceOverText || embedded || '').trim();
+  let script = normalizeForKhmerSpeech(suppliedScript || await createKhmerNarration(prompt, duration, item.businessName));
+  if (!isKhmerOnlyNarration(script) && suppliedScript
+    && (item.allowScriptShortening === true || (item.allowScriptShortening === undefined && item.scriptEditedByUser !== true))) {
+    // Scanner and calendar scripts are AI-authored. Repair an unknown Latin or
+    // foreign word before submitting a paid video; preserve a user's edited line.
+    script = normalizeForKhmerSpeech(await createKhmerNarration(
+      `Video scene: ${prompt}. Intended spoken meaning: ${suppliedScript}`, duration, item.businessName,
+    ));
+  }
+  if (!isKhmerOnlyNarration(script)) throw new Error('Khmer dialogue must use Khmer script only. Please edit the narration before generating the video.');
   // Do not reject a single short clip from Khmer code-point counts. Khmer
   // vowels and combining signs make visually short text look artificially long
   // to String.length, while startKhmerVideoJob measures the real synthesized
