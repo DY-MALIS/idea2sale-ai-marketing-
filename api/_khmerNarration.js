@@ -40,7 +40,7 @@ export async function generateKhmerSpeech({
       // generateGeminiSpeech's voiceOverride param), regardless of which
       // narration voice name was passed in; narration keeps Kore/Charon.
       const voiceOverride = preferNaturalVoice ? (edgeKhmerVoice(voice) === 'km-KH-PisethNeural' ? 'Achird' : 'Aoede') : undefined;
-      const generated = await generateGeminiSpeech({ input: spokenInput, voice, performanceStyle: clearKhmerStyle, context, voiceOverride });
+      let generated = await generateGeminiSpeech({ input: spokenInput, voice, performanceStyle: clearKhmerStyle, context, voiceOverride });
       // Re-transcribing to check the waveform doubles this call's latency with
       // a second network round-trip -- worth paying for a paid video (targetSeconds
       // set, checked below), where a changed word is a wasted render, but not for
@@ -49,18 +49,34 @@ export async function generateKhmerSpeech({
       // Gemini call itself fails outright.
       if (Number.isFinite(targetSeconds) && targetSeconds >= 4 && targetSeconds <= 8) {
         const wavPrefix = 'data:audio/wav;base64,';
-        if (!generated.audioUrl?.startsWith(wavPrefix)) throw new Error('Expressive voice returned unsupported audio.');
-        const transcript = await transcribeAudioWithOpenRouter({
-          audioBase64: generated.audioUrl.slice(wavPrefix.length),
-          format: 'wav',
-          languageHint: 'Khmer',
-          model: process.env.OPEN_ROUTER_STT_MODEL || 'google/chirp-3',
-          // This is one verification step before a video job can even start.
-          // A slow STT gateway must not consume the function's whole 300s.
-          timeoutMs: 30_000,
-        });
-        if (!compareKhmerTranscript(spokenInput, transcript).passed) {
-          throw new Error('Gemini voice did not clearly match the Khmer script.');
+        const matchesScript = async (audio) => {
+          if (!audio.audioUrl?.startsWith(wavPrefix)) throw new Error('Expressive voice returned unsupported audio.');
+          // Khmer transcription can vary between passes on the same correct
+          // waveform. Confirm a mismatch once before discarding paid TTS audio.
+          for (let attempt = 0; attempt < 2; attempt += 1) {
+            try {
+              const transcript = await transcribeAudioWithOpenRouter({
+                audioBase64: audio.audioUrl.slice(wavPrefix.length),
+                format: 'wav',
+                languageHint: 'Khmer',
+                timeoutMs: 30_000,
+              });
+              if (compareKhmerTranscript(spokenInput, transcript).passed) return true;
+            } catch (error) {
+              console.warn('Khmer speech transcription attempt failed:', error?.message || error);
+            }
+          }
+          return false;
+        };
+        if (!(await matchesScript(generated))) {
+          // A simpler direction often gives Gemini a faithful Khmer read when
+          // the detailed performance direction causes changed words. Keep the
+          // exact same script and verify this take before falling back to Edge.
+          generated = await generateGeminiSpeech({
+            input: spokenInput, voice, voiceOverride, context: '',
+            performanceStyle: 'Speak clearly in natural Cambodian Khmer. Read only the exact script.',
+          });
+          if (!(await matchesScript(generated))) throw new Error('Gemini voice did not clearly match the Khmer script.');
         }
       }
       return {

@@ -75,6 +75,35 @@ describe('Khmer narration', () => {
     expect(result.fallbackReason).toContain('unclear');
   });
 
+  it('keeps verified Gemini speech when a second transcription recognizes the same Khmer waveform', async () => {
+    mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,YXVkaW8=', provider: 'gemini' });
+    mocks.transcribe.mockResolvedValueOnce('ខុសទាំងស្រុង').mockResolvedValueOnce('សួស្តី');
+    const result = await generateKhmerSpeech({ input: 'សួស្តី', targetDuration: 4 });
+    expect(result).toMatchObject({ provider: 'gemini', spokenText: 'សួស្តី' });
+    expect(mocks.gemini).toHaveBeenCalledTimes(1);
+    expect(mocks.transcribe.mock.calls[0][0]).not.toHaveProperty('model');
+    expect(mocks.edge).not.toHaveBeenCalled();
+  });
+
+  it('retries a failed transcription before discarding the generated speech', async () => {
+    mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,YXVkaW8=', provider: 'gemini' });
+    mocks.transcribe.mockRejectedValueOnce(new Error('STT unavailable')).mockResolvedValueOnce('សួស្តី');
+    const result = await generateKhmerSpeech({ input: 'សួស្តី', targetDuration: 4 });
+    expect(result).toMatchObject({ provider: 'gemini', spokenText: 'សួស្តី' });
+    expect(mocks.transcribe).toHaveBeenCalledTimes(2);
+    expect(mocks.edge).not.toHaveBeenCalled();
+  });
+
+  it('retries a changed Gemini read with simple directions before using Edge', async () => {
+    mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,YXVkaW8=', provider: 'gemini' });
+    mocks.transcribe.mockResolvedValueOnce('ខុសទាំងស្រុង').mockResolvedValueOnce('ខុសទាំងស្រុង').mockResolvedValueOnce('សួស្តី');
+    const result = await generateKhmerSpeech({ input: 'សួស្តី', targetDuration: 4 });
+    expect(result).toMatchObject({ provider: 'gemini', spokenText: 'សួស្តី' });
+    expect(mocks.gemini).toHaveBeenCalledTimes(2);
+    expect(mocks.gemini.mock.calls[1][0].performanceStyle).toContain('Read only the exact script');
+    expect(mocks.edge).not.toHaveBeenCalled();
+  });
+
   it('uses the requested measured rate when an overlong read is retried with Edge', async () => {
     mocks.edge.mockResolvedValue({ audioUrl: 'fitted-khmer', provider: 'edge' });
     const result = await generateKhmerSpeech({ input: 'សួស្តី', targetDuration: 8, forceEdge: true, edgeRate: '+14%' });
