@@ -96,6 +96,19 @@ describe('Khmer narration', () => {
     expect(mocks.edge).not.toHaveBeenCalled();
   });
 
+  it('trusts a Gemini take when verification itself never produces a usable transcript', async () => {
+    // transcribeAudioWithOpenRouter documents chirp-3 occasionally hallucinating
+    // a fluent wrong-script result and exhausting its own model fallbacks -- a
+    // transcription-service outage (every attempt throwing) is not the same as
+    // a confirmed wrong take, so it should not discard likely-fine paid audio.
+    mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,YXVkaW8=', provider: 'gemini' });
+    mocks.transcribe.mockRejectedValue(new Error('Every transcription attempt failed.'));
+    const result = await generateKhmerSpeech({ input: 'សួស្តី', targetDuration: 4 });
+    expect(result).toMatchObject({ provider: 'gemini', spokenText: 'សួស្តី' });
+    expect(mocks.transcribe).toHaveBeenCalledTimes(2);
+    expect(mocks.edge).not.toHaveBeenCalled();
+  });
+
   it('retries a changed Gemini read with simple directions before using Edge', async () => {
     mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,YXVkaW8=', provider: 'gemini' });
     mocks.transcribe.mockResolvedValueOnce('ខុសទាំងស្រុង').mockResolvedValueOnce('ខុសទាំងស្រុង').mockResolvedValueOnce('សួស្តី');

@@ -16,6 +16,7 @@ const WAV_PREFIX = 'data:audio/wav;base64,';
 // Confirm a mismatch once before discarding paid TTS audio.
 const matchesKhmerScript = async (audio, expectedScript) => {
   if (!audio.audioUrl?.startsWith(WAV_PREFIX)) throw new Error('Expressive voice returned unsupported audio.');
+  let gotTranscript = false;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const transcript = await transcribeAudioWithOpenRouter({
@@ -24,12 +25,20 @@ const matchesKhmerScript = async (audio, expectedScript) => {
         languageHint: 'Khmer',
         timeoutMs: 30_000,
       });
+      gotTranscript = true;
       if (compareKhmerTranscript(expectedScript, transcript).passed) return true;
     } catch (error) {
       console.warn('Khmer speech transcription attempt failed:', error?.message || error);
     }
   }
-  return false;
+  // Every attempt threw rather than returning any transcript to compare --
+  // this is an outage of the verification service itself, not a confirmed
+  // wrong take (transcribeAudioWithOpenRouter's own comment documents chirp-3
+  // occasionally hallucinating a fluent wrong-script result and exhausting its
+  // own model fallbacks). Discarding a paid take over a transcription-service
+  // hiccup it never actually got to judge is worse than trusting it; a take
+  // that DID get transcribed and still didn't match keeps failing, as before.
+  return !gotTranscript;
 };
 
 // Generates one Gemini take and, for a duration-bound video narration
