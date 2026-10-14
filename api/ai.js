@@ -879,6 +879,26 @@ Aspect ratio defaults: poster=3:4 unless the user names another format, TikTok/R
   }, null);
   const requireKhmerSpeech = plan.kind === 'video' && plan.voiceOverWanted === true
     && (explicitSpeechLanguage === 'km' || (explicitSpeechLanguage !== 'en' && responseLanguage !== 'English'));
+  const missingScriptQuestion = /(?:script|words? to (?:say|speak)|what.{0,30}(?:say|speak)|dialogue|narration text|voice[- ]?over text|អត្ថបទ|ពាក្យ.*និយាយ|ចង់ឲ្យ.*និយាយ|និយាយអ្វី)/iu.test(String(plan.missing || ''));
+  let preparedMissingScript = false;
+  if (plan.kind === 'video' && plan.voiceOverWanted === true && !voiceOverText && prompt.length >= 20
+    && (plan.ready === true || missingScriptQuestion)) {
+    try {
+      voiceOverText = requireKhmerSpeech
+        ? await createKhmerNarration(`User request: ${message}. Visual scene: ${prompt}`, duration, businessContext.businessName)
+        : String(await generateOpenRouterText({
+          model: resolveOpenRouterTextModel(model),
+          temperature: 0,
+          maxTokens: 120,
+          reasoningEffort: 'low',
+          system: `Write one natural spoken marketing sentence that fits within ${duration} seconds. Use the user's requested language. Preserve the brief's facts and do not invent offers or prices. Return only the spoken words.`,
+          prompt: `User request: ${message}. Visual scene: ${prompt}`,
+        })).trim().slice(0, 2000);
+      preparedMissingScript = Boolean(voiceOverText);
+    } catch (error) {
+      console.warn('Could not prepare video narration from the completed brief:', error?.message || error);
+    }
+  }
   if (requireKhmerSpeech && voiceOverText && !isKhmerOnlyNarration(voiceOverText)) {
     try {
       const rewritten = await generateOpenRouterText({
@@ -900,9 +920,11 @@ Aspect ratio defaults: poster=3:4 unless the user names another format, TikTok/R
   const narrationSettled = plan.kind !== 'video'
     || plan.voiceOverWanted === false
     || (plan.voiceOverWanted === true && voiceOverText.length > 0 && !invalidKhmerSpeech);
+  const ready = Boolean((plan.ready || (preparedMissingScript && missingScriptQuestion))
+    && prompt.length >= 20 && narrationSettled);
 
   return {
-    ready: Boolean(plan.ready && prompt.length >= 20 && narrationSettled),
+    ready,
     kind: plan.kind,
     imageMode: plan.kind === 'image' ? imageMode : undefined,
     platform,
@@ -926,9 +948,9 @@ Aspect ratio defaults: poster=3:4 unless the user names another format, TikTok/R
     performanceStyle: plan.kind === 'video' && plan.voiceOverWanted === true
       ? String(plan.performanceStyle || '').trim().slice(0, 1000)
       : undefined,
-    missing: invalidKhmerSpeech
+    missing: ready ? '' : (invalidKhmerSpeech
       ? 'មិនអាចរៀបអត្ថបទសំឡេងខ្មែរបានទេ។ សូមបញ្ជាម្ដងទៀត។'
-      : String(plan.missing || '').trim().slice(0, 300),
+      : String(plan.missing || '').trim().slice(0, 300)),
   };
 };
 

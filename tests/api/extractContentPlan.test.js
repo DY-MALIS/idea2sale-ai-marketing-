@@ -2,6 +2,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   text: vi.fn(),
+  narration: vi.fn(),
   checkRateLimit: vi.fn(),
 }));
 
@@ -17,7 +18,7 @@ vi.mock('../../api/_openrouter.js', () => ({
   resolveOpenRouterTextModel: () => 'test-model',
   redactSecrets: (value) => String(value || ''),
 }));
-vi.mock('../../api/_khmerNarration.js', () => ({ createKhmerNarration: vi.fn(), generateKhmerConversationSpeech: vi.fn(), generateKhmerSpeech: vi.fn() }));
+vi.mock('../../api/_khmerNarration.js', () => ({ createKhmerNarration: mocks.narration, generateKhmerConversationSpeech: vi.fn(), generateKhmerSpeech: vi.fn() }));
 vi.mock('../../api/_videoSpeech.js', () => ({ preparePlanVideoSpeech: vi.fn() }));
 vi.mock('../../api/_khmerVideo.js', () => ({ startKhmerVideoJob: vi.fn() }));
 vi.mock('../../api/_firebaseAdmin.js', () => ({
@@ -186,6 +187,24 @@ it('hands a completed spoken video command to the same generator brief', async (
   expect(res.statusCode).toBe(200);
   expect(res.body.automation).toMatchObject({ ready: true, kind: 'video', aspectRatio: '16:9', duration: 8, voiceOverWanted: true,
     voiceOverText: 'ស្វែងយល់ពីការប្រើបច្ចេកវិទ្យាឆ្លាតវៃក្នុងការងារប្រចាំថ្ងៃ។' });
+});
+
+it('writes Khmer narration for a complete voice command when the classifier asks for a script', async () => {
+  mocks.text.mockResolvedValue(JSON.stringify({
+    ready: false, kind: 'video', platform: 'General', duration: 8,
+    prompt: 'Photorealistic Cambodian barista pouring fresh coffee for a customer in a cafe, no readable text',
+    voiceOverWanted: true, voiceOverText: '',
+    missing: 'សូមផ្តល់អត្ថបទខ្លីៗជាភាសាខ្មែរដែលអ្នកចង់ឲ្យវីដេអូនិយាយ?',
+  }));
+  mocks.narration.mockResolvedValue('កាហ្វេស្រស់របស់យើងធ្វើឱ្យពេលព្រឹកកាន់តែរីករាយ។');
+  const res = responseRecorder();
+  await handler({ method: 'POST', headers: {}, body: {
+    action: 'voiceAutomationCheck', message: 'បង្កើតវីដេអូអំពីកាហ្វេ ហើយឲ្យនិយាយជាភាសាខ្មែរ', detectedLanguage: 'km',
+  } }, res);
+  expect(res.statusCode).toBe(200);
+  expect(res.body.automation).toMatchObject({ ready: true, kind: 'video', voiceOverWanted: true,
+    voiceOverText: 'កាហ្វេស្រស់របស់យើងធ្វើឱ្យពេលព្រឹកកាន់តែរីករាយ។', missing: '' });
+  expect(mocks.narration).toHaveBeenCalledOnce();
 });
 
 it('preserves an explicit silent video choice through Agent classification', async () => {
