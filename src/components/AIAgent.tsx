@@ -238,6 +238,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         ? automation.aspectRatio
         : (kind === 'video' ? '9:16' : '1:1'),
       language: detectedLanguage,
+      voiceOverWanted: kind === 'video' ? automation.voiceOverWanted === true : undefined,
       voiceOverText: kind === 'video' ? String(automation.voiceOverText || '').trim() : undefined,
       headline: kind === 'image' ? String(automation.headline || '').trim() : undefined,
       cta: kind === 'image' ? String(automation.cta || '').trim() : undefined,

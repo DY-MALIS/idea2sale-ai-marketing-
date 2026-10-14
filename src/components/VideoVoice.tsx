@@ -1429,6 +1429,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     voiceGenderOverride?: VoiceGender,
     performanceStyleOverride?: string,
     allowScriptShorteningOverride?: boolean,
+    narrationWantedOverride?: boolean,
   ) => {
     // A second call while one is already running would call resetFFmpeg() (which
     // terminates the shared ffmpeg.wasm singleton) out from under the first call's
@@ -1449,9 +1450,11 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     setGeneratedVideoAspectRatio(generationAspectRatio);
     // An automation handoff carries its own narration choice. React has not
     // applied setVoiceOverEnabled() from the effect yet when this call begins.
-    const narrationRequested = typeof voiceOverTextOverride === 'string'
-      ? Boolean(voiceOverTextOverride.trim())
-      : voiceOverEnabled;
+    const narrationRequested = typeof narrationWantedOverride === 'boolean'
+      ? narrationWantedOverride
+      : typeof voiceOverTextOverride === 'string'
+        ? Boolean(voiceOverTextOverride.trim())
+        : voiceOverEnabled;
     let voiceOverContent = (typeof voiceOverTextOverride === 'string' ? voiceOverTextOverride : (narrationRequested ? voiceOverText : '')).trim();
     if (!promptText && !videoImages.length) return;
 
@@ -1482,7 +1485,8 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       if (!voiceOverContent && narrationRequested && voiceOverTextOverride === undefined) {
         voiceOverContent = extractVideoDialogue(promptText).script;
       }
-      if (narrationRequested && voiceOverTextOverride === undefined && !voiceOverContent && !wantsSilentVideo(promptText)) {
+      if (narrationRequested && !voiceOverContent
+        && (narrationWantedOverride === true || !wantsSilentVideo(promptText))) {
         const response = await fetchAiWithTimeout({ action: 'videoNarration', prompt: promptText || 'Product introduction', duration: durationOverride || videoDuration, language: generationLanguage, businessContext });
         const data = await response.json();
         if (!response.ok || !data.text) throw new Error(data.error || 'Could not prepare video narration.');
@@ -1746,6 +1750,8 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     setVideoLanguage(generationLanguage);
     setCaptionLanguage(generationLanguage);
     setVideoDuration(requestedDuration);
+    setVoiceOverEnabled(automationRequest.voiceOverWanted ?? Boolean(requestedVoiceOver));
+    setVoiceOverText(requestedVoiceOver);
     if (automationRequest.voiceGender) {
       setVoiceGender(automationRequest.voiceGender);
       setVoicePersona(automationRequest.voiceGender === 'Male' ? 'piseth' : 'sreymom');
@@ -1753,15 +1759,12 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     const requestedAspectRatio = normalizeVideoAspectRatio(automationRequest.aspectRatio);
     setVideoAspectRatio(requestedAspectRatio);
     setCaptionPlatform(requestedAspectRatio === '16:9' ? 'YouTube' : 'TikTok');
-    if (requestedVoiceOver) {
-      setVoiceOverEnabled(true);
-      setVoiceOverText(requestedVoiceOver);
-    }
     setAutomationNoticeKind('pending');
     setAutomationNotice(language === 'km' ? 'កំពុងរៀបចំសំណើវីដេអូ...' : 'Preparing the video request...');
     onAutomationConsumed?.(automationRequest.id);
     void handleGenerateVideo(automationRequest.prompt, generationLanguage, requestedVoiceOver, requestedDuration, requestedAspectRatio,
-      automationRequest.voiceGender, automationRequest.performanceStyle, automationRequest.allowScriptShortening);
+      automationRequest.voiceGender, automationRequest.performanceStyle, automationRequest.allowScriptShortening,
+      automationRequest.voiceOverWanted);
   }, [automationRequest?.id, loading, audioLoading]);
 
   const handleGenerateAudio = async () => {

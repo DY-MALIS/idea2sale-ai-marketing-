@@ -166,6 +166,7 @@ export interface CreativeAutomationRequest {
   platform: 'TikTok' | 'YouTube' | 'Facebook' | 'X' | 'Telegram' | 'General';
   aspectRatio: '1:1' | '9:16' | '16:9' | '4:5' | '3:4';
   language: 'km' | 'en';
+  voiceOverWanted?: boolean;
   voiceOverText?: string;
   voiceGender?: 'Male' | 'Female';
   performanceStyle?: string;

@@ -730,6 +730,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
       platform: 'Facebook',
       aspectRatio: '16:9',
       language: 'km',
+      voiceOverWanted: true,
       voiceOverText: item.voiceOverText,
       voiceGender: item.voiceGender,
       performanceStyle: item.performanceStyle,

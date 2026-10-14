@@ -1,7 +1,7 @@
 import { generateOpenRouterText, generateTranslateSpeech, normalizeForKhmerSpeech, transcribeAudioWithOpenRouter } from './_openrouter.js';
 import { synthesizeKhmerSpeechViaEdge } from './_edgeSpeech.js';
 import { generateGeminiSpeech } from './_geminiSpeech.js';
-import { compareKhmerTranscript, KHMER_SCRIPT_ONLY_INSTRUCTION } from '../shared/videoSpeech.js';
+import { compareKhmerTranscript, isKhmerOnlyNarration, KHMER_SCRIPT_ONLY_INSTRUCTION } from '../shared/videoSpeech.js';
 
 const edgeKhmerVoice = (voice) => {
   const selected = String(voice || '').toLowerCase();
@@ -125,8 +125,9 @@ export async function createKhmerNarration(prompt, duration = 8, businessName = 
     const strayWords = [...new Set(normalizeForKhmerSpeech(text).match(/[A-Za-z]{2,}/g) || [])].join(', ');
     text = await generateOpenRouterText({ model: process.env.OPEN_ROUTER_CONTENT_PLAN_MODEL || 'google/gemini-3.1-pro-preview', system, prompt: buildPrompt(strayWords), reasoningEffort: 'low', timeoutMs: 45_000 });
   }
-  if (!/[\u1780-\u17ff]/.test(text || '')) throw new Error('Could not generate a Khmer narration script. Please enter Khmer text.');
-  return text.trim();
+  const normalized = normalizeForKhmerSpeech(text || '');
+  if (!isKhmerOnlyNarration(normalized)) throw new Error('Could not generate a Khmer narration script. Please enter Khmer text.');
+  return normalized;
 }
 
 // The scanner and daily plan create their own scripts. If one is too long or

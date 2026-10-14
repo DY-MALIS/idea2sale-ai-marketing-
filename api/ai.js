@@ -918,6 +918,7 @@ Aspect ratio defaults: poster=3:4 unless the user names another format, TikTok/R
       ? String(plan.posterStyle || 'Modern').trim().slice(0, 40)
       : '',
     duration: plan.kind === 'video' ? duration : undefined,
+    voiceOverWanted: plan.kind === 'video' ? plan.voiceOverWanted === true : undefined,
     voiceOverText: plan.kind === 'video' && plan.voiceOverWanted === true ? voiceOverText : '',
     voiceGender: plan.kind === 'video' && plan.voiceOverWanted === true
       ? (plan.voiceGender === 'Male' ? 'Male' : 'Female')
@@ -2816,6 +2817,7 @@ Return ONLY a single valid JSON object with this exact structure:
         const script = String(req.body.khmerSpeech.script).trim();
         const item = {
           prompt: normalizedPrompt,
+          voiceOverWanted: true,
           voiceOverText: script,
           voiceGender: req.body.khmerSpeech.voiceGender === 'Male' ? 'Male' : 'Female',
           businessName: String(req.body.khmerSpeech.businessName || '').trim().slice(0, 120),
