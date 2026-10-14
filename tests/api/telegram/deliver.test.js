@@ -147,14 +147,15 @@ describe('processContentPlanVideo', () => {
     expect(mockVerifySpeech).not.toHaveBeenCalled();
     expect(global.fetch).not.toHaveBeenCalled();
   });
-  it('auto-posts the exact Edge reference track used for lip sync', async () => {
+  it('auto-posts the exact Edge reference track when the visual prompt says no native speech', async () => {
     mockPollOpenRouterVideo.mockResolvedValue({ videoUrl: 'raw' });
     mockUploadMediaDataUrl.mockResolvedValue({ mediaUrl: 'uploaded' });
     mockResolveTelegramDestination.mockResolvedValue({ token: 'token', chatId: 'chat' });
     global.fetch = vi.fn().mockResolvedValue({ ok: true, arrayBuffer: async () => new ArrayBuffer(0), json: async () => ({ ok: true }) });
     const result = await processContentPlanVideo(fakeDb({
       status: 'PROCESSING', videoJobId: 'job', voiceOverMode: 'edge-seedance',
-      prompt: 'Presenter', voiceOverText: 'សួស្តី',
+      prompt: 'Presenter faces the camera. No speech or dialogue from the video model.',
+      voiceOverWanted: true, voiceOverText: 'សួស្តី',
       narrationAudio: { filePath: '/telegram-media/original-reference.mp3', mediaUrl: 'original-audio', duration: 5.2 },
     }), 'item', {});
     expect(result.ok).toBe(true);
@@ -166,6 +167,7 @@ describe('processContentPlanVideo', () => {
     expect(global.fetch).toHaveBeenCalledTimes(1);
     expect(mockResolveTelegramDestination).toHaveBeenCalled();
     expect(global.fetch.mock.calls[0][0]).toContain('/sendVideo');
+    expect(JSON.parse(global.fetch.mock.calls[0][1].body).video).toBe('uploaded');
   });
 
   it.each([undefined, { filePath: '/voice.mp3', duration: 8.3 }])('rejects missing or overlong Edge reference audio', async (narrationAudio) => {

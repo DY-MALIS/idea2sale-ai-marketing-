@@ -108,11 +108,13 @@ export const processContentPlanVideo = async (db, itemId, req) => {
         await ref.update({ sourceMediaUrl });
       }
       uploaded = { mediaUrl: sourceMediaUrl };
-      if (item.voiceOverMode === 'silent' || item.voiceOverWanted === false || wantsSilentVideo(item.prompt || '')) {
+      const silentVideo = item.voiceOverMode === 'silent' || item.voiceOverWanted === false
+        || (item.voiceOverWanted !== true && wantsSilentVideo(item.prompt || ''));
+      if (silentVideo) {
         uploaded.mediaUrl = applyImageKitMuteTransform(uploaded.mediaUrl);
       }
-      const wantsNarration = ['edge-seedance', 'gemini', 'separate'].includes(item.voiceOverMode) && item.voiceOverWanted !== false && item.prompt
-        && !wantsSilentVideo(item.prompt);
+      const wantsNarration = ['edge-seedance', 'gemini', 'separate'].includes(item.voiceOverMode)
+        && !silentVideo && item.prompt;
       if (wantsNarration) {
         const requestedDuration = Number(item.duration);
         const duration = [4, 6, 8].includes(requestedDuration) ? requestedDuration : 8;
@@ -151,7 +153,8 @@ export const processContentPlanVideo = async (db, itemId, req) => {
       }
       await ref.update({ resultMediaUrl: uploaded.mediaUrl });
     }
-    if (item.voiceOverWanted !== false && item.voiceOverMode !== 'silent' && item.prompt && !wantsSilentVideo(item.prompt)) {
+    if (item.voiceOverWanted !== false && item.voiceOverMode !== 'silent' && item.prompt
+      && (item.voiceOverWanted === true || !wantsSilentVideo(item.prompt))) {
       try {
         const speechVerification = await verifyUploadedVideoSpeech(uploaded.mediaUrl, item.voiceOverText);
         await ref.update({ speechVerification });
