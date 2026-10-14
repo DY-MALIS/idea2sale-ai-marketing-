@@ -132,11 +132,29 @@ describe('Khmer narration', () => {
     expect(mocks.edge).toHaveBeenCalledWith({ input: 'សួស្តី', voice: 'km-KH-PisethNeural', rate: '+6%' });
   });
 
-  it('surfaces failure only when expressive, fallback and last-resort voices all fail', async () => {
+  it('surfaces the Edge failure when expressive, fallback and last-resort voices all fail', async () => {
     mocks.gemini.mockRejectedValue(new Error('provider unavailable'));
     mocks.edge.mockRejectedValue(new Error('auth failed'));
-    await expect(generateKhmerSpeech({ input: 'សួស្តី' })).rejects.toThrow('provider unavailable');
+    await expect(generateKhmerSpeech({ input: 'សួស្តី' })).rejects.toThrow('auth failed');
     expect(mocks.translate).not.toHaveBeenCalled();
+  });
+  it('verifies the last-resort Gemini take the same way as the primary one during a paid video', async () => {
+    vi.stubEnv('KHMER_TTS_PROVIDER', '');
+    mocks.edge.mockRejectedValue(new Error('Unexpected server response: 403'));
+    mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,YXVkaW8=', provider: 'gemini' });
+    mocks.transcribe.mockResolvedValue('សួស្តី');
+    const result = await generateKhmerSpeech({ input: 'សួស្តី', targetDuration: 4 });
+    expect(result).toMatchObject({ provider: 'gemini', spokenText: 'សួស្តី' });
+    expect(mocks.transcribe).toHaveBeenCalledTimes(1);
+    expect(mocks.gemini).toHaveBeenCalledTimes(1);
+  });
+  it('does not deliver a last-resort Gemini take whose transcript never matches the script', async () => {
+    vi.stubEnv('KHMER_TTS_PROVIDER', '');
+    mocks.edge.mockRejectedValue(new Error('Unexpected server response: 403'));
+    mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,YXVkaW8=', provider: 'gemini' });
+    mocks.transcribe.mockResolvedValue('ខុសទាំងស្រុង');
+    await expect(generateKhmerSpeech({ input: 'សួស្តី', targetDuration: 4 })).rejects.toThrow('Unexpected server response: 403');
+    expect(mocks.gemini).toHaveBeenCalledTimes(2);
   });
   it('keeps a spoken Agent reply available when Edge returns empty audio', async () => {
     const script = '\u179f\u17bd\u179f\u17d2\u178f\u17b8';
