@@ -20,11 +20,13 @@ describe('Khmer narration', () => {
     expect(mocks.edge).toHaveBeenCalledWith({ input: 'សួស្តី', voice: 'km-KH-SreymomNeural', rate: '+6%' });
     expect(mocks.gemini).not.toHaveBeenCalled();
   });
-  it('does not replace a failed Khmer voice with unchecked generative speech', async () => {
+  it('falls back to Gemini when the Khmer neural voice is completely unavailable', async () => {
     vi.stubEnv('KHMER_TTS_PROVIDER', '');
     mocks.edge.mockRejectedValue(new Error('voice unavailable'));
-    await expect(generateKhmerSpeech({ input: 'សួស្តី' })).rejects.toThrow('voice unavailable');
-    expect(mocks.gemini).not.toHaveBeenCalled();
+    mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,YXVkaW8=', provider: 'gemini' });
+    const result = await generateKhmerSpeech({ input: 'សួស្តី' });
+    expect(result).toMatchObject({ provider: 'gemini', spokenText: 'សួស្តី', fallbackReason: expect.any(String) });
+    expect(mocks.gemini).toHaveBeenCalledTimes(1);
   });
   it('plays a natural Agent voice immediately, without a verification round-trip', async () => {
     vi.stubEnv('KHMER_TTS_PROVIDER', '');
@@ -130,10 +132,10 @@ describe('Khmer narration', () => {
     expect(mocks.edge).toHaveBeenCalledWith({ input: 'សួស្តី', voice: 'km-KH-PisethNeural', rate: '+6%' });
   });
 
-  it('surfaces failure when both expressive and fallback voices fail', async () => {
+  it('surfaces failure only when expressive, fallback and last-resort voices all fail', async () => {
     mocks.gemini.mockRejectedValue(new Error('provider unavailable'));
     mocks.edge.mockRejectedValue(new Error('auth failed'));
-    await expect(generateKhmerSpeech({ input: 'សួស្តី' })).rejects.toThrow('auth failed');
+    await expect(generateKhmerSpeech({ input: 'សួស្តី' })).rejects.toThrow('provider unavailable');
     expect(mocks.translate).not.toHaveBeenCalled();
   });
   it('keeps a spoken Agent reply available when Edge returns empty audio', async () => {

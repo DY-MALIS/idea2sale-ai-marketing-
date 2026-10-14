@@ -88,25 +88,43 @@ export async function generateKhmerSpeech({
     }
   }
 
-  const fallback = await synthesizeKhmerSpeechViaEdge({
-    input: spokenInput,
-    voice: edgeKhmerVoice(voice),
-    // Targeted presenter clips need a slightly brisker fallback cadence than
-    // standalone speech. A measured overrun can request a stronger one-time
-    // correction without changing or truncating the script.
-    rate: /^\+\d{1,2}%$/.test(String(edgeRate || ''))
-      ? String(edgeRate)
-      : (timingDirection ? '+12%' : '+6%'),
-  });
-  return {
-    ...fallback,
-    spokenText: spokenInput,
-    fallbackReason: forceEdge
-      ? 'The expressive read exceeded the clip duration; a brisk Khmer neural voice preserved the full script.'
-      : useEdgeOnly
-        ? ''
-      : 'Expressive Khmer voice was unavailable or unclear; standard Khmer neural voice was used.',
-  };
+  try {
+    const fallback = await synthesizeKhmerSpeechViaEdge({
+      input: spokenInput,
+      voice: edgeKhmerVoice(voice),
+      // Targeted presenter clips need a slightly brisker fallback cadence than
+      // standalone speech. A measured overrun can request a stronger one-time
+      // correction without changing or truncating the script.
+      rate: /^\+\d{1,2}%$/.test(String(edgeRate || ''))
+        ? String(edgeRate)
+        : (timingDirection ? '+12%' : '+6%'),
+    });
+    return {
+      ...fallback,
+      spokenText: spokenInput,
+      fallbackReason: forceEdge
+        ? 'The expressive read exceeded the clip duration; a brisk Khmer neural voice preserved the full script.'
+        : useEdgeOnly
+          ? ''
+        : 'Expressive Khmer voice was unavailable or unclear; standard Khmer neural voice was used.',
+    };
+  } catch (edgeError) {
+    // Edge's neural voice is an unofficial Microsoft endpoint this app doesn't
+    // control (see _edgeSpeech.js) -- it can reject every request at once
+    // (rotated token, blocked IP, outage). That would otherwise fail every
+    // video whenever Edge is the configured provider, or whenever a narration
+    // overran its clip budget and got forced onto Edge for the rate
+    // correction above. Gemini has no speech-rate control, so this take may
+    // run a little long, but that's recoverable (the clip gets capped/trimmed
+    // elsewhere) while a thrown error here is not.
+    console.error('Edge Khmer speech failed; using Gemini as a last resort:', edgeError?.message || edgeError);
+    const generated = await generateGeminiSpeech({ input: spokenInput, voice, performanceStyle: clearKhmerStyle, context });
+    return {
+      ...generated,
+      spokenText: spokenInput,
+      fallbackReason: 'The Khmer neural voice was unavailable; a standard Khmer voice was used instead.',
+    };
+  }
 }
 
 // Conversation audio needs a playable reply even when both expressive Gemini
