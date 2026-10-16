@@ -208,6 +208,51 @@ it('drops a plan item\'s productImageUrl when it is not in the owner\'s saved ga
   );
 });
 
+it('alerts admins instead of silently publishing without the product photo on a verification outage', async () => {
+  process.env.CRON_SECRET = 'cron-test';
+  process.env.QSTASH_TOKEN = 'qstash-test';
+  process.env.APP_URL = 'https://aime.example.test';
+  // notifyAdmins is unmocked (real api/_alert.js) -- with no TELEGRAM_BOT_TOKEN/
+  // TELEGRAM_ADMIN_CHAT_ID set in this test env it safely no-ops after logging,
+  // same as every other unattended failure path in this file already relies on.
+  const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  const patches = [];
+  const item = {
+    status: 'PENDING', type: 'video', userId: 'owner', prompt: 'Cambodian training video', duration: 8,
+    productImageUrl: 'https://ik.imagekit.io/test/product.png',
+  };
+  const planRef = {
+    get: async () => ({ exists: true, id: 'planvideo999', data: () => item }),
+    update: async (patch) => { patches.push(patch); Object.assign(item, patch); },
+  };
+  planMocks.db = {
+    collection: (name) => ({ doc: () => name === 'content_plan_items'
+      ? planRef
+      : { get: async () => { throw new Error('Firestore unavailable'); } } }),
+    runTransaction: async (fn) => fn({
+      get: (ref) => ref.get(),
+      update: (_ref, patch) => { patches.push(patch); Object.assign(item, patch); },
+    }),
+  };
+  planMocks.preparePlanVideoSpeech.mockResolvedValue({ mode: 'edge-seedance', script: 'សូមស្វាគមន៍', prompt: 'Training presenter' });
+  planMocks.startKhmerVideoJob.mockResolvedValue({
+    job: { jobId: 'paid-video-job' },
+    avatarImage: { mediaUrl: 'https://ik.imagekit.io/test/avatar.png' },
+    narrationAudio: { mediaUrl: 'https://ik.imagekit.io/test/voice.mp3', spokenText: 'សូមស្វាគមន៍', duration: 4 },
+  });
+  planMocks.publishJSON.mockResolvedValue({ messageId: 'poll-message' });
+  const res = createMockRes();
+
+  await scheduledHandler({ method: 'POST', headers: { authorization: 'Bearer cron-test' }, query: { planVideoId: 'planvideo999' } }, res);
+
+  expect(planMocks.startKhmerVideoJob).toHaveBeenCalledWith(
+    expect.anything(), expect.anything(), expect.anything(),
+    expect.objectContaining({ productImageUrl: '' }),
+  );
+  expect(consoleErrorSpy.mock.calls.some((call) => call.some((arg) => String(arg || '').includes('could not verify saved product image')))).toBe(true);
+  consoleErrorSpy.mockRestore();
+});
+
 describe('truncateForTelegram', () => {
   it('leaves short text untouched', () => {
     expect(truncateForTelegram('hello', 1024)).toBe('hello');

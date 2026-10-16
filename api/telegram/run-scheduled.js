@@ -306,7 +306,14 @@ const startPlanVideoJob = async (item, speech) => {
       const savedProductImages = Array.isArray(savedProfile?.productImages) ? savedProfile.productImages : [];
       if (savedProductImages.some((image) => image?.imageUrl === rawProductImageUrl)) productImageUrl = rawProductImageUrl;
     } catch (error) {
+      // This path auto-publishes with no human review -- unlike the
+      // interactive videoGenerate path, where a person sees the result before
+      // it ships, a transient read failure here would otherwise silently
+      // downgrade an intentionally product-specific video to a generic one
+      // with nobody ever told. Surface it the same way every other
+      // unattended failure in this file does.
       console.error('Could not verify selected product image ownership:', error?.message || error);
+      await notifyAdmins(`Content plan item for ${item.userId}: could not verify saved product image, publishing without it: ${error?.message || error}`);
     }
   }
   return startKhmerVideoJob(item, speech, uploadMediaDataUrl, {
