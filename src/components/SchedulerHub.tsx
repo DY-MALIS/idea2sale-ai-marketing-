@@ -212,7 +212,18 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
           setVideoFile(null);
         }
       } catch (error) {
+        // A failed fetch here (CORS on the remote hosting URL, a dropped
+        // connection, etc.) previously only logged to the console -- the
+        // video/TikTok file field was left showing "No file chosen" with a
+        // "Please select a file" validation error and zero indication why,
+        // or any way to recover besides manually downloading and
+        // re-uploading the clip the user had just watched moments earlier.
         console.error('Could not attach the generated media to the scheduler:', error);
+        if (handledHandoffRef.current === requestId) {
+          setFormError(language === 'km'
+            ? 'មិនអាចភ្ជាប់វីដេអូ/រូបភាពដែលបានបង្កើតដោយស្វ័យប្រវត្តិទេ។ សូមប្រើប៊ូតុង "Choose file" ខាងក្រោម ដើម្បីទាញយក (Download) ឯកសារដែលបានបង្កើត រួចបញ្ចូលវាដោយដៃ។'
+            : 'Could not automatically attach the generated video/image. Please use the "Choose file" button below to upload it manually (download it first if needed).');
+        }
       } finally {
         if (handledHandoffRef.current === requestId) setIsAttachingHandoffMedia(false);
       }
