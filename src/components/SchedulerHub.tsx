@@ -185,7 +185,17 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     setIsAttachingHandoffMedia(true);
     (async () => {
       try {
-        const response = await fetch(handoffRequest.mediaDataUrl);
+        // Generated media is hosted remotely (ImageKit) -- <video>/<img>
+        // playback and a plain download link both work cross-origin fine,
+        // but reading the response body here (to build a File for the
+        // TikTok/YouTube upload field) needs CORS, which ImageKit's
+        // delivery domain doesn't grant. Route remote URLs through our own
+        // same-origin proxy instead; a data: URL (no remote fetch involved)
+        // is already same-origin and can be fetched directly.
+        const isRemoteUrl = /^https?:\/\//i.test(handoffRequest.mediaDataUrl);
+        const fetchUrl = isRemoteUrl ? `/api/mediaProxy?url=${encodeURIComponent(handoffRequest.mediaDataUrl)}` : handoffRequest.mediaDataUrl;
+        const response = await fetch(fetchUrl);
+        if (!response.ok) throw new Error(`Could not fetch the generated media (status ${response.status}).`);
         const blob = await response.blob();
         const mimeType = handoffRequest.kind === 'video' ? 'video/mp4' : 'image/png';
         const file = new File([blob], handoffRequest.mediaName, { type: blob.type || mimeType });

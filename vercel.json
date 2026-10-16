@@ -15,6 +15,9 @@
     },
     "api/tiktok/publish.js": {
       "maxDuration": 300
+    },
+    "api/mediaProxy.js": {
+      "maxDuration": 60
     }
   },
   "crons": [
