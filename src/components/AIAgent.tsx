@@ -219,6 +219,11 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   // Both voice buttons control the same continuing conversation.
   const geminiLiveSessionRef = useRef<GeminiLiveSession | null>(null);
   const geminiLiveActiveRef = useRef(false);
+  // Google caps an audio-only Live session at about 15 minutes and warns
+  // shortly before force-closing it (see onGoAway in startGeminiLive) --
+  // the latest resumption handle lets that reconnect continue with full
+  // context instead of the model forgetting the call so far. Reset per call.
+  const geminiLiveResumeHandleRef = useRef<string | null>(null);
   const liveConnectionControllerRef = useRef<AbortController | null>(null);
   const fallbackSessionRef = useRef<VoiceConversationFallback | null>(null);
   const fallbackAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -448,7 +453,31 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     return handledCommand;
   };
 
-  const startGeminiLive = async (session: number, playbackContext: AudioContext): Promise<boolean> => {
+  // Called when the current Gemini Live connection warns it is about to be
+  // force-closed (see onGoAway in geminiLiveClient.ts) -- opens a fresh
+  // connection with the latest resumption handle before that happens, so a
+  // long or busy call continues on the fast Live path with its context
+  // intact instead of permanently dropping to the slow fallback pipeline.
+  // A fresh AudioContext here (not created inside the original button
+  // click) can start suspended on iOS Safari specifically; if the
+  // reconnect itself fails for any reason, startGeminiLive's own catch
+  // already falls back to startFallbackVoice, same as any other connect
+  // failure -- so the worst case here is today's existing behavior, not a
+  // regression.
+  const handleGeminiLiveGoAway = (session: number) => {
+    if (session !== voiceSessionRef.current || !voiceActiveRef.current) return;
+    try {
+      const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContextCtor) throw new Error('Live audio is not supported by this browser.');
+      const playbackContext: AudioContext = new AudioContextCtor({ sampleRate: 24000 });
+      void playbackContext.resume().catch(() => {});
+      void startGeminiLive(session, playbackContext, geminiLiveResumeHandleRef.current || undefined);
+    } catch {
+      startFallbackVoice(session);
+    }
+  };
+
+  const startGeminiLive = async (session: number, playbackContext: AudioContext, resumeHandle?: string): Promise<boolean> => {
     const controller = new AbortController();
     liveConnectionControllerRef.current = controller;
     try {
@@ -492,7 +521,9 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         // asking them to open devtools.
         onError: (error) => { reportClientError('geminiLive.onError', error); startFallbackVoice(session); },
         onClose: () => { reportClientError('geminiLive.onClose', new Error('Gemini Live closed unexpectedly')); startFallbackVoice(session); },
-      }, { voiceName: data.voiceName, systemInstruction: data.systemInstruction }, controller.signal);
+        onSessionHandle: (handle) => { geminiLiveResumeHandleRef.current = handle; },
+        onGoAway: () => handleGeminiLiveGoAway(session),
+      }, { voiceName: data.voiceName, systemInstruction: data.systemInstruction, resumeHandle }, controller.signal);
 
       if (session !== voiceSessionRef.current || !voiceActiveRef.current) {
         geminiSession.close();
@@ -1246,6 +1277,9 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     const session = voiceSessionRef.current;
     voiceActiveRef.current = true;
     liveVoiceEnabledRef.current = true;
+    // A handle from a previous, already-ended call must never carry into a
+    // brand new one -- only this call's own onSessionHandle updates it from here.
+    geminiLiveResumeHandleRef.current = null;
     setLiveVoiceEnabled(true);
     setVoiceConnecting(true);
     setVoiceProcessing(false);

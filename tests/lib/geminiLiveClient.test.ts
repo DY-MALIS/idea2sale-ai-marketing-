@@ -66,6 +66,7 @@ describe('Gemini Live browser connection', () => {
       realtimeInputConfig: {
         automaticActivityDetection: { endOfSpeechSensitivity: 'END_SENSITIVITY_HIGH', silenceDurationMs: 300 },
       },
+      sessionResumption: {},
     } });
 
     processor.onaudioprocess({ inputBuffer: { getChannelData: () => new Float32Array(1024).fill(0.5) } });
@@ -327,5 +328,98 @@ describe('Gemini Live browser connection', () => {
     expect(onError).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
     expect(socket.readyState).toBe(FakeWebSocket.OPEN);
+  });
+
+  it('tracks the latest session resumption handle and sends a given one back when reconnecting', async () => {
+    vi.useFakeTimers();
+    const sent: any[] = [];
+    let socket: any;
+    const FakeWebSocket = class {
+      static OPEN = 1;
+      static CONNECTING = 0;
+      readyState = 0;
+      onopen: (() => void) | null = null;
+      onmessage: ((event: { data: string }) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+      constructor() { socket = this; }
+      send(value: string) { sent.push(JSON.parse(value)); }
+      close() { this.readyState = 3; }
+    };
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [{ stop: vi.fn() }] }) } });
+    vi.stubGlobal('window', { setInterval, setTimeout });
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    const playbackContext = {
+      sampleRate: 16000, currentTime: 0, destination: {},
+      createMediaStreamSource: () => ({ connect: vi.fn(), disconnect: vi.fn() }),
+      createScriptProcessor: () => ({ connect: vi.fn(), disconnect: vi.fn(), onaudioprocess: null }),
+      createBuffer: () => ({ duration: 0.1, copyToChannel: vi.fn() }),
+      createBufferSource: () => ({ connect: vi.fn(), start: vi.fn(), stop: vi.fn(), onended: null }),
+      close: vi.fn().mockResolvedValue(undefined),
+    } as unknown as AudioContext;
+
+    const onSessionHandle = vi.fn();
+    const pending = connectGeminiLive('ephemeral-token', 'gemini-3.8-live', playbackContext, { onSessionHandle }, { resumeHandle: 'prior-handle' });
+    await vi.waitFor(() => expect(socket).toBeDefined());
+    socket.readyState = FakeWebSocket.OPEN;
+    socket.onopen();
+    expect(sent[0].setup.sessionResumption).toEqual({ handle: 'prior-handle' });
+    socket.onmessage({ data: JSON.stringify({ setupComplete: {} }) });
+    const session = await pending;
+
+    socket.onmessage({ data: JSON.stringify({ sessionResumptionUpdate: { resumable: true, newHandle: 'fresh-handle' } }) });
+    await Promise.resolve();
+    expect(onSessionHandle).toHaveBeenCalledExactlyOnceWith('fresh-handle');
+    session.close();
+  });
+
+  it('lets the caller reconnect on goAway instead of treating it as an error or a dropped call', async () => {
+    vi.useFakeTimers();
+    let socket: any;
+    const FakeWebSocket = class {
+      static OPEN = 1;
+      static CONNECTING = 0;
+      readyState = 0;
+      onopen: (() => void) | null = null;
+      onmessage: ((event: { data: string }) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+      constructor() { socket = this; }
+      send() {}
+      close() { this.readyState = 3; }
+    };
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [{ stop: vi.fn() }] }) } });
+    vi.stubGlobal('window', { setInterval, setTimeout });
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    const playbackContext = {
+      sampleRate: 16000, currentTime: 0, destination: {},
+      createMediaStreamSource: () => ({ connect: vi.fn(), disconnect: vi.fn() }),
+      createScriptProcessor: () => ({ connect: vi.fn(), disconnect: vi.fn(), onaudioprocess: null }),
+      createBuffer: () => ({ duration: 0.1, copyToChannel: vi.fn() }),
+      createBufferSource: () => ({ connect: vi.fn(), start: vi.fn(), stop: vi.fn(), onended: null }),
+      close: vi.fn().mockResolvedValue(undefined),
+    } as unknown as AudioContext;
+
+    const onGoAway = vi.fn();
+    const onError = vi.fn();
+    const onClose = vi.fn();
+    const pending = connectGeminiLive('ephemeral-token', 'gemini-3.8-live', playbackContext, { onGoAway, onError, onClose });
+    await vi.waitFor(() => expect(socket).toBeDefined());
+    socket.readyState = FakeWebSocket.OPEN;
+    socket.onopen();
+    socket.onmessage({ data: JSON.stringify({ setupComplete: {} }) });
+    await pending;
+
+    socket.onmessage({ data: JSON.stringify({ goAway: { timeLeft: '10s' } }) });
+    await Promise.resolve();
+    expect(onGoAway).toHaveBeenCalledOnce();
+
+    // The server force-closes shortly after its own goAway warning -- this
+    // connection's close must not also fire onClose/onError, since the
+    // caller is already reconnecting and a second fallback/report would
+    // just be noise about an expected, already-handled event.
+    socket.onclose();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
   });
 });

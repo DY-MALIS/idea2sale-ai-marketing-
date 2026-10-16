@@ -49,6 +49,19 @@ export interface GeminiLiveHandlers {
   onUserTranscription?: (text: string) => boolean;
   onError?: (error: Error) => void;
   onClose?: () => void;
+  // Google periodically hands out a resumption handle once sessionResumption
+  // is enabled in the setup message -- callers should keep the latest one so
+  // a later reconnect (see onGoAway) can resume with full context instead of
+  // starting the model over with no memory of the call so far.
+  onSessionHandle?: (handle: string) => void;
+  // Without session compression, Google caps an audio-only Live session at
+  // about 15 minutes and sends this notice shortly before force-closing the
+  // connection -- the caller's chance to open a fresh connection (with the
+  // latest resumption handle) before that happens, instead of only finding
+  // out once onClose fires and falling back to the slow non-Live pipeline.
+  // When this fires, onClose/onError are suppressed for this connection's
+  // own eventual close, since the caller is already handling it.
+  onGoAway?: () => void;
 }
 
 export interface GeminiLiveSession {
@@ -58,6 +71,9 @@ export interface GeminiLiveSession {
 export interface GeminiLiveSetup {
   voiceName?: string;
   systemInstruction?: string;
+  // A handle from a previous connection's onSessionHandle -- resumes that
+  // session's context instead of starting a blank one. Omit to start fresh.
+  resumeHandle?: string;
 }
 
 const floatTo16BitPcm = (input: Float32Array): Int16Array => {
@@ -225,6 +241,7 @@ export async function connectGeminiLive(
   const processor = captureContext.createScriptProcessor(MIC_BUFFER_FRAMES, 1, 1);
   let closed = false;
   let ready = false;
+  let goneAway = false;
   let turnCompletionTimer: number | undefined;
 
   const socket = new WebSocket(`${GEMINI_LIVE_WS_URL}?access_token=${encodeURIComponent(ephemeralToken)}`);
@@ -256,7 +273,7 @@ export async function connectGeminiLive(
     if (closed) return;
     if (!ready) rejectConnect?.(error);
     cleanup();
-    handlers.onError?.(error);
+    if (!goneAway) handlers.onError?.(error);
   };
   const onAbort = () => {
     if (!ready) rejectConnect?.(new DOMException('Live Voice was stopped.', 'AbortError'));
@@ -300,6 +317,11 @@ export async function connectGeminiLive(
             silenceDurationMs: END_OF_SPEECH_SILENCE_MS,
           },
         },
+        // Requesting this (even empty) makes Google start sending the
+        // sessionResumptionUpdate messages a later reconnect needs -- see
+        // onGoAway above. A handle from a prior connection resumes that
+        // session's context instead of starting over blank.
+        sessionResumption: setupConfig.resumeHandle ? { handle: setupConfig.resumeHandle } : {},
       },
     }));
   };
@@ -368,6 +390,18 @@ export async function connectGeminiLive(
           fail(new Error(message.error.message || 'Gemini Live returned an error.'));
           return;
         }
+        const newHandle = message?.sessionResumptionUpdate?.newHandle;
+        if (typeof newHandle === 'string' && newHandle) handlers.onSessionHandle?.(newHandle);
+        if (message?.goAway) {
+          // The server will force-close this connection shortly (timeLeft) --
+          // let the caller reconnect proactively with the latest handle.
+          // Suppress this connection's own onClose/onError once it does
+          // close, since the caller is already on it and a duplicate
+          // fallback/error report would just be noise.
+          goneAway = true;
+          handlers.onGoAway?.();
+          return;
+        }
         const modelTurn = message?.serverContent?.modelTurn;
         const transcriptChunk = message?.serverContent?.inputTranscription?.text;
         if (typeof transcriptChunk === 'string' && transcriptChunk) {
@@ -423,7 +457,7 @@ export async function connectGeminiLive(
     if (!ready) rejectConnect?.(new Error('Gemini Live closed before it was ready.'));
     if (closed) return;
     cleanup();
-    handlers.onClose?.();
+    if (!goneAway) handlers.onClose?.();
   };
 
   return connected;
