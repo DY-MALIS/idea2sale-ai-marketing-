@@ -230,7 +230,7 @@ describe('OpenRouter video audio', () => {
     expect(job.estimatedCost).toBe(0.29);
   });
 
-  it('submits only the narration reference when no presenter image is available', async () => {
+  it('rejects an audio-only Seedance request before contacting the provider', async () => {
     process.env.OPEN_ROUTER_API_KEY = 'test-key';
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -238,7 +238,7 @@ describe('OpenRouter video audio', () => {
     });
     global.fetch = fetchMock;
 
-    await startOpenRouterVideo({
+    await expect(startOpenRouterVideo({
       prompt: 'Cambodian presenter speaks to camera',
       model: 'bytedance/seedance-2.0-mini',
       duration: 4,
@@ -246,14 +246,9 @@ describe('OpenRouter video audio', () => {
       referenceUrls: [],
       audioReferenceUrls: ['https://example.com/narration.mp3'],
       generateAudio: false,
-    });
+    })).rejects.toThrow('requires a presenter image');
 
-    const requestBody = JSON.parse(fetchMock.mock.calls[0][1].body);
-    expect(requestBody.frame_images).toBeUndefined();
-    expect(requestBody.input_references).toEqual([
-      { type: 'audio_url', audio_url: { url: 'https://example.com/narration.mp3' } },
-    ]);
-    expect(requestBody.generate_audio).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('preserves the provider status and code for a rejected reference image', async () => {

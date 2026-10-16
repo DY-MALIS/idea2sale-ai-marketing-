@@ -57,7 +57,7 @@ it('can render the narration and lip motion together when provider audio is requ
   }));
 });
 
-it('retries a rejected automatic presenter image once with Khmer audio only', async () => {
+it('retries a rejected automatic presenter image as text-to-video for later Khmer voiceover', async () => {
   mocks.image.mockResolvedValue({ imageUrl: 'generated-portrait' });
   mocks.speech.mockResolvedValue({ audioUrl: 'audio-data', duration: 3.4, provider: 'edge' });
   mocks.video
@@ -65,7 +65,7 @@ it('retries a rejected automatic presenter image once with Khmer audio only', as
       statusCode: 400,
       providerCode: 'InputImageSensitiveContentDetected.PrivacyInformation',
     }))
-    .mockResolvedValueOnce({ jobId: 'audio-only-job' });
+    .mockResolvedValueOnce({ jobId: 'text-video-job' });
   const result = await startKhmerVideoJob(
     {}, { script: 'សួស្តី', prompt: 'Presenter from the reference image', motionPrompt: 'Normal speed' },
     uploadStub(), { duration: 4, allowImageFallback: true },
@@ -74,12 +74,13 @@ it('retries a rejected automatic presenter image once with Khmer audio only', as
   expect(mocks.video).toHaveBeenCalledTimes(2);
   expect(mocks.video.mock.calls[0][0].referenceUrls).toEqual(['https://image']);
   expect(mocks.video.mock.calls[1][0]).toMatchObject({
-    referenceUrls: [], audioReferenceUrls: ['https://audio'], duration: 4,
+    referenceUrls: [], audioReferenceUrls: [], generateAudio: false, duration: 4,
   });
-  expect(mocks.video.mock.calls[1][0].prompt).toContain('No reference image is supplied');
+  expect(mocks.video.mock.calls[1][0].prompt).toContain('No reference image or audio is supplied');
   expect(mocks.video.mock.calls[1][0].prompt).not.toContain('from the reference image');
-  expect(result.job.jobId).toBe('audio-only-job');
+  expect(result.job.jobId).toBe('text-video-job');
   expect(result.imageFallbackReason).toContain('rejected');
+  expect(result.imageFallbackReason).toContain('Review lip sync');
 });
 
 it('does not publish an audio-only fallback from an unattended scheduled video', async () => {

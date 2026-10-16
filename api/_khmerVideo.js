@@ -89,7 +89,7 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
   // finishes and fittedDuration is known.
   const imagePromise = (images.length
     ? Promise.resolve({ imageUrl: `data:${images[0].mimeType};base64,${images[0].base64}` })
-    : generateOpenRouterImage({ prompt: visualPrompt(speech.avatarPrompt), aspectRatio, model: BUDGET_AVATAR_IMAGE_MODEL, timeoutMs: 60_000 }))
+    : generateOpenRouterImage({ prompt: visualPrompt(speech.avatarPrompt), aspectRatio, model: BUDGET_AVATAR_IMAGE_MODEL, timeoutMs: 55_000 }))
     // Attach the rejection handler immediately. Narration may take minutes,
     // and an image request that fails before the later await would otherwise
     // become an unhandled rejection and could terminate the function.
@@ -278,17 +278,19 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
       if (!allowImageFallback) {
         throw Object.assign(new Error('The video provider rejected the automatically generated presenter image. Change the scene or presenter description before creating this scheduled video.'), { statusCode: 400 });
       }
-      // A 400 rejection has no video job ID. For the automatically generated
-      // presenter only, retry once with the same narration but no image input.
-      // Keep a single accepted paid job and never retry a failed poll/completion.
-      imageFallbackReason = 'The video provider rejected the generated presenter image. The clip was created from the scene and narration without a starting image.';
-      const textOnlyPrompt = videoRequest.prompt
-        .replace(/from the reference image/gi, 'described in the scene')
-        .replace(productReferenceBlock, '');
+      // Seedance rejects an audio reference as the only reference input. Make
+      // an actual text-to-video request instead; the browser will mux the
+      // original Khmer narration after generation. Warn that lip sync needs
+      // review because this fallback could not use audio-driven animation.
+      imageFallbackReason = 'The video provider rejected the generated presenter image. The clip was created from the scene and the original Khmer narration was added afterward. Review lip sync before publishing.';
+      const textOnlyPrompt = visualPrompt(speech.prompt)
+        .replace(/from the reference image/gi, 'described in the scene');
       job = await submitVideo({
         ...videoRequest,
-        prompt: `${textOnlyPrompt}\nNo reference image is supplied. Create the presenter from this scene description and synchronize the mouth to the supplied Khmer audio.`,
+        prompt: `${textOnlyPrompt}\n${speech.motionPrompt || ''}\nNo reference image or audio is supplied. Create one continuous shot with the presenter addressing the camera and moving naturally. The final Khmer narration will be added after rendering; do not invent audible speech or captions.`,
         referenceUrls: [],
+        audioReferenceUrls: [],
+        generateAudio: false,
       });
     }
   }

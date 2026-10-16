@@ -805,6 +805,9 @@ export async function startOpenRouterVideo({ prompt, images, referenceUrls, audi
     const refs = [];
     const imageUrls = (Array.isArray(referenceUrls) ? referenceUrls : []).filter(url => /^https:\/\//.test(url));
     const audioUrls = (Array.isArray(audioReferenceUrls) ? audioReferenceUrls : []).filter(url => /^https:\/\//.test(url));
+    if (audioUrls.length && !imageUrls.length) {
+      throw new Error('Seedance requires a presenter image together with narration audio.');
+    }
     if (imageUrls.length && audioUrls.length) {
       // OpenRouter treats frame_images and input_references as different modes;
       // frame_images wins when both are present. A talking-avatar request must
