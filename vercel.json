@@ -44,6 +44,10 @@
       "destination": "/api/tiktok/publish?action=webhook"
     },
     {
+      "source": "/api/tiktok/stats",
+      "destination": "/api/tiktok/me?route=stats"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

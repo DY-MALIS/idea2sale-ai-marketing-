@@ -95,3 +95,19 @@ describe('GET /api/tiktok/me?action=automation', () => {
     expect(res.body).toEqual({ connected: false });
   });
 });
+
+describe('TikTok statistics route shared with /api/tiktok/me', () => {
+  it('requires the signed-in owner for the existing stats URL', async () => {
+    const res = response();
+    await handler({ method: 'GET', query: { route: 'stats' }, headers: {} }, res);
+    expect(res.statusCode).toBe(401);
+    expect(res.body.code).toBe('auth_required');
+  });
+
+  it('preserves the videos action on the stats URL', async () => {
+    const res = response();
+    await handler({ method: 'GET', query: { route: 'stats', action: 'videos' }, headers: {} }, res);
+    expect(res.statusCode).toBe(401);
+    expect(res.body.error).toBe('Sign in to view TikTok videos.');
+  });
+});

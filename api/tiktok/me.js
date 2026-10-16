@@ -1,6 +1,7 @@
 import admin, { initFirebaseAdmin } from '../_firebaseAdmin.js';
 import { getAutomationAccessToken, getCookie, sessionCookieAttributes } from '../_tiktok.js';
 import { getYouTubeAutomationAccessToken } from '../_youtube.js';
+import tiktokStatsHandler from '../_tiktokStats.js';
 
 // Clears this owner's TikTok connection so a fresh "Connect TikTok" can pick a
 // different account -- TikTok's own login page otherwise reuses whatever
@@ -39,6 +40,7 @@ async function disconnectTikTok(req, res) {
 }
 
 export default async function handler(req, res) {
+  if (req.query?.route === 'stats') return tiktokStatsHandler(req, res);
   if (req.query?.action === 'youtubeAutomation') {
     if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
     const idToken = String(req.headers.authorization || '').replace(/^Bearer /, '');

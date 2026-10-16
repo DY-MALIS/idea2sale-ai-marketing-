@@ -18,7 +18,7 @@ import tiktokAuthHandler from "./api/auth/tiktok.js";
 import tiktokAuthRedirectHandler from "./api/auth/tiktok/redirect.js";
 import tiktokCallbackHandler from "./api/tiktok/callback.js";
 import tiktokMeHandler from "./api/tiktok/me.js";
-import tiktokStatsHandler from "./api/tiktok/stats.js";
+import tiktokStatsHandler from "./api/_tiktokStats.js";
 import tiktokPublishHandler from "./api/tiktok/publish.js";
 
 dotenv.config();

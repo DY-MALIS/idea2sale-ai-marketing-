@@ -1,6 +1,6 @@
-import { getCookie } from '../_tiktok.js';
+import { getCookie } from './_tiktok.js';
 import admin from 'firebase-admin';
-import { initFirebaseAdmin } from '../_firebaseAdmin.js';
+import { initFirebaseAdmin } from './_firebaseAdmin.js';
 
 async function requireSignedInUser(req) {
   initFirebaseAdmin();
