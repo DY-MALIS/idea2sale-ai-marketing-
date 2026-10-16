@@ -66,6 +66,15 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   
   // Form state
   const [content, setContent] = useState(DEFAULT_HASHTAGS);
+  // Per-platform caption override -- when empty/unset for a platform, that
+  // platform's post falls back to the shared Content Draft above. Each
+  // platform has its own caption conventions (TikTok short + hashtags,
+  // YouTube title/description style, Telegram more informational), so
+  // reusing one shared caption for every destination in a combined post
+  // read oddly on at least one of them.
+  const [platformCaptions, setPlatformCaptions] = useState<Partial<Record<Platform, string>>>({});
+  const [customizingCaptionFor, setCustomizingCaptionFor] = useState<Partial<Record<Platform, boolean>>>({});
+  const captionFor = (platform: Platform) => (platformCaptions[platform]?.trim() || content.trim());
   // An array, not a scalar, so one post can fan out to several destinations at
   // once (e.g. TikTok + Telegram) -- each selected platform gets its own
   // scheduled_posts doc (or Telegram's own create call) sharing one groupId,
@@ -81,6 +90,47 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
       }
       return [...prev, id];
     });
+  };
+  // Only worth showing once there's more than one destination -- with a
+  // single platform selected, the shared Content Draft already is that
+  // platform's caption.
+  const renderCaptionOverride = (platform: Platform, label: string) => {
+    if (platforms.length <= 1) return null;
+    return customizingCaptionFor[platform] ? (
+      <div className="mt-3">
+        <label className="block text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-2">
+          {label} caption (overrides the content draft above for this platform only)
+        </label>
+        <textarea
+          rows={3}
+          value={platformCaptions[platform] ?? content}
+          onChange={(e) => setPlatformCaptions((prev) => ({ ...prev, [platform]: e.target.value }))}
+          className="w-full p-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-700 text-sm dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
+        />
+        <button
+          type="button"
+          onClick={() => {
+            setCustomizingCaptionFor((prev) => ({ ...prev, [platform]: false }));
+            setPlatformCaptions((prev) => {
+              const next = { ...prev };
+              delete next[platform];
+              return next;
+            });
+          }}
+          className="mt-1 text-xs font-bold text-slate-400 hover:underline"
+        >
+          Use the shared content draft instead
+        </button>
+      </div>
+    ) : (
+      <button
+        type="button"
+        onClick={() => setCustomizingCaptionFor((prev) => ({ ...prev, [platform]: true }))}
+        className="mt-3 text-xs font-bold text-sky-600 hover:underline dark:text-sky-400"
+      >
+        + Use a different caption for {label}
+      </button>
+    );
   };
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [telegramMediaFile, setTelegramMediaFile] = useState<File | null>(null);
@@ -376,6 +426,8 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   const resetFormAfterSchedule = () => {
     setIsModalOpen(false);
     setContent(DEFAULT_HASHTAGS);
+    setPlatformCaptions({});
+    setCustomizingCaptionFor({});
     setVideoFile(null);
     setTelegramMediaFile(null);
     setShowTelegramFileInput(false);
@@ -414,7 +466,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     const post = {
       id: postId,
       groupId,
-      content: content.trim(),
+      content: captionFor(platform),
       platform,
       scheduledTime: scheduledDate.toISOString(),
       status: 'PENDING',
@@ -455,7 +507,11 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     // has its own media, since a combined post still needs a caption/title
     // for the other platform(s) it's also going to.
     const telegramOnlyWithMedia = platforms.length === 1 && platforms[0] === 'TELEGRAM' && !!telegramMediaFile;
-    if ((!content.trim() && !telegramOnlyWithMedia) || !scheduledTime || !userToUse || (requiresVideo && !videoFile)) {
+    // A platform is fine with no caption only in the telegramOnlyWithMedia
+    // case above -- every other selected platform needs *some* resolved
+    // caption, whether that's its own override or the shared draft.
+    const missingCaption = platforms.some((p) => !captionFor(p) && !(p === 'TELEGRAM' && telegramOnlyWithMedia));
+    if (missingCaption || !scheduledTime || !userToUse || (requiresVideo && !videoFile)) {
       setFormError(t('fillAllFieldsErr'));
       return;
     }
@@ -564,7 +620,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                   Authorization: `Bearer ${idToken}`
                 },
                 body: JSON.stringify({
-                  content: content.trim(),
+                  content: captionFor(platform),
                   scheduledTime: scheduledDate.toISOString(),
                   mediaUrl: telegramMediaUrl,
                   mediaName: effectiveTelegramMedia?.name || null,
@@ -589,7 +645,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
           }
 
           const scheduledDocRef = await addDoc(collection(db, 'scheduled_posts'), {
-            content: content.trim(),
+            content: captionFor(platform),
             platform,
             groupId,
             scheduledTime: scheduledDate.toISOString(),
@@ -875,22 +931,26 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                           ? 'At the scheduled time, the video goes to your TikTok inbox. Open the notification in TikTok to review and publish it; the caption must be added there.'
                           : 'Scheduled Direct Post is unavailable until creator settings and consent are added. Choose Upload to TikTok.'}
                       </p>
+                      {renderCaptionOverride('TIKTOK', 'TikTok')}
                     </div>
                   )}
                   {platforms.includes('YOUTUBE') && (
-                    <div className="p-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800/60 rounded-xl flex items-start justify-between gap-2 text-red-600 dark:text-red-300 text-xs">
-                      <div className="flex items-start gap-2">
-                        <Youtube size={14} className="mt-0.5 shrink-0" />
-                        <p>{youtubeJustConnected ? 'YouTube connected! ' : ''}Uploads automatically to your connected YouTube channel at the scheduled time -- no manual step needed.</p>
+                    <div>
+                      <div className="p-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800/60 rounded-xl flex items-start justify-between gap-2 text-red-600 dark:text-red-300 text-xs">
+                        <div className="flex items-start gap-2">
+                          <Youtube size={14} className="mt-0.5 shrink-0" />
+                          <p>{youtubeJustConnected ? 'YouTube connected! ' : ''}Uploads automatically to your connected YouTube channel at the scheduled time -- no manual step needed.</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={connectYouTube}
+                          disabled={isConnectingYouTube}
+                          className="shrink-0 rounded-lg bg-red-600 px-2 py-1 text-[10px] font-bold text-white hover:bg-red-700"
+                        >
+                          {isConnectingYouTube ? 'Connecting…' : 'Connect YouTube'}
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={connectYouTube}
-                        disabled={isConnectingYouTube}
-                        className="shrink-0 rounded-lg bg-red-600 px-2 py-1 text-[10px] font-bold text-white hover:bg-red-700"
-                      >
-                        {isConnectingYouTube ? 'Connecting…' : 'Connect YouTube'}
-                      </button>
+                      {renderCaptionOverride('YOUTUBE', 'YouTube')}
                     </div>
                   )}
                   {platforms.includes('TELEGRAM') && (
@@ -925,6 +985,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                         <Upload size={14} className="mt-0.5 shrink-0" />
                         <p>Telegram can post text, image, or video. If you add media, the text will be used as the caption.</p>
                       </div>
+                      {renderCaptionOverride('TELEGRAM', 'Telegram')}
                     </div>
                   )}
                 </div>
