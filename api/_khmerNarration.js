@@ -115,11 +115,14 @@ export async function generateKhmerSpeech({
   // case Gemini's reliability or quality regresses, and still runs as the
   // automatic fallback below when Gemini's take fails or doesn't verify.
   const useEdgeOnly = forceEdge || String(process.env.KHMER_TTS_PROVIDER || '').trim().toLowerCase() === 'edge';
-  // The AI Agent's live conversation always uses the Aoede/Achird pair (chosen
-  // by ear against the alternatives -- see the comment on generateGeminiSpeech's
-  // voiceOverride param), regardless of which narration voice name was passed
-  // in; narration keeps Kore/Charon.
-  const voiceOverride = preferNaturalVoice ? (edgeKhmerVoice(voice) === 'km-KH-PisethNeural' ? 'Achird' : 'Aoede') : undefined;
+  // Now that narration uses Gemini as its primary voice too (see above), it
+  // should use the exact Aoede/Achird pair Live Voice/Agent conversations
+  // use (chosen by ear against the alternatives -- see the comment on
+  // generateGeminiSpeech's voiceOverride param) rather than Gemini's default
+  // Kore/Charon pair -- "the same provider" is not "the same voice" unless
+  // this is set too, and the user specifically asked for narration to sound
+  // like the Live Agent voice they already compared and preferred.
+  const voiceOverride = edgeKhmerVoice(voice) === 'km-KH-PisethNeural' ? 'Achird' : 'Aoede';
   if (!useEdgeOnly) {
     // Not awaited inside a try: generateVerifiedGeminiTake never throws, so a
     // null result (outright failure, or an unverified/mismatched take) just

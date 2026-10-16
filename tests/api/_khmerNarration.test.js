@@ -66,6 +66,20 @@ describe('Khmer narration', () => {
     expect(mocks.edge).not.toHaveBeenCalled();
   });
 
+  it('uses the exact same Aoede/Achird Gemini voice pair as Live Agent for narration too, not Gemini\'s default Kore/Charon', async () => {
+    // "Primary provider is Gemini" alone isn't "sounds like Live Agent" --
+    // Gemini has several distinct voice presets, and generateGeminiSpeech
+    // falls back to Kore/Charon unless voiceOverride is set. The user
+    // specifically compared narration to Live Agent's voice and asked for
+    // narration to match it, not just share the same provider.
+    mocks.gemini.mockResolvedValue({ audioUrl: 'natural-khmer', provider: 'gemini' });
+    await generateKhmerSpeech({ input: 'សួស្តី', voice: 'Female' });
+    expect(mocks.gemini).toHaveBeenCalledWith(expect.objectContaining({ voiceOverride: 'Aoede' }));
+    mocks.gemini.mockClear();
+    await generateKhmerSpeech({ input: 'សួស្តី', voice: 'Male' });
+    expect(mocks.gemini).toHaveBeenCalledWith(expect.objectContaining({ voiceOverride: 'Achird' }));
+  });
+
   it('asks the voice to preserve every word while fitting the target clip', async () => {
     mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,YXVkaW8=', provider: 'gemini' });
     mocks.transcribe.mockResolvedValue('សួស្តី');
