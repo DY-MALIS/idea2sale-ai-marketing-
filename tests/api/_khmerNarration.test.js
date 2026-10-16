@@ -66,6 +66,12 @@ describe('Khmer narration', () => {
     expect(mocks.edge).not.toHaveBeenCalled();
   });
 
+  it('asks narration for natural rising-and-falling intonation, not a flat monotone read', async () => {
+    mocks.gemini.mockResolvedValue({ audioUrl: 'natural-khmer', provider: 'gemini' });
+    await generateKhmerSpeech({ input: 'សួស្តី' });
+    expect(mocks.gemini.mock.calls[0][0].performanceStyle).toContain('pitch genuinely rising and falling like a real person talking');
+  });
+
   it('uses the exact same Aoede/Achird Gemini voice pair as Live Agent for narration too, not Gemini\'s default Kore/Charon', async () => {
     // "Primary provider is Gemini" alone isn't "sounds like Live Agent" --
     // Gemini has several distinct voice presets, and generateGeminiSpeech
