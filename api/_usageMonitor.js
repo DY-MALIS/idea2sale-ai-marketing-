@@ -1,4 +1,5 @@
 import { notifyAdmins } from './_alert.js';
+import { synthesizeKhmerSpeechViaEdge } from './_edgeSpeech.js';
 
 // Both OpenRouter and ImageKit have already silently blocked real generation
 // jobs once each (Sep 2026) with no warning before the hard stop -- OpenRouter's
@@ -48,11 +49,29 @@ const checkImageKitVideoUnits = async () => {
   return null;
 };
 
-// Runs both checks and pages the admin chat for any that are close to their
-// limit. Each check is independent and best-effort -- one provider's check
-// failing (e.g. a transient network error) must not skip the other.
+// Edge TTS is an unofficial, reverse-engineered client for Microsoft's
+// internal Read Aloud service (see api/_edgeSpeech.js) -- it has already
+// broken once in production (Oct 2026) when Microsoft retired the endpoint
+// it connected to, and every Khmer video silently fell back to a slower,
+// less reliable path (or failed outright) until that was diagnosed and the
+// library upgraded. This catches the next occurrence within hours instead
+// of waiting for a user to report a failed video. Free to run (no paid API
+// call), so unlike the two checks above this isn't a quota threshold --
+// synthesis either works or it doesn't.
+const checkKhmerVoiceHealth = async () => {
+  try {
+    await synthesizeKhmerSpeechViaEdge({ input: 'សួស្តី', voice: 'km-KH-SreymomNeural', rate: '+0%' });
+    return null;
+  } catch (error) {
+    return `Khmer voice (Edge TTS) is failing: ${error?.message || error}. This has happened before when Microsoft changed the unofficial endpoint node-edge-tts connects to -- check https://github.com/SchneeHertz/node-edge-tts for a newer version and "npm install node-edge-tts@latest" if one fixes it. Video narration still has a Gemini fallback, but confirm that is not also degraded.`;
+  }
+};
+
+// Runs all checks and pages the admin chat for any that failed or are close
+// to their limit. Each check is independent and best-effort -- one check
+// failing (e.g. a transient network error) must not skip the others.
 export async function runUsageChecks() {
-  const results = await Promise.allSettled([checkOpenRouterCredits(), checkImageKitVideoUnits()]);
+  const results = await Promise.allSettled([checkOpenRouterCredits(), checkImageKitVideoUnits(), checkKhmerVoiceHealth()]);
   const warnings = [];
   for (const result of results) {
     if (result.status === 'fulfilled' && result.value) warnings.push(result.value);

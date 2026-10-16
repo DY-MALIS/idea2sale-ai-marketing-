@@ -1,0 +1,14 @@
+version: 2
+updates:
+  # Catches the next time an unofficial/reverse-engineered dependency
+  # (e.g. node-edge-tts, which broke in production in Oct 2026 when
+  # Microsoft retired the endpoint it connected to) ships a fix, instead of
+  # that only being discovered by manually noticing a recurring failure.
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      dev-dependencies:
+        dependency-type: "development"
