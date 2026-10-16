@@ -89,7 +89,7 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
   // finishes and fittedDuration is known.
   const imagePromise = (images.length
     ? Promise.resolve({ imageUrl: `data:${images[0].mimeType};base64,${images[0].base64}` })
-    : generateOpenRouterImage({ prompt: visualPrompt(speech.avatarPrompt), aspectRatio, model: BUDGET_AVATAR_IMAGE_MODEL, timeoutMs: 75_000 }))
+    : generateOpenRouterImage({ prompt: visualPrompt(speech.avatarPrompt), aspectRatio, model: BUDGET_AVATAR_IMAGE_MODEL, timeoutMs: 60_000 }))
     // Attach the rejection handler immediately. Narration may take minutes,
     // and an image request that fails before the later await would otherwise
     // become an unhandled rejection and could terminate the function.

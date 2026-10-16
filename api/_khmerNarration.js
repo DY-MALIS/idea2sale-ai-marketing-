@@ -12,6 +12,19 @@ const edgeKhmerVoice = (voice) => {
 
 const WAV_PREFIX = 'data:audio/wav;base64,';
 
+// Chirp occasionally returns a fabricated list of numbers for clearly spoken
+// Khmer (observed in production as "song 2 100 400 200 200 100 200"). That is
+// evidence the transcription failed, not evidence the speaker used English.
+// A coherent non-Khmer sentence still counts as a real mismatch and rejects
+// the take, so an English-speaking video cannot pass this fallback by default.
+export const isUnreliableKhmerTranscript = (transcript) => {
+  const text = String(transcript || '').trim();
+  if (!text || /[\u1780-\u17ff]/u.test(text)) return false;
+  const numericTokens = text.match(/\d+(?:[.,]\d+)*/g) || [];
+  const latinWords = text.match(/[A-Za-z]{2,}/g) || [];
+  return numericTokens.length >= 3 && latinWords.length <= 2;
+};
+
 // Khmer transcription can vary between passes on the same correct waveform.
 // Confirm a mismatch once before discarding paid TTS audio.
 const matchesKhmerScript = async (audio, expectedScript) => {
@@ -24,11 +37,15 @@ const matchesKhmerScript = async (audio, expectedScript) => {
         audioBase64: audio.audioUrl.slice(WAV_PREFIX.length),
         format: 'wav',
         languageHint: 'Khmer',
-        timeoutMs: 30_000,
+        timeoutMs: 18_000,
       });
+      if (isUnreliableKhmerTranscript(transcript)) {
+        console.warn('Khmer speech transcription returned a numeric hallucination; treating this verification pass as unavailable.');
+        return 'unavailable';
+      }
       gotTranscript = true;
       const comparison = compareKhmerTranscript(expectedScript, transcript);
-      if (comparison.passed) return true;
+      if (comparison.passed) return 'match';
       if (!bestMismatch || comparison.similarity > bestMismatch.similarity) bestMismatch = { transcript, similarity: comparison.similarity };
     } catch (error) {
       console.warn('Khmer speech transcription attempt failed:', error?.message || error);
@@ -43,22 +60,18 @@ const matchesKhmerScript = async (audio, expectedScript) => {
   if (gotTranscript && bestMismatch) {
     console.warn(`Khmer speech did not match the script (similarity ${bestMismatch.similarity.toFixed(2)}). Expected: "${expectedScript.slice(0, 120)}" Got: "${bestMismatch.transcript.slice(0, 120)}"`);
   }
-  // Every attempt threw rather than returning any transcript to compare --
-  // this is an outage of the verification service itself, not a confirmed
-  // wrong take (transcribeAudioWithOpenRouter's own comment documents chirp-3
-  // occasionally hallucinating a fluent wrong-script result and exhausting its
-  // own model fallbacks). Discarding a paid take over a transcription-service
-  // hiccup it never actually got to judge is worse than trusting it; a take
-  // that DID get transcribed and still didn't match keeps failing, as before.
-  return !gotTranscript;
+  // No trustworthy transcript means the verifier was unavailable. The caller
+  // prefers the Khmer neural voice, retaining this Gemini take only if that
+  // voice also fails. A coherent mismatching transcript still rejects it.
+  return gotTranscript ? 'mismatch' : 'unavailable';
 };
 
 // Generates one Gemini take and, for a duration-bound video narration
 // (targetSeconds set), confirms by transcription that it actually says the
 // requested script before trusting it -- an unverified take can mispronounce
 // or change words, which is worse than falling through to another provider.
-// Never throws; returns null so every caller (first choice or last resort)
-// can fall through to its own next step the same way.
+// Never throws. Returns a verified take, an inconclusive take for last-resort
+// use, or null when the spoken words demonstrably differ from the script.
 const generateVerifiedGeminiTake = async ({ spokenInput, voice, performanceStyle, context, voiceOverride, targetSeconds }) => {
   let generated;
   try {
@@ -71,7 +84,12 @@ const generateVerifiedGeminiTake = async ({ spokenInput, voice, performanceStyle
   // Re-transcribing to check the waveform doubles this call's latency with a
   // second network round-trip -- worth paying for a paid video, where a
   // changed word is a wasted render.
-  if (await matchesKhmerScript(generated, spokenInput)) return generated;
+  const firstVerification = await matchesKhmerScript(generated, spokenInput);
+  if (firstVerification === 'match') return generated;
+  // A numeric STT hallucination says nothing about what Gemini actually spoke.
+  // Keep the take only as a last resort and try the known Khmer neural voice
+  // immediately, instead of spending another Gemini generation on bad STT.
+  if (firstVerification === 'unavailable') return { ...generated, verificationInconclusive: true };
   // A simpler direction often gives Gemini a faithful Khmer read when the
   // detailed performance direction causes changed words. Keep the exact same
   // script and verify this take too before giving up.
@@ -84,7 +102,10 @@ const generateVerifiedGeminiTake = async ({ spokenInput, voice, performanceStyle
     console.warn('Gemini Khmer retry failed:', error?.message || error);
     return null;
   }
-  return (await matchesKhmerScript(generated, spokenInput)) ? generated : null;
+  const retryVerification = await matchesKhmerScript(generated, spokenInput);
+  return retryVerification === 'match' ? generated
+    : retryVerification === 'unavailable' ? { ...generated, verificationInconclusive: true }
+      : null;
 };
 
 export async function generateKhmerSpeech({
@@ -123,6 +144,7 @@ export async function generateKhmerSpeech({
   // this is set too, and the user specifically asked for narration to sound
   // like the Live Agent voice they already compared and preferred.
   const voiceOverride = edgeKhmerVoice(voice) === 'km-KH-PisethNeural' ? 'Achird' : 'Aoede';
+  let unverifiedGemini;
   if (!useEdgeOnly) {
     // Not awaited inside a try: generateVerifiedGeminiTake never throws, so a
     // null result (outright failure, or an unverified/mismatched take) just
@@ -130,7 +152,8 @@ export async function generateKhmerSpeech({
     // preferNaturalVoice always skips verification so the conversation gets
     // the Gemini audio immediately.
     const generated = await generateVerifiedGeminiTake({ spokenInput, voice, performanceStyle: clearKhmerStyle, context, voiceOverride, targetSeconds });
-    if (generated) return { ...generated, spokenText: spokenInput };
+    if (generated && !generated.verificationInconclusive) return { ...generated, spokenText: spokenInput };
+    if (generated?.verificationInconclusive) unverifiedGemini = generated;
     console.error('Natural Khmer Gemini speech failed or did not clearly match the script; using Edge Khmer neural fallback.');
   }
 
@@ -166,6 +189,13 @@ export async function generateKhmerSpeech({
     // the primary Gemini path -- an unchecked take can mispronounce the
     // script, which is worse than surfacing the original Edge failure.
     console.error('Edge Khmer speech failed; trying Gemini as a verified last resort:', edgeError?.message || edgeError);
+    if (unverifiedGemini) {
+      return {
+        ...unverifiedGemini,
+        spokenText: spokenInput,
+        fallbackReason: 'The Khmer voice could not be verified and the backup voice was unavailable; review the spoken language before publishing.',
+      };
+    }
     const generated = await generateVerifiedGeminiTake({ spokenInput, voice, performanceStyle: clearKhmerStyle, context, voiceOverride, targetSeconds });
     if (!generated) {
       // Both providers are now exhausted. edgeError's own message is a raw,
@@ -182,7 +212,9 @@ export async function generateKhmerSpeech({
     return {
       ...generated,
       spokenText: spokenInput,
-      fallbackReason: 'The Khmer neural voice was unavailable; a standard Khmer voice was used instead.',
+      fallbackReason: generated.verificationInconclusive
+        ? 'The Khmer voice could not be verified and the backup voice was unavailable; review the spoken language before publishing.'
+        : 'The Khmer neural voice was unavailable; a standard Khmer voice was used instead.',
     };
   }
 }

@@ -93,7 +93,7 @@ describe('Khmer narration', () => {
     expect(mocks.gemini.mock.calls[0][0].performanceStyle).toContain('within 5.85 seconds');
     expect(mocks.gemini.mock.calls[0][0].performanceStyle).toContain('Do not omit, abbreviate or cut off any word');
     expect(mocks.transcribe).toHaveBeenCalledTimes(1);
-    expect(mocks.transcribe).toHaveBeenCalledWith(expect.objectContaining({ timeoutMs: 30_000 }));
+    expect(mocks.transcribe).toHaveBeenCalledWith(expect.objectContaining({ timeoutMs: 18_000 }));
   });
 
   it('uses the Khmer neural voice when a paid video Gemini read changes the words', async () => {
@@ -124,17 +124,15 @@ describe('Khmer narration', () => {
     expect(mocks.edge).not.toHaveBeenCalled();
   });
 
-  it('trusts a Gemini take when verification itself never produces a usable transcript', async () => {
-    // transcribeAudioWithOpenRouter documents chirp-3 occasionally hallucinating
-    // a fluent wrong-script result and exhausting its own model fallbacks -- a
-    // transcription-service outage (every attempt throwing) is not the same as
-    // a confirmed wrong take, so it should not discard likely-fine paid audio.
+  it('uses the known Khmer neural voice when verification produces no usable transcript', async () => {
     mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,YXVkaW8=', provider: 'gemini' });
     mocks.transcribe.mockRejectedValue(new Error('Every transcription attempt failed.'));
+    mocks.edge.mockResolvedValue({ audioUrl: 'clear-khmer', provider: 'edge' });
     const result = await generateKhmerSpeech({ input: 'សួស្តី', targetDuration: 4 });
-    expect(result).toMatchObject({ provider: 'gemini', spokenText: 'សួស្តី' });
+    expect(result).toMatchObject({ provider: 'edge', spokenText: 'សួស្តី' });
     expect(mocks.transcribe).toHaveBeenCalledTimes(2);
-    expect(mocks.edge).not.toHaveBeenCalled();
+    expect(mocks.gemini).toHaveBeenCalledTimes(1);
+    expect(mocks.edge).toHaveBeenCalledTimes(1);
   });
 
   it('retries a changed Gemini read with simple directions before using Edge', async () => {

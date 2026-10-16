@@ -3,7 +3,9 @@ export const MAX_VIDEO_DURATION_SECONDS = 8;
 
 export const STANDARD_VIDEO_MODEL = 'google/veo-3.1-lite';
 export const KHMER_VIDEO_MODEL = 'bytedance/seedance-2.0-mini';
-export const BUDGET_AVATAR_IMAGE_MODEL = 'bytedance-seed/seedream-5-0-pro';
+// Seedream 5 repeatedly exhausted the presenter preparation window in production.
+// Seedream 4.5 returned a live presenter image in under ten seconds on 2026-10-16.
+export const BUDGET_AVATAR_IMAGE_MODEL = 'bytedance-seed/seedream-4.5';
 export const VIDEO_RESOLUTION = '720p';
 
 // Current OpenRouter 720p video-only list prices. startOpenRouterVideo sends

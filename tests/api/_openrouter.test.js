@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { resolveOpenRouterTextModel, resolveOpenRouterImageModel, generateOpenRouterImage, generateOpenRouterText, generateOpenRouterWebSearch, normalizeForKhmerSpeech, redactSecrets, startOpenRouterVideo, pollOpenRouterVideo } from '../../api/_openrouter.js';
+import { resolveOpenRouterTextModel, resolveOpenRouterImageModel, generateOpenRouterImage, generateOpenRouterText, generateOpenRouterWebSearch, normalizeForKhmerSpeech, redactSecrets, startOpenRouterVideo, pollOpenRouterVideo, transcribeAudioWithOpenRouter } from '../../api/_openrouter.js';
 
 const originalEnv = { ...process.env };
 const originalFetch = global.fetch;
@@ -157,6 +157,22 @@ describe('generateOpenRouterImage fallback', () => {
     await expect(generateOpenRouterImage({ prompt: 'a fish', model: 'bytedance-seed/seedream-4.5' })).rejects.toThrow('down');
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+});
+
+it('applies the transcription timeout across retries rather than restarting it for each model', async () => {
+  process.env.OPEN_ROUTER_API_KEY = 'test-key';
+  const fetchMock = vi.fn(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    return { ok: true, json: async () => ({ text: 'song 2 100 400 200' }) };
+  });
+  global.fetch = fetchMock;
+
+  const transcript = await transcribeAudioWithOpenRouter({
+    audioBase64: 'AAAA', languageHint: 'Khmer', timeoutMs: 10,
+  });
+
+  expect(transcript).toBe('song 2 100 400 200');
+  expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 
 describe('OpenRouter text token budgets', () => {

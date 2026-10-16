@@ -135,6 +135,11 @@ const looksLikeScriptMismatch = (text, language) => language === 'km' && text &&
 
 export async function transcribeAudioWithOpenRouter({ audioBase64, format = 'wav', languageHint = 'auto', model: modelOverride, timeoutMs }) {
   const language = languageHint === 'Khmer' ? 'km' : languageHint === 'English' ? 'en' : undefined;
+  // A caller's timeout is for this whole transcription, including model
+  // retries. Previously the retry loop dropped timeoutMs entirely, letting
+  // each provider call use the 240-second media default. This consumed the
+  // entire serverless video-start window on one verification pass.
+  const deadlineAt = Number.isFinite(timeoutMs) ? Date.now() + Math.max(1, timeoutMs) : Infinity;
 
   if (modelOverride) {
     return transcribeOnce({ audioBase64, format, language, model: modelOverride, timeoutMs });
@@ -157,9 +162,14 @@ export async function transcribeAudioWithOpenRouter({ audioBase64, format = 'wav
 
   let bestResult;
   for (const model of attempts) {
+    const remainingMs = deadlineAt - Date.now();
+    if (remainingMs <= 0) break;
     let result;
     try {
-      result = await transcribeOnce({ audioBase64, format, language, model });
+      result = await transcribeOnce({
+        audioBase64, format, language, model,
+        timeoutMs: Number.isFinite(remainingMs) ? Math.max(1, Math.min(8_000, remainingMs)) : undefined,
+      });
     } catch (error) {
       console.error(`STT model ${model} failed:`, error?.message);
       continue;
