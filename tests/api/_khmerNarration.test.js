@@ -12,16 +12,24 @@ import { createKhmerNarration, expandGeneratedKhmerNarration, generateKhmerConve
 afterEach(() => { vi.unstubAllEnvs(); vi.resetAllMocks(); });
 describe('Khmer narration', () => {
   beforeEach(() => { vi.stubEnv('KHMER_TTS_PROVIDER', 'gemini'); });
-  it.each(['', 'edge', 'unknown'])('uses Khmer-specific speech without Gemini opt-in (%s)', async (provider) => {
-    vi.stubEnv('KHMER_TTS_PROVIDER', provider);
+  it('uses Edge directly only with the explicit opt-out (KHMER_TTS_PROVIDER=edge)', async () => {
+    vi.stubEnv('KHMER_TTS_PROVIDER', 'edge');
     mocks.edge.mockResolvedValue({ audioUrl: 'khmer', provider: 'edge' });
     const result = await generateKhmerSpeech({ input: 'សួស្តី', voice: 'Female' });
     expect(result).toMatchObject({ audioUrl: 'khmer', spokenText: 'សួស្តី', fallbackReason: '' });
     expect(mocks.edge).toHaveBeenCalledWith({ input: 'សួស្តី', voice: 'km-KH-SreymomNeural', rate: '+6%' });
     expect(mocks.gemini).not.toHaveBeenCalled();
   });
+  it.each(['', 'unknown'])('defaults to the Gemini voice (same as Live Agent), not Edge, for ordinary narration (%s)', async (provider) => {
+    vi.stubEnv('KHMER_TTS_PROVIDER', provider);
+    mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,YXVkaW8=', provider: 'gemini' });
+    mocks.transcribe.mockResolvedValue('សួស្តី');
+    const result = await generateKhmerSpeech({ input: 'សួស្តី', voice: 'Female', targetDuration: 6 });
+    expect(result).toMatchObject({ provider: 'gemini', spokenText: 'សួស្តី' });
+    expect(mocks.edge).not.toHaveBeenCalled();
+  });
   it('falls back to Gemini when the Khmer neural voice is completely unavailable', async () => {
-    vi.stubEnv('KHMER_TTS_PROVIDER', '');
+    vi.stubEnv('KHMER_TTS_PROVIDER', 'edge');
     mocks.edge.mockRejectedValue(new Error('voice unavailable'));
     mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,YXVkaW8=', provider: 'gemini' });
     const result = await generateKhmerSpeech({ input: 'សួស្តី' });
@@ -156,7 +164,7 @@ describe('Khmer narration', () => {
     expect(mocks.translate).not.toHaveBeenCalled();
   });
   it('verifies the last-resort Gemini take the same way as the primary one during a paid video', async () => {
-    vi.stubEnv('KHMER_TTS_PROVIDER', '');
+    vi.stubEnv('KHMER_TTS_PROVIDER', 'edge');
     mocks.edge.mockRejectedValue(new Error('Unexpected server response: 403'));
     mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,YXVkaW8=', provider: 'gemini' });
     mocks.transcribe.mockResolvedValue('សួស្តី');
@@ -166,7 +174,7 @@ describe('Khmer narration', () => {
     expect(mocks.gemini).toHaveBeenCalledTimes(1);
   });
   it('does not deliver a last-resort Gemini take whose transcript never matches the script, and logs the mismatch for diagnosis', async () => {
-    vi.stubEnv('KHMER_TTS_PROVIDER', '');
+    vi.stubEnv('KHMER_TTS_PROVIDER', 'edge');
     mocks.edge.mockRejectedValue(new Error('Unexpected server response: 403'));
     mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,YXVkaW8=', provider: 'gemini' });
     mocks.transcribe.mockResolvedValue('ខុសទាំងស្រុង');

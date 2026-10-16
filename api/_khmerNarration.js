@@ -106,10 +106,15 @@ export async function generateKhmerSpeech({
   const clearKhmerStyle = preferNaturalVoice
     ? `Speak like a native Cambodian talking with one person in a relaxed conversation. Let the meaning guide the emphasis and intonation, with natural breaths and short pauses between thoughts. Keep every Khmer syllable clear and complete at a comfortable pace, without a stiff announcer rhythm, a foreign accent, or exaggerated emotion. ${String(performanceStyle || '').trim()}`.trim()
     : `Native Cambodian Khmer with crisp initial and final consonants, complete syllables, correct vowel length and clearly separated words. Fully pronounce every word ending without merging adjacent words. Speak at a natural everyday social-video pace, never faster than clear articulation allows. Use at most one brief pause at a natural clause boundary; never use a measured announcer cadence, pause after each word, mumble, swallow endings, stretch vowels or use a foreign accent.${timingDirection} ${String(performanceStyle || '').trim()}`.trim();
-  // Agent conversations prefer an expressive read, but only play it after a
-  // Khmer transcription confirms that it actually says the requested words.
-  // Other narration keeps its existing provider choice.
-  const useEdgeOnly = forceEdge || (!preferNaturalVoice && String(process.env.KHMER_TTS_PROVIDER || '').trim().toLowerCase() !== 'gemini');
+  // Video narration used to default to Edge's classic neural voice, with
+  // Gemini only as a verified fallback. The user compared both directly and
+  // asked for the warmer, more natural Gemini voice (the same one Live
+  // Voice/Agent conversations already use) to be the primary everywhere,
+  // not just a fallback -- matching preferNaturalVoice's existing choice.
+  // Edge remains available as a named opt-out (KHMER_TTS_PROVIDER=edge) in
+  // case Gemini's reliability or quality regresses, and still runs as the
+  // automatic fallback below when Gemini's take fails or doesn't verify.
+  const useEdgeOnly = forceEdge || String(process.env.KHMER_TTS_PROVIDER || '').trim().toLowerCase() === 'edge';
   // The AI Agent's live conversation always uses the Aoede/Achird pair (chosen
   // by ear against the alternatives -- see the comment on generateGeminiSpeech's
   // voiceOverride param), regardless of which narration voice name was passed
