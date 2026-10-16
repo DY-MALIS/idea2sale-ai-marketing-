@@ -1,4 +1,4 @@
-import { createKhmerNarration } from './_khmerNarration.js';
+import { createKhmerNarration, isUnreliableKhmerTranscript } from './_khmerNarration.js';
 import { normalizeForKhmerSpeech, transcribeAudioWithOpenRouter } from './_openrouter.js';
 import { compareKhmerTranscript, extractVideoDialogue, isKhmerOnlyNarration, nativeSpeechPrompt, visualOnlyVideoPrompt, wantsSilentVideo } from '../shared/videoSpeech.js';
 import { applyImageKitAudioExtractionTransform, isImageKitMediaUrl } from './_imagekitUpload.js';
@@ -115,10 +115,11 @@ export async function verifyUploadedVideoSpeech(videoUrl, expected, { waitForRet
   // times catches that transient failure instead of discarding a good video.
   const MAX_TRANSCRIPTION_ATTEMPTS = 3;
   let verification;
+  let reliableMismatchCount = 0;
   for (let attempt = 1; attempt <= MAX_TRANSCRIPTION_ATTEMPTS; attempt += 1) {
     let transcript;
     try {
-      transcript = await transcribeAudioWithOpenRouter({ audioBase64: bytes.toString('base64'), format: 'mp4', languageHint: 'Khmer' });
+      transcript = await transcribeAudioWithOpenRouter({ audioBase64: bytes.toString('base64'), format: 'mp4', languageHint: 'Khmer', timeoutMs: 18_000 });
     } catch (cause) {
       if (attempt === MAX_TRANSCRIPTION_ATTEMPTS) {
         // The generated video is still a valid, paid-for artifact when the separate
@@ -130,9 +131,14 @@ export async function verifyUploadedVideoSpeech(videoUrl, expected, { waitForRet
       }
       continue;
     }
+    if (isUnreliableKhmerTranscript(transcript)) continue;
     const check = compareKhmerTranscript(expected, transcript);
     verification = { ...check, transcript, expected, method: 'transcript-comparison', naturalnessReviewed: false };
     if (check.passed) return verification;
+    reliableMismatchCount += 1;
+  }
+  if (reliableMismatchCount < 2) {
+    throw verificationUnavailableError({ expected, method: 'transcription-inconclusive' });
   }
   const error = new Error('Khmer speech could not be verified against the script. Video retained for review; not sent to Telegram.');
   error.speechVerification = verification;

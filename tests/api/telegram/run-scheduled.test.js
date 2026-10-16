@@ -108,6 +108,7 @@ it('starts an approved plan video once, saves its job ID, and schedules the poll
     job: { jobId: 'paid-video-job' },
     avatarImage: { mediaUrl: 'https://ik.imagekit.io/test/avatar.png' },
     narrationAudio: { mediaUrl: 'https://ik.imagekit.io/test/voice.mp3', spokenText: 'សូមស្វាគមន៍', duration: 4 },
+    imageFallbackReason: 'Review lip sync before publishing.',
   });
   planMocks.publishJSON.mockResolvedValue({ messageId: 'poll-message' });
   const res = createMockRes();
@@ -117,7 +118,12 @@ it('starts an approved plan video once, saves its job ID, and schedules the poll
   expect(res.statusCode).toBe(200);
   expect(res.body).toMatchObject({ ok: true, videoStarted: true, jobId: 'paid-video-job', pollingDeferred: false });
   expect(patches).toContainEqual(expect.objectContaining({ videoJobId: 'paid-video-job', status: 'PROCESSING' }));
+  expect(patches).toContainEqual(expect.objectContaining({ imageFallbackReason: 'Review lip sync before publishing.' }));
   expect(planMocks.startKhmerVideoJob).toHaveBeenCalledTimes(1);
+  expect(planMocks.startKhmerVideoJob).toHaveBeenCalledWith(
+    expect.anything(), expect.anything(), expect.anything(),
+    expect.objectContaining({ allowImageFallback: true }),
+  );
   expect(planMocks.publishJSON).toHaveBeenCalledWith(expect.objectContaining({
     url: 'https://aime.example.test/api/telegram/deliver',
     body: { contentPlanItemId: 'planvideo123' },

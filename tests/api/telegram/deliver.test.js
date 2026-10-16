@@ -118,6 +118,22 @@ describe('processContentPlanVideo', () => {
     expect(mockVerifySpeech).toHaveBeenCalledWith('https://ik.imagekit.io/test/finished.mp4', 'សួស្តី');
   });
 
+  it('retains an image-fallback video for visual review after speech verification', async () => {
+    mockVerifySpeech.mockResolvedValue({ passed: true });
+    global.fetch = vi.fn();
+    const updates = [];
+    const result = await processContentPlanVideo(fakeDb({
+      status: 'PROCESSING', videoJobId: 'job', resultMediaUrl: 'https://ik.imagekit.io/test/finished.mp4',
+      voiceOverMode: 'edge-seedance', voiceOverText: 'សួស្តី', prompt: 'Presenter',
+      imageFallbackReason: 'Review lip sync before publishing.',
+    }, patch => updates.push(patch)), 'item', {});
+
+    expect(result).toMatchObject({ ok: true, reviewRequired: true, videoReady: true });
+    expect(updates).toContainEqual({ speechVerification: { passed: true } });
+    expect(updates.at(-1)).toMatchObject({ status: 'REVIEW', errorMessage: 'Review lip sync before publishing.' });
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
   it('retains a verified video as ready when no Telegram chat is connected', async () => {
     mockPollOpenRouterVideo.mockResolvedValue({ videoUrl: 'raw' });
     mockUploadMediaDataUrl.mockResolvedValue({ mediaUrl: 'uploaded' });

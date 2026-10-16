@@ -1769,8 +1769,8 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                               {item.type === 'image' && (item.headline || item.cta) && (
                                 <p className="mt-1 text-xs text-brand-600 dark:text-brand-300">{[item.headline, item.cta].filter(Boolean).join(' · ')}</p>
                               )}
-                              {['FAILED', 'READY'].includes(item.status) && item.errorMessage && (
-                                <p className={`mt-1 break-words text-xs ${item.status === 'READY' ? 'text-amber-700 dark:text-amber-300' : 'text-rose-500'}`}>{item.errorMessage}</p>
+                              {['FAILED', 'REVIEW', 'READY'].includes(item.status) && item.errorMessage && (
+                                <p className={`mt-1 break-words text-xs ${item.status === 'FAILED' ? 'text-rose-500' : 'text-amber-700 dark:text-amber-300'}`}>{item.errorMessage}</p>
                               )}
                               {['FAILED', 'REVIEW', 'READY'].includes(item.status) && item.resultMediaUrl && (
                                 <div className="mt-2 space-y-1">

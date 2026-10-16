@@ -319,6 +319,7 @@ const startPlanVideoJob = async (item, speech) => {
   return startKhmerVideoJob(item, speech, uploadMediaDataUrl, {
     duration,
     generateAudio: false,
+    allowImageFallback: true,
     allowScriptShortening: item.scriptEditedByUser !== true,
     aspectRatio: item.aspectRatio || '9:16',
     productImageUrl,
@@ -768,13 +769,14 @@ export default async function handler(req, res) {
         const profileSnap = await db.collection('business_profiles').doc(item.userId).get().catch(() => null);
         item.businessName = String(item.businessName || profileSnap?.data()?.businessName || '').trim();
         const speech = await preparePlanVideoSpeech(item);
-        const { job, avatarImage, narrationAudio: generatedNarrationAudio } = await startPlanVideoJob(item, speech);
+        const { job, avatarImage, narrationAudio: generatedNarrationAudio, imageFallbackReason } = await startPlanVideoJob(item, speech);
         await planRef.update({
           status: 'PROCESSING', videoJobId: job.jobId,
           voiceOverText: generatedNarrationAudio?.spokenText || speech.script, voiceOverMode: speech.mode,
           generationPrompt: speech.prompt, performanceStyle: speech.performanceStyle || '',
           ...(avatarImage ? { avatarImage } : {}),
           ...(generatedNarrationAudio ? { narrationAudio: generatedNarrationAudio } : {}),
+          imageFallbackReason: imageFallbackReason || null,
           pollAttempts: 0, processingAt: FieldValue.serverTimestamp(),
         });
         let pollingDeferred = false;
@@ -895,14 +897,14 @@ export default async function handler(req, res) {
       .limit(200)
       .get();
     const verifiedReviewDocs = verifiedReviewSnapshot.docs
-      .filter((doc) => doc.data()?.speechVerification?.passed === true && doc.data()?.resultMediaUrl)
+      .filter((doc) => doc.data()?.speechVerification?.passed === true && doc.data()?.resultMediaUrl && !doc.data()?.imageFallbackReason)
       .slice(0, 10);
     for (const reviewDoc of verifiedReviewDocs) {
       let queued = false;
       await db.runTransaction(async (tx) => {
         const freshSnap = await tx.get(reviewDoc.ref);
         const item = freshSnap.data();
-        if (item?.status !== 'REVIEW' || item?.type !== 'video' || item?.speechVerification?.passed !== true || !item?.resultMediaUrl) return;
+        if (item?.status !== 'REVIEW' || item?.type !== 'video' || item?.speechVerification?.passed !== true || !item?.resultMediaUrl || item?.imageFallbackReason) return;
 
         const outboxRef = db.collection('scheduled_posts').doc(`review-${reviewDoc.id}`);
         tx.set(outboxRef, {
@@ -1118,7 +1120,7 @@ export default async function handler(req, res) {
         const profileSnap = await db.collection('business_profiles').doc(item.userId).get().catch(() => null);
         item.businessName = String(item.businessName || profileSnap?.data()?.businessName || '').trim();
         const speech = await preparePlanVideoSpeech(item);
-        const { job, avatarImage, narrationAudio: generatedNarrationAudio } = await startPlanVideoJob(item, speech);
+        const { job, avatarImage, narrationAudio: generatedNarrationAudio, imageFallbackReason } = await startPlanVideoJob(item, speech);
         await planDoc.ref.update({
           status: 'PROCESSING',
           videoJobId: job.jobId,
@@ -1128,6 +1130,7 @@ export default async function handler(req, res) {
           performanceStyle: speech.performanceStyle || '',
           ...(avatarImage ? { avatarImage } : {}),
           ...(generatedNarrationAudio ? { narrationAudio: generatedNarrationAudio } : {}),
+          imageFallbackReason: imageFallbackReason || null,
           pollAttempts: 0,
           processingAt: FieldValue.serverTimestamp(),
         });

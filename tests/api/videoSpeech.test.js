@@ -1,7 +1,13 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { preserveKhmerDuringTranslation, splitKhmerScript, nativeSpeechPrompt, compareKhmerTranscript, extractVideoDialogue, visualOnlyVideoPrompt, wantsSilentVideo, isKhmerOnlyNarration } from '../../shared/videoSpeech.js';
 const mocks = vi.hoisted(() => ({ narration: vi.fn(), transcribe: vi.fn() }));
-vi.mock('../../api/_khmerNarration.js', () => ({ createKhmerNarration: mocks.narration }));
+vi.mock('../../api/_khmerNarration.js', () => ({
+  createKhmerNarration: mocks.narration,
+  isUnreliableKhmerTranscript: (transcript) => {
+    const text = String(transcript || '');
+    return !/[\u1780-\u17ff]/u.test(text) && (text.match(/\d+/g) || []).length >= 3 && (text.match(/[A-Za-z]{2,}/g) || []).length <= 2;
+  },
+}));
 vi.mock('../../api/_openrouter.js', () => ({
   transcribeAudioWithOpenRouter: mocks.transcribe,
   normalizeForKhmerSpeech: (text) => String(text).normalize('NFC').trim(),
@@ -142,7 +148,7 @@ describe('native Khmer video speech', () => {
     await expect(verifyUploadedVideoSpeech(deliveredUrl,'សួស្តី')).rejects.toMatchObject({ speechVerification: { passed: false, transcript: 'hello', expected: 'សួស្តី' } });
     mocks.transcribe.mockResolvedValue('សួស្តី');
     expect(await verifyUploadedVideoSpeech(deliveredUrl,'សួស្តី')).toMatchObject({passed:true,naturalnessReviewed:false});
-    expect(mocks.transcribe).toHaveBeenLastCalledWith(expect.objectContaining({format:'mp4',languageHint:'Khmer'}));
+    expect(mocks.transcribe).toHaveBeenLastCalledWith(expect.objectContaining({format:'mp4',languageHint:'Khmer',timeoutMs:18_000}));
     expect(decodeURIComponent(String(global.fetch.mock.calls[0][0]))).toContain('vc-none,ac-aac,f-mp4');
     expect(decodeURIComponent(String(global.fetch.mock.calls[0][0]))).not.toContain('w-1280,q-70');
     expect(global.fetch.mock.calls[0][1]).toMatchObject({ redirect: 'manual' });
@@ -166,6 +172,16 @@ describe('native Khmer video speech', () => {
     mocks.transcribe.mockResolvedValue('hello');
     const deliveredUrl = 'https://ik.imagekit.io/test/telegram-media/test.mp4';
     await expect(verifyUploadedVideoSpeech(deliveredUrl, 'សួស្តី')).rejects.toMatchObject({ speechVerification: { passed: false, transcript: 'hello' } });
+    expect(mocks.transcribe).toHaveBeenCalledTimes(3);
+  });
+  it('retains paid video for review when every speech transcript is a numeric hallucination', async () => {
+    vi.stubEnv('IMAGEKIT_PUBLIC_KEY', 'public_test');
+    vi.stubEnv('IMAGEKIT_PRIVATE_KEY', 'private_test');
+    vi.stubEnv('IMAGEKIT_URL_ENDPOINT', 'https://ik.imagekit.io/test');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, arrayBuffer: async () => new Uint8Array([1, 2]).buffer }));
+    mocks.transcribe.mockResolvedValue('song 2 100 400 200');
+    await expect(verifyUploadedVideoSpeech('https://ik.imagekit.io/test/telegram-media/test.mp4', 'សួស្តី'))
+      .rejects.toMatchObject({ verificationUnavailable: true, speechVerification: { unavailable: true, method: 'transcription-inconclusive' } });
     expect(mocks.transcribe).toHaveBeenCalledTimes(3);
   });
   it('retries ImageKit extraction and routes persistent failures to manual review', async () => {

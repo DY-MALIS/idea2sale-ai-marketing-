@@ -34,7 +34,7 @@ export default async function reviewVideoHandler(req, res) {
         // the user with a conflict toast.
         if (['PENDING', 'PROCESSING', 'DONE'].includes(item.status)) return;
         if (!['FAILED', 'REVIEW'].includes(item.status)) throw new Error('This item cannot be retried.');
-        transaction.update(ref, { status: 'PENDING', errorMessage: null, resultMediaUrl: null, speechVerification: null, narrationAudio: null, videoJobId: null });
+        transaction.update(ref, { status: 'PENDING', errorMessage: null, resultMediaUrl: null, speechVerification: null, narrationAudio: null, videoJobId: null, imageFallbackReason: null });
         return;
       }
       const legacyExtractionReview = item.status === 'FAILED'

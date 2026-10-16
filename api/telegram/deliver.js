@@ -164,6 +164,14 @@ export const processContentPlanVideo = async (db, itemId, req) => {
         throw verifyError;
       }
     }
+    if (item.imageFallbackReason) {
+      await ref.update({
+        status: 'REVIEW',
+        errorMessage: item.imageFallbackReason,
+        reviewRequestedAt: FieldValue.serverTimestamp(),
+      });
+      return { ok: true, reviewRequired: true, videoReady: true };
+    }
     // Speech verification is the automated quality gate. Once it passes, send
     // the video immediately instead of pausing in REVIEW for a manual approval.
     // A failed verification still follows the catch path below and is never
