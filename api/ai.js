@@ -126,7 +126,10 @@ const requireAiUser = async (req) => {
 
 const videoJobDocId = (jobId) => createHash('sha256').update(String(jobId)).digest('hex');
 const videoStartDocId = (userId, requestId) => createHash('sha256').update(`${userId}:${requestId}`).digest('hex');
-const VIDEO_START_STALE_MS = 10 * 60 * 1000;
+// A Vercel video-start invocation can run for at most 300 seconds. Allow a
+// short persistence/network tail, then stop reporting a dead invocation as
+// "starting" once recovery has checked the separate paid-job collection.
+const VIDEO_START_STALE_MS = 5 * 60 * 1000 + 30_000;
 
 export const FACEBOOK_SCAN_MODES = Object.freeze([
   'customer',
@@ -1058,6 +1061,7 @@ export default async function handler(req, res) {
   const language = languageCode === 'km' ? 'Khmer' : 'English';
   let verifiedVideoUser = null;
   let videoStartRef = null;
+  let videoSubmissionAttempted = false;
 
   if (action === 'videoGenerate' || action === 'videoStatus' || action === 'videoRecover' || action === 'uploadProductImage') {
     try {
@@ -2901,6 +2905,7 @@ Return ONLY a single valid JSON object with this exact structure:
     }
 
     if (action === 'videoGenerate') {
+      const videoStartDeadlineAt = Date.now() + 275_000;
       const prompt = String(req.body?.prompt || '').trim();
       const requestId = String(req.body?.requestId || '').trim();
       if (requestId && !/^[A-Za-z0-9_-]{16,100}$/.test(requestId)) return res.status(400).json({ error: 'Invalid video request id.' });
@@ -2951,6 +2956,12 @@ Return ONLY a single valid JSON object with this exact structure:
             return res.status(409).json({ error: 'This video request ID was already used for a different request.' });
           }
           if (saved.startResponse?.jobId) return res.status(200).json(saved.startResponse);
+          const matches = await db.collection('video_jobs').where('requestId', '==', requestId).limit(3).get();
+          const owned = matches.docs.find((doc) => doc.data()?.userId === verifiedVideoUser.uid);
+          if (owned) {
+            const existingJob = owned.data();
+            return res.status(200).json(existingJob.startResponse || { jobId: existingJob.jobId, outputAspectRatio: existingJob.aspectRatio });
+          }
           const startedAtMs = saved.startedAt?.toMillis?.() || new Date(saved.startedAt || 0).getTime();
           if (Date.now() - startedAtMs > VIDEO_START_STALE_MS) {
             return res.status(409).json({ error: 'This video start was interrupted before its job ID was saved. It will not be submitted again automatically to avoid a duplicate charge.' });
@@ -3006,6 +3017,8 @@ Return ONLY a single valid JSON object with this exact structure:
           // audio render can introduce different words or reject the video.
           generateAudio: false,
           productImageUrl,
+          deadlineAt: videoStartDeadlineAt,
+          onVideoSubmissionStart: () => { videoSubmissionAttempted = true; },
         });
         const responseBody = {
           ...job,
@@ -3039,11 +3052,17 @@ Return ONLY a single valid JSON object with this exact structure:
         }
         return res.status(200).json(responseBody);
       }
+      const submissionTimeoutMs = videoStartDeadlineAt - Date.now() - 5_000;
+      if (submissionTimeoutMs < 15_000) {
+        throw Object.assign(new Error('Preparing this video took too long. No video job was started; please try again.'), { statusCode: 503, videoStartNotSubmitted: true });
+      }
+      videoSubmissionAttempted = true;
       const video = await startOpenRouterVideo({
         prompt: photorealVideoPrompt(normalizedPrompt, images.length > 0),
         images,
         duration,
         aspectRatio,
+        timeoutMs: submissionTimeoutMs,
       });
       const responseBody = { ...video, outputAspectRatio: aspectRatio };
       if (startRef) {
@@ -3147,10 +3166,12 @@ Return ONLY a single valid JSON object with this exact structure:
 
     return res.status(400).json({ error: 'Unknown AI action.' });
   } catch (error) {
-    // A provider 400 is a definite pre-job rejection. Remove its reservation
-    // so a lost browser response can safely retry this same request ID rather
-    // than waiting ten minutes on a job that was never accepted.
-    if (action === 'videoGenerate' && error?.statusCode === 400 && videoStartRef) {
+    // Preparation errors and provider 400 rejections cannot have created a
+    // video job. Clear their reservation so the browser can offer a safe retry.
+    // Submission timeouts/5xx are ambiguous and keep the reservation instead.
+    const startNotSubmitted = action === 'videoGenerate'
+      && (!videoSubmissionAttempted || error?.videoStartNotSubmitted || error?.statusCode === 400);
+    if (startNotSubmitted && videoStartRef) {
       await videoStartRef.delete().catch((cleanupError) => {
         console.error('Could not clear rejected video start:', cleanupError?.message || cleanupError);
       });
@@ -3168,6 +3189,7 @@ Return ONLY a single valid JSON object with this exact structure:
       && /InputImageSensitiveContentDetected/i.test(`${error?.providerCode || ''} ${message}`);
     return res.status(keyError ? 503 : Number.isInteger(error?.statusCode) && error.statusCode >= 400 && error.statusCode < 500 ? error.statusCode : 500).json({
       ...(error?.videoTerminal ? { code: 'VIDEO_JOB_TERMINAL' } : {}),
+      ...(startNotSubmitted ? { code: 'VIDEO_START_NOT_SUBMITTED' } : {}),
       error: keyError
         ? 'OpenRouter API key is missing or invalid. Update OPEN_ROUTER_API_KEY in Vercel.'
         : imageRejected

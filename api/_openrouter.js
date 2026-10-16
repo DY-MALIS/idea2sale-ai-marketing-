@@ -756,7 +756,7 @@ export async function generateOpenRouterSpeech({
   throw lastError || new Error('OpenRouter speech request failed.');
 }
 
-export async function startOpenRouterVideo({ prompt, images, referenceUrls, audioReferenceUrls, model, duration, aspectRatio = '9:16', voiceId, motionPrompt, expressiveness, khmerSpeech = false, generateAudio }) {
+export async function startOpenRouterVideo({ prompt, images, referenceUrls, audioReferenceUrls, model, duration, aspectRatio = '9:16', voiceId, motionPrompt, expressiveness, khmerSpeech = false, generateAudio, timeoutMs }) {
   const configuredModel = model || process.env.OPEN_ROUTER_VIDEO_MODEL || STANDARD_VIDEO_MODEL;
   // Never allow an old/expensive environment override to bypass the per-video
   // budget. Unknown models fall back to the approved low-cost default before
@@ -850,7 +850,7 @@ export async function startOpenRouterVideo({ prompt, images, referenceUrls, audi
     }
   }
 
-  const job = await openRouterJson('/videos', body);
+  const job = await openRouterJson('/videos', body, timeoutMs);
   const jobId = job?.id;
   if (!jobId) throw new Error('OpenRouter did not return a video job id.');
 

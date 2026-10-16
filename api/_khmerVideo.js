@@ -11,6 +11,27 @@ import { getOriginalImageKitUrl } from '../shared/imageKitUrl.js';
 
 const MIN_KHMER_CLIP_DURATION = 4;
 const MAX_KHMER_CLIP_DURATION = 8;
+const VIDEO_START_DEADLINE_MS = 275_000;
+const VIDEO_SUBMISSION_RESERVE_MS = 90_000;
+const VIDEO_PREPARATION_MAX_MS = 180_000;
+
+const preparationTimeoutError = () => Object.assign(
+  new Error('Preparing the Khmer voice and presenter took too long. No video job was started; please try again.'),
+  { videoStartNotSubmitted: true, statusCode: 503 },
+);
+
+const finishPreparationBefore = async (preparation, timeoutMs) => {
+  if (timeoutMs < 1_000) throw preparationTimeoutError();
+  let timer;
+  try {
+    return await Promise.race([
+      preparation,
+      new Promise((_, reject) => { timer = setTimeout(() => reject(preparationTimeoutError()), timeoutMs); }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+};
 // Generated lettering is not a reliable way to render Khmer. This path is
 // shared by scheduled and interactive clips and bypasses ai.js's visual prompt.
 const visualPrompt = (prompt = '') => `${prompt}\nVISUAL TEXT RULE: Do not generate readable text, invented letters, subtitles or captions anywhere. Show computer and phone screens as clean icon-based interfaces, charts and colored blocks without text; show documents, labels and signs as blank surfaces. Never paint the spoken transcript into the scene. Preserve an existing supplied logo without inventing or changing its lettering. Exact text must be added separately with a real font renderer.\nPHOTOREALISM: Film this like a real camera shot on location -- never an illustration, cartoon, 3D render, or plastic/synthetic-looking AI image. Use natural realistic lighting, true-to-life shadows and authentic material texture. Keep the entire frame in crisp, high-detail sharp focus -- no blur, haze, softness, or low-resolution artifacts anywhere. Render every subject, object and action named above exactly as described; the background and any visible props must genuinely belong to that scene and relate naturally to it -- never a generic, empty, or mismatched backdrop.`;
@@ -39,6 +60,8 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
   // profile gallery) the presenter should hold/showcase alongside their own
   // identity -- see the PRODUCT REFERENCE block built below.
   productImageUrl = '',
+  deadlineAt = Date.now() + VIDEO_START_DEADLINE_MS,
+  onVideoSubmissionStart,
 } = {}) => {
   const preparationStartedAt = Date.now();
   const hasKhmerSpeech = speech.mode !== 'silent';
@@ -48,8 +71,15 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
     model: hasKhmerSpeech ? KHMER_VIDEO_MODEL : STANDARD_VIDEO_MODEL,
   });
   if (speech.mode === 'silent') {
-    return { job: await startOpenRouterVideo({ prompt: visualPrompt(speech.prompt), duration, aspectRatio }), avatarImage: null };
+    const timeoutMs = deadlineAt - Date.now() - 5_000;
+    if (timeoutMs < 15_000) throw preparationTimeoutError();
+    onVideoSubmissionStart?.();
+    return { job: await startOpenRouterVideo({ prompt: visualPrompt(speech.prompt), duration, aspectRatio, timeoutMs }), avatarImage: null };
   }
+  // Only this preparation promise may outlive its deadline. The paid video
+  // submission sits after the race, so a late TTS or image response cannot
+  // create a job after the server has reported a safe pre-submission failure.
+  const prepare = async () => {
   // Start the avatar image now, in parallel with the narration pipeline below
   // -- it only depends on speech.avatarPrompt/aspectRatio/images, none of
   // which involve narration audio at all, so there's no reason the (often
@@ -193,10 +223,28 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
     audioReferenceUrls: [narrationAudio.mediaUrl],
     generateAudio,
   };
+  return { videoRequest, avatarImage, narrationAudio, audio, fittedDuration, avatarReferenceUrl, normalizedProductImageUrl, productReferenceBlock, spokenScript };
+  };
+  let prepared;
+  try {
+    const remainingMs = deadlineAt - Date.now() - VIDEO_SUBMISSION_RESERVE_MS;
+    if (remainingMs < 1_000) throw preparationTimeoutError();
+    prepared = await finishPreparationBefore(prepare(), Math.min(VIDEO_PREPARATION_MAX_MS, remainingMs));
+  } catch (error) {
+    if (error && typeof error === 'object') error.videoStartNotSubmitted = true;
+    throw error;
+  }
+  const { videoRequest, avatarImage, narrationAudio, audio, fittedDuration, avatarReferenceUrl, normalizedProductImageUrl, productReferenceBlock, spokenScript } = prepared;
+  const submitVideo = (request) => {
+    const timeoutMs = Math.min(VIDEO_SUBMISSION_RESERVE_MS, deadlineAt - Date.now() - 5_000);
+    if (timeoutMs < 15_000) throw preparationTimeoutError();
+    onVideoSubmissionStart?.();
+    return startOpenRouterVideo({ ...request, timeoutMs });
+  };
   let job;
   let imageFallbackReason = '';
   try {
-    job = await startOpenRouterVideo(videoRequest);
+    job = await submitVideo(videoRequest);
   } catch (error) {
     const imagePrivacyRejection = error?.statusCode === 400
       && /InputImageSensitiveContentDetected/i.test(`${error?.providerCode || ''} ${error?.message || ''}`);
@@ -209,7 +257,7 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
     // isn't reliably available.
     if (normalizedProductImageUrl) {
       try {
-        job = await startOpenRouterVideo({
+        job = await submitVideo({
           ...videoRequest,
           prompt: videoRequest.prompt.replace(productReferenceBlock, ''),
           referenceUrls: [avatarReferenceUrl],
@@ -237,7 +285,7 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
       const textOnlyPrompt = videoRequest.prompt
         .replace(/from the reference image/gi, 'described in the scene')
         .replace(productReferenceBlock, '');
-      job = await startOpenRouterVideo({
+      job = await submitVideo({
         ...videoRequest,
         prompt: `${textOnlyPrompt}\nNo reference image is supplied. Create the presenter from this scene description and synchronize the mouth to the supplied Khmer audio.`,
         referenceUrls: [],

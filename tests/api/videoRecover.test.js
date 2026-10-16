@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   startVideo: vi.fn(),
   pollVideo: vi.fn(),
   text: vi.fn(),
+  startKhmerVideoJob: vi.fn(),
 }));
 
 vi.mock('../../api/_openrouter.js', async (importOriginal) => ({
@@ -36,6 +37,7 @@ vi.mock('../../api/_rateLimit.js', () => ({
   checkRateLimit: mocks.checkRateLimit,
   getClientIp: () => '127.0.0.1',
 }));
+vi.mock('../../api/_khmerVideo.js', () => ({ startKhmerVideoJob: mocks.startKhmerVideoJob }));
 
 import handler from '../../api/ai.js';
 
@@ -58,6 +60,7 @@ describe('video start recovery', () => {
     mocks.deleteStart.mockResolvedValue(undefined);
     mocks.set.mockResolvedValue(undefined);
     mocks.getJob.mockResolvedValue({ exists: true, data: () => ({ userId: 'owner-1' }) });
+    mocks.get.mockResolvedValue({ docs: [] });
   });
 
   it('returns the original paid job only to its owner', async () => {
@@ -126,6 +129,32 @@ describe('video start recovery', () => {
     expect(res.body.error).not.toContain('HTTP 400');
     expect(mocks.deleteStart).toHaveBeenCalledTimes(1);
     expect(mocks.set).not.toHaveBeenCalled();
+  });
+
+  it('clears a failed preflight before any paid video submission', async () => {
+    mocks.startKhmerVideoJob.mockRejectedValue(new Error('Khmer narration unavailable'));
+    const res = responseRecorder();
+    await handler({ method: 'POST', headers: { authorization: 'Bearer valid-token' }, body: {
+      action: 'videoGenerate', requestId: '12345678-1234-1234-1234-123456789abc',
+      prompt: 'A Cambodian presenter', duration: 4, aspectRatio: '9:16',
+      khmerSpeech: { script: 'សួស្តី', voiceGender: 'Female' },
+    } }, res);
+    expect(res.statusCode).toBe(500);
+    expect(res.body).toMatchObject({ code: 'VIDEO_START_NOT_SUBMITTED', error: 'Khmer narration unavailable' });
+    expect(mocks.deleteStart).toHaveBeenCalledTimes(1);
+    expect(mocks.startVideo).not.toHaveBeenCalled();
+  });
+
+  it('retains an ambiguous provider failure after video submission', async () => {
+    mocks.startVideo.mockRejectedValue(Object.assign(new Error('Provider temporarily unavailable'), { statusCode: 503 }));
+    const res = responseRecorder();
+    await handler({ method: 'POST', headers: { authorization: 'Bearer valid-token' }, body: {
+      action: 'videoGenerate', requestId: '12345678-1234-1234-1234-123456789abc',
+      prompt: 'A training room', duration: 4, aspectRatio: '16:9',
+    } }, res);
+    expect(res.statusCode).toBe(500);
+    expect(res.body.code).toBeUndefined();
+    expect(mocks.deleteStart).not.toHaveBeenCalled();
   });
 
   it('reports a terminal failed video job with an actionable image error', async () => {
@@ -201,6 +230,39 @@ describe('video start recovery', () => {
 
     expect(res.statusCode).toBe(409);
     expect(res.body.error).toMatch(/avoid a duplicate charge/i);
+    expect(mocks.startVideo).not.toHaveBeenCalled();
+  });
+
+  it('finds an accepted paid job even when the start record missed its response', async () => {
+    const request = {
+      method: 'POST', headers: { authorization: 'Bearer valid-token' }, body: {
+        action: 'videoGenerate', requestId: '12345678-1234-1234-1234-123456789abc',
+        prompt: 'A training room', duration: 4, aspectRatio: '16:9',
+      },
+    };
+    mocks.startVideo.mockResolvedValue({ jobId: 'paid-job' });
+    await handler(request, responseRecorder());
+    const reservation = mocks.createStart.mock.calls[0][0];
+    mocks.createStart.mockRejectedValue(Object.assign(new Error('exists'), { code: 6 }));
+    mocks.getStart.mockResolvedValue({ exists: true, data: () => reservation });
+    mocks.get.mockResolvedValue({ docs: [{ data: () => ({ userId: 'owner-1', jobId: 'paid-job', startResponse: { jobId: 'paid-job' } }) }] });
+    mocks.startVideo.mockClear();
+    const second = responseRecorder();
+    await handler(request, second);
+    expect(second.statusCode).toBe(200);
+    expect(second.body.jobId).toBe('paid-job');
+    expect(mocks.startVideo).not.toHaveBeenCalled();
+  });
+
+  it('stops reporting a timed-out Vercel invocation as still starting', async () => {
+    mocks.getStart.mockResolvedValue({ exists: true, data: () => ({
+      userId: 'owner-1', startedAt: { toMillis: () => Date.now() - 6 * 60 * 1000 },
+    }) });
+    const res = responseRecorder();
+    await handler({ method: 'POST', headers: { authorization: 'Bearer valid-token' }, body: {
+      action: 'videoRecover', requestId: '12345678-1234-1234-1234-123456789abc',
+    } }, res);
+    expect(res.statusCode).toBe(409);
     expect(mocks.startVideo).not.toHaveBeenCalled();
   });
 

@@ -3,7 +3,7 @@ const mocks = vi.hoisted(() => ({ image: vi.fn(), video: vi.fn(), speech: vi.fn(
 vi.mock('../../api/_openrouter.js', () => ({ generateOpenRouterImage: mocks.image, startOpenRouterVideo: mocks.video }));
 vi.mock('../../api/_khmerNarration.js', () => ({ generateKhmerSpeech: mocks.speech, shortenGeneratedKhmerNarration: mocks.shorten, expandGeneratedKhmerNarration: mocks.expand }));
 import { fitKhmerClipDurationToNarration, startKhmerVideoJob } from '../../api/_khmerVideo.js';
-afterEach(() => { vi.resetAllMocks(); vi.unstubAllEnvs(); });
+afterEach(() => { vi.useRealTimers(); vi.resetAllMocks(); vi.unstubAllEnvs(); });
 const uploadStub = ({ audioDuration = 3.4, audioUrl = 'https://audio', imageUrl = 'https://image' } = {}) => vi.fn(async ({ mediaType }) => (
   mediaType === 'audio'
     ? { mediaUrl: audioUrl, duration: audioDuration }
@@ -136,6 +136,20 @@ it('handles an avatar failure that occurs while narration is still running', asy
   finishSpeech({ audioUrl: 'audio-data', duration: 3.4 });
 
   await expect(started).rejects.toThrow('Avatar image unavailable');
+  expect(mocks.video).not.toHaveBeenCalled();
+});
+
+it('stops a slow narration before submitting a paid video job', async () => {
+  vi.useFakeTimers();
+  mocks.image.mockResolvedValue({ imageUrl: 'portrait' });
+  mocks.speech.mockImplementation(() => new Promise(() => {}));
+  const started = startKhmerVideoJob({}, { script: 'សួស្តី', prompt: 'Presenter' }, uploadStub(), {
+    duration: 4,
+    deadlineAt: Date.now() + 91_500,
+  });
+  const rejected = expect(started).rejects.toMatchObject({ videoStartNotSubmitted: true });
+  await vi.advanceTimersByTimeAsync(1_500);
+  await rejected;
   expect(mocks.video).not.toHaveBeenCalled();
 });
 

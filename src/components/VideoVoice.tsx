@@ -876,7 +876,14 @@ const attemptGenerateVideoClip = async (
           // paid job if it eventually reaches the server.
           const response = await fetchAiWithTimeout({ action: 'videoGenerate', prompt, images, duration, aspectRatio, khmerSpeech, productImageUrl, requestId: start.requestId }, VIDEO_GENERATE_FETCH_TIMEOUT_MS, idToken);
           data = await response.json().catch(() => ({}));
-          if (!response.ok) throw new Error(data.error || 'Could not retry the video start.');
+          if (!response.ok) {
+            if (data.code === 'VIDEO_START_NOT_SUBMITTED') {
+              removePendingVideoStart(userId, fingerprint);
+              throw new Error(data.error || 'No video job was started. Please try again.');
+            }
+            if (response.status >= 500) data = await recoverVideoStart(start.requestId, idToken);
+            else throw new Error(data.error || 'Could not retry the video start.');
+          }
           if (!data.jobId) data = await recoverVideoStart(start.requestId, idToken);
         } else {
           if ((error as Error & { startInterrupted?: boolean }).startInterrupted) removePendingVideoStart(userId, fingerprint);
@@ -895,10 +902,14 @@ const attemptGenerateVideoClip = async (
       if (response) {
         data = await response.json().catch(() => ({}));
         if (!response.ok) {
-          // A gateway timeout can arrive as an HTML 5xx response after the
-          // provider accepted the paid job. Recover its id before allowing a
-          // fresh submission. A JSON error from our API is a known failure.
-          if (response.status >= 500 && !data.error) {
+          if (data.code === 'VIDEO_START_NOT_SUBMITTED') {
+            removePendingVideoStart(userId, fingerprint);
+            throw new Error(data.error || 'No video job was started. Please try again.');
+          }
+          // Any 5xx after submission may mean the provider accepted a paid
+          // job even when our API returned JSON. Recover its ID before a new
+          // submission; only the server's explicit pre-submit code is safe.
+          if (response.status >= 500) {
             data = await recoverVideoStart(start.requestId, idToken);
           } else {
             removePendingVideoStart(userId, fingerprint);
