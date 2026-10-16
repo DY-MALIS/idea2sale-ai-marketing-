@@ -231,6 +231,20 @@ export interface BusinessProfileData {
   // copy, video prompts) needs before it can judge what's actually relevant,
   // rather than working from the business name alone.
   businessDescription?: string;
+  // Distilled from websiteUrl/facebookPageUrl/linkedinUrl by the
+  // refreshBusinessKnowledge action in api/ai.js, automatically whenever
+  // one of those links is new or changed on save (see BusinessProfile.tsx).
+  // A longer, AI-written summary of what those pages actually say, so the
+  // AI Agent (chat and Live Voice) can answer specific questions instead of
+  // only knowing the short businessDescription field.
+  businessKnowledgeBase?: string;
+  businessKnowledgeBaseSources?: string[];
+  businessKnowledgeBaseUpdatedAt?: number;
+  // Detailed companion to businessDescription, produced by the same
+  // extractBusinessIntro action (uploaded file, or a manually pasted link)
+  // -- see businessKnowledgeBase above for the automatic website/Facebook/
+  // LinkedIn counterpart.
+  businessDocumentKnowledge?: string;
   directory: BusinessDirectoryEntry[];
   // Real product photos the AI presenter can hold/showcase in a generated
   // video instead of an AI-invented lookalike (see api/_khmerVideo.js).

@@ -166,6 +166,8 @@ const normalizeSessions = (value: unknown): AgentConversationSession[] => (
 interface AgentBusinessContext {
   businessName: string;
   businessDescription: string;
+  businessKnowledgeBase: string;
+  businessDocumentKnowledge: string;
   directory: { name: string; type: string }[];
   productImages: BusinessProductImage[];
   tiktokHandle: string;
@@ -720,6 +722,8 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       setBusinessContext({
         businessName: branding.businessName,
         businessDescription: branding.businessDescription,
+        businessKnowledgeBase: branding.businessKnowledgeBase,
+        businessDocumentKnowledge: branding.businessDocumentKnowledge,
         directory: branding.directory,
         productImages: branding.productImages,
         tiktokHandle: branding.tiktokHandle,

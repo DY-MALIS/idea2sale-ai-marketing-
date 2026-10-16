@@ -453,17 +453,31 @@ const businessContextFromBody = (body = {}) => {
   const websiteUrl = String(source?.websiteUrl || '').trim().slice(0, 300);
   const linkedinUrl = String(source?.linkedinUrl || '').trim().slice(0, 300);
   const telegramChannelUrl = String(source?.telegramChannelUrl || '').trim().slice(0, 300);
+  // Distilled from the saved website/Facebook/LinkedIn links by the
+  // refreshBusinessKnowledge action below (triggered automatically when
+  // Business Profile is saved with a new/changed link) -- unlike
+  // businessDescription (an owner-reviewed 280-character self-description),
+  // this is a longer, AI-written summary of what those pages actually say,
+  // so the Agent can answer specific questions instead of only knowing the
+  // short "what does your business sell" field.
+  const businessKnowledgeBase = String(source?.businessKnowledgeBase || '').trim().slice(0, 4000);
+  // Distilled from an uploaded intro file (or a manually pasted link) by the
+  // extractBusinessIntro action -- that action already fills the short
+  // businessDescription field from the same document; this is the detailed
+  // companion the short field has no room for, carrying everything the
+  // document actually says instead of just a one-sentence gist.
+  const businessDocumentKnowledge = String(source?.businessDocumentKnowledge || '').trim().slice(0, 4000);
   const directory = Array.isArray(source?.directory)
     ? source.directory.filter((entry) => entry?.name).slice(0, 20).map((entry) => ({
         name: String(entry.name).trim().slice(0, 100),
         type: entry.type === 'INDIVIDUAL' ? 'individual' : 'company',
       }))
     : [];
-  return { businessName, businessDescription, logoDataUrl, directory, tiktokHandle, facebookPageUrl, websiteUrl, linkedinUrl, telegramChannelUrl };
+  return { businessName, businessDescription, businessKnowledgeBase, businessDocumentKnowledge, logoDataUrl, directory, tiktokHandle, facebookPageUrl, websiteUrl, linkedinUrl, telegramChannelUrl };
 };
 
-const businessContentInstruction = ({ businessName, businessDescription, directory, tiktokHandle, facebookPageUrl, websiteUrl, linkedinUrl, telegramChannelUrl }, { requireName = false } = {}) => {
-  if (!businessName && !businessDescription && !directory.length && !tiktokHandle && !facebookPageUrl && !websiteUrl && !linkedinUrl && !telegramChannelUrl) return '';
+const businessContentInstruction = ({ businessName, businessDescription, businessKnowledgeBase, businessDocumentKnowledge, directory, tiktokHandle, facebookPageUrl, websiteUrl, linkedinUrl, telegramChannelUrl }, { requireName = false } = {}) => {
+  if (!businessName && !businessDescription && !businessKnowledgeBase && !businessDocumentKnowledge && !directory.length && !tiktokHandle && !facebookPageUrl && !websiteUrl && !linkedinUrl && !telegramChannelUrl) return '';
   const knownNames = directory.length
     ? ` Known directory names: ${directory.map((entry) => `${entry.name} (${entry.type})`).join(', ')}.`
     : '';
@@ -474,7 +488,7 @@ const businessContentInstruction = ({ businessName, businessDescription, directo
     linkedinUrl ? `LinkedIn ${linkedinUrl}` : '',
     telegramChannelUrl ? `Telegram channel ${telegramChannelUrl}` : '',
   ].filter(Boolean);
-  return `\nSAVED BUSINESS PROFILE: The content is for "${businessName || 'the user\'s business'}".${businessDescription ? ` Owner-provided business description: ${businessDescription}.` : ''}${knownNames} Use these exact saved names; never invent a replacement company name.${businessName ? ` ${requireName ? 'Every customer-facing script, spoken dialogue, caption and CTA MUST naturally say the exact business name at least once.' : 'Naturally identify the business by this exact name whenever the content represents, promotes, or asks viewers to contact it.'}` : ''}${channels.length ? ` Saved public channels: ${channels.join('; ')}. Use them only when relevant to the requested content; do not imply a channel is connected for automatic publishing.` : ''}`;
+  return `\nSAVED BUSINESS PROFILE: The content is for "${businessName || 'the user\'s business'}".${businessDescription ? ` Owner-provided business description: ${businessDescription}.` : ''}${knownNames} Use these exact saved names; never invent a replacement company name.${businessName ? ` ${requireName ? 'Every customer-facing script, spoken dialogue, caption and CTA MUST naturally say the exact business name at least once.' : 'Naturally identify the business by this exact name whenever the content represents, promotes, or asks viewers to contact it.'}` : ''}${channels.length ? ` Saved public channels: ${channels.join('; ')}. Use them only when relevant to the requested content; do not imply a channel is connected for automatic publishing.` : ''}${businessKnowledgeBase ? `\nDETAILED BUSINESS KNOWLEDGE FROM SAVED LINKS (read automatically from the business's own website/social pages -- use this as the ground truth to answer specific questions about what they actually do, sell, or offer; state only what it actually supports, never invent beyond it): ${businessKnowledgeBase}` : ''}${businessDocumentKnowledge ? `\nDETAILED BUSINESS KNOWLEDGE FROM AN UPLOADED DOCUMENT/LINK (read from a file or link the owner submitted -- same ground-truth rule: use it fully, state only what it actually supports): ${businessDocumentKnowledge}` : ''}${(businessDescription || businessKnowledgeBase || businessDocumentKnowledge) ? ' If asked who/what this business is, what it sells or does, or any question answerable from the information above, answer specifically and confidently using everything given here -- the name, description, and both detailed-knowledge sections -- never a vague or generic non-answer, and never say you do not have this information when it is listed above.' : ''}`;
 };
 
 export const ensureBusinessInInboxMessage = (message, businessName) => {
@@ -1703,14 +1717,76 @@ Response rules:
         return res.status(error?.status || 400).json({ error: error?.message || 'Could not read this file.' });
       }
       const outputLanguageCode = containsKhmerScript(documentText) ? 'km' : languageCode;
-      const businessDescription = await generateOpenRouterText({
-        system: 'You distill a business document into one short, plain self-description for the business owner to review and save, written in the exact words a busy owner would actually use.',
-        prompt: `Read this document (from ${websiteUrl ? `the website "${sourceLabel}"` : `a file named "${sourceLabel}"`}) and summarize, in ${outputLanguageCode === 'km' ? 'Khmer' : 'English'}, what the business actually sells or does. Write 1-3 plain sentences, under 280 characters total, first person or neutral ("We sell..." / "A cafe that..."), no headings, no markdown, no quotation marks around the whole answer. State only what the document actually supports -- do not invent products, locations, or claims it doesn't mention.\n\nDOCUMENT TEXT:\n${documentText}`,
-        maxTokens: 400,
-      });
+      const sourceDescriptor = websiteUrl ? `the website "${sourceLabel}"` : `a file named "${sourceLabel}"`;
+      const [businessDescription, documentKnowledge] = await Promise.all([
+        generateOpenRouterText({
+          system: 'You distill a business document into one short, plain self-description for the business owner to review and save, written in the exact words a busy owner would actually use.',
+          prompt: `Read this document (from ${sourceDescriptor}) and summarize, in ${outputLanguageCode === 'km' ? 'Khmer' : 'English'}, what the business actually sells or does. Write 1-3 plain sentences, under 280 characters total, first person or neutral ("We sell..." / "A cafe that..."), no headings, no markdown, no quotation marks around the whole answer. State only what the document actually supports -- do not invent products, locations, or claims it doesn't mention.\n\nDOCUMENT TEXT:\n${documentText}`,
+          maxTokens: 400,
+        }),
+        // The short description above is deliberately a one-sentence gist --
+        // this is the detailed companion (see businessDocumentKnowledge in
+        // businessContextFromBody) that lets the AI Agent actually answer
+        // specific questions about what this document says, instead of only
+        // knowing that one-sentence summary.
+        generateOpenRouterText({
+          system: 'You read a business document and write a detailed, factual knowledge base that a customer-support AI agent will use to answer questions about that business. Write in plain prose paragraphs, no headings or markdown.',
+          prompt: `Read this document (from ${sourceDescriptor}) and write a detailed summary of: what kind of organization this is, the specific products, services, courses, or offers it provides, and any other concrete facts a customer might ask about (pricing, location, hours, contact method, notable claims). Write in ${outputLanguageCode === 'km' ? 'Khmer' : 'English'}, as plain paragraphs, under 3000 characters total. State only what the document actually supports -- do not invent anything it doesn't mention.\n\nDOCUMENT TEXT:\n${documentText}`,
+          maxTokens: 1400,
+        }),
+      ]);
       const cleaned = String(businessDescription || '').trim().replace(/^["']|["']$/g, '').slice(0, 1000);
       if (!cleaned) return res.status(502).json({ error: 'Could not summarize this file into a business description. Please try again.' });
-      return res.status(200).json({ businessDescription: cleaned });
+      const cleanedKnowledge = String(documentKnowledge || '').trim().replace(/^["']|["']$/g, '').slice(0, 4000);
+      return res.status(200).json({ businessDescription: cleaned, businessDocumentKnowledge: cleanedKnowledge });
+    }
+
+    // Business Profile's saved Website/Facebook Page/LinkedIn links -- fired
+    // automatically whenever Business Profile is saved with a new or
+    // changed link (see BusinessProfile.tsx), not by a manual button like
+    // extractBusinessIntro above. The Agent (chat and Live Voice) previously
+    // only knew the short owner-typed businessDescription; this reads the
+    // actual pages and distills a longer knowledge base (businessContentInstruction
+    // folds it into every Agent system prompt) so it can answer specific
+    // questions about what the business does. Each link is fetched
+    // best-effort -- one unreachable or JS-walled page (common for
+    // Facebook/LinkedIn without a logged-in session) must not block the
+    // others that did work.
+    if (action === 'refreshBusinessKnowledge') {
+      const links = [
+        ['Website', String(req.body?.websiteUrl || '').trim()],
+        ['Facebook Page', String(req.body?.facebookPageUrl || '').trim()],
+        ['LinkedIn', String(req.body?.linkedinUrl || '').trim()],
+      ].filter(([, url]) => url);
+      if (!links.length) return res.status(400).json({ error: 'No website, Facebook Page, or LinkedIn link is saved yet.' });
+
+      // A fetch that only returned nav/cookie-banner/login-wall boilerplate
+      // is worse than no fetch at all -- feeding scraps like that to the
+      // summarizer risks it inventing content to fill the gap.
+      const MIN_USEFUL_CHARS = 120;
+      const results = await Promise.all(links.map(async ([label, url]) => {
+        try {
+          const extracted = await extractWebsiteText({ url });
+          if (extracted.text.length < MIN_USEFUL_CHARS) return null;
+          return { label, url, title: extracted.title || url, text: extracted.text };
+        } catch (error) {
+          console.warn(`Could not read ${label} link for business knowledge:`, error?.message || error);
+          return null;
+        }
+      }));
+      const usable = results.filter(Boolean);
+      if (!usable.length) return res.status(502).json({ error: 'Could not read any of the saved links. They may require a login or block automated visits.' });
+
+      const outputLanguageCode = containsKhmerScript(usable.map((entry) => entry.text).join(' ')) ? 'km' : languageCode;
+      const sourcesBlock = usable.map((entry) => `=== ${entry.label} (${entry.title}) ===\n${entry.text}`).join('\n\n');
+      const summary = await generateOpenRouterText({
+        system: 'You read a business\'s own website and/or social pages and write a detailed, factual knowledge base that a customer-support AI agent will use to answer questions about that business. Write in plain prose paragraphs, no headings or markdown.',
+        prompt: `Read the pages below (fetched from this business's own saved links) and write a detailed summary of: what kind of organization this is (for example a school/academy, a shop, a service company), the specific products, services, courses, or offers it provides, and any other concrete facts a customer might ask about (pricing, location, hours, contact method, notable claims). Write in ${outputLanguageCode === 'km' ? 'Khmer' : 'English'}, as plain paragraphs, under 3000 characters total. State only what the pages actually support -- do not invent anything they don't mention, and silently ignore any page that is just navigation or login-wall text with no real content.\n\n${sourcesBlock}`,
+        maxTokens: 1400,
+      });
+      const cleanedKnowledge = String(summary || '').trim().replace(/^["']|["']$/g, '').slice(0, 4000);
+      if (!cleanedKnowledge) return res.status(502).json({ error: 'Could not summarize these links into business knowledge. Please try again.' });
+      return res.status(200).json({ businessKnowledgeBase: cleanedKnowledge, sources: usable.map((entry) => entry.url) });
     }
 
     if (action === 'extractContentPlan') {

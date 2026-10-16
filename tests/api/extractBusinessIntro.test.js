@@ -78,9 +78,13 @@ it('summarizes an uploaded introduction file into a saved business description',
   const res = responseRecorder();
   await handler(req, res);
   expect(res.statusCode).toBe(200);
-  expect(res.body).toEqual({ businessDescription: 'We roast and sell specialty coffee beans in Phnom Penh.' });
-  expect(mocks.text).toHaveBeenCalledTimes(1);
+  expect(res.body).toEqual({
+    businessDescription: 'We roast and sell specialty coffee beans in Phnom Penh.',
+    businessDocumentKnowledge: 'We roast and sell specialty coffee beans in Phnom Penh.',
+  });
+  expect(mocks.text).toHaveBeenCalledTimes(2);
   expect(mocks.text.mock.calls[0][0].prompt).toContain('Mondulkiri');
+  expect(mocks.text.mock.calls[1][0].prompt).toContain('Mondulkiri');
 });
 
 it('rejects the request when no file was sent', async () => {
@@ -106,7 +110,10 @@ it('summarizes a pasted website link into a saved business description', async (
   const res = responseRecorder();
   await handler(req, res);
   expect(res.statusCode).toBe(200);
-  expect(res.body).toEqual({ businessDescription: 'We roast and sell specialty coffee beans in Phnom Penh.' });
+  expect(res.body).toEqual({
+    businessDescription: 'We roast and sell specialty coffee beans in Phnom Penh.',
+    businessDocumentKnowledge: 'We roast and sell specialty coffee beans in Phnom Penh.',
+  });
   expect(mocks.extractWebsite).toHaveBeenCalledWith({ url: 'https://sabaicoffee.example.com' });
   expect(mocks.text.mock.calls[0][0].prompt).toContain('the website "Sabai Coffee Roastery"');
   expect(mocks.text.mock.calls[0][0].prompt).toContain('Mondulkiri');
@@ -179,6 +186,44 @@ it('surfaces a document-extraction failure with its own status and message', asy
   expect(res.statusCode).toBe(400);
   expect(res.body.error).toMatch(/not supported/i);
   expect(mocks.text).not.toHaveBeenCalled();
+});
+
+it('produces a detailed document knowledge base alongside the short description', async () => {
+  mocks.text.mockImplementation(({ maxTokens }) => Promise.resolve(
+    maxTokens > 1000
+      ? 'DG Academy runs evening and weekend digital marketing, web development, and AI courses in Phnom Penh, with a certificate on completion of each track.'
+      : 'DG Academy teaches digital skills in Phnom Penh.',
+  ));
+  const req = {
+    method: 'POST',
+    headers: {},
+    body: {
+      action: 'extractBusinessIntro',
+      fileDataUrl: textDataUrl('DG Academy is a training academy in Phnom Penh. We run evening and weekend courses in digital marketing, web development, and AI, and issue a certificate on completion of each track.'),
+      fileName: 'dg-academy-intro.txt',
+      language: 'en',
+    },
+  };
+  const res = responseRecorder();
+  await handler(req, res);
+  expect(res.statusCode).toBe(200);
+  expect(res.body).toEqual({
+    businessDescription: 'DG Academy teaches digital skills in Phnom Penh.',
+    businessDocumentKnowledge: 'DG Academy runs evening and weekend digital marketing, web development, and AI courses in Phnom Penh, with a certificate on completion of each track.',
+  });
+});
+
+it('still returns the short description when the detailed knowledge summary comes back empty', async () => {
+  mocks.text.mockImplementation(({ maxTokens }) => Promise.resolve(maxTokens > 1000 ? '   ' : 'DG Academy teaches digital skills in Phnom Penh.'));
+  const req = {
+    method: 'POST',
+    headers: {},
+    body: { action: 'extractBusinessIntro', fileDataUrl: textDataUrl('DG Academy intro text.'), fileName: 'intro.txt', language: 'en' },
+  };
+  const res = responseRecorder();
+  await handler(req, res);
+  expect(res.statusCode).toBe(200);
+  expect(res.body).toEqual({ businessDescription: 'DG Academy teaches digital skills in Phnom Penh.', businessDocumentKnowledge: '' });
 });
 
 it('returns 502 when the AI summary comes back empty', async () => {

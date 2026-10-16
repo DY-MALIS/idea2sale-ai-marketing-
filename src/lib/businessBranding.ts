@@ -6,6 +6,8 @@ import type { BusinessDirectoryEntry, BusinessProductImage, BusinessProfileData 
 export interface BusinessBranding {
   businessName: string;
   businessDescription: string;
+  businessKnowledgeBase: string;
+  businessDocumentKnowledge: string;
   logoDataUrl: string;
   directory: BusinessDirectoryEntry[];
   productImages: BusinessProductImage[];
@@ -18,7 +20,7 @@ export interface BusinessBranding {
   linkedinUrl: string;
 }
 
-const emptyBranding = (): BusinessBranding => ({ businessName: '', businessDescription: '', logoDataUrl: '', directory: [], productImages: [], telegramBotUsername: '', telegramBotActive: false, telegramChannelUrl: '', tiktokHandle: '', facebookPageUrl: '', websiteUrl: '', linkedinUrl: '' });
+const emptyBranding = (): BusinessBranding => ({ businessName: '', businessDescription: '', businessKnowledgeBase: '', businessDocumentKnowledge: '', logoDataUrl: '', directory: [], productImages: [], telegramBotUsername: '', telegramBotActive: false, telegramChannelUrl: '', tiktokHandle: '', facebookPageUrl: '', websiteUrl: '', linkedinUrl: '' });
 
 // Read at the moment an asset/script is generated. The main tabs stay mounted
 // while Business Profile is edited, so mount-time state otherwise becomes stale.
@@ -34,6 +36,8 @@ export async function getLatestBusinessBranding(user: User | null, isDemoMode: b
     return {
       businessName: String(profile?.businessName || '').trim(),
       businessDescription: String(profile?.businessDescription || '').trim(),
+      businessKnowledgeBase: String(profile?.businessKnowledgeBase || '').trim(),
+      businessDocumentKnowledge: String(profile?.businessDocumentKnowledge || '').trim(),
       logoDataUrl: String(profile?.logoDataUrl || ''),
       directory: Array.isArray(profile?.directory) ? profile.directory : [],
       productImages: Array.isArray(profile?.productImages) ? profile.productImages : [],

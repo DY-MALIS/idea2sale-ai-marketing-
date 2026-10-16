@@ -111,6 +111,19 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
   const [facebookPageUrl, setFacebookPageUrl] = useState('');
   const [websiteUrl, setWebsiteUrl] = useState('');
   const [linkedinUrl, setLinkedinUrl] = useState('');
+  // AI-distilled knowledge read automatically from the links above (see
+  // refreshBusinessKnowledgeIfNeeded) -- not an editable field, just a status
+  // the owner can see and force-refresh.
+  const [businessKnowledgeBase, setBusinessKnowledgeBase] = useState('');
+  const [businessKnowledgeBaseSources, setBusinessKnowledgeBaseSources] = useState<string[]>([]);
+  const [businessKnowledgeBaseUpdatedAt, setBusinessKnowledgeBaseUpdatedAt] = useState(0);
+  const [knowledgeRefreshing, setKnowledgeRefreshing] = useState(false);
+  const [knowledgeRefreshError, setKnowledgeRefreshError] = useState<string | null>(null);
+  // Detailed companion to businessDescription, filled by the same
+  // extractBusinessIntro call (uploaded file, or the "Fetch intro" website
+  // paste) -- persisted on the next normal Save Profile, same as
+  // businessDescription itself.
+  const [businessDocumentKnowledge, setBusinessDocumentKnowledge] = useState('');
 
   const [entryName, setEntryName] = useState('');
   const [entryType, setEntryType] = useState<'COMPANY' | 'INDIVIDUAL'>('COMPANY');
@@ -130,6 +143,8 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
       setTelegramBotToken(''); setTelegramChatId(''); setTelegramChannelUrl('');
       setSavedTelegramBotToken('');
       setTiktokHandle(''); setFacebookPageUrl(''); setWebsiteUrl(''); setLinkedinUrl(''); setTelegramBotActive(false);
+      setBusinessKnowledgeBase(''); setBusinessKnowledgeBaseSources([]); setBusinessKnowledgeBaseUpdatedAt(0); setKnowledgeRefreshError(null);
+      setBusinessDocumentKnowledge('');
       try {
         if (isDemoMode || !user) {
           const local = getLocalProfile();
@@ -147,6 +162,10 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
           setFacebookPageUrl(local.facebookPageUrl || '');
           setWebsiteUrl(local.websiteUrl || '');
           setLinkedinUrl(local.linkedinUrl || '');
+          setBusinessKnowledgeBase(local.businessKnowledgeBase || '');
+          setBusinessKnowledgeBaseSources(local.businessKnowledgeBaseSources || []);
+          setBusinessKnowledgeBaseUpdatedAt(local.businessKnowledgeBaseUpdatedAt || 0);
+          setBusinessDocumentKnowledge(local.businessDocumentKnowledge || '');
         } else {
           const snap = await getDoc(doc(db, 'business_profiles', user.uid));
           if (cancelled) return;
@@ -166,6 +185,10 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
             setWebsiteUrl(data.websiteUrl || '');
             setLinkedinUrl(data.linkedinUrl || '');
             setTelegramBotActive(Boolean(data.telegramBotActive));
+            setBusinessKnowledgeBase(data.businessKnowledgeBase || '');
+            setBusinessKnowledgeBaseSources(Array.isArray(data.businessKnowledgeBaseSources) ? data.businessKnowledgeBaseSources : []);
+            setBusinessKnowledgeBaseUpdatedAt(data.businessKnowledgeBaseUpdatedAt || 0);
+            setBusinessDocumentKnowledge(data.businessDocumentKnowledge || '');
           } else {
             setBusinessName(''); setBusinessDescription(''); setLogoDataUrl(''); setDirectory([]); setProductImages([]);
             setTelegramBotToken(''); setTelegramChatId(''); setTelegramChannelUrl('');
@@ -273,6 +296,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'Could not read this file.');
       setBusinessDescription(String(data.businessDescription || ''));
+      setBusinessDocumentKnowledge(String(data.businessDocumentKnowledge || ''));
     } catch (err: any) {
       setError(err.message || t('businessProfileLoadError'));
     } finally {
@@ -298,10 +322,52 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'Could not read this website.');
       setBusinessDescription(String(data.businessDescription || ''));
+      setBusinessDocumentKnowledge(String(data.businessDocumentKnowledge || ''));
     } catch (err: any) {
       setError(err.message || t('businessProfileLoadError'));
     } finally {
       setIntroUploading(false);
+    }
+  };
+
+  // Reads the saved Website/Facebook/LinkedIn links and distills a detailed
+  // knowledge base so the AI Agent (chat and Live Voice) can answer specific
+  // questions about what the business actually does -- previously it only
+  // knew the short, owner-typed businessDescription field. Runs
+  // automatically after Save Profile when a saved link is new or changed
+  // (force bypasses that check for the manual "Refresh now" button). A link
+  // that fails to fetch is not recorded as attempted, so it retries on the
+  // next save instead of silently giving up forever.
+  const refreshBusinessKnowledgeIfNeeded = async (links: string[], { force = false } = {}) => {
+    if (!links.length) return;
+    const unchanged = !force && links.length === businessKnowledgeBaseSources.length
+      && links.every((url) => businessKnowledgeBaseSources.includes(url));
+    if (unchanged) return;
+    setKnowledgeRefreshing(true);
+    setKnowledgeRefreshError(null);
+    try {
+      const response = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'refreshBusinessKnowledge', websiteUrl, facebookPageUrl, linkedinUrl, language }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Could not read the saved links.');
+      const knowledgeBase = String(data.businessKnowledgeBase || '');
+      const updatedAt = Date.now();
+      setBusinessKnowledgeBase(knowledgeBase);
+      setBusinessKnowledgeBaseSources(links);
+      setBusinessKnowledgeBaseUpdatedAt(updatedAt);
+      const persisted = { businessKnowledgeBase: knowledgeBase, businessKnowledgeBaseSources: links, businessKnowledgeBaseUpdatedAt: updatedAt };
+      if (isDemoMode || !user) {
+        localStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify({ ...getLocalProfile(), ...persisted }));
+      } else {
+        await setDoc(doc(db, 'business_profiles', user.uid), persisted, { merge: true });
+      }
+    } catch (err: any) {
+      setKnowledgeRefreshError(err.message || 'Could not read the saved links.');
+    } finally {
+      setKnowledgeRefreshing(false);
     }
   };
 
@@ -352,6 +418,14 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
     const profile: BusinessProfileData = {
       businessName: businessName.trim(),
       businessDescription: businessDescription.trim().slice(0, 1000),
+      businessDocumentKnowledge: businessDocumentKnowledge.slice(0, 4000),
+      // Carried through from current state (set by extraction, or by a
+      // prior automatic link refresh) so a normal Save Profile never wipes
+      // them out -- the demo-mode branch below replaces the whole stored
+      // object rather than merging it.
+      businessKnowledgeBase,
+      businessKnowledgeBaseSources,
+      businessKnowledgeBaseUpdatedAt,
       logoDataUrl,
       directory,
       productImages: productImages.map((image) => ({ ...image, label: image.label.trim().slice(0, 60) })),
@@ -397,6 +471,10 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
       setSaved(true);
       window.dispatchEvent(new Event('business-profile-updated'));
       setTimeout(() => setSaved(false), 3000);
+      // Fire-and-forget: Save Profile itself is already done, so a slow or
+      // unreachable link reads this knowledge base in the background rather
+      // than holding up the Save button or its confirmation.
+      void refreshBusinessKnowledgeIfNeeded([siteUrl, pageUrl, linkedInPageUrl].filter(Boolean));
     } catch (err: any) {
       console.error('Failed to save business profile:', err);
       setError(err.message || t('businessProfileSaveError'));
@@ -528,6 +606,12 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
                   ? (language === 'km' ? 'កំពុងអាន...' : 'Reading file...')
                   : (language === 'km' ? 'ឬ Upload ឯកសារណែនាំក្រុមហ៊ុន (.txt, .pdf, .docx, .json, .js, .html...)' : 'Or upload a company intro file (.txt, .pdf, .docx, .json, .js, .html...)')}
               </button>
+              {businessDocumentKnowledge && !introUploading && (
+                <p className="mt-1.5 flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+                  <CheckCircle2 size={13} />
+                  {language === 'km' ? 'Agent បានអានព័ត៌មានលម្អិតពីឯកសារ/តំណនេះ -- ចុច រក្សាទុកព័ត៌មាន ដើម្បីរក្សាទុក' : 'Agent read detailed information from this file/link -- click Save Profile to keep it'}
+                </p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -608,6 +692,36 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
                   onChange={(e) => setLinkedinUrl(e.target.value)} placeholder="https://www.linkedin.com/company/mycompany"
                   className="w-full px-4 py-3 bg-brand-50 border border-brand-100 dark:bg-slate-800 dark:border-slate-700 rounded-2xl text-sm text-brand-700 dark:text-slate-100 focus:outline-none focus:ring-2 ring-brand-500/20" />
               </div>
+              {(websiteUrl.trim() || facebookPageUrl.trim() || linkedinUrl.trim()) && (
+                <div className="rounded-2xl bg-brand-50 dark:bg-slate-800 px-4 py-3 text-xs">
+                  {knowledgeRefreshing ? (
+                    <span className="flex items-center gap-1.5 text-brand-600 dark:text-brand-300">
+                      <Loader2 size={13} className="animate-spin" />
+                      {language === 'km' ? 'កំពុងអានតំណភ្ជាប់ដើម្បីស្គាល់អាជីវកម្មរបស់អ្នក...' : 'Reading your links to learn your business...'}
+                    </span>
+                  ) : knowledgeRefreshError ? (
+                    <span className="text-red-600 dark:text-red-400">{knowledgeRefreshError}</span>
+                  ) : businessKnowledgeBase ? (
+                    <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
+                      <CheckCircle2 size={13} />
+                      {language === 'km'
+                        ? `Agent បានស្គាល់ពីអាជីវកម្មរបស់អ្នកពីតំណភ្ជាប់ ${businessKnowledgeBaseSources.length} (${new Date(businessKnowledgeBaseUpdatedAt).toLocaleDateString()})`
+                        : `Agent has learned your business from ${businessKnowledgeBaseSources.length} link(s) (${new Date(businessKnowledgeBaseUpdatedAt).toLocaleDateString()})`}
+                    </span>
+                  ) : (
+                    <span className="text-slate-500 dark:text-slate-400">
+                      {language === 'km' ? 'រក្សាទុកព័ត៌មានដើម្បីឲ្យ Agent អានតំណភ្ជាប់ទាំងនេះដោយស្វ័យប្រវត្តិ' : 'Save Profile to let the Agent automatically read these links'}
+                    </span>
+                  )}
+                  {!knowledgeRefreshing && (
+                    <button type="button"
+                      onClick={() => void refreshBusinessKnowledgeIfNeeded([websiteUrl.trim(), facebookPageUrl.trim(), linkedinUrl.trim()].filter(Boolean), { force: true })}
+                      className="ml-2 font-bold text-brand-600 dark:text-brand-300 hover:underline">
+                      {language === 'km' ? 'អានឡើងវិញ' : 'Refresh now'}
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
             <div>
