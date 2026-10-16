@@ -415,6 +415,8 @@ export async function generateOpenRouterImage({ prompt, aspectRatio = '1:1', mod
     data = await openRouterJson('/images', buildBody(primaryModel), timeoutMs);
     if (!data?.data?.[0]?.b64_json) throw new Error('OpenRouter did not return an image.');
   } catch (primaryError) {
+    // A different image model cannot resolve an account-level credit shortage.
+    if (primaryError?.statusCode === 402) throw primaryError;
     if (primaryModel === FALLBACK_IMAGE_MODEL) throw primaryError;
     console.error(`Image generation failed with ${primaryModel}, retrying with ${FALLBACK_IMAGE_MODEL}:`, primaryError?.message || primaryError);
     data = await openRouterJson('/images', buildBody(FALLBACK_IMAGE_MODEL), timeoutMs);

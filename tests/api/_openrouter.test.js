@@ -127,6 +127,19 @@ describe('generateOpenRouterImage fallback', () => {
     expect(result.imageUrl).toBe('data:image/png;base64,BBBB');
   });
 
+  it('does not try another image model when OpenRouter credits are insufficient', async () => {
+    process.env.OPEN_ROUTER_API_KEY = 'test-key';
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 402,
+      json: async () => ({ error: { message: 'Insufficient credits.' } }),
+    });
+    global.fetch = fetchMock;
+
+    await expect(generateOpenRouterImage({ prompt: 'a presenter' })).rejects.toThrow('Insufficient credits.');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('retries with the fallback model when the primary model returns no image data', async () => {
     process.env.OPEN_ROUTER_API_KEY = 'test-key';
     const fetchMock = vi.fn()
