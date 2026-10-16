@@ -119,8 +119,8 @@ interface PendingVideoJob {
 }
 
 const presenterImageFallbackNotice = (language: 'km' | 'en') => language === 'km'
-  ? 'សេវាបានបដិសេធរូប presenter ដែលបង្កើតស្វ័យប្រវត្តិ។ វីដេអូនេះប្រើការពិពណ៌នាឈុត និងសំឡេងខ្មែរជំនួស។ សូមមើល និងស្តាប់ចលនាមាត់មុនផ្សព្វផ្សាយ។'
-  : 'The video provider rejected the automatically generated presenter image. This clip uses the scene description and Khmer audio instead. Review the person and lip sync before publishing.';
+  ? 'សេវាបានបដិសេធរូប presenter ដែលបង្កើតស្វ័យប្រវត្តិ។ វីដេអូបានបង្កើតពីការពិពណ៌នាឈុត ហើយបញ្ចូលសំឡេងខ្មែរក្រោយមក។ សូមពិនិត្យចលនាមាត់មុនផ្សព្វផ្សាយ។'
+  : 'The provider rejected the generated presenter image. The clip was made from the scene description, then Khmer audio was added. Review lip sync before publishing.';
 
 interface PendingVideoStart {
   fingerprint: string;
@@ -1792,8 +1792,8 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       if (spokenSegments) setPerformanceNeedsReview(true);
       if (spokenSegments) setVideoVoiceQualityNotice(usedKhmerVoiceFallback
         ? (language === 'km'
-          ? 'សំឡេងធម្មជាតិកម្រិតខ្ពស់មិនអាចប្រើបាន ដូច្នេះវីដេអូនេះប្រើសំឡេងខ្មែរ Neural បម្រុង។ ពាក្យត្រូវបានផ្ទៀងផ្ទាត់ ប៉ុន្តែសូមស្តាប់ និងពិនិត្យចលនាមាត់មុនផ្សព្វផ្សាយ។'
-          : 'The high-naturalness Khmer voice was unavailable, so this video uses the Khmer neural fallback. Words were verified; review the voice and lip sync before publishing.')
+          ? 'សំឡេងធម្មជាតិកម្រិតខ្ពស់មិនអាចប្រើបាន ដូច្នេះវីដេអូនេះប្រើសំឡេងខ្មែរ Neural បម្រុង។ សូមស្តាប់ផ្ទៀងផ្ទាត់ពាក្យ និងពិនិត្យចលនាមាត់មុនផ្សព្វផ្សាយ។'
+          : 'The expressive Khmer voice was unavailable, so this video uses the Khmer neural fallback. Listen to verify the words and review lip sync before publishing.')
         : (language === 'km'
           ? 'បានប្រើសំឡេងខ្មែរបែបធម្មជាតិ និងផ្ទៀងផ្ទាត់ពាក្យដោយស្វ័យប្រវត្តិ។ សូមមើល និងស្តាប់ ដើម្បីបញ្ជាក់អារម្មណ៍ ល្បឿន ចលនាមាត់ និងកាយវិការមុនផ្សព្វផ្សាយ។'
           : 'Expressive Khmer reference audio is attached and the words were checked automatically. Review emotion, pace, lip sync and gestures before publishing.'));
