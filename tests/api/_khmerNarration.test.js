@@ -145,10 +145,14 @@ describe('Khmer narration', () => {
     expect(mocks.edge).toHaveBeenCalledWith({ input: 'សួស្តី', voice: 'km-KH-PisethNeural', rate: '+6%' });
   });
 
-  it('surfaces the Edge failure when expressive, fallback and last-resort voices all fail', async () => {
+  it('surfaces a clear combined failure -- not the raw Edge error code -- when expressive, fallback and last-resort voices all fail', async () => {
     mocks.gemini.mockRejectedValue(new Error('provider unavailable'));
     mocks.edge.mockRejectedValue(new Error('auth failed'));
-    await expect(generateKhmerSpeech({ input: 'សួស្តី' })).rejects.toThrow('auth failed');
+    // The raw Edge error (an unofficial-API code) means nothing to the
+    // person who typed the request and would misleadingly imply the final
+    // cause was Edge again, even when (as tested below) the last-resort
+    // Gemini take was really what failed.
+    await expect(generateKhmerSpeech({ input: 'សួស្តី' })).rejects.toThrow('both the primary and backup Khmer voices failed');
     expect(mocks.translate).not.toHaveBeenCalled();
   });
   it('verifies the last-resort Gemini take the same way as the primary one during a paid video', async () => {
@@ -161,13 +165,20 @@ describe('Khmer narration', () => {
     expect(mocks.transcribe).toHaveBeenCalledTimes(1);
     expect(mocks.gemini).toHaveBeenCalledTimes(1);
   });
-  it('does not deliver a last-resort Gemini take whose transcript never matches the script', async () => {
+  it('does not deliver a last-resort Gemini take whose transcript never matches the script, and logs the mismatch for diagnosis', async () => {
     vi.stubEnv('KHMER_TTS_PROVIDER', '');
     mocks.edge.mockRejectedValue(new Error('Unexpected server response: 403'));
     mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,YXVkaW8=', provider: 'gemini' });
     mocks.transcribe.mockResolvedValue('ខុសទាំងស្រុង');
-    await expect(generateKhmerSpeech({ input: 'សួស្តី', targetDuration: 4 })).rejects.toThrow('Unexpected server response: 403');
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await expect(generateKhmerSpeech({ input: 'សួស្តី', targetDuration: 4 }))
+      .rejects.toThrow('both the primary and backup Khmer voices failed');
     expect(mocks.gemini).toHaveBeenCalledTimes(2);
+    // Previously this exact failure (both takes transcribed but confirmed
+    // mismatched, with Edge also down) logged nothing at all -- a real
+    // production occurrence of it was undiagnosable from the server logs.
+    expect(warnSpy.mock.calls.some((call) => String(call[0] || '').includes('did not match the script'))).toBe(true);
+    warnSpy.mockRestore();
   });
   it('keeps a spoken Agent reply available when Edge returns empty audio', async () => {
     const script = '\u179f\u17bd\u179f\u17d2\u178f\u17b8';

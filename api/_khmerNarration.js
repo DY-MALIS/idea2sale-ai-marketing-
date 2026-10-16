@@ -17,6 +17,7 @@ const WAV_PREFIX = 'data:audio/wav;base64,';
 const matchesKhmerScript = async (audio, expectedScript) => {
   if (!audio.audioUrl?.startsWith(WAV_PREFIX)) throw new Error('Expressive voice returned unsupported audio.');
   let gotTranscript = false;
+  let bestMismatch = null;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const transcript = await transcribeAudioWithOpenRouter({
@@ -26,10 +27,21 @@ const matchesKhmerScript = async (audio, expectedScript) => {
         timeoutMs: 30_000,
       });
       gotTranscript = true;
-      if (compareKhmerTranscript(expectedScript, transcript).passed) return true;
+      const comparison = compareKhmerTranscript(expectedScript, transcript);
+      if (comparison.passed) return true;
+      if (!bestMismatch || comparison.similarity > bestMismatch.similarity) bestMismatch = { transcript, similarity: comparison.similarity };
     } catch (error) {
       console.warn('Khmer speech transcription attempt failed:', error?.message || error);
     }
+  }
+  // A take that WAS transcribed on every attempt but never matched is a
+  // confirmed wrong read, not a transcription hiccup -- this is the only path
+  // through this function that otherwise logs nothing at all, which made a
+  // real production failure (both Gemini takes mismatching, with Edge also
+  // down) completely invisible in the server logs. Truncate the transcript:
+  // this is diagnostic, not something a reader needs to read in full.
+  if (gotTranscript && bestMismatch) {
+    console.warn(`Khmer speech did not match the script (similarity ${bestMismatch.similarity.toFixed(2)}). Expected: "${expectedScript.slice(0, 120)}" Got: "${bestMismatch.transcript.slice(0, 120)}"`);
   }
   // Every attempt threw rather than returning any transcript to compare --
   // this is an outage of the verification service itself, not a confirmed
@@ -147,7 +159,18 @@ export async function generateKhmerSpeech({
     // script, which is worse than surfacing the original Edge failure.
     console.error('Edge Khmer speech failed; trying Gemini as a verified last resort:', edgeError?.message || edgeError);
     const generated = await generateVerifiedGeminiTake({ spokenInput, voice, performanceStyle: clearKhmerStyle, context, voiceOverride, targetSeconds });
-    if (!generated) throw edgeError;
+    if (!generated) {
+      // Both providers are now exhausted. edgeError's own message is a raw,
+      // unofficial-API WebSocket error code ("Unexpected server response:
+      // 403") that means nothing to the person who typed the request and
+      // actively misleads them about what just happened when (as here) the
+      // real final cause was the Gemini fallback's speech not matching the
+      // script, not Edge's error repeating. Keep edgeError as the logged
+      // cause (see console.error above) but surface a message that
+      // describes what actually happened instead of its error code.
+      console.error('Gemini fallback also failed or did not clearly match the script; both Khmer voice providers are unavailable right now.');
+      throw new Error('Could not generate Khmer narration audio right now -- both the primary and backup Khmer voices failed. Please try again in a moment.');
+    }
     return {
       ...generated,
       spokenText: spokenInput,
