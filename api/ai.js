@@ -2438,6 +2438,12 @@ Return ONLY a single valid JSON object with this exact structure:
         // asked to spell names phonetically; adding the raw name afterward can
         // switch the Khmer TTS voice to English and overrun the clip.
         const generatedVoiceOver = String(item?.voiceOverText || '').trim();
+        const topic = String(item?.topic || '').trim().slice(0, 200);
+        const hook = String(item?.hook || '').trim().slice(0, 200);
+        const targetDesire = String(item?.targetDesire || '').trim().slice(0, 250);
+        const suppliedPrompt = String(item?.prompt || '').trim().slice(0, 2000);
+        const subject = topic || hook || targetDesire;
+        if (!suppliedPrompt && !subject) return null;
         const itemDate = item?.date && /^\d{4}-\d{2}-\d{2}$/.test(item.date)
           ? item.date
           : new Date(today.getTime() + idx * 86400000).toISOString().slice(0, 10);
@@ -2445,10 +2451,10 @@ Return ONLY a single valid JSON object with this exact structure:
           date: itemDate,
           day: String(item?.day || `Day ${idx + 1}`),
           type: 'video',
-          topic: String(item?.topic || '').slice(0, 200),
-          hook: String(item?.hook || '').slice(0, 200),
-          targetDesire: String(item?.targetDesire || '').slice(0, 250),
-          prompt: String(item?.prompt || '').slice(0, 2000),
+          topic,
+          hook,
+          targetDesire,
+          prompt: suppliedPrompt || `Create a realistic 8-second Cambodian social-media video about ${subject}. Show one clear primary presenter doing a relevant real-world action, facing the camera in a single continuous shot. No on-screen text or subtitles.`,
           voiceGender: item?.voiceGender === 'Male' ? 'Male' : 'Female',
           aspectRatio: '16:9',
           voiceOverText: generatedVoiceOver.slice(0, 500),
@@ -2457,7 +2463,7 @@ Return ONLY a single valid JSON object with this exact structure:
           cta: String(item?.cta || '').slice(0, 120),
           selected: true,
         };
-      });
+      }).filter(Boolean);
 
       // Only return leads whose name exactly matches a real business returned
       // by the web search. Contact fields always come from that API, never

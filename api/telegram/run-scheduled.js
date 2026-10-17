@@ -832,6 +832,26 @@ export default async function handler(req, res) {
     }));
 
     const results = [];
+    const DAILY_IMAGE_CAP = 2;
+    const DAILY_VIDEO_CAP = 1;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const countGeneratedToday = async (type, statuses) => {
+      const snapshot = await db.collection('content_plan_items').where('type', '==', type).where('status', 'in', statuses).get();
+      return snapshot.docs.filter((doc) => {
+        const data = doc.data();
+        const ts = data.completedAt || data.processingAt;
+        return ts?.toDate?.().toISOString().slice(0, 10) === todayStr;
+      }).length;
+    };
+    // Start due video before unrelated post or image delivery. Those jobs can
+    // fail or consume this invocation's time without affecting video starts.
+    try {
+      await startDuePlanVideos();
+    } catch (error) {
+      const message = error?.message || 'Could not check due Content Plan videos.';
+      results.push({ id: 'content-plan-videos', ok: false, contentPlan: true, error: message });
+      await notifyAdmins(`Content Plan video check failed: ${message}`);
+    }
 
     // Re-arm paid video jobs whose QStash chain was interrupted. Never reset
     // these to PENDING: that would submit a second paid generation and orphan
@@ -999,17 +1019,6 @@ export default async function handler(req, res) {
     // and that's exactly what happened live: one day produced 8 images and 3
     // videos instead of 2 and 1. countGeneratedToday makes the cap a real
     // per-calendar-day ceiling no matter how many times this runs today.
-    const DAILY_IMAGE_CAP = 2;
-    const DAILY_VIDEO_CAP = 1;
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const countGeneratedToday = async (type, statuses) => {
-      const snapshot = await db.collection('content_plan_items').where('type', '==', type).where('status', 'in', statuses).get();
-      return snapshot.docs.filter((doc) => {
-        const data = doc.data();
-        const ts = data.completedAt || data.processingAt;
-        return ts?.toDate?.().toISOString().slice(0, 10) === todayStr;
-      }).length;
-    };
     const imagesGeneratedToday = await countGeneratedToday('image', ['DONE']);
     const remainingImageCap = Math.max(0, DAILY_IMAGE_CAP - imagesGeneratedToday);
     const planSnapshot = await db
@@ -1084,6 +1093,7 @@ export default async function handler(req, res) {
       }
     }
 
+    async function startDuePlanVideos() {
     // Video items: start the job here, then hand off to QStash (see
     // scheduleContentPlanPoll / api/telegram/deliver.js) to poll it to
     // completion -- a video job routinely takes minutes, far longer than this
@@ -1151,6 +1161,7 @@ export default async function handler(req, res) {
         results.push({ id: planDoc.id, ok: false, contentPlan: true, error: message });
         await notifyAdmins(`Content plan video item ${planDoc.id} failed to start (cron): ${message}`);
       }
+    }
     }
 
     if (results.length > 0) {

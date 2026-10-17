@@ -1,11 +1,26 @@
 import { expect, it } from 'vitest';
-import { isContentPlanCreationRequest, isStandaloneAudioRequest, shouldClassifyCreativeMedia } from '../../shared/agentIntent.js';
+import { isContentPlanCreationRequest, isStandaloneAudioRequest, isVideoCreationFromPlanRequest, shouldClassifyCreativeMedia } from '../../shared/agentIntent.js';
 
 it('routes direct content plan requests while leaving advice questions in chat', () => {
   expect(isContentPlanCreationRequest('សូមបង្កើត content plan 7 ថ្ងៃសម្រាប់ហាងកាហ្វេ')).toBe(true);
   expect(isContentPlanCreationRequest('Can you create a content plan for next week?')).toBe(true);
   expect(isContentPlanCreationRequest('Create a content planner')).toBe(true);
   expect(isContentPlanCreationRequest('How do I create a content plan?')).toBe(false);
+});
+
+it('routes a video made from a content plan to video generation, not plan creation', () => {
+  for (const command of [
+    'Create a video from my content plan',
+    'Generate a video from the Excel content plan for Telegram',
+    'From my content plan, create a video for today',
+    'សូមបង្កើតវីដេអូតាម content plan',
+  ]) {
+    expect(isVideoCreationFromPlanRequest(command)).toBe(true);
+    expect(isContentPlanCreationRequest(command)).toBe(false);
+    expect(shouldClassifyCreativeMedia(command)).toBe(true);
+  }
+  expect(isVideoCreationFromPlanRequest('Create a content plan for videos')).toBe(false);
+  expect(isContentPlanCreationRequest('Create a content plan for videos')).toBe(true);
 });
 
 it('routes spoken audio separately from video generation', () => {

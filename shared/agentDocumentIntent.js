@@ -1,4 +1,4 @@
-import { isContentPlanCreationRequest } from './agentIntent.js';
+import { isContentPlanCreationRequest, isVideoCreationFromPlanRequest } from './agentIntent.js';
 
 const formatPattern = /\b(word|docx|excel|xlsx)\b|ឯកសារ\s*វើដ|(?:សន្លឹក\s*)?អ៊?ិចសែល|អេចសែល/iu;
 const excelPattern = /\b(excel|xlsx)\b|(?:សន្លឹក\s*)?អ៊?ិចសែល|អេចសែល/iu;
@@ -14,6 +14,7 @@ export const isMonthlyPlanRequest = (message) => {
 
 export const requestedAgentDocumentFormat = (message, { preferSpreadsheetForPlan = false } = {}) => {
   const text = String(message || '').trim();
+  if (isVideoCreationFromPlanRequest(text)) return null;
   if (preferSpreadsheetForPlan && isContentPlanCreationRequest(text)) return 'xlsx';
   if (!commandPattern.test(text) || advicePattern.test(text)) return null;
   if (formatPattern.test(text)) return excelPattern.test(text) ? 'xlsx' : 'docx';

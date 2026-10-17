@@ -3,12 +3,27 @@ const adviceQuestion = /^(?:how|why|what|which|should|can you explain|របៀ�
 const planNoun = /\b(?:content\s*plan(?:ner)?|content\s*calendar|posting\s*calendar|plan\s+for\s+content)\b|ផែនការ\s*(?:មាតិកា|ខ្លឹមសារ|បង្ហោះ|content)|កាលវិភាគបង្ហោះ/iu;
 const audioNoun = /\b(?:audio|voice[ -]?over|narration|spoken audio|speech|voice recording)\b|សំឡេង|សម្លេង|សូរសំឡេង/iu;
 const mediaNoun = /\b(?:image|photo|poster|visual|logo|flyer|banner|video|reel|short film)\b|រូបភាព|រូបថត|ប៉ូស្ទ័រ|ឡូហ្គោ|វីដេអូ/iu;
+const videoNoun = /\b(?:video|reel|short film)s?\b|វីដេអូ/iu;
 const goAhead = /^(?:yes|ok(?:ay)?|go ahead|do it|make it|create it|generate it|please do|ចាស|បាទ|យល់ព្រម|ធ្វើទៅ|បង្កើតទៅ|បង្កើតមក|សូមធ្វើ|សូមបង្កើត)[.!។\s]*$/iu;
 const briefAnswer = /\b(?:voice|narration|silent|no sound|no voice|khmer|english|seconds?|tiktok|facebook|youtube)\b|\b\d\s*:\s*\d\b|សំឡេង|សម្លេង|ភាសាខ្មែរ|ភាសាអង់គ្លេស|មិនបាច់សំឡេង|វិនាទី/iu;
 
+export const isVideoCreationFromPlanRequest = (message) => {
+  const text = String(message || '').trim();
+  const plan = planNoun.exec(text);
+  const video = videoNoun.exec(text);
+  if (!plan || !video || !creationVerb.test(text) || adviceQuestion.test(text)) return false;
+  // In "create a video from the content plan", the video is the output and
+  // the plan is its source. In "create a content plan for videos", the plan
+  // itself is the output. Keep document/plan commands on their own path.
+  const planIsSource = /(?:\b(?:from|using|based on|according to)\b|តាម|ពី)\s*(?:(?:my|our|the)\s*)?$/iu.test(text.slice(0, plan.index));
+  return (video.index < plan.index && !/\bvideo\s+content\s+plan\b/iu.test(text))
+    || (planIsSource && video.index > plan.index);
+};
+
 export const isContentPlanCreationRequest = (message) => {
   const text = String(message || '').trim();
-  return planNoun.test(text) && creationVerb.test(text) && !adviceQuestion.test(text);
+  return planNoun.test(text) && creationVerb.test(text) && !adviceQuestion.test(text)
+    && !isVideoCreationFromPlanRequest(text);
 };
 
 export const isStandaloneAudioRequest = (message) => {

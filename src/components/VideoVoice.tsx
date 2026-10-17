@@ -1561,6 +1561,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     setMergingSegments(false);
     let usedKhmerVoiceFallback = false;
     let usedImageFallback = false;
+    let lastGeneratedClip: string | null = null;
     const completedJobFingerprints: string[] = [];
     try {
       if (!user) throw new Error('Sign in before generating a video.');
@@ -1659,6 +1660,9 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         }
         setGeneratedVideoAspectRatio(generatedClip.outputAspectRatio);
         let clip = generatedClip.videoUrl;
+        // Keep the paid clip visible if a later, separate browser step fails.
+        // The saved job can still be resumed without starting another render.
+        lastGeneratedClip = clip;
         if (generatedClip.narrationFallbackReason) usedKhmerVoiceFallback = true;
         if (generatedClip.imageFallbackReason) usedImageFallback = true;
         // A fully silent result can be muted reliably by ImageKit after the
@@ -1687,6 +1691,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
           }
         }
         clipUrls.push(clip);
+        lastGeneratedClip = clip;
         completedJobFingerprints.push(generatedClip.pendingFingerprint);
       }
       setSegmentProgress(null);
@@ -1803,7 +1808,8 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       return;
     } catch (error: any) {
       console.error(error);
-      if (typeof error?.previewVideoUrl === 'string') setRecoverableVideoUrl(error.previewVideoUrl);
+      const previewVideoUrl = typeof error?.previewVideoUrl === 'string' ? error.previewVideoUrl : lastGeneratedClip;
+      if (previewVideoUrl) setRecoverableVideoUrl(previewVideoUrl);
       // ffmpeg.wasm and other browser-side steps can reject with something
       // that isn't a normal Error (a bare string, or an object with no usable
       // .message) — fall back to a neutral message instead of always blaming
@@ -2893,8 +2899,8 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                 <div className="w-full space-y-4">
                   <div className="rounded-2xl border border-amber-300 bg-amber-50 px-5 py-4 text-sm font-semibold text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
                     {language === 'km'
-                      ? 'វីដេអូដើមត្រូវបានរក្សាទុក ប៉ុន្តែសំឡេងមិនទាន់ភ្ជាប់រួចទេ។ សូមចុច «បន្តវីដេអូដែលកំពុងដំណើរការ» ដើម្បីបញ្ចប់ការងារដដែល។'
-                      : 'The original clip is saved, but narration is not finished. Use Resume processing video to complete the same job.'}
+                      ? 'វីដេអូដែលបានបង្កើតត្រូវបានរក្សាទុក ប៉ុន្តែការបញ្ចប់សំឡេង ឬការផ្ទុកឡើងមិនទាន់រួច។ សូមចុច «បន្តវីដេអូដែលកំពុងដំណើរការ» ដើម្បីបញ្ចប់ការងារដដែល។'
+                      : 'The generated clip is saved, but narration or upload did not finish. Use Resume processing video to complete the same job.'}
                   </div>
                   <GeneratedVideoPlayer src={recoverableVideoUrl} language={language} aspectRatio={generatedVideoAspectRatio} />
                   <a href={recoverableVideoUrl} download="original-video-preview.mp4" className="inline-block text-sm font-semibold text-brand-700 underline dark:text-brand-300">

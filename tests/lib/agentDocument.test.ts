@@ -10,6 +10,8 @@ describe('agent document requests', () => {
     const spokenPlan = 'សូមបង្កើត Content Plan ៧ ថ្ងៃសម្រាប់ DGACADEMY';
     expect(requestedAgentDocumentFormat(spokenPlan)).toBeNull();
     expect(requestedAgentDocumentFormat(spokenPlan, { preferSpreadsheetForPlan: true })).toBe('xlsx');
+    expect(requestedAgentDocumentFormat('Generate a video from the Excel content plan', { preferSpreadsheetForPlan: true })).toBeNull();
+    expect(requestedAgentDocumentFormat('សូមបង្កើតវីដេអូតាម content plan', { preferSpreadsheetForPlan: true })).toBeNull();
     expect(contentPlanDayCount(spokenPlan)).toBe(7);
     expect(requestedAgentDocumentFormat('សូមបង្កើត Content Plan ជាអិចសែល')).toBe('xlsx');
     expect(requestedAgentDocumentFormat('ខ្ញុំចង់បាន Content Plan ជា Excel')).toBe('xlsx');

@@ -125,6 +125,23 @@ it('routes the workers scan mode through worker/trade web discovery end to end',
   });
 });
 
+it('keeps scanner video creation usable when analysis omits the visual prompt', async () => {
+  mocks.text.mockResolvedValue(JSON.stringify({
+    customerInsights: {}, competitors: [], potentialLeads: [], summaryReport: 'Report',
+    videoPlan: [{ topic: 'Cambodian cafe service', voiceOverText: 'សួស្តី' }, {}],
+  }));
+  const res = responseRecorder();
+  await handler({
+    method: 'POST', headers: {}, socket: { remoteAddress: '127.0.0.1' },
+    body: { action: 'facebookIntelligenceScan', query: 'cafes Phnom Penh', scanMode: 'workers', countries: ['KH'], days: 7, language: 'en' },
+  }, res);
+
+  expect(res.statusCode).toBe(200);
+  expect(res.body.videoPlan).toHaveLength(1);
+  expect(res.body.videoPlan[0].prompt).toContain('Cambodian cafe service');
+  expect(res.body.videoPlan[0].voiceOverText).toBe('សួស្តី');
+});
+
 it('does not reuse one model analysis for two verified businesses with the same name', async () => {
   mocks.searchBusinesses.mockResolvedValue([
     { businessName: 'Kafe', businessType: 'Cafe', phone: '012 111 111', sourceUrl: 'https://first-kafe.example.com' },

@@ -9,7 +9,14 @@ const planMocks = vi.hoisted(() => ({
   startKhmerVideoJob: vi.fn(),
   preparePlanVideoSpeech: vi.fn(),
   publishJSON: vi.fn(),
+  image: vi.fn(),
+  logAudit: vi.fn(),
 }));
+vi.mock('../../../api/_openrouter.js', async (importOriginal) => ({
+  ...(await importOriginal()),
+  generateOpenRouterImage: planMocks.image,
+}));
+vi.mock('../../../api/_audit.js', () => ({ logAudit: planMocks.logAudit }));
 vi.mock('../../../api/_firebaseAdmin.js', () => ({ initFirebaseAdmin: () => planMocks.db || mockGetFirestore() }));
 vi.mock('../../../api/_khmerVideo.js', () => ({ startKhmerVideoJob: planMocks.startKhmerVideoJob }));
 vi.mock('../../../api/_videoSpeech.js', async (importOriginal) => ({
@@ -45,6 +52,8 @@ afterEach(() => {
   planMocks.startKhmerVideoJob.mockReset();
   planMocks.preparePlanVideoSpeech.mockReset();
   planMocks.publishJSON.mockReset();
+  planMocks.image.mockReset();
+  planMocks.logAudit.mockReset();
   vi.restoreAllMocks();
 });
 
@@ -82,6 +91,66 @@ it('detects a timed-out plan video start without treating an accepted paid job a
   expect(isStalledContentPlanVideoStart({ status: 'PROCESSING', type: 'video', processingAt }, now)).toBe(true);
   expect(isStalledContentPlanVideoStart({ status: 'PROCESSING', type: 'video', processingAt, videoJobId: 'paid-job' }, now)).toBe(false);
   expect(isStalledContentPlanVideoStart({ status: 'PROCESSING', type: 'video', processingAt: { toMillis: () => now - 2 * 60 * 1000 } }, now)).toBe(false);
+});
+
+it('starts a due Content Plan video before an unrelated image fails', async () => {
+  process.env.CRON_SECRET = 'cron-test';
+  process.env.QSTASH_TOKEN = 'qstash-test';
+  process.env.APP_URL = 'https://aime.example.test';
+  const events = [];
+  const video = { status: 'PENDING', type: 'video', userId: 'owner', prompt: 'Cambodian presenter', duration: 8 };
+  const image = { status: 'PENDING', type: 'image', userId: 'owner', prompt: 'Poster' };
+  const makeRef = (id, data) => ({
+    id,
+    get: async () => ({ exists: true, id, data: () => data }),
+    update: async (patch) => Object.assign(data, patch),
+  });
+  const videoRef = makeRef('due-video', video);
+  const imageRef = makeRef('due-image', image);
+  planMocks.db = {
+    collection: (name) => ({
+      doc: () => ({ get: async () => ({ data: () => ({ businessName: 'Academy' }) }) }),
+      where(field, _op, value) {
+        const filters = [[field, value]];
+        const query = {
+          where(nextField, _nextOp, nextValue) { filters.push([nextField, nextValue]); return query; },
+          orderBy() { return query; },
+          limit() { return query; },
+          async get() {
+            if (name !== 'content_plan_items') return { docs: [] };
+            const status = filters.find(([key]) => key === 'status')?.[1];
+            const type = filters.find(([key]) => key === 'type')?.[1];
+            if (status === 'PENDING' && type === 'video') return { docs: [{ id: videoRef.id, ref: videoRef }] };
+            if (status === 'PENDING' && type === 'image') return { docs: [{ id: imageRef.id, ref: imageRef }] };
+            return { docs: [] };
+          },
+        };
+        return query;
+      },
+    }),
+    runTransaction: async (fn) => fn({
+      get: (ref) => ref.get(),
+      update: (ref, patch) => { void ref.update(patch); },
+    }),
+  };
+  planMocks.preparePlanVideoSpeech.mockResolvedValue({ mode: 'silent', script: '', prompt: 'Presenter' });
+  planMocks.startKhmerVideoJob.mockImplementation(async () => {
+    events.push('video');
+    return { job: { jobId: 'video-job' } };
+  });
+  planMocks.image.mockImplementation(async () => {
+    events.push('image');
+    throw new Error('Unrelated image failed');
+  });
+  planMocks.publishJSON.mockResolvedValue({ messageId: 'poll-message' });
+  const res = createMockRes();
+
+  await scheduledHandler({ method: 'POST', headers: { authorization: 'Bearer cron-test' }, query: {} }, res);
+
+  expect(res.statusCode).toBe(200);
+  expect(events).toEqual(['video', 'image']);
+  expect(video).toMatchObject({ status: 'PROCESSING', videoJobId: 'video-job' });
+  expect(image).toMatchObject({ status: 'FAILED', errorMessage: 'Unrelated image failed' });
 });
 
 it('starts an approved plan video once, saves its job ID, and schedules the poller', async () => {
