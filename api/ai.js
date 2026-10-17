@@ -15,6 +15,7 @@ import { createGeminiLiveEphemeralToken } from './_geminiLive.js';
 import { liveVoiceLanguageInstruction } from './_liveVoiceInstruction.js';
 import { preparePlanVideoSpeech } from './_videoSpeech.js';
 import { startKhmerVideoJob } from './_khmerVideo.js';
+import { assertVideoCreditAvailable } from './_videoCredit.js';
 import { preserveKhmerDuringTranslation, compareKhmerTranscript, isKhmerOnlyNarration, KHMER_SCRIPT_ONLY_INSTRUCTION } from '../shared/videoSpeech.js';
 import { initFirebaseAdmin } from './_firebaseAdmin.js';
 import admin from './_firebaseAdmin.js';
@@ -2975,6 +2976,9 @@ Return ONLY a single valid JSON object with this exact structure:
           return res.status(202).json({ status: 'starting' });
         }
       }
+      // Check before prompt normalization and any narration/image preparation.
+      // The shared Khmer entry point performs the same check for cron jobs.
+      await assertVideoCreditAvailable();
       const normalizedPrompt = await normalizeMediaPrompt(prompt, 'video');
       const images = Array.isArray(req.body?.images)
         ? req.body.images
@@ -3025,6 +3029,7 @@ Return ONLY a single valid JSON object with this exact structure:
           productImageUrl,
           deadlineAt: videoStartDeadlineAt,
           onVideoSubmissionStart: () => { videoSubmissionAttempted = true; },
+          creditChecked: true,
         });
         const responseBody = {
           ...job,

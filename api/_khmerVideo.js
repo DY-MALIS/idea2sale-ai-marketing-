@@ -8,6 +8,7 @@ import {
   STANDARD_VIDEO_MODEL,
 } from '../shared/videoCost.js';
 import { getOriginalImageKitUrl } from '../shared/imageKitUrl.js';
+import { assertVideoCreditAvailable } from './_videoCredit.js';
 
 const MIN_KHMER_CLIP_DURATION = 4;
 const MAX_KHMER_CLIP_DURATION = 8;
@@ -62,6 +63,7 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
   productImageUrl = '',
   deadlineAt = Date.now() + VIDEO_START_DEADLINE_MS,
   onVideoSubmissionStart,
+  creditChecked = false,
 } = {}) => {
   const preparationStartedAt = Date.now();
   const hasKhmerSpeech = speech.mode !== 'silent';
@@ -70,6 +72,7 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
     khmerSpeech: hasKhmerSpeech,
     model: hasKhmerSpeech ? KHMER_VIDEO_MODEL : STANDARD_VIDEO_MODEL,
   });
+  if (!creditChecked) await assertVideoCreditAvailable();
   if (speech.mode === 'silent') {
     const timeoutMs = deadlineAt - Date.now() - 5_000;
     if (timeoutMs < 15_000) throw preparationTimeoutError();

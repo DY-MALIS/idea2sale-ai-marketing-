@@ -1,6 +1,8 @@
 import { afterEach, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ image: vi.fn(), video: vi.fn(), speech: vi.fn(), shorten: vi.fn(), expand: vi.fn() }));
 vi.mock('../../api/_openrouter.js', () => ({ generateOpenRouterImage: mocks.image, startOpenRouterVideo: mocks.video }));
+const credit = vi.hoisted(() => ({ check: vi.fn() }));
+vi.mock('../../api/_videoCredit.js', () => ({ assertVideoCreditAvailable: credit.check }));
 vi.mock('../../api/_khmerNarration.js', () => ({ generateKhmerSpeech: mocks.speech, shortenGeneratedKhmerNarration: mocks.shorten, expandGeneratedKhmerNarration: mocks.expand }));
 import { fitKhmerClipDurationToNarration, startKhmerVideoJob } from '../../api/_khmerVideo.js';
 afterEach(() => { vi.useRealTimers(); vi.resetAllMocks(); vi.unstubAllEnvs(); });
@@ -137,6 +139,14 @@ it('handles an avatar failure that occurs while narration is still running', asy
   finishSpeech({ audioUrl: 'audio-data', duration: 3.4 });
 
   await expect(started).rejects.toThrow('Avatar image unavailable');
+  expect(mocks.video).not.toHaveBeenCalled();
+});
+it('stops before narration and image preparation when video credit is exhausted', async () => {
+  credit.check.mockRejectedValue(Object.assign(new Error('OpenRouter credits are exhausted.'), { statusCode: 402 }));
+  await expect(startKhmerVideoJob({}, { script: 'សួស្តី', prompt: 'Presenter' }, uploadStub(), { duration: 4 }))
+    .rejects.toMatchObject({ statusCode: 402 });
+  expect(mocks.speech).not.toHaveBeenCalled();
+  expect(mocks.image).not.toHaveBeenCalled();
   expect(mocks.video).not.toHaveBeenCalled();
 });
 

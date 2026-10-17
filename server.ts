@@ -14,6 +14,7 @@ import telegramDeliverHandler from "./api/telegram/deliver.js";
 import aiHandler from "./api/ai.js";
 import publishPhotoHandler from "./api/tiktok/publish-photo.js";
 import configCheckHandler from "./api/config/check.js";
+import mediaProxyHandler from "./api/mediaProxy.js";
 import tiktokAuthHandler from "./api/auth/tiktok.js";
 import tiktokAuthRedirectHandler from "./api/auth/tiktok/redirect.js";
 import tiktokCallbackHandler from "./api/tiktok/callback.js";
@@ -108,6 +109,7 @@ async function startServer() {
   // Keep these registrations before the legacy compatibility routes below so
   // OAuth CSRF checks, Firebase auth, validation, and audit behavior cannot drift.
   app.all("/api/config/check", async (req, res) => { await configCheckHandler(req, res); });
+  app.all("/api/mediaProxy", async (req, res) => { await mediaProxyHandler(req, res); });
   app.all("/api/auth/tiktok", async (req, res) => { await tiktokAuthHandler(req, res); });
   app.all("/api/auth/tiktok/redirect", async (req, res) => { await tiktokAuthRedirectHandler(req, res); });
   app.all("/api/tiktok/callback", async (req, res) => { await tiktokCallbackHandler(req, res); });

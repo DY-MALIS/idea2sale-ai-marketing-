@@ -38,6 +38,9 @@ vi.mock('../../api/_rateLimit.js', () => ({
   getClientIp: () => '127.0.0.1',
 }));
 vi.mock('../../api/_khmerVideo.js', () => ({ startKhmerVideoJob: mocks.startKhmerVideoJob }));
+vi.mock('../../api/telegram/run-scheduled.js', () => ({ uploadMediaDataUrl: vi.fn() }));
+const credit = vi.hoisted(() => ({ check: vi.fn() }));
+vi.mock('../../api/_videoCredit.js', () => ({ assertVideoCreditAvailable: credit.check }));
 
 import handler from '../../api/ai.js';
 
@@ -129,6 +132,19 @@ describe('video start recovery', () => {
     expect(res.body.error).not.toContain('HTTP 400');
     expect(mocks.deleteStart).toHaveBeenCalledTimes(1);
     expect(mocks.set).not.toHaveBeenCalled();
+  });
+
+  it('reports depleted provider credit before a paid video start', async () => {
+    credit.check.mockRejectedValue(Object.assign(new Error('OpenRouter credits are exhausted.'), { statusCode: 402 }));
+    const res = responseRecorder();
+    await handler({ method: 'POST', headers: { authorization: 'Bearer valid-token' }, body: {
+      action: 'videoGenerate', requestId: '12345678-1234-1234-1234-123456789abc',
+      prompt: 'A short training video', duration: 4, aspectRatio: '16:9',
+    } }, res);
+    expect(res.statusCode).toBe(402);
+    expect(res.body).toMatchObject({ code: 'VIDEO_START_NOT_SUBMITTED', error: 'OpenRouter credits are exhausted.' });
+    expect(mocks.startVideo).not.toHaveBeenCalled();
+    expect(mocks.deleteStart).toHaveBeenCalledTimes(1);
   });
 
   it('clears a failed preflight before any paid video submission', async () => {
