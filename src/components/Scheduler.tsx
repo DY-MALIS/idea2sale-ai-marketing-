@@ -418,6 +418,11 @@ const Scheduler: React.FC = () => {
   useEffect(() => {
     if (!user) return;
     const dueTelegramPosts = posts.filter((post) => {
+      // Firestore schedules are owned by QStash and the server cron. Sending
+      // them from an open browser also trusts that device's clock, which can
+      // send a post before its server-side scheduled time. Only demo/local
+      // schedules need the browser timer; real posts still have Send now.
+      if (!post.localOnly) return false;
       if (post.platform !== 'TELEGRAM' || post.status !== 'PENDING') return false;
       if (processingTelegram.current.has(post.id)) return false;
       return !isAfter(parseISO(post.scheduledTime), new Date(nowTick));
