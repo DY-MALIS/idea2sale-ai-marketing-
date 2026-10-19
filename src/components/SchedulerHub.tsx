@@ -1016,8 +1016,8 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
               <form onSubmit={handleCreatePost} className="p-8 space-y-6">
                 <p className="rounded-xl border border-brand-200 bg-brand-50 p-3 text-xs text-brand-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
                   {language === 'km'
-                    ? 'ជ្រើសរើសកន្លែងផ្សាយច្រើន កំណត់ពេលម្តង ហើយប្រើវីដេអូតែមួយសម្រាប់កន្លែងដែលបានជ្រើស។ TikTok នឹងផ្ញើទៅ inbox ដើម្បីឱ្យអ្នកបញ្ចប់ការផ្សាយក្នុង TikTok។'
-                    : 'Select destinations and one publish time. The same video is reused for each selected destination. TikTok sends it to your inbox for final publishing in TikTok.'}
+                    ? `ជ្រើសរើសកន្លែងផ្សាយច្រើន កំណត់ពេលម្តង ហើយប្រើវីដេអូតែមួយសម្រាប់កន្លែងដែលបានជ្រើស។${platforms.includes('TIKTOK') ? (tiktokDeliveryMode === 'direct' ? ' TikTok Direct Post នឹងផុសដោយស្វ័យប្រវត្តិនៅម៉ោងដែលបានកំណត់។' : ' TikTok នឹងផ្ញើទៅ inbox ដើម្បីឱ្យអ្នកបញ្ចប់ការផ្សាយក្នុង TikTok។') : ''}`
+                    : `Select destinations and one publish time. The same video is reused for each selected destination.${platforms.includes('TIKTOK') ? (tiktokDeliveryMode === 'direct' ? ' TikTok Direct Post publishes automatically at the scheduled time.' : ' TikTok sends it to your inbox for final publishing in TikTok.') : ''}`}
                 </p>
                 {isDemoMode && (
                   <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
