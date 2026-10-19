@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { exchangeFacebookCode, publishFacebookReel } from '../../api/_facebook.js';
+import { exchangeFacebookCode, facebookAuthUrl, publishFacebookReel } from '../../api/_facebook.js';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -9,6 +9,20 @@ afterEach(() => {
 const reply = (body, ok = true) => ({ ok, status: ok ? 200 : 400, json: async () => body });
 
 describe('Facebook Page publishing', () => {
+  it('uses the Page login configuration and code response', () => {
+    vi.stubEnv('FACEBOOK_APP_ID', 'app-id');
+    vi.stubEnv('FACEBOOK_APP_SECRET', 'app-secret');
+    vi.stubEnv('FACEBOOK_CONFIG_ID', 'config-id');
+    vi.stubEnv('APP_URL', 'https://example.com');
+
+    const url = new URL(facebookAuthUrl('csrf-state'));
+    expect(url.searchParams.get('config_id')).toBe('config-id');
+    expect(url.searchParams.get('response_type')).toBe('code');
+    expect(url.searchParams.get('override_default_response_type')).toBe('true');
+    expect(url.searchParams.get('scope')).toBeNull();
+    expect(url.searchParams.get('state')).toBe('csrf-state');
+  });
+
   it('exchanges a user code and keeps only Pages with content permission', async () => {
     vi.stubEnv('FACEBOOK_APP_ID', 'app-id');
     vi.stubEnv('FACEBOOK_APP_SECRET', 'app-secret');

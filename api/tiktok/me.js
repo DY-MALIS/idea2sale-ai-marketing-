@@ -51,7 +51,8 @@ export default async function handler(req, res) {
       const owner = await admin.auth().verifyIdToken(idToken, true);
       const connection = await getFacebookPages(db, owner.uid);
       const setupReady = Boolean(process.env.FACEBOOK_APP_ID?.trim()
-        && process.env.FACEBOOK_APP_SECRET?.trim() && process.env.APP_URL?.trim());
+        && process.env.FACEBOOK_APP_SECRET?.trim() && process.env.FACEBOOK_CONFIG_ID?.trim()
+        && process.env.APP_URL?.trim());
       if (!connection?.pages?.length) return res.status(200).json({ connected: false, pages: [], setupReady });
       if (selecting) {
         const pageId = String(req.body?.pageId || '');

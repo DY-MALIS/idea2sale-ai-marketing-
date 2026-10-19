@@ -24,11 +24,14 @@ export function facebookRedirectUri() {
 
 export function facebookAuthUrl(state) {
   const { appId } = appCredentials();
+  const configId = (process.env.FACEBOOK_CONFIG_ID || '').trim();
+  if (!configId) throw new Error('FACEBOOK_CONFIG_ID is not configured.');
   const params = new URLSearchParams({
     client_id: appId,
     redirect_uri: facebookRedirectUri(),
     response_type: 'code',
-    scope: 'pages_show_list,pages_read_engagement,pages_manage_posts',
+    config_id: configId,
+    override_default_response_type: 'true',
     state,
   });
   return `https://www.facebook.com/${VERSION}/dialog/oauth?${params}`;

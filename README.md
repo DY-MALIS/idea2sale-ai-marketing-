@@ -100,7 +100,7 @@ npm run dev
 ## Facebook Page Reel Setup
 
 1. In a Meta developer app with Facebook Login, request `pages_show_list`, `pages_read_engagement`, and `pages_manage_posts`. Configure the valid OAuth redirect URI as `https://aime.angkorgate.ai/api/tiktok/callback?provider=facebook` (or the equivalent `APP_URL` for another deployment).
-2. Set `FACEBOOK_APP_ID` and `FACEBOOK_APP_SECRET` as server-only environment variables in Vercel Production. Keep `APP_URL` set to the same deployed domain. Do not put the app secret or a Page token in a `VITE_` variable.
+2. Create a Facebook Login for Business configuration with a user access token and the three Page permissions, then set `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET`, and `FACEBOOK_CONFIG_ID` as server-only environment variables in Vercel Production. Keep `APP_URL` set to the same deployed domain. Do not put the app secret or a Page token in a `VITE_` variable.
 3. Deploy the app and Firestore rules. In Smart Scheduler, sign in, connect Facebook, and choose a Page you can create content on. Upload one portrait 9:16 video lasting 4–60 seconds, then select Facebook with any other destinations and schedule once.
 4. Page credentials are stored by Firebase UID in `facebook_automation_tokens`, which browser clients cannot read. QStash triggers delivery at the scheduled time; the GitHub Action and Vercel cron retry due posts. The Scheduler shows `SUBMITTED` while Meta processes the Reel, then `PUBLISHED` or `FAILED` after confirmation. Meta permissions and app review must be enabled for accounts outside the app's test roles.
 

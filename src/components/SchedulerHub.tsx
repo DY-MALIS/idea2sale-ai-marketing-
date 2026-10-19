@@ -1248,7 +1248,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                       {facebookConnectionLoading && <p role="status">Checking Facebook Page connection…</p>}
                       {facebookConnectionError && <p role="alert" className="font-semibold text-red-700 dark:text-red-300">{facebookConnectionError}</p>}
                       {!facebookConnectionLoading && !facebookConnected && facebookSetupReady === false && (
-                        <p role="alert" className="font-semibold">Facebook scheduling is not configured on this server. The site owner must set FACEBOOK_APP_ID, FACEBOOK_APP_SECRET, and APP_URL in Vercel.</p>
+                        <p role="alert" className="font-semibold">Facebook scheduling is not configured on this server. The site owner must set FACEBOOK_APP_ID, FACEBOOK_APP_SECRET, FACEBOOK_CONFIG_ID, and APP_URL in Vercel.</p>
                       )}
                       {!facebookConnectionLoading && !facebookConnected && facebookSetupReady !== false && (
                         <p role="status" className="font-semibold">No Facebook Page is connected to this account. Connect a Page with permission to create content before scheduling.</p>
