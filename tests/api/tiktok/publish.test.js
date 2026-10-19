@@ -65,7 +65,7 @@ vi.mock('../../../api/_facebook.js', () => ({
   getFacebookReelStatus: mockGetFacebookReelStatus,
 }));
 
-const { default: handler, config, publishVideoToTikTok, deliverOneScheduledTikTokPost, applyTikTokPublishEvent } = await import('../../../api/tiktok/publish.js');
+const { default: handler, config, publishVideoToTikTok, deliverOneScheduledTikTokPost, refreshSubmittedTikTokPost, applyTikTokPublishEvent } = await import('../../../api/tiktok/publish.js');
 
 const response = () => ({
   statusCode: 200,
@@ -121,6 +121,7 @@ it('does not claim an upload succeeded when TikTok omits the upload URL', async 
 });
 
 it('loads current TikTok creator settings for the signed-in owner', async () => {
+  mockGetAutomationAccessToken.mockResolvedValue('stored-owner-token');
   vi.stubGlobal('fetch', vi.fn(async (url) => {
     expect(String(url)).toContain('/creator_info/query/');
     return { ok: true, json: async () => ({ data: { creator_nickname: 'Owner', privacy_level_options: ['SELF_ONLY'] }, error: { code: 'ok' } }) };
@@ -129,6 +130,7 @@ it('loads current TikTok creator settings for the signed-in owner', async () => 
   await handler({ method: 'GET', query: { action: 'creatorInfo' }, headers: { authorization: 'Bearer id-token' } }, res);
   expect(res.statusCode).toBe(200);
   expect(res.body.creator.creator_nickname).toBe('Owner');
+  expect(mockGetAutomationAccessToken).toHaveBeenCalledWith({}, 'owner-1');
 });
 
 it('checks the real TikTok status for the connected owner', async () => {
@@ -253,6 +255,46 @@ it('records an inbox transfer as awaiting the creator instead of already publish
   const result = await deliverOneScheduledTikTokPost({}, { update }, 'token');
   expect(result).toMatchObject({ ok: true, publishId: 'inbox-2' });
   expect(update).toHaveBeenCalledWith(expect.objectContaining({ status: 'UPLOADED', tiktokDeliveryMode: 'inbox' }));
+});
+
+it('sends scheduled Direct Post settings to TikTok and queues a final-status check', async () => {
+  const directPostOptions = { privacyLevel: 'SELF_ONLY', durationSeconds: 8, consent: true, aiGenerated: false };
+  mockClaimPendingPost.mockResolvedValue({ post: {
+    videoUrl: 'data:video/mp4;base64,AQID', content: 'Scheduled caption', userId: 'owner-1',
+    publishMode: 'TIKTOK_DIRECT_POST', directPostOptions,
+  } });
+  mockFindRecentDuplicate.mockResolvedValue(null);
+  vi.stubGlobal('fetch', vi.fn(async (url, options) => {
+    const target = String(url);
+    if (target.includes('/creator_info/query/')) return {
+      ok: true, json: async () => ({ data: { privacy_level_options: ['SELF_ONLY'], max_video_post_duration_sec: 60 }, error: { code: 'ok' } }),
+    };
+    if (target.includes('/publish/video/init/')) {
+      expect(JSON.parse(options.body).post_info).toMatchObject({
+        title: 'Scheduled caption', privacy_level: 'SELF_ONLY', is_aigc: false,
+      });
+      return { ok: true, json: async () => ({ data: { publish_id: 'direct-scheduled', upload_url: 'https://upload.example.com/put' }, error: { code: 'ok' } }) };
+    }
+    if (target === 'https://upload.example.com/put') return { ok: true };
+    throw new Error(`Unexpected fetch to ${target}`);
+  }));
+  const update = vi.fn();
+  const result = await deliverOneScheduledTikTokPost({}, { id: 'scheduled-1', update }, 'token');
+  expect(result).toMatchObject({ ok: true, publishId: 'direct-scheduled' });
+  expect(update).toHaveBeenCalledWith(expect.objectContaining({ status: 'SUBMITTED', tiktokDeliveryMode: 'direct' }));
+  expect(mockScheduleQstash).toHaveBeenCalledWith(null, 'scheduled-1', expect.any(Date));
+});
+
+it('marks a submitted Direct Post published only after TikTok confirms completion', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url, options) => {
+    expect(String(url)).toContain('/publish/status/fetch/');
+    expect(JSON.parse(options.body)).toEqual({ publish_id: 'direct-scheduled' });
+    return { ok: true, json: async () => ({ data: { status: 'PUBLISH_COMPLETE' }, error: { code: 'ok' } }) };
+  }));
+  const update = vi.fn();
+  const ref = { get: async () => ({ data: () => ({ status: 'SUBMITTED', tiktokDeliveryMode: 'direct', tiktokPublishId: 'direct-scheduled' }) }), update };
+  expect(await refreshSubmittedTikTokPost(ref, 'token')).toMatchObject({ ok: true, status: 'PUBLISH_COMPLETE' });
+  expect(update).toHaveBeenCalledWith(expect.objectContaining({ status: 'PUBLISHED' }));
 });
 
 describe('POST /api/tiktok/publish', () => {

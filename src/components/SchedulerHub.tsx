@@ -19,6 +19,15 @@ import { ScheduleHandoffRequest } from '../types';
 import { recordAuditEvent } from '../lib/auditClient';
 
 type Platform = 'TIKTOK' | 'YOUTUBE' | 'INSTAGRAM' | 'TWITTER' | 'TELEGRAM' | 'FACEBOOK';
+type TikTokCreator = {
+  creator_nickname?: string;
+  creator_username?: string;
+  privacy_level_options: string[];
+  max_video_post_duration_sec?: number;
+  comment_disabled?: boolean;
+  duet_disabled?: boolean;
+  stitch_disabled?: boolean;
+};
 
 const MB = 1024 * 1024;
 const TELEGRAM_MEDIA_LIMIT_MB = 47;
@@ -87,7 +96,22 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   // api/telegram/run-scheduled.js) need no changes at all.
   const [platforms, setPlatforms] = useState<Platform[]>(['TIKTOK']);
   const [completedPlatforms, setCompletedPlatforms] = useState<Platform[]>([]);
-  const [tiktokDeliveryMode, setTikTokDeliveryMode] = useState<'inbox' | 'direct'>('inbox');
+  const [tiktokDeliveryMode, setTikTokDeliveryMode] = useState<'inbox' | 'direct'>('direct');
+  const [tiktokCreator, setTikTokCreator] = useState<TikTokCreator | null>(null);
+  const [tiktokCreatorLoading, setTikTokCreatorLoading] = useState(false);
+  const [tiktokCreatorError, setTikTokCreatorError] = useState('');
+  const [tiktokPrivacy, setTikTokPrivacy] = useState('');
+  const [tiktokConsent, setTikTokConsent] = useState(false);
+  const [tiktokAllowComment, setTikTokAllowComment] = useState(false);
+  const [tiktokAllowDuet, setTikTokAllowDuet] = useState(false);
+  const [tiktokAllowStitch, setTikTokAllowStitch] = useState(false);
+  const [tiktokCommercial, setTikTokCommercial] = useState(false);
+  const [tiktokOwnBrand, setTikTokOwnBrand] = useState(false);
+  const [tiktokBrandedContent, setTikTokBrandedContent] = useState(false);
+  const [tiktokAiGenerated, setTikTokAiGenerated] = useState(true);
+  const [tiktokVideoSeconds, setTikTokVideoSeconds] = useState<number | null>(null);
+  const [tiktokPreviewUrl, setTikTokPreviewUrl] = useState('');
+  const [tiktokJustConnected, setTiktokJustConnected] = useState(false);
   const togglePlatform = (id: Platform) => {
     if (isSubmitting || completedPlatforms.includes(id)) return;
     setFormError(null);
@@ -141,6 +165,47 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     );
   };
   const [videoFile, setVideoFile] = useState<File | null>(null);
+  useEffect(() => {
+    setTikTokVideoSeconds(null);
+    setTikTokConsent(false);
+    if (!videoFile || !isModalOpen) {
+      setTikTokPreviewUrl('');
+      return;
+    }
+    const url = URL.createObjectURL(videoFile);
+    setTikTokPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [videoFile, isModalOpen]);
+
+  useEffect(() => {
+    setTikTokCreator(null);
+    setTikTokCreatorError('');
+    setTikTokPrivacy('');
+    setTikTokConsent(false);
+    if (!isModalOpen || !platforms.includes('TIKTOK') || tiktokDeliveryMode !== 'direct' || !user || isDemoMode) return;
+    let active = true;
+    setTikTokCreatorLoading(true);
+    void (async () => {
+      try {
+        const idToken = await user.getIdToken();
+        const response = await fetch('/api/tiktok/publish?action=creatorInfo', {
+          headers: { Authorization: `Bearer ${idToken}` },
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.creator) {
+          throw new Error(result.error?.code === 'scope_not_authorized'
+            ? 'TikTok has not granted Direct Post (video.publish). Enable it in TikTok Developer Portal, then reconnect TikTok.'
+            : result.error?.message || 'Could not load TikTok posting settings.');
+        }
+        if (active) setTikTokCreator(result.creator);
+      } catch (error) {
+        if (active) setTikTokCreatorError(error instanceof Error ? error.message : 'Could not load TikTok posting settings.');
+      } finally {
+        if (active) setTikTokCreatorLoading(false);
+      }
+    })();
+    return () => { active = false; };
+  }, [isModalOpen, platforms.includes('TIKTOK'), tiktokDeliveryMode, user?.uid, isDemoMode, tiktokJustConnected]);
   const [telegramMediaFile, setTelegramMediaFile] = useState<File | null>(null);
   const [showTelegramFileInput, setShowTelegramFileInput] = useState(false);
   // Every platform whose auto-post reuses the one shared "video above" field
@@ -159,7 +224,6 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   const [isAttachingHandoffMedia, setIsAttachingHandoffMedia] = useState(false);
   const [youtubeJustConnected, setYoutubeJustConnected] = useState(false);
   const [isConnectingYouTube, setIsConnectingYouTube] = useState(false);
-  const [tiktokJustConnected, setTiktokJustConnected] = useState(false);
   const [isConnectingTikTok, setIsConnectingTikTok] = useState(false);
   const [isConnectingFacebook, setIsConnectingFacebook] = useState(false);
   const [facebookPages, setFacebookPages] = useState<{ id: string; name: string }[]>([]);
@@ -488,6 +552,11 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     setVideoFile(null);
     setTelegramMediaFile(null);
     setShowTelegramFileInput(false);
+    setTikTokPrivacy('');
+    setTikTokConsent(false);
+    setTikTokCommercial(false);
+    setTikTokOwnBrand(false);
+    setTikTokBrandedContent(false);
 
     const nextHour = new Date();
     nextHour.setHours(nextHour.getHours() + 1);
@@ -549,11 +618,6 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     if (submittingRef.current) return;
     setFormError(null);
 
-    if (platforms.includes('TIKTOK') && tiktokDeliveryMode === 'direct') {
-      setFormError('Scheduled Direct Post needs TikTok creator settings and explicit posting consent. Use Upload to TikTok until that flow is available.');
-      return;
-    }
-
     if (isAttachingHandoffMedia) {
       setFormError('Still attaching the generated media — please wait a moment and try again.');
       return;
@@ -574,6 +638,18 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     if (missingCaption || !scheduledTime || !userToUse || (requiresVideo && !videoFile)) {
       setFormError(t('fillAllFieldsErr'));
       return;
+    }
+
+    if (platforms.includes('TIKTOK') && tiktokDeliveryMode === 'direct' && !isDemoMode) {
+      const validPrivacy = tiktokCreator?.privacy_level_options?.includes(tiktokPrivacy);
+      const maxDuration = Number(tiktokCreator?.max_video_post_duration_sec);
+      if (!validPrivacy || !Number.isFinite(tiktokVideoSeconds) || !tiktokVideoSeconds || tiktokVideoSeconds <= 0 ||
+          (maxDuration > 0 && tiktokVideoSeconds > maxDuration) ||
+          (tiktokCommercial && !tiktokOwnBrand && !tiktokBrandedContent) ||
+          (tiktokBrandedContent && tiktokPrivacy === 'SELF_ONLY') || !tiktokConsent) {
+        setFormError('Choose TikTok visibility, review the video and posting options, then agree to Direct Post before scheduling.');
+        return;
+      }
     }
 
     const scheduledDate = new Date(scheduledTime);
@@ -735,6 +811,18 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
               : platform === 'YOUTUBE'
                 ? 'YOUTUBE_AUTO_POST'
                 : platform === 'FACEBOOK' ? 'FACEBOOK_REEL_AUTO_POST' : 'PLANNED_ONLY',
+            ...(platform === 'TIKTOK' && tiktokDeliveryMode === 'direct' ? { directPostOptions: {
+              privacyLevel: tiktokPrivacy,
+              durationSeconds: tiktokVideoSeconds,
+              allowComment: tiktokAllowComment,
+              allowDuet: tiktokAllowDuet,
+              allowStitch: tiktokAllowStitch,
+              commercialDisclosure: tiktokCommercial,
+              ownBrand: tiktokOwnBrand,
+              brandedContent: tiktokBrandedContent,
+              aiGenerated: tiktokAiGenerated,
+              consent: tiktokConsent,
+            } } : {}),
             createdAt: serverTimestamp()
           });
           void recordAuditEvent('scheduled_post_created', {
@@ -1053,14 +1141,64 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                         onChange={(event) => setTikTokDeliveryMode(event.target.value as 'inbox' | 'direct')}
                         className="w-full rounded-xl border border-brand-100 bg-brand-50 p-3 text-sm text-brand-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                       >
-                        <option value="inbox">Upload to TikTok — finish posting in TikTok</option>
-                        <option value="direct" disabled>Scheduled Direct Post — pending TikTok review and post settings</option>
+                        <option value="direct">Direct Post — publish automatically at the scheduled time</option>
+                        <option value="inbox">Upload to TikTok inbox — finish posting yourself</option>
                       </select>
                       <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                         {tiktokDeliveryMode === 'inbox'
                           ? 'At the scheduled time, the video goes to your TikTok inbox. Open the notification in TikTok to review and publish it; the caption must be added there.'
-                          : 'Scheduled Direct Post is unavailable until creator settings and consent are added. Choose Upload to TikTok.'}
+                          : 'TikTok will publish automatically after you choose the account settings and consent below. Processing may take a few minutes.'}
                       </p>
+                      {tiktokDeliveryMode === 'direct' && !isDemoMode && (
+                        <div className="mt-3 space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-slate-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
+                          {tiktokCreatorLoading && <p role="status">Loading TikTok creator settings…</p>}
+                          {tiktokCreatorError && <p role="alert" className="text-red-700 dark:text-red-300">{tiktokCreatorError}</p>}
+                          {tiktokCreator && (
+                            <>
+                              <p className="font-semibold">Posting to {tiktokCreator.creator_nickname || tiktokCreator.creator_username || 'your TikTok account'}</p>
+                              <p>Without TikTok audit approval, Direct Post requires a private creator account and “Only me” visibility. Public automatic posting requires TikTok approval.</p>
+                              {tiktokPreviewUrl && (
+                                <video
+                                  key={tiktokPreviewUrl}
+                                  src={tiktokPreviewUrl}
+                                  controls
+                                  playsInline
+                                  className="max-h-64 w-full rounded-lg bg-black"
+                                  onLoadedMetadata={(event) => setTikTokVideoSeconds(event.currentTarget.duration)}
+                                  aria-label="Preview the video to be posted to TikTok"
+                                />
+                              )}
+                              <p>Video length: {Number.isFinite(tiktokVideoSeconds) && tiktokVideoSeconds ? `${tiktokVideoSeconds.toFixed(1)}s` : 'loading'} · Account limit: {tiktokCreator.max_video_post_duration_sec || 'unknown'}s</p>
+                              <label htmlFor="scheduled-tiktok-privacy" className="block font-semibold">Who can view this video?</label>
+                              <select id="scheduled-tiktok-privacy" value={tiktokPrivacy} onChange={(event) => setTikTokPrivacy(event.target.value)} className="w-full rounded-lg border border-amber-200 bg-white p-2 text-slate-800">
+                                <option value="">Select visibility</option>
+                                {(tiktokCreator.privacy_level_options || []).map((option) => (
+                                  <option key={option} value={option} disabled={option === 'SELF_ONLY' && tiktokBrandedContent}>
+                                    {option === 'PUBLIC_TO_EVERYONE' ? 'Everyone' : option === 'MUTUAL_FOLLOW_FRIENDS' ? 'Friends' : option === 'FOLLOWER_OF_CREATOR' ? 'Followers' : 'Only me'}
+                                  </option>
+                                ))}
+                              </select>
+                              {([
+                                ['Allow comments', tiktokAllowComment, setTikTokAllowComment, tiktokCreator.comment_disabled],
+                                ['Allow Duet', tiktokAllowDuet, setTikTokAllowDuet, tiktokCreator.duet_disabled],
+                                ['Allow Stitch', tiktokAllowStitch, setTikTokAllowStitch, tiktokCreator.stitch_disabled],
+                              ] as const).map(([label, checked, setter, disabled]) => (
+                                <label key={label} className="flex items-center gap-2"><input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => setter(event.target.checked)} />{label}{disabled ? ' (disabled in TikTok)' : ''}</label>
+                              ))}
+                              <label className="flex items-center gap-2"><input type="checkbox" checked={tiktokAiGenerated} onChange={(event) => setTikTokAiGenerated(event.target.checked)} />This video contains AI-generated content</label>
+                              <label className="flex items-center gap-2"><input type="checkbox" checked={tiktokCommercial} onChange={(event) => { setTikTokCommercial(event.target.checked); setTikTokOwnBrand(false); setTikTokBrandedContent(false); }} />This video promotes a brand, product or service</label>
+                              {tiktokCommercial && (
+                                <div className="space-y-2 pl-5">
+                                  <label className="flex items-center gap-2"><input type="checkbox" checked={tiktokOwnBrand} onChange={(event) => setTikTokOwnBrand(event.target.checked)} />Your brand (Promotional content)</label>
+                                  <label className="flex items-center gap-2"><input type="checkbox" checked={tiktokBrandedContent} disabled={tiktokPrivacy === 'SELF_ONLY'} onChange={(event) => setTikTokBrandedContent(event.target.checked)} />Branded content (Paid partnership)</label>
+                                  {tiktokPrivacy === 'SELF_ONLY' && <p>Branded content cannot use “Only me” visibility.</p>}
+                                </div>
+                              )}
+                              <label className="flex items-start gap-2 border-t border-amber-200 pt-3"><input type="checkbox" checked={tiktokConsent} onChange={(event) => setTikTokConsent(event.target.checked)} />By scheduling this Direct Post, you agree to TikTok&apos;s {tiktokBrandedContent ? 'Branded Content Policy and ' : ''}Music Usage Confirmation and consent to the video being sent at the scheduled time.</label>
+                            </>
+                          )}
+                        </div>
+                      )}
                       {renderCaptionOverride('TIKTOK', 'TikTok')}
                     </div>
                   )}

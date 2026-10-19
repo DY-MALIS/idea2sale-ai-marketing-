@@ -142,7 +142,7 @@ function directPostInfo(creator, options) {
     disable_stitch: creator.stitch_disabled === true || options.allowStitch !== true,
     brand_content_toggle: branded,
     brand_organic_toggle: ownBrand,
-    is_aigc: true,
+    is_aigc: options.aiGenerated !== false,
   };
 }
 
@@ -241,9 +241,12 @@ export async function publishVideoToTikTok(token, { videoUrl, title: rawTitle, m
 
 async function handleCreatorInfoRequest(req, res) {
   const actorUid = await resolveActorUid(req);
-  const token = actorUid && getCookie(req, 'tiktok_owner') === actorUid ? getCookie(req, 'tiktok_token') : '';
-  if (!token) return res.status(401).json({ error: { message: 'Reconnect your TikTok account.', code: 'not_authenticated' } });
+  if (!actorUid) return res.status(401).json({ error: { message: 'Sign in to check TikTok posting settings.', code: 'not_authenticated' } });
   try {
+    // Scheduled posts run without browser cookies, so inspect the same owner's
+    // stored automation connection that the exact-time callback will use.
+    const token = await getAutomationAccessToken(initFirebaseAdmin(), actorUid);
+    if (!token) return res.status(401).json({ error: { message: 'Reconnect your TikTok account.', code: 'not_authenticated' } });
     return res.status(200).json({ creator: await queryTikTokCreatorInfo(token) });
   } catch (error) {
     return res.status(error.status || 500).json({ error: { message: error.message, code: error.code || 'creator_info_failed' } });
@@ -366,6 +369,7 @@ export async function deliverOneScheduledTikTokPost(db, docRef, token) {
       videoUrl: post.videoUrl,
       title: post.content,
       mode: requestedMode,
+      directPostOptions: requestedMode === 'direct' ? post.directPostOptions : undefined,
     });
     await docRef.update({
       // Inbox upload only transfers a draft. The creator must open TikTok and
@@ -380,13 +384,22 @@ export async function deliverOneScheduledTikTokPost(db, docRef, token) {
       errorMessage: null,
       tiktokErrorCode: null,
     });
-    await recordTikTokPostSync(db, {
-      publishId,
-      title: post.content,
-      videoUrl: post.videoUrl,
-      userId: post.userId,
-      mode: directPost ? 'direct' : 'inbox',
-    });
+    try {
+      await recordTikTokPostSync(db, {
+        publishId,
+        title: post.content,
+        videoUrl: post.videoUrl,
+        userId: post.userId,
+        mode: directPost ? 'direct' : 'inbox',
+      });
+    } catch (syncError) {
+      console.error('TikTok post tracking failed after upload:', syncError?.message || syncError);
+    }
+    if (directPost) {
+      // The upload succeeding is not the same as TikTok publishing the post.
+      // Ask TikTok for the final result even when its webhook is unavailable.
+      await scheduleTikTokQStashDelivery(null, docRef.id, new Date(Date.now() + 2 * 60 * 1000));
+    }
     return { ok: true, publishId };
   } catch (error) {
     const code = error?.code || null;
@@ -400,6 +413,35 @@ export async function deliverOneScheduledTikTokPost(db, docRef, token) {
       failedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
     return { ok: false, error: message };
+  }
+}
+
+export async function refreshSubmittedTikTokPost(docRef, token) {
+  const snap = await docRef.get();
+  const post = snap.data();
+  if (post?.status !== 'SUBMITTED' || !post.tiktokPublishId || post.tiktokDeliveryMode !== 'direct') {
+    return { ok: true, skipped: true };
+  }
+  try {
+    const response = await tiktokJson(POST_STATUS_URL, token, { publish_id: post.tiktokPublishId });
+    const status = response?.data?.status;
+    if (status === 'PUBLISH_COMPLETE') {
+      await docRef.update({ status: 'PUBLISHED', publishedAt: admin.firestore.FieldValue.serverTimestamp(), errorMessage: null });
+    } else if (status === 'FAILED') {
+      const message = String(response?.data?.fail_reason || 'TikTok did not publish this video.').slice(0, 200);
+      await docRef.update({ status: 'FAILED', failedAt: admin.firestore.FieldValue.serverTimestamp(), errorMessage: message });
+      return { ok: false, error: message };
+    } else if (['PROCESSING_UPLOAD', 'PROCESSING_DOWNLOAD'].includes(status)) {
+      const submittedAt = post.submittedAt?.toMillis?.() || new Date(post.submittedAt || post.scheduledTime).getTime();
+      if (Number.isFinite(submittedAt) && Date.now() - submittedAt < 60 * 60 * 1000) {
+        await scheduleTikTokQStashDelivery(null, docRef.id, new Date(Date.now() + 2 * 60 * 1000));
+      }
+    } else {
+      throw new Error(`Unexpected TikTok Direct Post status: ${status || 'missing'}`);
+    }
+    return { ok: true, status };
+  } catch (error) {
+    return { ok: false, error: error?.message || 'Could not check TikTok post status.' };
   }
 }
 
@@ -474,10 +516,16 @@ async function runTikTokCron(req, res) {
       .limit(25)
       .get();
 
+    const submitted = await db.collection('scheduled_posts')
+      .where('platform', '==', 'TIKTOK')
+      .where('status', '==', 'SUBMITTED')
+      .limit(10)
+      .get();
+
     const dueDocs = snapshot.docs
       .slice(0, 5); // video uploads/inits are heavy -- keep each tick small
 
-    if (dueDocs.length === 0) {
+    if (dueDocs.length === 0 && submitted.docs.length === 0) {
       return res.status(200).json({ ok: true, checkedAt: nowIso, processed: 0, results: [] });
     }
 
@@ -502,6 +550,14 @@ async function runTikTokCron(req, res) {
       const result = await deliverOneScheduledTikTokPost(db, doc.ref, token);
       results.push({ id: doc.id, ...result });
       if (!result.ok) await notifyAdmins(`TikTok scheduled post ${doc.id} failed (cron): ${result.error}`);
+    }
+
+    for (const doc of submitted.docs) {
+      const ownerId = doc.data()?.userId;
+      const token = ownerId ? await getAutomationAccessToken(db, ownerId).catch(() => null) : null;
+      if (!token) continue;
+      const result = await refreshSubmittedTikTokPost(doc.ref, token);
+      results.push({ id: doc.id, ...result });
     }
 
     return res.status(200).json({ ok: true, checkedAt: nowIso, processed: results.length, results });
@@ -672,7 +728,9 @@ async function handleDeliverAction(req, res, platform = 'TIKTOK') {
       return res.status(200).json({ ok: false, skipped: markedFailed ? 'not_connected' : 'already_handled' });
     }
 
-    const result = await deliverOneScheduledTikTokPost(db, ref, token);
+    const result = postSnap.data()?.status === 'SUBMITTED'
+      ? await refreshSubmittedTikTokPost(ref, token)
+      : await deliverOneScheduledTikTokPost(db, ref, token);
     if (!result.ok) {
       await notifyAdmins(`TikTok scheduled post ${postId} failed (QStash): ${result.error}`);
     }
