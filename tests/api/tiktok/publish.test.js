@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import crypto from 'node:crypto';
+import { Readable } from 'node:stream';
 
 const {
   mockGetCookie, mockRecordTikTokPostSync, mockVerifyIdToken, mockLogAudit, mockScheduleQstash,
@@ -64,7 +65,7 @@ vi.mock('../../../api/_facebook.js', () => ({
   getFacebookReelStatus: mockGetFacebookReelStatus,
 }));
 
-const { default: handler, publishVideoToTikTok, deliverOneScheduledTikTokPost, applyTikTokPublishEvent } = await import('../../../api/tiktok/publish.js');
+const { default: handler, config, publishVideoToTikTok, deliverOneScheduledTikTokPost, applyTikTokPublishEvent } = await import('../../../api/tiktok/publish.js');
 
 const response = () => ({
   statusCode: 200,
@@ -381,6 +382,23 @@ describe('POST /api/tiktok/publish?action=scheduleQstash', () => {
     body,
   });
 
+  it('parses the unsigned scheduling request when Vercel body parsing is disabled', async () => {
+    expect(config.api.bodyParser).toBe(false);
+    mockScheduleYouTube.mockResolvedValue(true);
+    mockInitFirebaseAdmin.mockReturnValue({
+      collection: () => ({ doc: () => ({ get: async () => ({ exists: true, data: () => ({
+        userId: 'owner-1', platform: 'YOUTUBE', status: 'PENDING', scheduledTime: '2026-09-24T00:00:00.000Z',
+      }) }) }) }),
+    });
+    const request = Object.assign(Readable.from(['{ "postId" : "post-1" }']), {
+      method: 'POST', query: { action: 'scheduleQstash' }, headers: { authorization: 'Bearer good-token' },
+    });
+    const res = response();
+    await handler(request, res);
+    expect(res.body).toEqual({ ok: true, preciseDeliveryQueued: true });
+    expect(mockScheduleYouTube).toHaveBeenCalledOnce();
+  });
+
   it('rejects a request with no Authorization header', async () => {
     const res = response();
     await handler(req({ postId: 'post-1', scheduledTime: '2026-09-24T00:00:00.000Z' }, ''), res);
@@ -586,6 +604,20 @@ describe('POST /api/tiktok/publish?action=deliver (QStash callback)', () => {
     await handler(req({ postId: 'post-1' }), res);
     expect(res.statusCode).toBe(401);
     expect(mockClaimPendingPost).not.toHaveBeenCalled();
+  });
+
+  it('verifies the exact signed callback body, including its whitespace', async () => {
+    mockVerify.mockResolvedValue(true);
+    mockGetAutomationAccessToken.mockResolvedValue(null);
+    mockClaimPendingPost.mockResolvedValue({ post: { userId: 'user-1' } });
+    const rawBody = '{ "postId" : "post-1" }';
+    const request = Object.assign(Readable.from([rawBody]), {
+      method: 'POST', query: { action: 'deliver' }, headers: { 'upstash-signature': 'sig' }, complete: true,
+    });
+    const res = response();
+    await handler(request, res);
+    expect(mockVerify).toHaveBeenCalledWith({ signature: 'sig', body: rawBody });
+    expect(res.statusCode).toBe(200);
   });
 
   it('requires a postId', async () => {

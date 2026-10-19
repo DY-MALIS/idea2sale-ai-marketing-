@@ -17,20 +17,35 @@ import { downloadTrustedVideo } from '../_videoDownload.js';
 // 12 Serverless Functions can be added to a Deployment on the Hobby plan"),
 // silently leaving production on the previous build with none of this
 // change's fixes.
+export const config = { api: { bodyParser: false } };
+
 const getRawBody = (req) => {
   if (typeof req.rawBody === 'string') return Promise.resolve(req.rawBody);
   if (Buffer.isBuffer(req.rawBody)) return Promise.resolve(req.rawBody.toString('utf8'));
-  if (req.readableEnded || req.complete) {
+  // Tests and other in-process callers can supply an already-parsed body.
+  if (req.readableEnded) {
     return Promise.resolve(req.body && typeof req.body === 'object' ? JSON.stringify(req.body) : String(req.body || ''));
   }
   return new Promise((resolve, reject) => {
     let data = '';
     req.setEncoding('utf8');
     req.on('data', (chunk) => { data += chunk; });
-    req.on('end', () => resolve(data));
+    req.on('end', () => { req.rawBody = data; resolve(data); });
     req.on('error', reject);
   });
 };
+
+async function parseJsonBody(req, res) {
+  if (req.body && typeof req.body === 'object') return true;
+  try {
+    req.body = JSON.parse(await getRawBody(req));
+    if (req.body && typeof req.body === 'object' && !Array.isArray(req.body)) return true;
+  } catch {
+    // Return the same client error for malformed and non-object JSON.
+  }
+  res.status(400).json({ error: 'A JSON object body is required.' });
+  return false;
+}
 
 // The signed-in Firebase account must own the TikTok browser connection.
 async function resolveActorUid(req) {
@@ -585,10 +600,10 @@ async function handleDeliverDueRequest(req, res) {
 // QStash's precise per-post callback (see scheduleTikTokQStashDelivery in
 // ../_tiktok.js for why this exists rather than relying solely on the
 // periodic poller). Mirrors api/telegram/deliver.js's signature-verification
-// shape; deliberately does NOT disable bodyParser (unlike that file) since
-// this file's other actions above need Vercel's normal JSON-parsed req.body --
-// getRawBody's reconstruction fallback covers signature verification instead.
+// shape. Vercel bodyParser is disabled for this route so the signature is
+// checked against the exact bytes QStash sent, including whitespace.
 async function handleDeliverAction(req, res, platform = 'TIKTOK') {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed.' });
   const rawBody = await getRawBody(req);
 
   const currentSigningKey = process.env.QSTASH_CURRENT_SIGNING_KEY;
@@ -1033,10 +1048,14 @@ export default async function handler(req, res) {
   }
 
   if (req.query?.action === 'scheduleQstash') {
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed.' });
+    if (!await parseJsonBody(req, res)) return;
     return handleScheduleQstash(req, res);
   }
 
   if (req.query?.action === 'deliverDue') {
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed.' });
+    if (!await parseJsonBody(req, res)) return;
     return handleDeliverDueRequest(req, res);
   }
 
@@ -1045,5 +1064,6 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: { message: 'Method not allowed' } });
   }
 
+  if (!await parseJsonBody(req, res)) return;
   return handlePublishRequest(req, res);
 }

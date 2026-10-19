@@ -652,9 +652,17 @@ const Scheduler: React.FC = () => {
                           {post.mediaType === 'video' ? 'Video' : 'Image'}: {post.mediaName}
                         </p>
                       )}
-                      {(['YOUTUBE', 'TIKTOK', 'FACEBOOK'].includes(post.platform)) && post.videoName && (
+                      {(['YOUTUBE', 'TIKTOK', 'FACEBOOK'].includes(post.platform)) && (post.videoName || post.videoUrl) && (
                         <p className="mt-2 inline-flex items-center rounded-full border border-red-200 bg-red-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-red-600 dark:border-red-800/60 dark:bg-red-900/30 dark:text-red-300">
-                          Video: {post.videoName}
+                          Video attached{post.videoName ? `: ${post.videoName}` : ''}
+                        </p>
+                      )}
+                      {(['TIKTOK', 'YOUTUBE'].includes(post.platform)) && post.status === 'PENDING' &&
+                        new Date(post.scheduledTime).getTime() + 2 * 60 * 1000 < nowTick && (
+                        <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                          {language === 'km'
+                            ? 'ហួសម៉ោងកំណត់ហើយ ប៉ុន្តែកំពុងរង់ចាំការបញ្ជូន។ អ្នកអាចចុចប៊ូតុងបញ្ជូនខាងស្តាំ។'
+                            : 'Scheduled time has passed; delivery is still pending. Use the send button on the right if needed.'}
                         </p>
                       )}
                       {post.status === 'FAILED' && post.errorMessage && (
