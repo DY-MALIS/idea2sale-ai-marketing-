@@ -7,8 +7,10 @@ on:
   workflow_dispatch: {}
 
 jobs:
-  run-scheduled:
-    if: github.event.schedule != '0 */6 * * *'
+  # Keep destinations independent: a Telegram/TikTok failure must not skip
+  # a due YouTube post. Run them on both schedules so the six-hour usage tick
+  # can also recover overdue posts when GitHub delays ten-minute ticks.
+  telegram-posts:
     runs-on: ubuntu-latest
     steps:
       - name: Trigger due Telegram posts
@@ -16,16 +18,28 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           curl -sf -X POST -H "Authorization: Bearer $CRON_SECRET" https://aime.angkorgate.ai/api/telegram/run-scheduled
+
+  tiktok-posts:
+    runs-on: ubuntu-latest
+    steps:
       - name: Trigger due TikTok posts
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           curl -sf -X POST -H "Authorization: Bearer $CRON_SECRET" "https://aime.angkorgate.ai/api/tiktok/publish?action=cron"
+
+  youtube-posts:
+    runs-on: ubuntu-latest
+    steps:
       - name: Trigger due YouTube posts
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           curl -sf -X POST -H "Authorization: Bearer $CRON_SECRET" "https://aime.angkorgate.ai/api/tiktok/publish?action=youtubeCron"
+
+  facebook-posts:
+    runs-on: ubuntu-latest
+    steps:
       - name: Trigger due Facebook Page posts
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
