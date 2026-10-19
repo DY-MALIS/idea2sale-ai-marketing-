@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   researchCompetitors: vi.fn(),
   researchMarketTrends: vi.fn(),
   findBusinessPresence: vi.fn(),
+  readBusinessProfileSources: vi.fn(),
   checkRateLimit: vi.fn(),
 }));
 
@@ -35,6 +36,7 @@ vi.mock('../../api/_rateLimit.js', () => ({
 vi.mock('../../api/_alert.js', () => ({ notifyAdmins: vi.fn() }));
 vi.mock('../../api/_webBusinessSearch.js', () => ({ searchBusinessesOnWeb: mocks.searchBusinesses }));
 vi.mock('../../api/_businessPresence.js', () => ({ findBusinessPresence: mocks.findBusinessPresence }));
+vi.mock('../../api/_businessProfileGrounding.js', () => ({ readBusinessProfileSources: mocks.readBusinessProfileSources }));
 vi.mock('../../api/_competitorResearch.js', () => ({ researchCompetitors: mocks.researchCompetitors }));
 vi.mock('../../api/_marketTrendResearch.js', () => ({ researchMarketTrends: mocks.researchMarketTrends }));
 vi.mock('../../api/_imagekitUpload.js', () => ({ uploadMediaDataUrl: vi.fn() }));
@@ -65,6 +67,7 @@ beforeEach(() => {
   mocks.researchCompetitors.mockResolvedValue({ competitors: [], entitySummary: '' });
   mocks.researchMarketTrends.mockResolvedValue([]);
   mocks.findBusinessPresence.mockResolvedValue({ businessName: 'DGACADEMY', matches: [{ platform: 'Website', url: 'https://academy.example.com/', publicName: 'Academy', evidence: ['Logo matches Business Profile'] }], candidates: [] });
+  mocks.readBusinessProfileSources.mockResolvedValue({ sources: [], evidence: '' });
   mocks.searchBusinesses.mockResolvedValue([{
     businessName: 'Sokha Painting Service',
     entityKind: 'service_provider',
@@ -88,6 +91,28 @@ beforeEach(() => {
     videoPlan: [],
     summaryReport: 'Verified worker search.',
   }));
+});
+
+it('grounds a generic competitor request in the current business profile links', async () => {
+  mocks.readBusinessProfileSources.mockResolvedValue({
+    sources: [{ label: 'Website', url: 'https://dg.example.com', readable: true }],
+    evidence: 'Website: https://dg.example.com\nVisible text: AI courses for Cambodian businesses.',
+  });
+  const res = responseRecorder();
+  await handler({
+    method: 'POST', headers: {}, socket: { remoteAddress: '127.0.0.1' },
+    body: {
+      action: 'facebookIntelligenceScan', query: 'find competitors', scanMode: 'competitor_activity',
+      businessContext: { businessName: 'DG Academy', businessDescription: 'AI training', websiteUrl: 'https://dg.example.com' },
+      countries: ['KH'], language: 'en',
+    },
+  }, res);
+  expect(res.statusCode).toBe(200);
+  expect(mocks.readBusinessProfileSources).toHaveBeenCalledWith(expect.objectContaining({ websiteUrl: 'https://dg.example.com' }));
+  expect(mocks.researchCompetitors).toHaveBeenCalledWith(expect.objectContaining({
+    query: 'DG Academy', targetDescription: 'AI training', targetProfileEvidence: expect.stringContaining('AI courses for Cambodian businesses'),
+  }));
+  expect(res.body.profileSources).toEqual([{ label: 'Website', url: 'https://dg.example.com', readable: true }]);
 });
 
 it('routes the workers scan mode through worker/trade web discovery end to end', async () => {

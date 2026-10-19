@@ -104,7 +104,7 @@ export function compareKhmerTranscript(expected, actual) {
   // keep the surrounding Khmer comparison strict.
   const clean = s => String(s || '').normalize('NFC')
     .replace(/អេ\s*អាយ/gu, 'AI')
-    .replace(/ឌីជី\s*អាកាដេមី/gu, 'DG Academy')
+    .replace(/ឌីជី\s*អា[កខ]ាដេមី/gu, 'DG Academy')
     .toLowerCase()
     .replace(/[\p{P}\p{Z}\s\u200b]/gu, '');
   const a = [...clean(expected)], b = [...clean(actual)];

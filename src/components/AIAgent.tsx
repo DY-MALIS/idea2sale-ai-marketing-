@@ -19,6 +19,7 @@ import { AgentDocumentCard, AgentDocumentDialog } from './AgentDocumentCard';
 import { isContentPlanEditFollowup, isContentPlanEditPronounFollowup, isContentPlanEditRequest } from '../../shared/contentPlanEditIntent.js';
 import { shouldCompleteVoiceAutomation } from '../../shared/voiceAutomationSession.js';
 import { isContentPlanCreationRequest, shouldClassifyCreativeMedia } from '../../shared/agentIntent.js';
+import { compareKhmerTranscript } from '../../shared/videoSpeech.js';
 
 const DEMO_AGENT_CONVERSATION_STORAGE_KEY = 'demo_agent_conversation';
 // Keep recent agent work visible long enough for users to return and reuse it.
@@ -100,7 +101,7 @@ interface SavedPlanItem {
   status: 'PENDING' | 'PROCESSING' | 'DONE' | 'FAILED' | 'REVIEW' | 'READY';
   errorMessage?: string;
   resultMediaUrl?: string;
-  speechVerification?: { passed: boolean; similarity?: number; transcript?: string; expected?: string; unavailable?: boolean };
+  speechVerification?: { passed: boolean; similarity?: number; transcript?: string; expected?: string; unavailable?: boolean; method?: string };
 }
 
 interface AIAgentProps {
@@ -1565,6 +1566,11 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         >
           <CalendarClock size={20} />
           <span>{language === 'km' ? 'ផែនការដែលបានអាប់ឡូត (Uploaded Content Plan)' : 'Uploaded Content Plan'}</span>
+          {savedPlanItems.some((item) => item.type === 'video' && item.status === 'FAILED') && (
+            <span className="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-bold text-rose-700 dark:bg-rose-900/40 dark:text-rose-300">
+              {language === 'km' ? 'វីដេអូបរាជ័យ' : 'Video failed'}
+            </span>
+          )}
           <motion.span animate={{ rotate: planOpen ? 180 : 0 }} className="text-brand-400">
             <ChevronDown size={18} />
           </motion.span>
@@ -1726,7 +1732,12 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                           && item.type === 'video'
                           && Boolean(item.resultMediaUrl)
                           && /Could not extract video audio for verification|Invalid verification audio size/i.test(item.errorMessage || '');
-                        const displayedStatus: SavedPlanItem['status'] = isLegacyAudioReview ? 'REVIEW' : item.status;
+                        const isCorrectedTranscriptReview = item.status === 'FAILED'
+                          && item.type === 'video'
+                          && Boolean(item.resultMediaUrl)
+                          && item.speechVerification?.method === 'transcript-comparison'
+                          && compareKhmerTranscript(item.speechVerification.expected, item.speechVerification.transcript).passed;
+                        const displayedStatus: SavedPlanItem['status'] = isLegacyAudioReview || isCorrectedTranscriptReview ? 'REVIEW' : item.status;
                         const statusStyle: Record<SavedPlanItem['status'], string> = {
                           PENDING: 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300',
                           PROCESSING: 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300',
@@ -1804,14 +1815,18 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                                   </p>
                                 </div>
                               )}
-                              {isLegacyAudioReview && (
+                              {(isLegacyAudioReview || isCorrectedTranscriptReview) && (
                                 <p className="mt-1 text-[10px] font-bold text-amber-600 dark:text-amber-300">
-                                  {language === 'km'
-                                    ? 'វីដេអូត្រូវបានរក្សាទុក ប៉ុន្តែការផ្ទៀងផ្ទាត់សំឡេងមិនបានបញ្ចប់។ សូមមើល និងស្តាប់មុនអនុម័ត។'
-                                    : 'The video was retained, but audio verification did not finish. Watch and listen before approving.'}
+                                  {isCorrectedTranscriptReview
+                                    ? language === 'km'
+                                      ? 'វីដេអូត្រូវបានរក្សាទុក។ ការផ្ទៀងផ្ទាត់ថ្មីទទួលស្គាល់ឈ្មោះម៉ាកដែលប្រព័ន្ធសរសេរជាអង់គ្លេស។ សូមមើល និងស្តាប់មុនអនុម័ត។'
+                                      : 'The retained video passes the corrected brand-name transcript check. Watch and listen before approving.'
+                                    : language === 'km'
+                                      ? 'វីដេអូត្រូវបានរក្សាទុក ប៉ុន្តែការផ្ទៀងផ្ទាត់សំឡេងមិនបានបញ្ចប់។ សូមមើល និងស្តាប់មុនអនុម័ត។'
+                                      : 'The video was retained, but audio verification did not finish. Watch and listen before approving.'}
                                 </p>
                               )}
-                              {(item.status === 'REVIEW' || item.status === 'READY' || isLegacyAudioReview) && (
+                              {(item.status === 'REVIEW' || item.status === 'READY' || isLegacyAudioReview || isCorrectedTranscriptReview) && (
                                 <button type="button" onClick={() => handleReviewPlanItem(item.id, 'approve', item.resultMediaUrl)} className="mt-2 rounded-lg bg-brand-600 p-2 text-xs text-white">
                                   {item.status === 'READY'
                                     ? (language === 'km' ? 'បញ្ជូនវីដេអូទៅ Telegram' : 'Send video to Telegram')

@@ -6,6 +6,7 @@ const {
   mockInitFirebaseAdmin, mockGetAutomationAccessToken, mockClaimPendingPost, mockFindRecentDuplicate,
   mockNotifyAdmins, mockVerify,
   mockScheduleYouTube, mockGetYouTubeToken, mockPublishYouTube,
+  mockScheduleFacebook, mockGetFacebookPages, mockPublishFacebook, mockGetFacebookReelStatus,
 } = vi.hoisted(() => ({
   mockGetCookie: vi.fn(),
   mockRecordTikTokPostSync: vi.fn(),
@@ -21,6 +22,10 @@ const {
   mockScheduleYouTube: vi.fn(),
   mockGetYouTubeToken: vi.fn(),
   mockPublishYouTube: vi.fn(),
+  mockScheduleFacebook: vi.fn(),
+  mockGetFacebookPages: vi.fn(),
+  mockPublishFacebook: vi.fn(),
+  mockGetFacebookReelStatus: vi.fn(),
 }));
 vi.mock('@upstash/qstash', () => ({
   // Vitest requires a constructible function here (arrow functions can't be
@@ -51,6 +56,12 @@ vi.mock('../../../api/_youtube.js', () => ({
   scheduleYouTubeQStashDelivery: mockScheduleYouTube,
   getYouTubeAutomationAccessToken: mockGetYouTubeToken,
   publishVideoToYouTube: mockPublishYouTube,
+}));
+vi.mock('../../../api/_facebook.js', () => ({
+  scheduleFacebookQStashDelivery: mockScheduleFacebook,
+  getFacebookPages: mockGetFacebookPages,
+  publishFacebookReel: mockPublishFacebook,
+  getFacebookReelStatus: mockGetFacebookReelStatus,
 }));
 
 const { default: handler, publishVideoToTikTok, deliverOneScheduledTikTokPost, applyTikTokPublishEvent } = await import('../../../api/tiktok/publish.js');
@@ -429,6 +440,18 @@ describe('POST /api/tiktok/publish?action=scheduleQstash', () => {
     expect(mockScheduleYouTube).toHaveBeenCalledWith(expect.anything(), 'post-1', new Date('2026-09-24T00:00:00.000Z'));
   });
 
+  it('queues a Facebook Page post using its stored time', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'user-1' });
+    mockScheduleFacebook.mockResolvedValue(true);
+    mockInitFirebaseAdmin.mockReturnValue({
+      collection: () => ({ doc: () => ({ get: async () => ({ exists: true, data: () => ({ userId: 'user-1', platform: 'FACEBOOK', status: 'PENDING', scheduledTime: '2026-09-24T00:00:00.000Z' }) }) }) }),
+    });
+    const res = response();
+    await handler(req({ postId: 'post-1', scheduledTime: '2099-01-01T00:00:00.000Z' }), res);
+    expect(res.body).toEqual({ ok: true, preciseDeliveryQueued: true });
+    expect(mockScheduleFacebook).toHaveBeenCalledWith('post-1', new Date('2026-09-24T00:00:00.000Z'));
+  });
+
   it('still confirms success to the client even if QStash enqueueing itself throws', async () => {
     // The post is already safely scheduled via the plain Firestore write the
     // client made just before calling this -- a QStash hiccup here must never
@@ -563,5 +586,33 @@ describe('POST /api/tiktok/publish?action=deliver (QStash callback)', () => {
     expect(res.body).toEqual({ ok: true, videoId: 'youtube-1' });
     expect(mockGetYouTubeToken).toHaveBeenCalledWith(expect.anything(), 'user-one');
     expect(update).toHaveBeenCalledWith(expect.objectContaining({ status: 'PUBLISHED', youtubeVideoId: 'youtube-1' }));
+  });
+
+  it('queues another Facebook Reel status check while processing, then marks it published', async () => {
+    mockVerify.mockResolvedValue(true);
+    mockGetFacebookPages.mockResolvedValue({ pages: [{ id: 'page-1', accessToken: 'page-token' }] });
+    mockGetFacebookReelStatus
+      .mockResolvedValueOnce({ status: { video_status: 'processing' } })
+      .mockResolvedValueOnce({ status: { video_status: 'published' } });
+    mockScheduleFacebook.mockResolvedValue(true);
+    const post = {
+      platform: 'FACEBOOK', status: 'SUBMITTED', userId: 'user-one',
+      facebookPageId: 'page-1', facebookVideoId: 'video-1',
+      submittedAt: { toMillis: () => Date.now() - 60_000 },
+    };
+    const update = vi.fn(async (fields) => Object.assign(post, fields));
+    mockInitFirebaseAdmin.mockReturnValue({
+      collection: () => ({ doc: () => ({ id: 'post-1', update, get: async () => ({ exists: true, data: () => post }) }) }),
+    });
+    const request = { ...req({ postId: 'post-1' }), query: { action: 'facebookDeliver' } };
+    const first = response();
+    await handler(request, first);
+    expect(first.body).toEqual({ ok: true, status: 'processing' });
+    expect(mockScheduleFacebook).toHaveBeenCalledWith('post-1', expect.any(Date));
+    const second = response();
+    await handler(request, second);
+    expect(second.body).toEqual({ ok: true, status: 'published' });
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ status: 'PUBLISHED' }));
+    expect(mockScheduleFacebook).toHaveBeenCalledTimes(1);
   });
 });

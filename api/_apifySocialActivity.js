@@ -175,7 +175,11 @@ const tiktokActivities = async (candidates, startDate, endDate) => {
     const candidate = byHandle.get(handle);
     const date = dateOnly(item?.createTimeISO, item?.createTime);
     const sourceUrl = truncate(item?.webVideoUrl, 300);
-    if (!candidate || !date || date < startDate || date > endDate || !socialUrlKey(sourceUrl, 'TikTok')) return null;
+    let directVideo = false;
+    try { directVideo = /^\/@[^/]+\/video\/\d+\/?$/.test(new URL(sourceUrl).pathname); }
+    catch { /* Invalid source URLs are discarded below. */ }
+    if (!candidate || !date || date < startDate || date > endDate || !directVideo
+      || tiktokHandle(sourceUrl) !== handle || !socialUrlKey(sourceUrl, 'TikTok')) return null;
     const text = truncate(item?.text, 1200);
     return {
       competitorName: candidate.name,
@@ -199,5 +203,9 @@ export async function fetchApifySocialActivity({ candidates = [], startDate = ''
   if (!isApifySocialActivityConfigured() || !Array.isArray(candidates) || !candidates.length) return [];
   if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) return [];
 
-  return facebookActivities(candidates, startDate, endDate);
+  const [facebook, tiktok] = await Promise.all([
+    facebookActivities(candidates, startDate, endDate),
+    tiktokActivities(candidates, startDate, endDate),
+  ]);
+  return [...facebook, ...tiktok];
 }

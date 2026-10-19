@@ -4,6 +4,7 @@
 const MAX_WEBSITE_BYTES = 3 * 1024 * 1024;
 const MAX_EXTRACTED_CHARS = 20000;
 const FETCH_TIMEOUT_MS = 15000;
+const MAX_REDIRECTS = 5;
 
 const typedError = (message, code, status = 400) => Object.assign(new Error(message), { code, status });
 
@@ -14,11 +15,31 @@ const typedError = (message, code, status = 400) => Object.assign(new Error(mess
 // supplied by the end user.
 const isBlockedHost = (hostname) => {
   const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
-  if (host === 'localhost' || host.endsWith('.localhost') || host === '::1') return true;
+  if (host === 'localhost' || host.endsWith('.localhost') || host === '::' || host === '::1') return true;
+  if (/^(?:fc|fd|fe[89ab])[0-9a-f]*:/.test(host)) return true;
+  if (host.startsWith('::ffff:')) {
+    const words = host.slice(7).split(':');
+    if (words.length === 2 && words.every((word) => /^[0-9a-f]{1,4}$/.test(word))) {
+      const numeric = (parseInt(words[0], 16) * 65536) + parseInt(words[1], 16);
+      return isBlockedHost([numeric >>> 24, (numeric >>> 16) & 255, (numeric >>> 8) & 255, numeric & 255].join('.'));
+    }
+  }
   const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
   if (!ipv4) return false;
   const [a, b] = ipv4.slice(1, 3).map(Number);
   return a === 127 || a === 10 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+};
+
+const checkedWebsiteUrl = (value) => {
+  let parsed;
+  try {
+    parsed = new URL(String(value || '').trim());
+  } catch {
+    throw typedError('Enter a valid website link (starting with http:// or https://).', 'invalid_url');
+  }
+  if (!/^https?:$/.test(parsed.protocol)) throw typedError('Only http/https website links are supported.', 'invalid_url');
+  if (isBlockedHost(parsed.hostname)) throw typedError('This website link cannot be fetched.', 'blocked_host');
+  return parsed;
 };
 
 const decodeHtmlEntities = (text) => text
@@ -32,24 +53,29 @@ const decodeHtmlEntities = (text) => text
   .replace(/&(?:#39|apos);/gi, "'");
 
 export async function extractWebsiteText({ url }) {
-  let parsed;
-  try {
-    parsed = new URL(String(url || '').trim());
-  } catch {
-    throw typedError('Enter a valid website link (starting with http:// or https://).', 'invalid_url');
-  }
-  if (!/^https?:$/.test(parsed.protocol)) throw typedError('Only http/https website links are supported.', 'invalid_url');
-  if (isBlockedHost(parsed.hostname)) throw typedError('This website link cannot be fetched.', 'blocked_host');
-
+  let parsed = checkedWebsiteUrl(url);
   let response;
-  try {
-    response = await fetch(parsed.toString(), {
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      redirect: 'follow',
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; aime.angkorgate-bot/1.0; +https://aime.angkorgate.ai)' },
-    });
-  } catch {
-    throw typedError('Could not reach this website. Check the link and try again.', 'fetch_failed');
+  const signal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+  for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
+    try {
+      response = await fetch(parsed.toString(), {
+        signal,
+        // Check every Location before issuing another request. Automatic
+        // redirects could otherwise bypass the private-host check above.
+        redirect: 'manual',
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; aime.angkorgate-bot/1.0; +https://aime.angkorgate.ai)' },
+      });
+    } catch {
+      throw typedError('Could not reach this website. Check the link and try again.', 'fetch_failed');
+    }
+    if (![301, 302, 303, 307, 308].includes(response.status)) break;
+    if (redirects === MAX_REDIRECTS) throw typedError('This website redirected too many times.', 'too_many_redirects');
+    const location = response.headers.get('location');
+    if (!location) throw typedError('This website returned a redirect without a destination.', 'fetch_failed');
+    let nextUrl;
+    try { nextUrl = new URL(location, parsed); }
+    catch { throw typedError('This website returned an invalid redirect destination.', 'invalid_url'); }
+    parsed = checkedWebsiteUrl(nextUrl.toString());
   }
   if (!response.ok) throw typedError(`This website returned an error (status ${response.status}).`, 'fetch_failed');
   const contentType = response.headers.get('content-type') || '';

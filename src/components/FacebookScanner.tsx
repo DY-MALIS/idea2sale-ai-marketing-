@@ -906,6 +906,23 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
 
       {result && (
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="space-y-8">
+          {!!result.profileSources?.length && (
+            <section className="glass rounded-3xl p-5">
+              <h3 className="text-sm font-black text-slate-800 dark:text-white">
+                {isKm ? 'តំណប្រូហ្វាយអាជីវកម្មដែលបានពិនិត្យមុនស្វែងរក' : 'Business Profile links checked before search'}
+              </h3>
+              <ul className="mt-3 space-y-2 text-sm">
+                {result.profileSources.map((source) => (
+                  <li key={source.url} className="flex flex-wrap items-center gap-2">
+                    <span className={source.readable ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}>
+                      {source.readable ? (isKm ? 'បានអាន' : 'Read') : (isKm ? 'មិនអាចអានបាន' : 'Could not read')}
+                    </span>
+                    <a href={source.url} target="_blank" rel="noopener noreferrer" className="break-all text-blue-700 hover:underline dark:text-blue-300">{source.label}: {source.url}</a>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
           {result.businessPresence?.businessName && (
             <section className="glass rounded-3xl p-5">
               <h3 className="flex items-center gap-2 text-lg font-black text-slate-800 dark:text-white">

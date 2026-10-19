@@ -44,6 +44,22 @@ it('allows the owner to manually approve when automatic transcription was unavai
   expect(res.statusCode).toBe(200);
   expect(tx.set).toHaveBeenCalledWith({ name: 'scheduled_posts', id: 'review-abcdefghijk' }, expect.objectContaining({ mediaUrl: 'https://video', status: 'PENDING' }));
 });
+it('allows review of a retained video when a Khmer brand was transcribed in Latin letters', async () => {
+  const tx = setup({
+    userId: 'owner', type: 'video', status: 'FAILED', resultMediaUrl: 'https://video',
+    speechVerification: {
+      passed: false, method: 'transcript-comparison',
+      expected: 'បើសិនជាអ្នកចង់សន្សំពេលធ្វើការដោយការកាត់បន្ថយការងារដដែលៗ នោះអ្នកអាចប្រើ អេអាយ ដើម្បីជួយអ្នកជាមួយ ឌីជីអាខាដេមី។',
+      transcript: 'បើសិនជាអ្នកចង់សន្សំពេលធ្វើការដោយការកាត់បន្ថយការងាររ៉ាដែននោះ អ្នកអាចប្រើ AI ដើម្បីជួយអ្នកជាមួយនឹង DG Academy។',
+    },
+  });
+  const res = response(); await handler(request(), res);
+  expect(res.statusCode).toBe(200);
+  expect(tx.set).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ mediaUrl: 'https://video', status: 'PENDING' }));
+  expect(tx.update).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+    status: 'DONE', speechVerification: expect.objectContaining({ passed: true, naturalnessReviewed: true }),
+  }));
+});
 it('queues a ready silent video after the owner connects Telegram', async () => {
   const tx = setup({ userId: 'owner', type: 'video', status: 'READY', voiceOverMode: 'silent', resultMediaUrl: 'https://video' });
   const res = response(); await handler(request(), res);

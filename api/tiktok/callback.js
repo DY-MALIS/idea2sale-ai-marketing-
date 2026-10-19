@@ -1,6 +1,23 @@
 import { getRedirectUri, sessionCookieAttributes, verifyAndClearOAuthState, readOAuthOwner, saveAutomationTokens } from '../_tiktok.js';
 import { getYouTubeRedirectUri, exchangeYouTubeCode, saveYouTubeAutomationTokens, readYouTubeOAuthOwner } from '../_youtube.js';
 import { initFirebaseAdmin } from '../_firebaseAdmin.js';
+import { readFacebookOAuthOwner, exchangeFacebookCode, saveFacebookPages, facebookRedirectUri } from '../_facebook.js';
+
+async function handleFacebookCallback(req, res, code) {
+  const ownerId = readFacebookOAuthOwner(req, res);
+  if (!ownerId) return res.status(400).send('Invalid or expired Facebook login attempt. Please connect again.');
+  try {
+    const pages = await exchangeFacebookCode(String(code));
+    if (!pages.length) return res.status(403).send('No Facebook Page with permission to create content was found.');
+    await saveFacebookPages(initFirebaseAdmin(), ownerId, pages);
+    const origin = new URL(facebookRedirectUri()).origin;
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.status(200).send(`<!doctype html><html><body><p>Facebook Page connected. You can close this window.</p><script>window.opener?.postMessage({type:'FACEBOOK_AUTH_SUCCESS'},${JSON.stringify(origin)});window.close();</script></body></html>`);
+  } catch (error) {
+    console.error('Facebook connection failed:', error?.message || error);
+    return res.status(502).send('Could not connect your Facebook Page. Check the Meta app permissions and try again.');
+  }
+}
 
 // Also handles YouTube's OAuth callback (?provider=youtube, matching the
 // redirect_uri getYouTubeRedirectUri registers) -- folded into this file
@@ -68,6 +85,9 @@ export default async function handler(req, res) {
 
   if (String(req.query?.provider || '').toLowerCase() === 'youtube') {
     return handleYouTubeCallback(req, res, code);
+  }
+  if (String(req.query?.provider || '').toLowerCase() === 'facebook') {
+    return handleFacebookCallback(req, res, code);
   }
 
   // Anti-CSRF check: without this, anyone who obtains a `code` from their own

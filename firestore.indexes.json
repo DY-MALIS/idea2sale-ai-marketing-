@@ -10,6 +10,14 @@
       ]
     },
     {
+      "collectionGroup": "scheduled_posts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "platform", "order": "ASCENDING" },
+        { "fieldPath": "videoUrl", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "content_plan_items",
       "queryScope": "COLLECTION",
       "fields": [

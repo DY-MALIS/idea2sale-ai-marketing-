@@ -37,7 +37,7 @@ describe('applyPosterTextOverlay', () => {
     expect(g).toBeGreaterThan(90);
     expect(g).toBeLessThan(160);
     expect(b).toBeLessThan(60);
-  });
+  }, 15_000); // Sharp font rendering can exceed Vitest's 5s default under full-suite load.
 
   it('adds a substantial dark graphic-design panel when a headline is present', async () => {
     const base = await solidImageDataUrl(400, 400, { r: 200, g: 200, b: 200 });

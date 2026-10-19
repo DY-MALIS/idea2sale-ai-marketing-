@@ -137,6 +137,7 @@ export interface FacebookVideoPlanItem {
 export interface FacebookScanResult {
   success: boolean;
   query: string;
+  profileSources?: { label: string; url: string; readable: boolean }[];
   businessPresence?: {
     businessName: string;
     matches: { platform: 'Website' | 'Facebook' | 'LinkedIn'; url: string; publicName: string; evidence: string[]; sourceUrl?: string }[];
@@ -188,6 +189,7 @@ export interface ScheduleHandoffRequest {
 
 export interface SchedulePost {
   id: string;
+  groupId?: string;
   content: string;
   platform: 'TIKTOK' | 'YOUTUBE' | 'INSTAGRAM' | 'TWITTER' | 'TELEGRAM' | 'FACEBOOK';
   scheduledTime: string;

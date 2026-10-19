@@ -2,6 +2,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { FieldValue } from 'firebase-admin/firestore';
 import { initFirebaseAdmin } from '../_firebaseAdmin.js';
 import { telegramDestinationFromProfile } from '../../shared/telegramDestination.js';
+import { compareKhmerTranscript } from '../../shared/videoSpeech.js';
 
 export default async function reviewVideoHandler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed.' });
@@ -41,11 +42,16 @@ export default async function reviewVideoHandler(req, res) {
         && item.type === 'video'
         && Boolean(item.resultMediaUrl)
         && /Could not extract video audio for verification|Invalid verification audio size/i.test(String(item.errorMessage || ''));
+      const correctedTranscriptReview = item.status === 'FAILED'
+        && item.type === 'video'
+        && Boolean(item.resultMediaUrl)
+        && item.speechVerification?.method === 'transcript-comparison'
+        && compareKhmerTranscript(item.speechVerification.expected, item.speechVerification.transcript).passed;
       const verificationAllowsManualReview = item.status === 'READY'
         || item.speechVerification?.passed === true
         || item.speechVerification?.unavailable === true
-        || legacyExtractionReview;
-      if (!(['REVIEW', 'READY'].includes(item.status) || legacyExtractionReview) || item.type !== 'video' || !verificationAllowsManualReview || !mediaUrl || mediaUrl !== item.resultMediaUrl) {
+        || legacyExtractionReview || correctedTranscriptReview;
+      if (!(['REVIEW', 'READY'].includes(item.status) || legacyExtractionReview || correctedTranscriptReview) || item.type !== 'video' || !verificationAllowsManualReview || !mediaUrl || mediaUrl !== item.resultMediaUrl) {
         throw new Error('This video is not ready for approval. Refresh and review the current video.');
       }
       const post = db.collection('scheduled_posts').doc(`review-${itemId}`);
@@ -63,7 +69,12 @@ export default async function reviewVideoHandler(req, res) {
           method: 'legacy-audio-extraction-unavailable',
           naturalnessReviewed: true,
         } }
-        : item.speechVerification ? { 'speechVerification.naturalnessReviewed': true } : {};
+        : correctedTranscriptReview ? { speechVerification: {
+          ...item.speechVerification,
+          ...compareKhmerTranscript(item.speechVerification.expected, item.speechVerification.transcript),
+          naturalnessReviewed: true,
+        } }
+          : item.speechVerification ? { 'speechVerification.naturalnessReviewed': true } : {};
       transaction.update(ref, {
         status: 'DONE', reviewedAt: FieldValue.serverTimestamp(), reviewedBy: user.uid,
         approvedPostId: post.id,

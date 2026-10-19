@@ -319,6 +319,13 @@ const Scheduler: React.FC = () => {
   };
 
   const sendTelegramPost = async (post: SchedulePost) => {
+    if (!user) {
+      setErrorMsg(language === 'km'
+        ? 'សូមចូលគណនីមុនផ្ញើទៅ Telegram។ ការផុសនេះនៅរង់ចាំ ហើយអ្នកអាចព្យាយាមម្ដងទៀតបន្ទាប់ពីចូលគណនី។'
+        : 'Sign in before sending to Telegram. This post is still pending and can be retried after sign-in.');
+      return;
+    }
+    const activeUser = user;
     if (processingTelegram.current.has(post.id)) return;
     processingTelegram.current.add(post.id);
 
@@ -359,25 +366,25 @@ const Scheduler: React.FC = () => {
       // at PROCESSING -- a state the UI shows no Send/Retry button for at all, so
       // there'd be no visible way to un-stick it short of the server's separate
       // 3-minute stale-claim recovery (api/telegram/run-scheduled.js) kicking in.
-      // Signed-in (non-demo) so the server can resolve this user's own connected
-      // Telegram channel from Business Profile instead of always falling back to
-      // the shared default -- demo mode has no account/idToken, so it's omitted
-      // there and the server just uses the shared channel as before.
-      const authHeaders = user && !isDemoMode
-        ? { Authorization: `Bearer ${await user.getIdToken()}` }
-        : {};
-
-      const res = await withUploadTimeout(fetch('/api/telegram/run-scheduled?action=post', {
+      // The Telegram endpoint requires a Firebase ID token for every real send,
+      // including a locally saved post that is retried after sign-in.
+      const requestBody = JSON.stringify({
+        text: post.content,
+        mediaUrl,
+        mediaDataUrl: localMediaDataUrl,
+        mediaName: post.mediaName || '',
+        mediaType: post.mediaType || ''
+      });
+      const sendWithToken = async (forceRefresh = false) => withUploadTimeout(fetch('/api/telegram/run-scheduled?action=post', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({
-          text: post.content,
-          mediaUrl,
-          mediaDataUrl: localMediaDataUrl,
-          mediaName: post.mediaName || '',
-          mediaType: post.mediaType || ''
-        })
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${await activeUser.getIdToken(forceRefresh)}`
+        },
+        body: requestBody
       }));
+      let res = await sendWithToken();
+      if (res.status === 401) res = await sendWithToken(true);
       const responseText = await res.text();
       let data: any = {};
       try {
@@ -408,6 +415,7 @@ const Scheduler: React.FC = () => {
   };
 
   useEffect(() => {
+    if (!user) return;
     const dueTelegramPosts = posts.filter((post) => {
       if (post.platform !== 'TELEGRAM' || post.status !== 'PENDING') return false;
       if (processingTelegram.current.has(post.id)) return false;
@@ -417,7 +425,7 @@ const Scheduler: React.FC = () => {
     if (dueTelegramPosts.length === 0) return;
 
     dueTelegramPosts.forEach((post) => sendTelegramPost(post));
-  }, [posts, nowTick, isDemoMode, language]);
+  }, [posts, nowTick, isDemoMode, language, user]);
 
   const handleRetryTelegram = async (post: SchedulePost) => {
     try {
@@ -573,6 +581,8 @@ const Scheduler: React.FC = () => {
               {posts.map((post) => {
                 const isPast = !isAfter(parseISO(post.scheduledTime), new Date());
                 const timeStr = format(parseISO(post.scheduledTime), 'MMM dd, h:mm a');
+                const groupPosts = post.groupId ? posts.filter((candidate) => candidate.groupId === post.groupId) : [];
+                const startsGroup = groupPosts.length > 1 && groupPosts[0].id === post.id;
 
                 return (
                   <motion.div
@@ -593,6 +603,12 @@ const Scheduler: React.FC = () => {
                     </div>
 
                     <div className="flex-1 min-w-0">
+                      {startsGroup && (
+                        <p className="mb-2 text-xs font-bold text-sky-700 dark:text-sky-300">
+                          {language === 'km' ? 'ក្រុមផ្សាយតែមួយ៖ ' : 'One scheduled group: '}
+                          {groupPosts.map((member) => member.platform).join(' · ')}
+                        </p>
+                      )}
                       <div className="flex items-center gap-2 mb-1">
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${
                           post.status === 'PUBLISHED' ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60' : 'bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60'
@@ -615,7 +631,7 @@ const Scheduler: React.FC = () => {
                           {post.mediaType === 'video' ? 'Video' : 'Image'}: {post.mediaName}
                         </p>
                       )}
-                      {(post.platform === 'YOUTUBE' || post.platform === 'TIKTOK') && post.videoName && (
+                      {(['YOUTUBE', 'TIKTOK', 'FACEBOOK'].includes(post.platform)) && post.videoName && (
                         <p className="mt-2 inline-flex items-center rounded-full border border-red-200 bg-red-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-red-600 dark:border-red-800/60 dark:bg-red-900/30 dark:text-red-300">
                           Video: {post.videoName}
                         </p>
@@ -633,10 +649,13 @@ const Scheduler: React.FC = () => {
                           TikTok is processing this Direct Post. Its final status will update after TikTok confirms it.
                         </p>
                       )}
+                      {post.platform === 'FACEBOOK' && post.status === 'SUBMITTED' && (
+                        <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">Facebook accepted the Reel and is processing it. The final status will update after confirmation.</p>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-2 transition-opacity">
-                      {(['INSTAGRAM', 'TWITTER', 'FACEBOOK'].includes(post.platform)
+                      {(['INSTAGRAM', 'TWITTER'].includes(post.platform)
                         || (post.platform === 'TIKTOK' && post.status === 'UPLOADED')) && (
                         <motion.button
                           whileHover={{ scale: 1.1 }}

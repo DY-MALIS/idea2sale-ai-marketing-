@@ -85,6 +85,31 @@ it('counts videos waiting for human review against the daily generation quota', 
   expect(GENERATED_VIDEO_STATUSES).toEqual(['DONE', 'PROCESSING', 'REVIEW', 'READY']);
 });
 
+it('keeps Telegram in the same one-upload schedule group as the other platforms', async () => {
+  delete process.env.QSTASH_TOKEN;
+  mockVerifyIdToken.mockResolvedValue({ uid: 'owner' });
+  const addPost = vi.fn().mockResolvedValue({ id: 'telegram-post' });
+  planMocks.db = {
+    collection: (name) => name === 'business_profiles'
+      ? { doc: () => ({ get: async () => ({ data: () => ({ telegramBotToken: 'bot-token', telegramChatId: '-100123' }) }) }) }
+      : { add: addPost },
+  };
+  const scheduledTime = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  const res = createMockRes();
+  await scheduledHandler({
+    method: 'POST',
+    query: { action: 'create' },
+    headers: { authorization: 'Bearer owner-token' },
+    body: { content: 'Shared post', scheduledTime, groupId: 'schedule-group-123' },
+  }, res);
+  expect(res.statusCode).toBe(200);
+  expect(addPost).toHaveBeenCalledWith(expect.objectContaining({
+    platform: 'TELEGRAM',
+    groupId: 'schedule-group-123',
+    scheduledTime,
+  }));
+});
+
 it('detects a timed-out plan video start without treating an accepted paid job as retryable', () => {
   const now = Date.now();
   const processingAt = { toMillis: () => now - 11 * 60 * 1000 };

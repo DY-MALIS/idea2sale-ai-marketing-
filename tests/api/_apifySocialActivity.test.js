@@ -99,7 +99,7 @@ it('batches exact public profiles and normalizes direct Facebook and TikTok evid
     endDate: '2026-09-22',
   });
 
-  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(fetchMock).toHaveBeenCalledTimes(2);
   expect(activities).toEqual([
     expect.objectContaining({
       competitorName: 'Rival Academy',
@@ -108,6 +108,14 @@ it('batches exact public profiles and normalizes direct Facebook and TikTok evid
       activity: expect.stringContaining('Registration is open'),
       keyDetails: ['Reactions: 25', 'Comments: 4', 'Shares: 2'],
       sourceUrl: 'https://www.facebook.com/rivalacademy/posts/123',
+    }),
+    expect.objectContaining({
+      competitorName: 'Rival Academy',
+      date: '2026-09-21',
+      contentType: 'Video',
+      activity: expect.stringContaining('Three practical marketing tips'),
+      keyDetails: ['Likes: 120', 'Comments: 8', 'Shares: 11', 'Plays: 2,500'],
+      sourceUrl: 'https://www.tiktok.com/@rivalacademy/video/456',
     }),
   ]);
 });
@@ -136,6 +144,39 @@ it('attributes same-name Page posts by Page URL and drops name-only or conflicti
     'https://www.facebook.com/kafe-one/posts/11',
     'https://www.facebook.com/kafe-two/posts/22',
   ]);
+});
+
+it('keeps only direct TikTok videos whose URL matches the verified author handle', async () => {
+  process.env.APIFY_API_TOKEN = 'private-token';
+  vi.stubGlobal('fetch', vi.fn(async () => ({
+    ok: true,
+    json: async () => [
+      { authorMeta: { name: 'rival' }, webVideoUrl: 'https://www.tiktok.com/@rival/video/111', createTimeISO: '2026-09-20T08:00:00Z', text: 'Own video' },
+      { authorMeta: { name: 'rival' }, webVideoUrl: 'https://www.tiktok.com/@other/video/222', createTimeISO: '2026-09-20T08:00:00Z', text: 'Wrong account' },
+      { authorMeta: { name: 'rival' }, webVideoUrl: 'https://www.tiktok.com/@rival', createTimeISO: '2026-09-20T08:00:00Z', text: 'Profile only' },
+    ],
+  })));
+  const activities = await fetchApifySocialActivity({
+    candidates: [{ name: 'Rival', tiktokUrl: 'https://www.tiktok.com/@rival' }],
+    startDate: '2026-09-16', endDate: '2026-09-22',
+  });
+  expect(activities.map((activity) => activity.sourceUrl)).toEqual(['https://www.tiktok.com/@rival/video/111']);
+});
+
+it('returns TikTok evidence even when the Facebook actor fails', async () => {
+  process.env.APIFY_API_TOKEN = 'private-token';
+  vi.stubGlobal('fetch', vi.fn(async (url) => {
+    if (String(url).includes('facebook-posts-scraper')) throw new Error('Facebook unavailable');
+    return { ok: true, json: async () => [{
+      authorMeta: { name: 'rival' }, webVideoUrl: 'https://www.tiktok.com/@rival/video/333',
+      createTimeISO: '2026-09-20T08:00:00Z', text: 'Own video',
+    }] };
+  }));
+  const activities = await fetchApifySocialActivity({
+    candidates: [{ name: 'Rival', facebookUrl: 'https://www.facebook.com/rival', tiktokUrl: 'https://www.tiktok.com/@rival' }],
+    startDate: '2026-09-16', endDate: '2026-09-22',
+  });
+  expect(activities.map((activity) => activity.sourceUrl)).toEqual(['https://www.tiktok.com/@rival/video/333']);
 });
 
 it('fails open when either actor is unavailable or returns invalid data', async () => {

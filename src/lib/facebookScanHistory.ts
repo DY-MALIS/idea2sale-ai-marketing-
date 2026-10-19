@@ -12,6 +12,9 @@ export const normalizeFacebookScanHistoryResult = (
   return {
     success: true,
     query: typeof raw.query === 'string' ? raw.query : '',
+    profileSources: Array.isArray(raw.profileSources) ? raw.profileSources.filter((source) =>
+      source && typeof source.label === 'string' && /^https?:\/\//i.test(source.url),
+    ).slice(0, 3) : [],
     businessPresence: raw.businessPresence && typeof raw.businessPresence.businessName === 'string'
       ? {
           businessName: raw.businessPresence.businessName,

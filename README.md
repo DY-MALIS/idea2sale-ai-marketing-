@@ -97,6 +97,13 @@ npm run dev
 2. Each signed-in user connects their own YouTube channel from Smart Scheduler. YouTube tokens are stored by Firebase UID. Connections created before this owner-scoped change used a shared `default` token and must reconnect.
 3. YouTube schedules use QStash for precise delivery, the GitHub Action poller every 10 minutes as a fallback, and the daily Vercel cron as a further fallback. Configure `QSTASH_TOKEN`, both QStash signing keys, and `CRON_SECRET` for those paths.
 
+## Facebook Page Reel Setup
+
+1. In a Meta developer app with Facebook Login, request `pages_show_list`, `pages_read_engagement`, and `pages_manage_posts`. Configure the valid OAuth redirect URI as `https://aime.angkorgate.ai/api/tiktok/callback?provider=facebook` (or the equivalent `APP_URL` for another deployment).
+2. Set `FACEBOOK_APP_ID` and `FACEBOOK_APP_SECRET` as server-only environment variables in Vercel Production. Keep `APP_URL` set to the same deployed domain. Do not put the app secret or a Page token in a `VITE_` variable.
+3. Deploy the app and Firestore rules. In Smart Scheduler, sign in, connect Facebook, and choose a Page you can create content on. Upload one portrait 9:16 video lasting 4–60 seconds, then select Facebook with any other destinations and schedule once.
+4. Page credentials are stored by Firebase UID in `facebook_automation_tokens`, which browser clients cannot read. QStash triggers delivery at the scheduled time; the GitHub Action and Vercel cron retry due posts. The Scheduler shows `SUBMITTED` while Meta processes the Reel, then `PUBLISHED` or `FAILED` after confirmation. Meta permissions and app review must be enabled for accounts outside the app's test roles.
+
 ## ImageKit Setup
 
 1. Create an ImageKit account and open Developer options in the ImageKit dashboard.

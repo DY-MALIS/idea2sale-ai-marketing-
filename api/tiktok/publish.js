@@ -5,6 +5,7 @@ import { logAudit } from '../_audit.js';
 import { getCookie, getAutomationAccessToken, recordTikTokPostSync, scheduleTikTokQStashDelivery, markAutomationTokenRevoked } from '../_tiktok.js';
 import { claimPendingPost, findRecentDuplicateTikTokPost, findRecentDuplicateYouTubePost } from '../_telegramClaim.js';
 import { getYouTubeAutomationAccessToken, publishVideoToYouTube, scheduleYouTubeQStashDelivery } from '../_youtube.js';
+import { getFacebookPages, publishFacebookReel, getFacebookReelStatus, scheduleFacebookQStashDelivery } from '../_facebook.js';
 import { notifyAdmins } from '../_alert.js';
 import { getUntransformedImageKitVideoUrl } from '../../shared/imageKitUrl.js';
 import { downloadTrustedVideo } from '../_videoDownload.js';
@@ -527,12 +528,14 @@ async function handleScheduleQstash(req, res) {
     }
     const post = snap.data();
     const scheduledDate = new Date(String(post.scheduledTime || ''));
-    if (!['TIKTOK', 'YOUTUBE'].includes(post.platform) || post.status !== 'PENDING' || Number.isNaN(scheduledDate.getTime())) {
-      return res.status(400).json({ error: 'A pending TikTok or YouTube post with a valid scheduled time is required.' });
+    if (!['TIKTOK', 'YOUTUBE', 'FACEBOOK'].includes(post.platform) || post.status !== 'PENDING' || Number.isNaN(scheduledDate.getTime())) {
+      return res.status(400).json({ error: 'A pending TikTok, YouTube, or Facebook post with a valid scheduled time is required.' });
     }
     const queued = post.platform === 'YOUTUBE'
       ? await scheduleYouTubeQStashDelivery(req, postId, scheduledDate)
-      : await scheduleTikTokQStashDelivery(req, postId, scheduledDate);
+      : post.platform === 'FACEBOOK'
+        ? await scheduleFacebookQStashDelivery(postId, scheduledDate)
+        : await scheduleTikTokQStashDelivery(req, postId, scheduledDate);
     return res.status(200).json({ ok: true, preciseDeliveryQueued: queued === true });
   } catch (error) {
     console.error('Failed to schedule QStash delivery:', error?.message || error);
@@ -594,6 +597,13 @@ async function handleDeliverAction(req, res, platform = 'TIKTOK') {
       if (!result.ok) await notifyAdmins(`YouTube scheduled post ${postId} failed (QStash): ${result.error}`);
       return res.status(200).json(result);
     }
+    if (platform === 'FACEBOOK') {
+      const result = postSnap.data()?.status === 'SUBMITTED'
+        ? await refreshFacebookReelStatus(db, ref)
+        : await deliverOneScheduledFacebookPost(db, ref);
+      if (!result.ok) await notifyAdmins(`Facebook scheduled post ${postId} failed (QStash): ${result.error}`);
+      return res.status(200).json(result);
+    }
     const ownerId = postSnap.data()?.userId;
     let token;
     try {
@@ -615,7 +625,7 @@ async function handleDeliverAction(req, res, platform = 'TIKTOK') {
     return res.status(200).json(result);
   } catch (error) {
     const message = error?.message || 'Delivery failed.';
-    await notifyAdmins(`TikTok QStash delivery crashed for post ${postId}: ${message}`);
+    await notifyAdmins(`${platform} QStash delivery crashed for post ${postId}: ${message}`);
     return res.status(500).json({ ok: false, error: message });
   }
 }
@@ -852,6 +862,102 @@ async function runYouTubeCron(req, res) {
   }
 }
 
+async function refreshFacebookReelStatus(db, docRef) {
+  const snap = await docRef.get();
+  const post = snap.data();
+  if (post?.status !== 'SUBMITTED' || !post.facebookVideoId) return { ok: true, skipped: true };
+  try {
+    const connection = await getFacebookPages(db, post.userId);
+    const page = connection?.pages?.find(item => item.id === post.facebookPageId);
+    if (!page) throw new Error('Facebook Page connection was removed. Reconnect your Page.');
+    const data = await getFacebookReelStatus(page.accessToken, post.facebookVideoId);
+    const state = data.status?.video_status;
+    if (state === 'published' || data.status?.publishing_phase?.status === 'complete') {
+      await docRef.update({ status: 'PUBLISHED', publishedAt: admin.firestore.FieldValue.serverTimestamp(), errorMessage: null });
+    } else if (state === 'error' || data.status?.publishing_phase?.status === 'error') {
+      await docRef.update({ status: 'FAILED', failedAt: admin.firestore.FieldValue.serverTimestamp(), errorMessage: 'Facebook could not process this Reel.' });
+      return { ok: false, error: 'Facebook could not process this Reel.' };
+    } else {
+      // A single two-minute check can still see Facebook processing the Reel.
+      // Continue polling for the first hour; the daily cron remains a fallback
+      // when QStash is unavailable or processing takes longer.
+      const submittedAt = post.submittedAt?.toMillis?.() || new Date(post.submittedAt || post.scheduledTime).getTime();
+      if (Number.isFinite(submittedAt) && Date.now() - submittedAt < 60 * 60 * 1000) {
+        await scheduleFacebookQStashDelivery(docRef.id, new Date(Date.now() + 2 * 60 * 1000));
+      }
+    }
+    return { ok: true, status: state || 'processing' };
+  } catch (error) {
+    return { ok: false, error: error?.message || 'Could not check Facebook Reel status.' };
+  }
+}
+
+async function deliverOneScheduledFacebookPost(db, docRef) {
+  const claim = await claimPendingPost(db, docRef);
+  if (!claim.post) return { ok: true, skipped: true };
+  const post = claim.post;
+  try {
+    const connection = await getFacebookPages(db, post.userId);
+    const page = connection?.pages?.find(item => item.id === post.facebookPageId);
+    if (!page) throw new Error('Facebook Page is not connected. Connect the Page again in Smart Scheduler.');
+    if (!post.videoUrl) throw new Error('This scheduled Facebook post has no video.');
+    const duplicate = await db.collection('scheduled_posts')
+      .where('platform', '==', 'FACEBOOK').where('videoUrl', '==', post.videoUrl).get();
+    const recent = duplicate.docs.find(item => item.id !== post.id && item.data()?.facebookPageId === post.facebookPageId
+      && ['SUBMITTED', 'PUBLISHED'].includes(item.data()?.status)
+      && Math.abs(new Date(item.data()?.scheduledTime).getTime() - new Date(post.scheduledTime).getTime()) < 15 * 60 * 1000);
+    if (recent) {
+      const original = recent.data();
+      await docRef.update({
+        status: original.status,
+        facebookVideoId: original.facebookVideoId || null,
+        duplicateSkipped: true,
+        errorMessage: `Skipped duplicate of ${recent.id}`,
+        ...(original.status === 'PUBLISHED' ? { publishedAt: admin.firestore.FieldValue.serverTimestamp() } : { submittedAt: admin.firestore.FieldValue.serverTimestamp() }),
+      });
+      return { ok: true, skippedDuplicate: recent.id };
+    }
+    const facebookVideoId = await publishFacebookReel(page.accessToken, post.videoUrl, post.content);
+    await docRef.update({ status: 'SUBMITTED', facebookVideoId, facebookPageId: page.id, submittedAt: admin.firestore.FieldValue.serverTimestamp(), errorMessage: null });
+    await scheduleFacebookQStashDelivery(docRef.id, new Date(Date.now() + 2 * 60 * 1000));
+    return { ok: true, facebookVideoId, status: 'SUBMITTED' };
+  } catch (error) {
+    const message = error?.message || 'Facebook publish failed.';
+    await docRef.update({ status: 'FAILED', errorMessage: message, facebookErrorCode: error?.code || null, failedAt: admin.firestore.FieldValue.serverTimestamp() });
+    return { ok: false, error: message };
+  }
+}
+
+async function runFacebookCron(req, res) {
+  const secret = process.env.CRON_SECRET;
+  if (!secret || (req.headers.authorization !== `Bearer ${secret}` && req.query?.secret !== secret)) return res.status(401).json({ error: 'Unauthorized' });
+  try {
+    const db = initFirebaseAdmin();
+    const now = Date.now();
+    const nowIso = new Date(now).toISOString();
+    const pending = await db.collection('scheduled_posts')
+      .where('platform', '==', 'FACEBOOK').where('status', '==', 'PENDING')
+      .where('scheduledTime', '<=', nowIso).orderBy('scheduledTime', 'asc').limit(5).get();
+    const submitted = await db.collection('scheduled_posts')
+      .where('platform', '==', 'FACEBOOK').where('status', '==', 'SUBMITTED')
+      .where('scheduledTime', '<=', nowIso).orderBy('scheduledTime', 'asc').limit(5).get();
+    const processing = await db.collection('scheduled_posts')
+      .where('platform', '==', 'FACEBOOK').where('status', '==', 'PROCESSING').get();
+    const results = [];
+    for (const doc of pending.docs) results.push(await deliverOneScheduledFacebookPost(db, doc.ref));
+    for (const doc of submitted.docs) results.push(await refreshFacebookReelStatus(db, doc.ref));
+    for (const doc of processing.docs) {
+      if (now - (doc.data()?.processingAt?.toMillis?.() || now) > STALE_PROCESSING_MS) {
+        await doc.ref.update({ status: 'FAILED', errorMessage: 'Facebook delivery was interrupted. Check the Page before retrying to avoid a duplicate.', failedAt: admin.firestore.FieldValue.serverTimestamp() });
+      }
+    }
+    return res.status(200).json({ ok: true, processed: results.length, results });
+  } catch (error) {
+    console.error('Facebook cron failed:', error?.message || error);
+    return res.status(500).json({ error: error?.message || 'Facebook cron failed.' });
+  }
+}
+
 export default async function handler(req, res) {
   if (req.query?.action === 'status') {
     if (req.method !== 'GET') return res.status(405).json({ error: { message: 'Method not allowed' } });
@@ -868,6 +974,9 @@ export default async function handler(req, res) {
   if (req.query?.action === 'youtubeCron') {
     return runYouTubeCron(req, res);
   }
+  if (req.query?.action === 'facebookCron') {
+    return runFacebookCron(req, res);
+  }
 
   if (req.query?.action === 'deliver') {
     return handleDeliverAction(req, res);
@@ -875,6 +984,9 @@ export default async function handler(req, res) {
 
   if (req.query?.action === 'youtubeDeliver') {
     return handleDeliverAction(req, res, 'YOUTUBE');
+  }
+  if (req.query?.action === 'facebookDeliver') {
+    return handleDeliverAction(req, res, 'FACEBOOK');
   }
 
   if (req.query?.action === 'webhook') {

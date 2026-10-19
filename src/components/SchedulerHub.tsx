@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Calendar, Bot, Zap, Plus, Sparkles, Clock, X, Send, Share2, Loader2, AlertCircle, Upload, Youtube } from 'lucide-react';
+import { Calendar, Bot, Zap, Plus, Sparkles, Clock, X, Send, Share2, Loader2, AlertCircle, Upload, Youtube, Facebook } from 'lucide-react';
 import { formatImageKitUploadError } from '../../shared/imageKitError.js';
 import AITrainer from './AITrainer';
 import Suggestions from './Suggestions';
@@ -56,6 +56,8 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [scheduleNotice, setScheduleNotice] = useState<string | null>(null);
+  const pendingGroupIdRef = React.useRef<string | null>(null);
+  const submittingRef = React.useRef(false);
   const handledHandoffRef = React.useRef<string | null>(null);
 
   // Helper for local datetime string
@@ -81,8 +83,10 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   // so the two existing cron runners (api/tiktok/publish.js,
   // api/telegram/run-scheduled.js) need no changes at all.
   const [platforms, setPlatforms] = useState<Platform[]>(['TIKTOK']);
+  const [completedPlatforms, setCompletedPlatforms] = useState<Platform[]>([]);
   const [tiktokDeliveryMode, setTikTokDeliveryMode] = useState<'inbox' | 'direct'>('inbox');
   const togglePlatform = (id: Platform) => {
+    if (completedPlatforms.includes(id)) return;
     setPlatforms((prev) => {
       if (prev.includes(id)) {
         // Always keep at least one platform selected.
@@ -137,7 +141,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   const [showTelegramFileInput, setShowTelegramFileInput] = useState(false);
   // Every platform whose auto-post reuses the one shared "video above" field
   // (Telegram also reuses it, but through its own optional field below).
-  const hasSharedVideoField = platforms.includes('TIKTOK') || platforms.includes('YOUTUBE');
+  const hasSharedVideoField = platforms.includes('TIKTOK') || platforms.includes('YOUTUBE') || platforms.includes('FACEBOOK');
   const [scheduledTime, setScheduledTime] = useState(() => {
     const nextHour = new Date();
     nextHour.setHours(nextHour.getHours() + 1);
@@ -153,6 +157,26 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   const [isConnectingYouTube, setIsConnectingYouTube] = useState(false);
   const [tiktokJustConnected, setTiktokJustConnected] = useState(false);
   const [isConnectingTikTok, setIsConnectingTikTok] = useState(false);
+  const [isConnectingFacebook, setIsConnectingFacebook] = useState(false);
+  const [facebookPages, setFacebookPages] = useState<{ id: string; name: string }[]>([]);
+  const [facebookPageId, setFacebookPageId] = useState('');
+
+  const loadFacebookPages = async () => {
+    if (!user) return;
+    const response = await fetch('/api/tiktok/me?action=facebookAutomation', {
+      headers: { Authorization: `Bearer ${await user.getIdToken()}` },
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'Could not check Facebook Pages.');
+    setFacebookPages(data.pages || []);
+    setFacebookPageId(data.selectedPageId || '');
+    return data;
+  };
+
+  useEffect(() => {
+    if (!user || !isModalOpen || !platforms.includes('FACEBOOK')) return;
+    loadFacebookPages().catch(error => setFormError(error.message));
+  }, [user?.uid, isModalOpen, platforms.includes('FACEBOOK')]);
 
   // The OAuth callback posts this message back before closing its popup.
   useEffect(() => {
@@ -160,10 +184,11 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
       if (event.origin !== window.location.origin) return;
       if (event.data?.type === 'YOUTUBE_AUTH_SUCCESS') setYoutubeJustConnected(true);
       if (event.data?.type === 'TIKTOK_AUTH_SUCCESS') setTiktokJustConnected(true);
+      if (event.data?.type === 'FACEBOOK_AUTH_SUCCESS') loadFacebookPages().catch(error => setFormError(error.message));
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, []);
+  }, [user]);
 
   useEffect(() => { setTiktokJustConnected(false); setYoutubeJustConnected(false); }, [user?.uid]);
 
@@ -221,6 +246,25 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     }
   };
 
+  const connectFacebook = async () => {
+    if (!user) { setFormError('Sign in before connecting Facebook.'); return; }
+    const popup = window.open('about:blank', 'facebookAuth', 'width=600,height=700');
+    if (!popup) { setFormError('Allow popups to connect Facebook.'); return; }
+    setIsConnectingFacebook(true);
+    setFormError(null);
+    try {
+      const response = await fetch('/api/auth/tiktok?provider=facebook', {
+        headers: { Authorization: `Bearer ${await user.getIdToken()}` },
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.url) throw new Error(data.error || 'Could not connect Facebook.');
+      popup.location.href = data.url;
+    } catch (error) {
+      popup.close();
+      setFormError(error instanceof Error ? error.message : 'Could not connect Facebook.');
+    } finally { setIsConnectingFacebook(false); }
+  };
+
   // Consumes a "schedule this" handoff from PosterGen/VideoVoice: prefills the
   // create-post form with the generated media + caption and opens the modal,
   // defaulting to Telegram since it's the only platform this app can actually
@@ -229,6 +273,8 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   React.useEffect(() => {
     if (!handoffRequest || handledHandoffRef.current === handoffRequest.id) return;
     handledHandoffRef.current = handoffRequest.id;
+    pendingGroupIdRef.current = null;
+    setCompletedPlatforms([]);
     const requestId = handoffRequest.id;
     const targetPlatform = handoffRequest.preferredPlatform || 'TELEGRAM';
 
@@ -264,7 +310,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
           // (below) was blocking scheduling entirely in exactly that case.
           setVideoFile(file);
           setTelegramMediaFile(file);
-        } else if (targetPlatform === 'TIKTOK' || targetPlatform === 'YOUTUBE') {
+        } else if (targetPlatform === 'TIKTOK' || targetPlatform === 'YOUTUBE' || targetPlatform === 'FACEBOOK') {
           setVideoFile(file);
           setTelegramMediaFile(null);
         } else {
@@ -424,6 +470,8 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     });
 
   const resetFormAfterSchedule = () => {
+    pendingGroupIdRef.current = null;
+    setCompletedPlatforms([]);
     setIsModalOpen(false);
     setContent(DEFAULT_HASHTAGS);
     setPlatformCaptions({});
@@ -447,7 +495,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     // video. Preserve the selected media for demo-mode schedule cards as well.
     const mediaFile = platform === 'TELEGRAM'
       ? (telegramMediaFile || videoFile)
-      : platform === 'TIKTOK' || platform === 'YOUTUBE'
+      : platform === 'TIKTOK' || platform === 'YOUTUBE' || platform === 'FACEBOOK'
         ? videoFile
         : null;
     const mediaDbKey = mediaFile ? `${platform.toLowerCase()}-${postId}-${crypto.randomUUID()}` : null;
@@ -461,6 +509,8 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
       ? (tiktokDeliveryMode === 'inbox' ? 'TIKTOK_UPLOAD_DRAFT_LOCAL' : 'TIKTOK_DIRECT_POST_LOCAL')
       : platform === 'YOUTUBE'
       ? 'YOUTUBE_STUDIO_READY_LOCAL'
+      : platform === 'FACEBOOK'
+      ? 'FACEBOOK_REEL_PREVIEW_LOCAL'
       : 'PLANNED_ONLY';
 
     const post = {
@@ -487,6 +537,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
 
   const handleCreatePost = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingRef.current) return;
     setFormError(null);
 
     if (platforms.includes('TIKTOK') && tiktokDeliveryMode === 'direct') {
@@ -501,12 +552,12 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
 
     const userToUse = user || (isDemoMode ? { uid: 'demo-user' } : null);
 
-    const requiresVideo = platforms.includes('TIKTOK') || platforms.includes('YOUTUBE');
+    const requiresVideo = platforms.includes('TIKTOK') || platforms.includes('YOUTUBE') || platforms.includes('FACEBOOK');
     // Telegram can post text-only or media-only, so it's the one case where a
     // blank caption is fine -- but only when it's the *sole* destination and
     // has its own media, since a combined post still needs a caption/title
     // for the other platform(s) it's also going to.
-    const telegramOnlyWithMedia = platforms.length === 1 && platforms[0] === 'TELEGRAM' && !!telegramMediaFile;
+    const telegramOnlyWithMedia = platforms.length === 1 && platforms[0] === 'TELEGRAM' && !!(telegramMediaFile || videoFile);
     // A platform is fine with no caption only in the telegramOnlyWithMedia
     // case above -- every other selected platform needs *some* resolved
     // caption, whether that's its own override or the shared draft.
@@ -535,8 +586,10 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
       return;
     }
 
+    submittingRef.current = true;
     setIsSubmitting(true);
-    const groupId = crypto.randomUUID();
+    const groupId = pendingGroupIdRef.current || crypto.randomUUID();
+    pendingGroupIdRef.current = groupId;
 
     if (isDemoMode) {
       try {
@@ -549,6 +602,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
         const message = err instanceof Error ? err.message : 'Could not prepare this media file.';
         setFormError(`Failed to save post: ${message}`);
       } finally {
+        submittingRef.current = false;
         setIsSubmitting(false);
       }
       return;
@@ -557,9 +611,14 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     try {
       if (!user) throw new Error('Please sign in first.');
       const idToken = await user.getIdToken();
+      let selectedFacebookPageId = facebookPageId;
       await Promise.all([
         ...(platforms.includes('TIKTOK') ? [requireTikTokAutomationConnection(user)] : []),
         ...(platforms.includes('YOUTUBE') ? [requireYouTubeAutomationConnection(user)] : []),
+        ...(platforms.includes('FACEBOOK') ? [loadFacebookPages().then(data => {
+          if (!data?.connected || !data.selectedPageId) throw new Error('Connect and choose a Facebook Page before scheduling.');
+          selectedFacebookPageId = data.pages.some((page: { id: string }) => page.id === facebookPageId) ? facebookPageId : data.selectedPageId;
+        })] : []),
       ]);
 
       // TikTok/YouTube use one video upload. Telegram also needs a copy in
@@ -607,6 +666,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
       }
 
       const failures: string[] = [];
+      const failedPlatforms: Platform[] = [];
       const deliveryWarnings: string[] = [];
       for (const platform of platforms) {
         try {
@@ -652,8 +712,9 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
             status: 'PENDING',
             userId: userToUse.uid,
             aiSuggested: false,
-            videoUrl: ['TIKTOK', 'YOUTUBE'].includes(platform) ? videoUrl : '',
+            videoUrl: ['TIKTOK', 'YOUTUBE', 'FACEBOOK'].includes(platform) ? videoUrl : '',
             videoName: videoFile?.name || null,
+            ...(platform === 'FACEBOOK' ? { facebookPageId: selectedFacebookPageId } : {}),
             mediaUrl: '',
             mediaName: null,
             mediaType: null,
@@ -661,7 +722,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
               ? (tiktokDeliveryMode === 'inbox' ? 'TIKTOK_UPLOAD_DRAFT' : 'TIKTOK_DIRECT_POST')
               : platform === 'YOUTUBE'
                 ? 'YOUTUBE_AUTO_POST'
-                : 'PLANNED_ONLY',
+                : platform === 'FACEBOOK' ? 'FACEBOOK_REEL_AUTO_POST' : 'PLANNED_ONLY',
             createdAt: serverTimestamp()
           });
           void recordAuditEvent('scheduled_post_created', {
@@ -669,7 +730,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
             scheduledTime: scheduledDate.toISOString(),
             hasMedia: Boolean(videoUrl),
           });
-          if (platform === 'TIKTOK' || platform === 'YOUTUBE') {
+          if (platform === 'TIKTOK' || platform === 'YOUTUBE' || platform === 'FACEBOOK') {
             // Await the precise callback before reporting success. A serverless
             // response can stop an unawaited fetch, leaving only the slower
             // periodic poller. The Firestore post remains scheduled if QStash
@@ -682,45 +743,50 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
               });
               const queueResult = await queueResponse.json().catch(() => ({}));
               if (!queueResponse.ok || queueResult.preciseDeliveryQueued !== true) {
-                deliveryWarnings.push(`${platform === 'YOUTUBE' ? 'YouTube' : 'TikTok'} was saved, but exact-time delivery could not be queued. The backup scheduler will retry it.`);
+                deliveryWarnings.push(`${platform} was saved, but exact-time delivery could not be queued. The backup scheduler will retry it.`);
               }
             } catch (qstashError) {
               console.error(`Failed to enqueue precise ${platform} delivery:`, qstashError);
-              deliveryWarnings.push(`${platform === 'YOUTUBE' ? 'YouTube' : 'TikTok'} was saved, but exact-time delivery could not be queued. The backup scheduler will retry it.`);
+              deliveryWarnings.push(`${platform} was saved, but exact-time delivery could not be queued. The backup scheduler will retry it.`);
             }
           }
         } catch (platformError) {
           const message = platformError instanceof Error ? platformError.message : 'unknown error';
+          failedPlatforms.push(platform);
           failures.push(`${platform}: ${message}`);
         }
       }
 
-      if (failures.length === platforms.length) {
-        throw new Error(failures.join('; '));
+      if (failures.length) {
+        // Keep the media and original group ID for the failed destinations.
+        // Successfully saved platforms leave the selection so a retry cannot
+        // create duplicate posts for them.
+        setPlatforms(failedPlatforms);
+        setCompletedPlatforms((current) => [...new Set([...current, ...platforms.filter((platform) => !failedPlatforms.includes(platform))])]);
+        setFormError(`Scheduled for ${platforms.length - failures.length}/${platforms.length} platform(s). Retry the remaining selection: ${failures.join('; ')}`);
+        if (deliveryWarnings.length) setScheduleNotice(deliveryWarnings.join(' '));
+        return;
       }
 
       resetFormAfterSchedule();
       setFormError(null);
-      setScheduleNotice(failures.length || deliveryWarnings.length ? [
-        ...(failures.length ? [`Scheduled for ${platforms.length - failures.length}/${platforms.length} platform(s). Failed: ${failures.join('; ')}`] : []),
-        ...deliveryWarnings,
-      ].join(' ') : 'Scheduled successfully.');
+      setScheduleNotice(deliveryWarnings.length ? deliveryWarnings.join(' ') : 'Scheduled successfully.');
     } catch (err) {
       console.error('Error creating post:', err);
       const message = err instanceof Error ? err.message : t('failedSavePostErr');
       setFormError(`Failed to save post: ${message}`);
     } finally {
+      submittingRef.current = false;
       setIsSubmitting(false);
     }
   };
 
   const closeModal = () => {
+    if (submittingRef.current) return;
     setIsModalOpen(false);
     setFormError(null);
-    // An in-flight submit that's stuck (or just slow) shouldn't keep the button
-    // permanently disabled/spinning the next time this modal opens -- if the
-    // stale request eventually does resolve after this, its own finally block
-    // harmlessly resets isSubmitting again on an already-closed modal.
+    pendingGroupIdRef.current = null;
+    setCompletedPlatforms([]);
     setIsSubmitting(false);
     setUploadProgress(null);
   };
@@ -817,12 +883,24 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                   <h3 id="manual-schedule-title" className="text-xl font-bold text-brand-700 tracking-tight dark:text-brand-400">{t('manualSchedule')}</h3>
                   <p className="text-slate-500 text-xs mt-1 dark:text-slate-400">{t('bypassAiDesc')}</p>
                 </div>
-                <button onClick={closeModal} className="p-2 hover:bg-brand-100 rounded-xl transition-all dark:hover:bg-slate-600">
+                <button onClick={closeModal} disabled={isSubmitting} className="p-2 hover:bg-brand-100 rounded-xl transition-all disabled:opacity-50 dark:hover:bg-slate-600">
                   <X size={20} className="text-slate-500 dark:text-slate-400" />
                 </button>
               </div>
 
               <form onSubmit={handleCreatePost} className="p-8 space-y-6">
+                <p className="rounded-xl border border-brand-200 bg-brand-50 p-3 text-xs text-brand-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                  {language === 'km'
+                    ? 'ជ្រើសរើសកន្លែងផ្សាយច្រើន កំណត់ពេលម្តង ហើយប្រើវីដេអូតែមួយសម្រាប់កន្លែងដែលបានជ្រើស។ TikTok នឹងផ្ញើទៅ inbox ដើម្បីឱ្យអ្នកបញ្ចប់ការផ្សាយក្នុង TikTok។'
+                    : 'Select destinations and one publish time. The same video is reused for each selected destination. TikTok sends it to your inbox for final publishing in TikTok.'}
+                </p>
+                {isDemoMode && (
+                  <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+                    {language === 'km'
+                      ? 'Demo Mode រក្សាទុកការកំណត់នៅក្នុង browser នេះប៉ុណ្ណោះ។ សូមចូលគណនី ដើម្បីផ្សាយទៅកន្លែងដែលបានជ្រើស។'
+                      : 'Demo Mode saves schedules in this browser only. Sign in to publish to the selected destinations.'}
+                  </p>
+                )}
                 {formError && (
                   <motion.div
                     initial={{ opacity: 0, height: 0 }}
@@ -848,17 +926,19 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-2">{t('platform')} (select one or more)</label>
-                      <div className="grid grid-cols-5 gap-2">
+                      <div className="grid grid-cols-4 gap-2">
                         {[
                           { id: 'TIKTOK', icon: Share2 },
                           { id: 'YOUTUBE', icon: Youtube },
-                          { id: 'TELEGRAM', icon: Send }
+                          { id: 'TELEGRAM', icon: Send },
+                          { id: 'FACEBOOK', icon: Facebook }
                         ].map((p) => (
                           <button
                             key={p.id}
                             type="button"
+                            disabled={completedPlatforms.includes(p.id as Platform)}
                             onClick={() => togglePlatform(p.id as Platform)}
-                            className={`p-3 rounded-xl border flex flex-col items-center gap-1 transition-all ${
+                            className={`p-3 rounded-xl border flex flex-col items-center gap-1 transition-all disabled:cursor-not-allowed disabled:opacity-50 ${
                               platforms.includes(p.id as Platform)
                                 ? 'bg-brand-50 border-brand-500 text-brand-600 dark:bg-slate-800'
                                 : 'bg-white border-brand-100 text-slate-400 hover:border-brand-200 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400'
@@ -866,6 +946,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                           >
                             <p.icon size={16} />
                             <span className="text-[8px] font-bold">{p.id.charAt(0) + p.id.slice(1).toLowerCase()}</span>
+                            {completedPlatforms.includes(p.id as Platform) && <span className="text-[8px]">{language === 'km' ? 'បានកំណត់' : 'Saved'}</span>}
                           </button>
                         ))}
                       </div>
@@ -893,15 +974,28 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                             : 'Video'}
                       </label>
                       <input
-                        required={platforms.includes('TIKTOK') || platforms.includes('YOUTUBE')}
                         type="file"
                         accept="video/mp4,video/quicktime,video/webm"
-                        onChange={(e) => setVideoFile(e.target.files?.[0] || null)}
+                        onChange={(e) => {
+                          const nextFile = e.target.files?.[0] || null;
+                          // A generated handoff initially fills both slots with
+                          // the same File. Replacing it must update Telegram too;
+                          // an explicitly different Telegram file stays intact.
+                          setTelegramMediaFile((current) => current === videoFile ? null : current);
+                          setVideoFile(nextFile);
+                        }}
                         className="w-full p-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-700 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-brand-600 file:px-3 file:py-2 file:font-bold file:text-white dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
                       />
+                      {videoFile && (
+                        <p className="mt-2 text-xs font-semibold text-brand-700 dark:text-brand-300">
+                          {language === 'km' ? 'វីដេអូរួម៖ ' : 'Shared video: '}{videoFile.name} ({formatFileSize(videoFile.size)})
+                        </p>
+                      )}
                       <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                         {platforms.includes('YOUTUBE') && !platforms.includes('TIKTOK')
                           ? 'Horizontal 16:9 MP4, MOV, or WebM. Uploads automatically to your connected YouTube channel at the scheduled time.'
+                          : platforms.includes('TIKTOK') && platforms.includes('YOUTUBE')
+                            ? 'Use a portrait 9:16 video for TikTok and YouTube Shorts. MP4, MOV, or WebM.'
                           : 'MP4, MOV, or WebM.'}
                         {platforms.includes('TELEGRAM') && !telegramMediaFile && ' This same video is also used for Telegram unless you attach a different file below.'}
                       </p>
@@ -956,8 +1050,42 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                       {renderCaptionOverride('YOUTUBE', 'YouTube')}
                     </div>
                   )}
+                  {platforms.includes('FACEBOOK') && (
+                    <div className="space-y-3 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-300">
+                      <p>Facebook Page Reel: portrait 9:16 video, 4–60 seconds. Publishes automatically to the selected Page.</p>
+                      <button type="button" onClick={connectFacebook} disabled={isConnectingFacebook || isDemoMode} className="rounded-lg bg-blue-600 px-3 py-1.5 font-semibold text-white disabled:opacity-50">
+                        {isConnectingFacebook ? 'Connecting…' : 'Connect Facebook Page'}
+                      </button>
+                      {facebookPages.length > 0 && (
+                        <label className="block font-semibold">Publish to Page
+                          <select value={facebookPageId} onChange={async event => {
+                            const pageId = event.target.value;
+                            setFacebookPageId(pageId);
+                            if (!user) return;
+                            try {
+                              const response = await fetch('/api/tiktok/me?action=selectFacebookPage', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await user.getIdToken()}` },
+                                body: JSON.stringify({ pageId }),
+                              });
+                              const data = await response.json().catch(() => ({}));
+                              if (!response.ok) throw new Error(data.error || 'Could not select Facebook Page.');
+                            } catch (error) { setFormError(error instanceof Error ? error.message : 'Could not select Facebook Page.'); }
+                          }} className="mt-2 w-full rounded-lg border border-blue-200 bg-white p-2 text-blue-800">
+                            {facebookPages.map(page => <option key={page.id} value={page.id}>{page.name}</option>)}
+                          </select>
+                        </label>
+                      )}
+                      {renderCaptionOverride('FACEBOOK', 'Facebook')}
+                    </div>
+                  )}
                   {platforms.includes('TELEGRAM') && (
                     <div className="space-y-3">
+                      {!hasSharedVideoField && videoFile && !telegramMediaFile && (
+                        <p className="text-xs font-semibold text-sky-700 dark:text-sky-300">
+                          {language === 'km' ? 'Telegram នឹងប្រើវីដេអូរួម៖ ' : 'Telegram will use the shared video: '}{videoFile.name}
+                        </p>
+                      )}
                       {hasSharedVideoField && !showTelegramFileInput ? (
                         <button
                           type="button"
@@ -974,7 +1102,12 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                           <input
                             type="file"
                             accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm"
-                            onChange={(e) => setTelegramMediaFile(e.target.files?.[0] || null)}
+                            onChange={(e) => {
+                              const nextFile = e.target.files?.[0] || null;
+                              if (nextFile?.type.startsWith('video/') && !videoFile) setVideoFile(nextFile);
+                              if (!nextFile && telegramMediaFile === videoFile) setVideoFile(null);
+                              setTelegramMediaFile(nextFile);
+                            }}
                             className="w-full p-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-700 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-sky-500 file:px-3 file:py-2 file:font-bold file:text-white dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
                           />
                           {telegramMediaFile && (
@@ -997,7 +1130,8 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                   <button
                     type="button"
                     onClick={closeModal}
-                    className="flex-1 py-4 bg-brand-50 text-brand-700 border border-brand-100 font-bold rounded-2xl hover:bg-brand-100 transition-all dark:bg-slate-800 dark:border-slate-700 dark:text-brand-400 dark:hover:bg-slate-700"
+                    disabled={isSubmitting}
+                    className="flex-1 py-4 bg-brand-50 text-brand-700 border border-brand-100 font-bold rounded-2xl hover:bg-brand-100 transition-all disabled:opacity-50 dark:bg-slate-800 dark:border-slate-700 dark:text-brand-400 dark:hover:bg-slate-700"
                   >
                     {t('discard')}
                   </button>

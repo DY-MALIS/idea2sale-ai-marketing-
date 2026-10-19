@@ -1,0 +1,128 @@
+import crypto from 'crypto';
+import { Client as QStashClient } from '@upstash/qstash';
+import { getCookie, sessionCookieAttributes } from './_tiktok.js';
+import { getScheduledCallbackBaseUrl } from './_callbackUrl.js';
+
+const COLLECTION = 'facebook_automation_tokens';
+const VERSION = process.env.FACEBOOK_GRAPH_API_VERSION || 'v25.0';
+const GRAPH = `https://graph.facebook.com/${VERSION}`;
+const OWNER_COOKIE = 'facebook_oauth_owner';
+const STATE_COOKIE = 'facebook_oauth_state';
+
+function appCredentials() {
+  const appId = (process.env.FACEBOOK_APP_ID || '').trim();
+  const appSecret = (process.env.FACEBOOK_APP_SECRET || '').trim();
+  if (!appId || !appSecret) throw new Error('FACEBOOK_APP_ID and FACEBOOK_APP_SECRET are not configured.');
+  return { appId, appSecret };
+}
+
+export function facebookRedirectUri() {
+  const base = (process.env.APP_URL || '').trim().replace(/\/$/, '');
+  if (!base || !/^https?:\/\//.test(base)) throw new Error('APP_URL must be configured to connect Facebook.');
+  return `${base}/api/tiktok/callback?provider=facebook`;
+}
+
+export function facebookAuthUrl(state) {
+  const { appId } = appCredentials();
+  const params = new URLSearchParams({
+    client_id: appId,
+    redirect_uri: facebookRedirectUri(),
+    response_type: 'code',
+    scope: 'pages_show_list,pages_read_engagement,pages_manage_posts',
+    state,
+  });
+  return `https://www.facebook.com/${VERSION}/dialog/oauth?${params}`;
+}
+
+export function facebookAuthCookies(ownerId, state, req) {
+  const { appSecret } = appCredentials();
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(ownerId)) throw new Error('Invalid owner.');
+  const signature = crypto.createHmac('sha256', appSecret).update(`${state}:${ownerId}`).digest('hex');
+  const attributes = sessionCookieAttributes(req);
+  return [
+    `${STATE_COOKIE}=${state}; ${attributes}; Max-Age=600`,
+    `${OWNER_COOKIE}=${encodeURIComponent(`${ownerId}.${signature}`)}; ${attributes}; Max-Age=600`,
+  ];
+}
+
+export function readFacebookOAuthOwner(req, res) {
+  const state = String(req.query?.state || '');
+  const cookieState = getCookie(req, STATE_COOKIE);
+  const value = getCookie(req, OWNER_COOKIE);
+  const attributes = sessionCookieAttributes(req);
+  res.setHeader('Set-Cookie', [].concat(res.getHeader('Set-Cookie') || [], [
+    `${STATE_COOKIE}=; ${attributes}; Max-Age=0`,
+    `${OWNER_COOKIE}=; ${attributes}; Max-Age=0`,
+  ]));
+  const [ownerId, signature] = value.split('.');
+  if (!state || cookieState !== state || !ownerId || !/^[A-Za-z0-9_-]{1,128}$/.test(ownerId) || !/^[a-f0-9]{64}$/.test(signature || '')) return null;
+  const { appSecret } = appCredentials();
+  const expected = crypto.createHmac('sha256', appSecret).update(`${state}:${ownerId}`).digest();
+  return crypto.timingSafeEqual(expected, Buffer.from(signature, 'hex')) ? ownerId : null;
+}
+
+async function graphJson(url, options = {}) {
+  const response = await fetch(url, options);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.error) {
+    const error = new Error(data.error?.message || `Facebook returned HTTP ${response.status}`);
+    error.code = data.error?.code || 'facebook_api_error';
+    throw error;
+  }
+  return data;
+}
+
+export async function exchangeFacebookCode(code) {
+  const { appId, appSecret } = appCredentials();
+  const shortToken = await graphJson(`${GRAPH}/oauth/access_token?${new URLSearchParams({ client_id: appId, client_secret: appSecret, redirect_uri: facebookRedirectUri(), code })}`);
+  const longToken = await graphJson(`${GRAPH}/oauth/access_token?${new URLSearchParams({ grant_type: 'fb_exchange_token', client_id: appId, client_secret: appSecret, fb_exchange_token: shortToken.access_token })}`);
+  const pages = await graphJson(`${GRAPH}/me/accounts?${new URLSearchParams({ fields: 'id,name,access_token,tasks', limit: '100', access_token: longToken.access_token })}`);
+  return (pages.data || []).filter(page => page.id && page.access_token && (page.tasks || []).some(task => task === 'CREATE_CONTENT' || task === 'PROFILE_PLUS_CREATE_CONTENT' || task === 'MANAGE' || task === 'PROFILE_PLUS_FULL_CONTROL'));
+}
+
+export async function saveFacebookPages(db, ownerId, pages) {
+  const ref = db.collection(COLLECTION).doc(ownerId);
+  const old = await ref.get();
+  const selectedPageId = pages.some(page => page.id === old.data()?.selectedPageId) ? old.data().selectedPageId : pages[0]?.id;
+  await ref.set({ ownerId, pages: pages.map(page => ({ id: page.id, name: page.name, accessToken: page.access_token })), selectedPageId, updatedAt: Date.now() });
+}
+
+export async function getFacebookPages(db, ownerId) {
+  const snapshot = await db.collection(COLLECTION).doc(ownerId).get();
+  return snapshot.exists ? snapshot.data() : null;
+}
+
+export async function publishFacebookReel(pageToken, videoUrl, caption) {
+  if (!/^https:\/\//.test(videoUrl || '')) throw new Error('Facebook needs a publicly accessible HTTPS video URL.');
+  const start = await graphJson(`${GRAPH}/me/video_reels?${new URLSearchParams({ access_token: pageToken, upload_phase: 'start' })}`, { method: 'POST' });
+  if (!start.video_id || !/^\d+$/.test(String(start.video_id))) throw new Error('Facebook did not create a Reel upload.');
+  const upload = await graphJson(`https://rupload.facebook.com/video-upload/${VERSION}/${start.video_id}`, {
+    method: 'POST',
+    headers: { Authorization: `OAuth ${pageToken}`, file_url: videoUrl },
+  });
+  if (upload.success !== true) throw new Error('Facebook did not accept the video.');
+  const finish = await graphJson(`${GRAPH}/me/video_reels?${new URLSearchParams({ access_token: pageToken, video_id: String(start.video_id), upload_phase: 'finish', video_state: 'PUBLISHED', description: String(caption || '').slice(0, 5000) })}`, { method: 'POST' });
+  if (finish.success !== true) throw new Error('Facebook did not accept the publish request.');
+  return String(start.video_id);
+}
+
+export async function getFacebookReelStatus(pageToken, videoId) {
+  return graphJson(`${GRAPH}/${encodeURIComponent(videoId)}?${new URLSearchParams({ fields: 'status', access_token: pageToken })}`);
+}
+
+export async function scheduleFacebookQStashDelivery(postId, scheduledDate) {
+  const token = (process.env.QSTASH_TOKEN || '').trim();
+  if (!token) return false;
+  try {
+    const client = new QStashClient({ token, baseUrl: process.env.QSTASH_URL });
+    await client.publishJSON({
+      url: `${getScheduledCallbackBaseUrl()}/api/tiktok/publish?action=facebookDeliver`,
+      body: { postId },
+      notBefore: Math.floor(scheduledDate.getTime() / 1000),
+    });
+    return true;
+  } catch (error) {
+    console.error('QStash Facebook scheduling failed:', error?.message || error);
+    return false;
+  }
+}

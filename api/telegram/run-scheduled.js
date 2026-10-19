@@ -382,6 +382,10 @@ const createScheduledTelegramPost = async (req, res) => {
   const mediaUrl = String(req.body?.mediaUrl || '').trim();
   const mediaName = String(req.body?.mediaName || '').trim();
   const requestedMediaType = String(req.body?.mediaType || '').trim().toLowerCase();
+  const groupId = String(req.body?.groupId || '').trim();
+  if (groupId && !/^[A-Za-z0-9_-]{8,100}$/.test(groupId)) {
+    return res.status(400).json({ error: 'Invalid schedule group id.' });
+  }
 
   if (!content && !mediaDataUrl && !mediaUrl) {
     return res.status(400).json({ error: 'Text or media is required.' });
@@ -434,6 +438,7 @@ const createScheduledTelegramPost = async (req, res) => {
     scheduledTime: scheduledDate.toISOString(),
     status: 'PENDING',
     userId: decoded.uid,
+    ...(groupId ? { groupId } : {}),
     aiSuggested: false,
     mediaUrl: uploaded.mediaUrl,
     mediaName: mediaName || null,

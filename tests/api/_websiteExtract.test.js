@@ -30,6 +30,9 @@ it.each([
   'http://10.0.0.5/',
   'http://192.168.1.1/',
   'http://172.20.0.1/',
+  'http://[::ffff:127.0.0.1]/',
+  'http://[fc00::1]/',
+  'http://[fe80::1]/',
 ])('blocks a private/internal host before fetching it (%s)', async (url) => {
   const fetchMock = vi.fn();
   vi.stubGlobal('fetch', fetchMock);
@@ -61,6 +64,37 @@ it('extracts readable text and the title from a real page, stripping scripts/sty
 it('rejects a non-HTML content type', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })));
   await expect(extractWebsiteText({ url: 'https://example.com/data.json' })).rejects.toMatchObject({ code: 'unsupported_content_type' });
+});
+
+it('follows a public redirect only after validating its destination', async () => {
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(new Response(null, { status: 302, headers: { location: '/about' } }))
+    .mockResolvedValueOnce(htmlResponse('<html><body>Public business details.</body></html>'));
+  vi.stubGlobal('fetch', fetchMock);
+  const result = await extractWebsiteText({ url: 'https://example.com/' });
+  expect(result.text).toContain('Public business details');
+  expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(['https://example.com/', 'https://example.com/about']);
+  expect(fetchMock.mock.calls[0][1].redirect).toBe('manual');
+});
+
+it.each([
+  'http://127.0.0.1/admin',
+  'http://169.254.169.254/latest/meta-data/',
+  'http://localhost:3000/',
+  'http://[::ffff:127.0.0.1]/',
+  'http://[fc00::1]/',
+])('never fetches a private redirect destination (%s)', async (destination) => {
+  const fetchMock = vi.fn(async () => new Response(null, { status: 302, headers: { location: destination } }));
+  vi.stubGlobal('fetch', fetchMock);
+  await expect(extractWebsiteText({ url: 'https://example.com/' })).rejects.toMatchObject({ code: 'blocked_host' });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+it('stops a redirect loop', async () => {
+  const fetchMock = vi.fn(async () => new Response(null, { status: 302, headers: { location: '/again' } }));
+  vi.stubGlobal('fetch', fetchMock);
+  await expect(extractWebsiteText({ url: 'https://example.com/' })).rejects.toMatchObject({ code: 'too_many_redirects' });
+  expect(fetchMock).toHaveBeenCalledTimes(6);
 });
 
 it('rejects a non-2xx response', async () => {

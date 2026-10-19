@@ -53,6 +53,11 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /facebook_automation_tokens/{docId} {
+      // Page access tokens are only read and written by the server Admin SDK.
+      allow read, write: if false;
+    }
+
     match /tiktok_posts/{postId} {
       allow read: if isAdmin()
         || (isSignedIn() && resource.data.userId == request.auth.uid);
@@ -90,14 +95,15 @@ service cloud.firestore {
         && incoming().platform in ['TIKTOK', 'YOUTUBE', 'INSTAGRAM', 'TWITTER', 'TELEGRAM', 'FACEBOOK']
         && incoming().scheduledTime is string
         && incoming().scheduledTime.matches('^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$')
-        && (!(incoming().platform in ['TIKTOK', 'YOUTUBE']) || (incoming().videoUrl is string && incoming().videoUrl.size() <= 2000))
+        && (!(incoming().platform in ['TIKTOK', 'YOUTUBE', 'FACEBOOK']) || (incoming().videoUrl is string && incoming().videoUrl.size() <= 2000))
+        && (incoming().platform != 'FACEBOOK' || (incoming().facebookPageId is string && incoming().facebookPageId.matches('^[0-9]+$')))
         && incoming().status == 'PENDING';
         
       allow update: if isAdmin() || (isSignedIn()
         && existing().userId == request.auth.uid
         && incoming().userId == request.auth.uid
         && (
-          (existing().platform in ['INSTAGRAM', 'TWITTER', 'FACEBOOK']
+          (existing().platform in ['INSTAGRAM', 'TWITTER']
             && incoming().diff(existing()).affectedKeys().hasOnly(['status'])
             && incoming().status in ['PENDING', 'PUBLISHED'])
           || (existing().platform == 'TIKTOK'

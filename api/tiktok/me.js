@@ -1,6 +1,7 @@
 import admin, { initFirebaseAdmin } from '../_firebaseAdmin.js';
 import { getAutomationAccessToken, getCookie, sessionCookieAttributes } from '../_tiktok.js';
 import { getYouTubeAutomationAccessToken } from '../_youtube.js';
+import { getFacebookPages } from '../_facebook.js';
 import tiktokStatsHandler from '../_tiktokStats.js';
 
 // Clears this owner's TikTok connection so a fresh "Connect TikTok" can pick a
@@ -40,6 +41,28 @@ async function disconnectTikTok(req, res) {
 }
 
 export default async function handler(req, res) {
+  if (req.query?.action === 'facebookAutomation' || req.query?.action === 'selectFacebookPage') {
+    const selecting = req.query.action === 'selectFacebookPage';
+    if (req.method !== (selecting ? 'POST' : 'GET')) return res.status(405).json({ error: 'Method not allowed' });
+    const idToken = String(req.headers.authorization || '').replace(/^Bearer /, '');
+    if (!idToken) return res.status(401).json({ error: 'Sign in to manage your Facebook Page.' });
+    try {
+      const db = initFirebaseAdmin();
+      const owner = await admin.auth().verifyIdToken(idToken, true);
+      const connection = await getFacebookPages(db, owner.uid);
+      if (!connection?.pages?.length) return res.status(200).json({ connected: false, pages: [] });
+      if (selecting) {
+        const pageId = String(req.body?.pageId || '');
+        if (!connection.pages.some(page => page.id === pageId)) return res.status(400).json({ error: 'Choose a Page you connected.' });
+        await db.collection('facebook_automation_tokens').doc(owner.uid).update({ selectedPageId: pageId });
+        connection.selectedPageId = pageId;
+      }
+      return res.status(200).json({ connected: true, pages: connection.pages.map(page => ({ id: page.id, name: page.name })), selectedPageId: connection.selectedPageId });
+    } catch (error) {
+      console.error('Could not manage Facebook connection:', error?.message || error);
+      return res.status(503).json({ error: 'Could not verify your Facebook Page connection.' });
+    }
+  }
   if (req.query?.route === 'stats') return tiktokStatsHandler(req, res);
   if (req.query?.action === 'youtubeAutomation') {
     if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
