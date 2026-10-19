@@ -508,12 +508,10 @@ async function handleScheduleQstash(req, res) {
   const authHeader = req.headers.authorization || '';
   const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
   if (!idToken) return res.status(401).json({ error: 'Authentication required.' });
-  let uid;
-  try {
-    uid = (await admin.auth().verifyIdToken(idToken, true)).uid;
-  } catch {
-    return res.status(401).json({ error: 'Invalid or expired session.' });
-  }
+  // Firebase Admin must be initialized before verifying a token. This action
+  // is often a cold serverless invocation, separate from the create request.
+  const uid = await resolveActorUid(req);
+  if (!uid) return res.status(401).json({ error: 'Invalid or expired session.' });
 
   const postId = String(req.body?.postId || '').trim();
   if (!postId) {
@@ -541,6 +539,47 @@ async function handleScheduleQstash(req, res) {
     console.error('Failed to schedule QStash delivery:', error?.message || error);
   }
   return res.status(200).json({ ok: true, preciseDeliveryQueued: false });
+}
+
+// When the precise queue and periodic poller both lag, the owner can deliver
+// an already-due post from the timeline. The normal claim transaction still
+// prevents duplicate uploads if QStash or a cron run races with this request.
+async function handleDeliverDueRequest(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed.' });
+  const uid = await resolveActorUid(req);
+  if (!uid) return res.status(401).json({ error: 'Sign in to deliver this post.' });
+  const postId = String(req.body?.postId || '').trim();
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(postId)) return res.status(400).json({ error: 'Invalid post ID.' });
+
+  try {
+    const db = initFirebaseAdmin();
+    const ref = db.collection('scheduled_posts').doc(postId);
+    const snap = await ref.get();
+    const post = snap.data();
+    if (!snap.exists || post?.userId !== uid || !['TIKTOK', 'YOUTUBE'].includes(post.platform)) {
+      return res.status(404).json({ error: 'Scheduled post not found.' });
+    }
+    if (post.status !== 'PENDING') return res.status(409).json({ error: 'This post is no longer pending.' });
+    const dueAt = new Date(post.scheduledTime).getTime();
+    if (!Number.isFinite(dueAt) || dueAt > Date.now()) {
+      return res.status(400).json({ error: 'This post is not due yet.' });
+    }
+    if (!post.videoUrl) return res.status(400).json({ error: 'This scheduled post has no attached video.' });
+
+    let result;
+    if (post.platform === 'TIKTOK') {
+      const token = await getAutomationAccessToken(db, uid);
+      if (!token) return res.status(409).json({ error: 'Reconnect TikTok before delivering this post.' });
+      result = await deliverOneScheduledTikTokPost(db, ref, token);
+    } else {
+      result = await deliverOneScheduledYouTubePost(db, ref);
+    }
+    if (!result.ok) return res.status(502).json({ ok: false, error: result.error || 'Delivery failed.' });
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error('Owner-requested delivery failed:', error?.message || error);
+    return res.status(500).json({ ok: false, error: error?.message || 'Delivery failed.' });
+  }
 }
 
 // QStash's precise per-post callback (see scheduleTikTokQStashDelivery in
@@ -995,6 +1034,10 @@ export default async function handler(req, res) {
 
   if (req.query?.action === 'scheduleQstash') {
     return handleScheduleQstash(req, res);
+  }
+
+  if (req.query?.action === 'deliverDue') {
+    return handleDeliverDueRequest(req, res);
   }
 
   if (req.method !== 'POST') {

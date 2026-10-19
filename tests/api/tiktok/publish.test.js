@@ -425,6 +425,7 @@ describe('POST /api/tiktok/publish?action=scheduleQstash', () => {
     await handler(req({ postId: 'post-1', scheduledTime: '2026-09-24T00:00:00.000Z' }), res);
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({ ok: true, preciseDeliveryQueued: true });
+    expect(mockInitFirebaseAdmin.mock.invocationCallOrder[0]).toBeLessThan(mockVerifyIdToken.mock.invocationCallOrder[0]);
     expect(mockScheduleQstash).toHaveBeenCalledWith(expect.anything(), 'post-1', new Date('2026-09-24T00:00:00.000Z'));
   });
 
@@ -465,6 +466,88 @@ describe('POST /api/tiktok/publish?action=scheduleQstash', () => {
     await handler(req({ postId: 'post-1', scheduledTime: '2026-09-24T00:00:00.000Z' }), res);
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({ ok: true, preciseDeliveryQueued: false });
+  });
+});
+
+describe('POST /api/tiktok/publish?action=deliverDue', () => {
+  const makeRequest = (postId = 'post-1', authorization = 'Bearer id-token') => ({
+    method: 'POST', query: { action: 'deliverDue' },
+    headers: authorization ? { authorization } : {}, body: { postId },
+  });
+  const setStoredPost = (post) => {
+    const ref = { get: async () => ({ exists: true, data: () => post }), update: vi.fn() };
+    mockInitFirebaseAdmin.mockReturnValue({ collection: () => ({ doc: () => ref }) });
+    return ref;
+  };
+
+  it('requires the signed-in owner of the scheduled post', async () => {
+    setStoredPost({ userId: 'owner-1', platform: 'TIKTOK', status: 'PENDING' });
+    const unauthenticated = response();
+    await handler(makeRequest('post-1', ''), unauthenticated);
+    expect(unauthenticated.statusCode).toBe(401);
+    mockVerifyIdToken.mockResolvedValue({ uid: 'another-user' });
+    const otherOwner = response();
+    await handler(makeRequest(), otherOwner);
+    expect(otherOwner.statusCode).toBe(404);
+    expect(mockClaimPendingPost).not.toHaveBeenCalled();
+  });
+
+  it('does not deliver an undued or media-less post', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'owner-1' });
+    setStoredPost({ userId: 'owner-1', platform: 'TIKTOK', status: 'PENDING',
+      scheduledTime: '2099-01-01T00:00:00.000Z', videoUrl: 'https://cdn.example.com/video.mp4' });
+    const future = response();
+    await handler(makeRequest(), future);
+    expect(future.statusCode).toBe(400);
+    setStoredPost({ userId: 'owner-1', platform: 'TIKTOK', status: 'PENDING',
+      scheduledTime: '2020-01-01T00:00:00.000Z', videoUrl: '' });
+    const noVideo = response();
+    await handler(makeRequest(), noVideo);
+    expect(noVideo.statusCode).toBe(400);
+    expect(mockClaimPendingPost).not.toHaveBeenCalled();
+  });
+
+  it('delivers an overdue TikTok video through the existing single-claim path', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'owner-1' });
+    mockGetAutomationAccessToken.mockResolvedValue('tiktok-token');
+    mockFindRecentDuplicate.mockResolvedValue(null);
+    const videoUrl = 'data:video/mp4;base64,AQID';
+    const post = { userId: 'owner-1', platform: 'TIKTOK', status: 'PENDING',
+      scheduledTime: '2020-01-01T00:00:00.000Z', videoUrl, content: 'Test clip', publishMode: 'TIKTOK_UPLOAD_DRAFT' };
+    const ref = setStoredPost(post);
+    mockClaimPendingPost.mockResolvedValue({ post });
+    vi.stubGlobal('fetch', vi.fn(async (url) => String(url).includes('/inbox/video/init/')
+      ? { ok: true, json: async () => ({ data: { publish_id: 'inbox-due', upload_url: 'https://upload.example.com/put' } }) }
+      : { ok: true }));
+    const res = response();
+    await handler(makeRequest(), res);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, publishId: 'inbox-due' });
+    expect(mockClaimPendingPost).toHaveBeenCalledOnce();
+    expect(ref.update).toHaveBeenCalledWith(expect.objectContaining({ status: 'UPLOADED' }));
+  });
+
+  it('publishes an overdue YouTube video through the existing single-claim path', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'owner-1' });
+    mockClaimPendingPost.mockResolvedValue({ post: {
+      userId: 'owner-1', platform: 'YOUTUBE', status: 'PENDING',
+      scheduledTime: '2020-01-01T00:00:00.000Z',
+      videoUrl: 'https://cdn.example.com/video.mp4', content: 'Test clip',
+    } });
+    mockFindRecentDuplicate.mockResolvedValue(null);
+    mockGetYouTubeToken.mockResolvedValue('youtube-token');
+    mockPublishYouTube.mockResolvedValue({ videoId: 'youtube-due' });
+    const ref = setStoredPost({ userId: 'owner-1', platform: 'YOUTUBE', status: 'PENDING',
+      scheduledTime: '2020-01-01T00:00:00.000Z', videoUrl: 'https://cdn.example.com/video.mp4' });
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true,
+      headers: { get: (name) => name === 'content-type' ? 'video/mp4' : null },
+      arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+    })));
+    const res = response();
+    await handler(makeRequest(), res);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({ ok: true, videoId: 'youtube-due' });
+    expect(ref.update).toHaveBeenCalledWith(expect.objectContaining({ status: 'PUBLISHED', youtubeVideoId: 'youtube-due' }));
   });
 });
 

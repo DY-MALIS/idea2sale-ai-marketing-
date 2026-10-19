@@ -54,6 +54,7 @@ const Scheduler: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [nowTick, setNowTick] = useState(Date.now());
+  const [deliveringPostId, setDeliveringPostId] = useState<string | null>(null);
   const processingTelegram = useRef<Set<string>>(new Set());
 
   const getDemoPosts = () => {
@@ -490,6 +491,26 @@ const Scheduler: React.FC = () => {
     }
   };
 
+  const deliverDuePostNow = async (post: SchedulePost) => {
+    if (!user || isDemoMode || post.localOnly || deliveringPostId) return;
+    setDeliveringPostId(post.id);
+    setErrorMsg(null);
+    try {
+      const idToken = await user.getIdToken();
+      const response = await fetch('/api/tiktok/publish?action=deliverDue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ postId: post.id }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) throw new Error(data.error || 'Could not deliver this post.');
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : 'Could not deliver this post.');
+    } finally {
+      setDeliveringPostId(null);
+    }
+  };
+
   const handleDelete = async (id: string) => {
     try {
       const postToDelete = posts.find(p => p.id === id);
@@ -689,6 +710,21 @@ const Scheduler: React.FC = () => {
                           title="Retry sending to Telegram"
                         >
                           <RotateCcw size={18} />
+                        </motion.button>
+                      )}
+                      {(['TIKTOK', 'YOUTUBE'].includes(post.platform)) && post.status === 'PENDING' &&
+                        !post.localOnly && new Date(post.scheduledTime).getTime() <= nowTick && (
+                        <motion.button
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          type="button"
+                          disabled={deliveringPostId !== null}
+                          onClick={() => deliverDuePostNow(post)}
+                          className="flex items-center gap-1 rounded-md p-2 text-amber-600 hover:bg-amber-50 disabled:opacity-50 dark:hover:bg-amber-900/30"
+                          title={post.platform === 'TIKTOK' ? 'Upload due video to TikTok inbox now' : 'Publish due video to YouTube now'}
+                        >
+                          <Send size={16} />
+                          <span className="text-xs font-semibold">{deliveringPostId === post.id ? 'Sending...' : post.platform === 'TIKTOK' ? 'Send to TikTok now' : 'Publish to YouTube now'}</span>
                         </motion.button>
                       )}
                       {post.platform === 'TIKTOK' && post.status === 'FAILED' && !post.localOnly && (
