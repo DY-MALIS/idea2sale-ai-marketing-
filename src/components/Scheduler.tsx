@@ -33,7 +33,7 @@ const saveLocalScheduledPosts = (posts: SchedulePost[]) => {
 };
 
 const sortScheduledPosts = (posts: SchedulePost[]) =>
-  [...posts].sort((a, b) => new Date(a.scheduledTime).getTime() - new Date(b.scheduledTime).getTime());
+  [...posts].sort((a, b) => new Date(b.scheduledTime).getTime() - new Date(a.scheduledTime).getTime());
 
 // Every write path in this app stores scheduledTime as a plain ISO string, but a
 // Firestore Timestamp object (e.g. from a manual admin-side edit) or any other
