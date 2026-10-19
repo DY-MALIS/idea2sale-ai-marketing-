@@ -1403,6 +1403,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     setLipSyncOffsetMs(0);
     setRecoverableVideoUrl(null);
     setVideoNeedsReview(false);
+    setRetainedClips([]);
     setVideoVoiceQualityNotice(null);
     try {
       const [idToken, businessContext] = await Promise.all([
@@ -1490,6 +1491,24 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       }
       if (currentJob.imageFallbackReason) {
         setVideoVoiceQualityNotice((current) => [current, presenterImageFallbackNotice(language)].filter(Boolean).join(' '));
+      }
+      try {
+        const narrationText = currentJob.expectedScript || currentJob.resumeNarration?.text || '';
+        await saveGenerationHistory({
+          user, isDemoMode, type: 'video',
+          title: (narrationText || 'Recovered video').slice(0, 200),
+          summary: narrationText || undefined,
+          mediaUrl: video,
+          mediaType: 'video',
+          payload: {
+            voiceOverText: narrationText,
+            videoAspectRatio: resumedAspectRatio,
+            videoDuration: currentJob.outputDuration || undefined,
+            hasSpeech: Boolean(narrationText),
+          },
+        });
+      } catch (historyError) {
+        console.error('Could not save resumed video history:', historyError);
       }
       removePendingVideoJob(user.uid, currentJob.fingerprint);
       setResumableVideoJob(null);
@@ -2697,7 +2716,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                       {videoVoiceQualityNotice}
                     </div>
                   )}
-                  {videoNeedsReview ? retainedClips.map((clip, index) => (
+                  {videoNeedsReview && retainedClips.length > 0 ? retainedClips.map((clip, index) => (
                     <div key={index} className="space-y-2">
                       <GeneratedVideoPlayer src={clip} language={language} aspectRatio={generatedVideoAspectRatio} />
                       <a href={clip} download={`review-clip-${index + 1}.mp4`} className="text-brand-700 underline">
