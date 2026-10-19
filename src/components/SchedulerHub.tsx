@@ -1177,7 +1177,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                           {tiktokCreator && (
                             <>
                               <p className="font-semibold">Posting to {tiktokCreator.creator_nickname || tiktokCreator.creator_username || 'your TikTok account'}</p>
-                              <p>Without TikTok audit approval, Direct Post requires a private creator account and “Only me” visibility. Public automatic posting requires TikTok approval.</p>
+                              <p>Choose a visibility option offered by this TikTok account. “Everyone” is available when TikTok allows public posts for this account and app.</p>
                               {tiktokPreviewUrl && (
                                 <video
                                   key={tiktokPreviewUrl}

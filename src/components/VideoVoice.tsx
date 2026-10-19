@@ -2798,7 +2798,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                         className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                       >
                         <option value="inbox">Upload to TikTok — finish posting in TikTok</option>
-                        <option value="direct">Direct Post — public posting requires TikTok audit approval</option>
+                        <option value="direct">Direct Post — publish automatically to TikTok</option>
                       </select>
                     </div>
                   )}
@@ -2809,7 +2809,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                       {tiktokCreator && (
                         <>
                           <p className="font-semibold">Posting to {tiktokCreator.creator_nickname || tiktokCreator.creator_username}</p>
-                          <p className="text-xs">Public visibility requires TikTok audit approval. Processing can take several minutes after upload.</p>
+                          <p className="text-xs">Choose a visibility option offered by this TikTok account. “Everyone” appears when TikTok allows public posts for this account and app. Processing can take several minutes after upload.</p>
                           <label className="block font-semibold" htmlFor="tiktok-privacy">Who can view this video?</label>
                           <select id="tiktok-privacy" value={tiktokPrivacy} onChange={(event) => setTiktokPrivacy(event.target.value)} className="w-full rounded-lg border bg-white p-2">
                             <option value="">Select visibility</option>
