@@ -59,6 +59,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   const pendingGroupIdRef = React.useRef<string | null>(null);
   const submittingRef = React.useRef(false);
   const handledHandoffRef = React.useRef<string | null>(null);
+  const videoFileInputRef = React.useRef<HTMLInputElement>(null);
 
   // Helper for local datetime string
   const getLocalISOString = (date: Date) => {
@@ -86,7 +87,8 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   const [completedPlatforms, setCompletedPlatforms] = useState<Platform[]>([]);
   const [tiktokDeliveryMode, setTikTokDeliveryMode] = useState<'inbox' | 'direct'>('inbox');
   const togglePlatform = (id: Platform) => {
-    if (completedPlatforms.includes(id)) return;
+    if (isSubmitting || completedPlatforms.includes(id)) return;
+    setFormError(null);
     setPlatforms((prev) => {
       if (prev.includes(id)) {
         // Always keep at least one platform selected.
@@ -175,7 +177,11 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
 
   useEffect(() => {
     if (!user || !isModalOpen || !platforms.includes('FACEBOOK')) return;
-    loadFacebookPages().catch(error => setFormError(error.message));
+    let active = true;
+    loadFacebookPages().catch(error => {
+      if (active) setFormError(error.message);
+    });
+    return () => { active = false; };
   }, [user?.uid, isModalOpen, platforms.includes('FACEBOOK')]);
 
   // The OAuth callback posts this message back before closing its popup.
@@ -275,6 +281,9 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     handledHandoffRef.current = handoffRequest.id;
     pendingGroupIdRef.current = null;
     setCompletedPlatforms([]);
+    setFormError(null);
+    setVideoFile(null);
+    setTelegramMediaFile(null);
     const requestId = handoffRequest.id;
     const targetPlatform = handoffRequest.preferredPlatform || 'TELEGRAM';
 
@@ -936,7 +945,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                           <button
                             key={p.id}
                             type="button"
-                            disabled={completedPlatforms.includes(p.id as Platform)}
+                            disabled={isSubmitting || completedPlatforms.includes(p.id as Platform)}
                             onClick={() => togglePlatform(p.id as Platform)}
                             className={`p-3 rounded-xl border flex flex-col items-center gap-1 transition-all disabled:cursor-not-allowed disabled:opacity-50 ${
                               platforms.includes(p.id as Platform)
@@ -974,22 +983,39 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                             : 'Video'}
                       </label>
                       <input
+                        ref={videoFileInputRef}
                         type="file"
                         accept="video/mp4,video/quicktime,video/webm"
+                        aria-label={language === 'km' ? 'ជ្រើសវីដេអូ' : 'Choose video'}
                         onChange={(e) => {
                           const nextFile = e.target.files?.[0] || null;
+                          if (!nextFile) return;
                           // A generated handoff initially fills both slots with
                           // the same File. Replacing it must update Telegram too;
                           // an explicitly different Telegram file stays intact.
                           setTelegramMediaFile((current) => current === videoFile ? null : current);
                           setVideoFile(nextFile);
+                          setFormError(null);
+                          // Allow selecting the same file again after a replacement.
+                          e.target.value = '';
                         }}
-                        className="w-full p-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-700 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-brand-600 file:px-3 file:py-2 file:font-bold file:text-white dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
+                        className={videoFile
+                          ? 'hidden'
+                          : 'w-full p-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-700 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-brand-600 file:px-3 file:py-2 file:font-bold file:text-white dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100'}
                       />
                       {videoFile && (
-                        <p className="mt-2 text-xs font-semibold text-brand-700 dark:text-brand-300">
-                          {language === 'km' ? 'វីដេអូរួម៖ ' : 'Shared video: '}{videoFile.name} ({formatFileSize(videoFile.size)})
-                        </p>
+                        <div className="rounded-xl border border-brand-200 bg-brand-50 p-3 dark:border-slate-600 dark:bg-slate-700">
+                          <p className="break-all text-xs font-semibold text-brand-700 dark:text-brand-300">
+                            {language === 'km' ? 'បានភ្ជាប់វីដេអូ៖ ' : 'Video attached: '}{videoFile.name} ({formatFileSize(videoFile.size)})
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => videoFileInputRef.current?.click()}
+                            className="mt-2 text-xs font-bold text-brand-600 hover:underline dark:text-brand-300"
+                          >
+                            {language === 'km' ? 'ប្តូរវីដេអូ' : 'Replace video'}
+                          </button>
+                        </div>
                       )}
                       <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                         {platforms.includes('YOUTUBE') && !platforms.includes('TIKTOK')
