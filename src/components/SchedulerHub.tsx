@@ -228,24 +228,43 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   const [isConnectingFacebook, setIsConnectingFacebook] = useState(false);
   const [facebookPages, setFacebookPages] = useState<{ id: string; name: string }[]>([]);
   const [facebookPageId, setFacebookPageId] = useState('');
+  const [facebookConnected, setFacebookConnected] = useState(false);
+  const [facebookSetupReady, setFacebookSetupReady] = useState<boolean | null>(null);
+  const [facebookConnectionLoading, setFacebookConnectionLoading] = useState(false);
+  const [facebookConnectionError, setFacebookConnectionError] = useState('');
 
   const loadFacebookPages = async () => {
     if (!user) return;
-    const response = await fetch('/api/tiktok/me?action=facebookAutomation', {
-      headers: { Authorization: `Bearer ${await user.getIdToken()}` },
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.error || 'Could not check Facebook Pages.');
-    setFacebookPages(data.pages || []);
-    setFacebookPageId(data.selectedPageId || '');
-    return data;
+    setFacebookConnectionLoading(true);
+    setFacebookConnectionError('');
+    try {
+      const response = await fetch('/api/tiktok/me?action=facebookAutomation', {
+        headers: { Authorization: `Bearer ${await user.getIdToken()}` },
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Could not check Facebook Pages.');
+      const pages = Array.isArray(data.pages) ? data.pages : [];
+      setFacebookPages(pages);
+      setFacebookPageId(data.selectedPageId || pages[0]?.id || '');
+      setFacebookConnected(data.connected === true && pages.length > 0);
+      setFacebookSetupReady(data.setupReady !== false);
+      return { ...data, pages, selectedPageId: data.selectedPageId || pages[0]?.id || '' };
+    } catch (error) {
+      setFacebookPages([]);
+      setFacebookPageId('');
+      setFacebookConnected(false);
+      setFacebookConnectionError(error instanceof Error ? error.message : 'Could not check Facebook Pages.');
+      throw error;
+    } finally {
+      setFacebookConnectionLoading(false);
+    }
   };
 
   useEffect(() => {
     if (!user || !isModalOpen || !platforms.includes('FACEBOOK')) return;
     let active = true;
     loadFacebookPages().catch(error => {
-      if (active) setFormError(error.message);
+      if (active) setFacebookConnectionError(error.message);
     });
     return () => { active = false; };
   }, [user?.uid, isModalOpen, platforms.includes('FACEBOOK')]);
@@ -256,7 +275,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
       if (event.origin !== window.location.origin) return;
       if (event.data?.type === 'YOUTUBE_AUTH_SUCCESS') setYoutubeJustConnected(true);
       if (event.data?.type === 'TIKTOK_AUTH_SUCCESS') setTiktokJustConnected(true);
-      if (event.data?.type === 'FACEBOOK_AUTH_SUCCESS') loadFacebookPages().catch(error => setFormError(error.message));
+      if (event.data?.type === 'FACEBOOK_AUTH_SUCCESS') loadFacebookPages().catch(error => setFacebookConnectionError(error.message));
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
@@ -702,7 +721,9 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
         ...(platforms.includes('TIKTOK') ? [requireTikTokAutomationConnection(user)] : []),
         ...(platforms.includes('YOUTUBE') ? [requireYouTubeAutomationConnection(user)] : []),
         ...(platforms.includes('FACEBOOK') ? [loadFacebookPages().then(data => {
-          if (!data?.connected || !data.selectedPageId) throw new Error('Connect and choose a Facebook Page before scheduling.');
+          if (!data?.connected || !data.selectedPageId) throw new Error(data?.setupReady === false
+            ? 'Facebook scheduling needs the Meta app credentials configured on the server.'
+            : 'Connect a Facebook Page, then choose it before scheduling.');
           selectedFacebookPageId = data.pages.some((page: { id: string }) => page.id === facebookPageId) ? facebookPageId : data.selectedPageId;
         })] : []),
       ]);
@@ -1224,7 +1245,16 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                   {platforms.includes('FACEBOOK') && (
                     <div className="space-y-3 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-300">
                       <p>Facebook Page Reel: portrait 9:16 video, 4–60 seconds. Publishes automatically to the selected Page.</p>
-                      <button type="button" onClick={connectFacebook} disabled={isConnectingFacebook || isDemoMode} className="rounded-lg bg-blue-600 px-3 py-1.5 font-semibold text-white disabled:opacity-50">
+                      {facebookConnectionLoading && <p role="status">Checking Facebook Page connection…</p>}
+                      {facebookConnectionError && <p role="alert" className="font-semibold text-red-700 dark:text-red-300">{facebookConnectionError}</p>}
+                      {!facebookConnectionLoading && !facebookConnected && facebookSetupReady === false && (
+                        <p role="alert" className="font-semibold">Facebook scheduling is not configured on this server. The site owner must set FACEBOOK_APP_ID, FACEBOOK_APP_SECRET, and APP_URL in Vercel.</p>
+                      )}
+                      {!facebookConnectionLoading && !facebookConnected && facebookSetupReady !== false && (
+                        <p role="status" className="font-semibold">No Facebook Page is connected to this account. Connect a Page with permission to create content before scheduling.</p>
+                      )}
+                      {facebookConnected && <p className="font-semibold">Connected Page: {facebookPages.find(page => page.id === facebookPageId)?.name || 'Select a Page below'}</p>}
+                      <button type="button" onClick={connectFacebook} disabled={isConnectingFacebook || isDemoMode || facebookSetupReady === false} className="rounded-lg bg-blue-600 px-3 py-1.5 font-semibold text-white disabled:opacity-50">
                         {isConnectingFacebook ? 'Connecting…' : 'Connect Facebook Page'}
                       </button>
                       {facebookPages.length > 0 && (

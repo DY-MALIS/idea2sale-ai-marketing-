@@ -50,14 +50,16 @@ export default async function handler(req, res) {
       const db = initFirebaseAdmin();
       const owner = await admin.auth().verifyIdToken(idToken, true);
       const connection = await getFacebookPages(db, owner.uid);
-      if (!connection?.pages?.length) return res.status(200).json({ connected: false, pages: [] });
+      const setupReady = Boolean(process.env.FACEBOOK_APP_ID?.trim()
+        && process.env.FACEBOOK_APP_SECRET?.trim() && process.env.APP_URL?.trim());
+      if (!connection?.pages?.length) return res.status(200).json({ connected: false, pages: [], setupReady });
       if (selecting) {
         const pageId = String(req.body?.pageId || '');
         if (!connection.pages.some(page => page.id === pageId)) return res.status(400).json({ error: 'Choose a Page you connected.' });
         await db.collection('facebook_automation_tokens').doc(owner.uid).update({ selectedPageId: pageId });
         connection.selectedPageId = pageId;
       }
-      return res.status(200).json({ connected: true, pages: connection.pages.map(page => ({ id: page.id, name: page.name })), selectedPageId: connection.selectedPageId });
+      return res.status(200).json({ connected: true, setupReady, pages: connection.pages.map(page => ({ id: page.id, name: page.name })), selectedPageId: connection.selectedPageId || connection.pages[0].id });
     } catch (error) {
       console.error('Could not manage Facebook connection:', error?.message || error);
       return res.status(503).json({ error: 'Could not verify your Facebook Page connection.' });

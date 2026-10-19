@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { mockVerifyIdToken, mockInitFirebaseAdmin, mockDelete, mockGetCookie, mockDoc, mockGetAutomationAccessToken } = vi.hoisted(() => ({
   mockVerifyIdToken: vi.fn(),
@@ -28,12 +28,41 @@ const response = () => ({
   json(body) { this.body = body; return this; },
 });
 
-afterEach(() => {
-  vi.resetAllMocks();
+beforeEach(() => {
   mockInitFirebaseAdmin.mockReturnValue({
     collection: () => ({ doc: mockDoc }),
   });
   mockDoc.mockReturnValue({ delete: mockDelete });
+});
+
+afterEach(() => {
+  vi.resetAllMocks();
+  vi.unstubAllEnvs();
+});
+
+describe('GET /api/tiktok/me?action=facebookAutomation', () => {
+  it('shows why Facebook cannot be scheduled before the Meta app is configured or a Page is connected', async () => {
+    vi.stubEnv('FACEBOOK_APP_ID', '');
+    vi.stubEnv('FACEBOOK_APP_SECRET', '');
+    vi.stubEnv('APP_URL', 'https://example.com');
+    mockVerifyIdToken.mockResolvedValue({ uid: 'company-a' });
+    mockDoc.mockReturnValue({ get: async () => ({ exists: false }) });
+    const res = response();
+    await handler({ method: 'GET', query: { action: 'facebookAutomation' }, headers: { authorization: 'Bearer firebase-token' } }, res);
+    expect(res.body).toEqual({ connected: false, pages: [], setupReady: false });
+    expect(mockDoc).toHaveBeenCalledWith('company-a');
+  });
+
+  it('offers a connected Page even if an older connection has no selected Page ID', async () => {
+    vi.stubEnv('FACEBOOK_APP_ID', 'app-id');
+    vi.stubEnv('FACEBOOK_APP_SECRET', 'app-secret');
+    vi.stubEnv('APP_URL', 'https://example.com');
+    mockVerifyIdToken.mockResolvedValue({ uid: 'company-a' });
+    mockDoc.mockReturnValue({ get: async () => ({ exists: true, data: () => ({ pages: [{ id: '123', name: 'My Page', accessToken: 'private-token' }] }) }) });
+    const res = response();
+    await handler({ method: 'GET', query: { action: 'facebookAutomation' }, headers: { authorization: 'Bearer firebase-token' } }, res);
+    expect(res.body).toEqual({ connected: true, setupReady: true, pages: [{ id: '123', name: 'My Page' }], selectedPageId: '123' });
+  });
 });
 
 describe('POST /api/tiktok/me?action=disconnect', () => {
