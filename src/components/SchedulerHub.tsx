@@ -165,17 +165,23 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     );
   };
   const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [hostedVideo, setHostedVideo] = useState<{ url: string; name: string } | null>(null);
+  const sharedVideoName = videoFile?.name || hostedVideo?.name || null;
   useEffect(() => {
     setTikTokVideoSeconds(null);
     setTikTokConsent(false);
-    if (!videoFile || !isModalOpen) {
+    if (!isModalOpen) {
       setTikTokPreviewUrl('');
+      return;
+    }
+    if (!videoFile) {
+      setTikTokPreviewUrl(hostedVideo?.url || '');
       return;
     }
     const url = URL.createObjectURL(videoFile);
     setTikTokPreviewUrl(url);
     return () => URL.revokeObjectURL(url);
-  }, [videoFile, isModalOpen]);
+  }, [videoFile, hostedVideo, isModalOpen]);
 
   useEffect(() => {
     setTikTokCreator(null);
@@ -357,8 +363,8 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   };
 
   // Consumes a "schedule this" handoff from PosterGen/VideoVoice: prefills the
-  // create-post form with generated media and opens the modal. Telegram is the
-  // default destination; TikTok and YouTube use their stored owner connections.
+  // create-post form with generated media and opens the modal. The generated
+  // video is shared by all destinations selected in the form.
   React.useEffect(() => {
     if (!handoffRequest || handledHandoffRef.current === handoffRequest.id) return;
     handledHandoffRef.current = handoffRequest.id;
@@ -366,20 +372,25 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     setCompletedPlatforms([]);
     setFormError(null);
     setVideoFile(null);
+    setHostedVideo(null);
     setTelegramMediaFile(null);
+    setShowTelegramFileInput(false);
     const requestId = handoffRequest.id;
     const targetPlatform = handoffRequest.preferredPlatform || 'TELEGRAM';
 
-    setIsAttachingHandoffMedia(true);
-    (async () => {
+    // Generated videos are already hosted in app storage. Keep that URL as
+    // the shared media for every selected destination; downloading it through
+    // a serverless response just to manufacture a File can fail for larger
+    // videos and incorrectly leave the form showing "No file chosen".
+    if (handoffRequest.kind === 'video' && /^https:\/\//i.test(handoffRequest.mediaDataUrl) && !isDemoMode) {
+      setHostedVideo({ url: handoffRequest.mediaDataUrl, name: handoffRequest.mediaName });
+      setIsAttachingHandoffMedia(false);
+    } else {
+      setIsAttachingHandoffMedia(true);
+      (async () => {
       try {
-        // Generated media is hosted remotely (ImageKit) -- <video>/<img>
-        // playback and a plain download link both work cross-origin fine,
-        // but reading the response body here (to build a File for the
-        // TikTok/YouTube upload field) needs CORS, which ImageKit's
-        // delivery domain doesn't grant. Route remote URLs through our own
-        // same-origin proxy instead; a data: URL (no remote fetch involved)
-        // is already same-origin and can be fetched directly.
+        // Images and inline media still need File objects. ImageKit delivery
+        // is cross-origin, so route those remote downloads through our proxy.
         const isRemoteUrl = /^https?:\/\//i.test(handoffRequest.mediaDataUrl);
         const fetchUrl = isRemoteUrl ? `/api/mediaProxy?url=${encodeURIComponent(handoffRequest.mediaDataUrl)}` : handoffRequest.mediaDataUrl;
         const response = await fetch(fetchUrl);
@@ -392,14 +403,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
         // id, so if it's moved on, this (now-stale) result must not overwrite it.
         if (handledHandoffRef.current !== requestId) return;
         if (handoffRequest.kind === 'video') {
-          // A generated video is valid media for either slot -- TikTok/YouTube
-          // need it in the dedicated video field, Telegram can send the same
-          // clip as its media. Populate both so if the user adds TikTok/YouTube
-          // as a platform after a Telegram-preferring handoff lands (there is
-          // no video-specific preferredPlatform from VideoVoice's own Schedule
-          // button), that field isn't stuck on "No file chosen" with no way to
-          // attach the already-generated clip -- requiresVideo's submit guard
-          // (below) was blocking scheduling entirely in exactly that case.
+          // Inline videos need one shared File for every selected destination.
           setVideoFile(file);
           setTelegramMediaFile(file);
         } else if (targetPlatform === 'TIKTOK' || targetPlatform === 'YOUTUBE' || targetPlatform === 'FACEBOOK') {
@@ -410,12 +414,8 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
           setVideoFile(null);
         }
       } catch (error) {
-        // A failed fetch here (CORS on the remote hosting URL, a dropped
-        // connection, etc.) previously only logged to the console -- the
-        // video/TikTok file field was left showing "No file chosen" with a
-        // "Please select a file" validation error and zero indication why,
-        // or any way to recover besides manually downloading and
-        // re-uploading the clip the user had just watched moments earlier.
+        // Keep a clear manual recovery path for inline media or images that
+        // could not be converted to a File.
         console.error('Could not attach the generated media to the scheduler:', error);
         if (handledHandoffRef.current === requestId) {
           setFormError(language === 'km'
@@ -425,7 +425,8 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
       } finally {
         if (handledHandoffRef.current === requestId) setIsAttachingHandoffMedia(false);
       }
-    })();
+      })();
+    }
 
     setContent(handoffRequest.caption);
     setPlatforms([targetPlatform]);
@@ -569,6 +570,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     setPlatformCaptions({});
     setCustomizingCaptionFor({});
     setVideoFile(null);
+    setHostedVideo(null);
     setTelegramMediaFile(null);
     setShowTelegramFileInput(false);
     setTikTokPrivacy('');
@@ -649,12 +651,12 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     // blank caption is fine -- but only when it's the *sole* destination and
     // has its own media, since a combined post still needs a caption/title
     // for the other platform(s) it's also going to.
-    const telegramOnlyWithMedia = platforms.length === 1 && platforms[0] === 'TELEGRAM' && !!(telegramMediaFile || videoFile);
+    const telegramOnlyWithMedia = platforms.length === 1 && platforms[0] === 'TELEGRAM' && !!(telegramMediaFile || videoFile || hostedVideo);
     // A platform is fine with no caption only in the telegramOnlyWithMedia
     // case above -- every other selected platform needs *some* resolved
     // caption, whether that's its own override or the shared draft.
     const missingCaption = platforms.some((p) => !captionFor(p) && !(p === 'TELEGRAM' && telegramOnlyWithMedia));
-    if (missingCaption || !scheduledTime || !userToUse || (requiresVideo && !videoFile)) {
+    if (missingCaption || !scheduledTime || !userToUse || (requiresVideo && !videoFile && !hostedVideo)) {
       setFormError(t('fillAllFieldsErr'));
       return;
     }
@@ -728,10 +730,10 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
         })] : []),
       ]);
 
-      // TikTok/YouTube use one video upload. Telegram also needs a copy in
-      // ImageKit when that upload went to Firebase Storage.
-      if (requiresVideo || effectiveTelegramMedia) setSubmissionStage('Uploading media…');
-      let videoUrl = '';
+      // Uploaded Files use one video upload. Generated hosted videos already
+      // have one URL that can be reused for every selected destination.
+      if (requiresVideo || effectiveTelegramMedia || hostedVideo) setSubmissionStage('Preparing media…');
+      let videoUrl = hostedVideo?.url || '';
       let videoImageKitUrl = '';
       if (requiresVideo && videoFile) {
         if (platforms.includes('TELEGRAM') && effectiveTelegramMedia === videoFile) {
@@ -760,7 +762,10 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
 
       let telegramMediaUrl = '';
       let telegramMediaType: 'photo' | 'video' | null = null;
-      if (platforms.includes('TELEGRAM') && effectiveTelegramMedia) {
+      if (platforms.includes('TELEGRAM') && !effectiveTelegramMedia && hostedVideo) {
+        telegramMediaUrl = hostedVideo.url;
+        telegramMediaType = 'video';
+      } else if (platforms.includes('TELEGRAM') && effectiveTelegramMedia) {
         // Telegram scheduling accepts ImageKit media. Firebase download URLs
         // used for TikTok/YouTube cannot be passed to that endpoint.
         if (effectiveTelegramMedia === videoFile && videoImageKitUrl) {
@@ -822,7 +827,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
             userId: userToUse.uid,
             aiSuggested: false,
             videoUrl: ['TIKTOK', 'YOUTUBE', 'FACEBOOK'].includes(platform) ? videoUrl : '',
-            videoName: videoFile?.name || null,
+            videoName: sharedVideoName,
             ...(platform === 'FACEBOOK' ? { facebookPageId: selectedFacebookPageId } : {}),
             mediaUrl: '',
             mediaName: null,
@@ -1092,12 +1097,9 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                   {hasSharedVideoField && (
                     <div>
                       <label className="block text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-2">
-                        {platforms.includes('YOUTUBE') && !platforms.includes('TIKTOK')
-                          ? 'YouTube landscape video (16:9)'
-                          : platforms.includes('TIKTOK')
-                            ? 'TikTok portrait video (9:16)'
-                            : 'Video'}
+                        {language === 'km' ? 'វីដេអូរួមសម្រាប់កន្លែងដែលបានជ្រើស' : 'Shared video for selected platforms'}
                       </label>
+                      {isAttachingHandoffMedia && <p role="status" className="mb-2 text-xs text-brand-700">Attaching your generated video…</p>}
                       <input
                         ref={videoFileInputRef}
                         type="file"
@@ -1110,19 +1112,20 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                           // the same File. Replacing it must update Telegram too;
                           // an explicitly different Telegram file stays intact.
                           setTelegramMediaFile((current) => current === videoFile ? null : current);
+                          setHostedVideo(null);
                           setVideoFile(nextFile);
                           setFormError(null);
                           // Allow selecting the same file again after a replacement.
                           e.target.value = '';
                         }}
-                        className={videoFile
+                        className={videoFile || hostedVideo || isAttachingHandoffMedia
                           ? 'hidden'
                           : 'w-full p-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-700 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-brand-600 file:px-3 file:py-2 file:font-bold file:text-white dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100'}
                       />
-                      {videoFile && (
+                      {sharedVideoName && (
                         <div className="rounded-xl border border-brand-200 bg-brand-50 p-3 dark:border-slate-600 dark:bg-slate-700">
                           <p className="break-all text-xs font-semibold text-brand-700 dark:text-brand-300">
-                            {language === 'km' ? 'បានភ្ជាប់វីដេអូ៖ ' : 'Video attached: '}{videoFile.name} ({formatFileSize(videoFile.size)})
+                            {language === 'km' ? 'បានភ្ជាប់វីដេអូ៖ ' : 'Video attached: '}{sharedVideoName}{videoFile ? ` (${formatFileSize(videoFile.size)})` : ' (generated video)'}
                           </p>
                           <button
                             type="button"
@@ -1134,12 +1137,12 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                         </div>
                       )}
                       <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                        {platforms.includes('YOUTUBE') && !platforms.includes('TIKTOK')
+                        {platforms.includes('YOUTUBE') && !platforms.includes('TIKTOK') && !platforms.includes('FACEBOOK')
                           ? 'Horizontal 16:9 MP4, MOV, or WebM. Uploads automatically to your connected YouTube channel at the scheduled time.'
-                          : platforms.includes('TIKTOK') && platforms.includes('YOUTUBE')
-                            ? 'Use a portrait 9:16 video for TikTok and YouTube Shorts. MP4, MOV, or WebM.'
+                          : platforms.includes('TIKTOK') || platforms.includes('FACEBOOK')
+                            ? 'Use one portrait 9:16 video for all selected platforms. MP4, MOV, or WebM.'
                           : 'MP4, MOV, or WebM.'}
-                        {platforms.includes('TELEGRAM') && !telegramMediaFile && ' This same video is also used for Telegram unless you attach a different file below.'}
+                        {platforms.includes('TELEGRAM') && !telegramMediaFile && ' Telegram also reuses this video unless you attach a different file below.'}
                       </p>
                     </div>
                   )}
@@ -1282,18 +1285,18 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                   )}
                   {platforms.includes('TELEGRAM') && (
                     <div className="space-y-3">
-                      {!hasSharedVideoField && videoFile && !telegramMediaFile && (
+                      {!hasSharedVideoField && sharedVideoName && !telegramMediaFile && (
                         <p className="text-xs font-semibold text-sky-700 dark:text-sky-300">
-                          {language === 'km' ? 'Telegram នឹងប្រើវីដេអូរួម៖ ' : 'Telegram will use the shared video: '}{videoFile.name}
+                          {language === 'km' ? 'Telegram នឹងប្រើវីដេអូរួម៖ ' : 'Telegram will use the shared video: '}{sharedVideoName}
                         </p>
                       )}
-                      {hasSharedVideoField && !showTelegramFileInput ? (
+                      {(hasSharedVideoField || sharedVideoName) && !showTelegramFileInput && !telegramMediaFile ? (
                         <button
                           type="button"
                           onClick={() => setShowTelegramFileInput(true)}
                           className="text-xs font-bold text-sky-600 hover:underline dark:text-sky-400"
                         >
-                          + Use a different file for Telegram (reuses the video above by default)
+                          + Use a different file for Telegram (reuses the shared video by default)
                         </button>
                       ) : (
                         <div>
@@ -1306,7 +1309,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                             accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm"
                             onChange={(e) => {
                               const nextFile = e.target.files?.[0] || null;
-                              if (nextFile?.type.startsWith('video/') && !videoFile) setVideoFile(nextFile);
+                              if (nextFile?.type.startsWith('video/') && !videoFile && !hostedVideo) setVideoFile(nextFile);
                               if (!nextFile && telegramMediaFile === videoFile) setVideoFile(null);
                               setTelegramMediaFile(nextFile);
                               e.target.value = '';
