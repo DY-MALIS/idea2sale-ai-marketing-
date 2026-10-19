@@ -1503,7 +1503,9 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
           payload: {
             voiceOverText: narrationText,
             videoAspectRatio: resumedAspectRatio,
-            videoDuration: currentJob.outputDuration || undefined,
+            ...(typeof currentJob.outputDuration === 'number' && Number.isFinite(currentJob.outputDuration) && currentJob.outputDuration > 0
+              ? { videoDuration: currentJob.outputDuration }
+              : {}),
             hasSpeech: Boolean(narrationText),
           },
         });
