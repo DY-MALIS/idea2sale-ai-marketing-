@@ -204,6 +204,7 @@ export interface SchedulePost {
   mediaType?: 'photo' | 'video' | null;
   videoUrl?: string;
   videoName?: string | null;
+    youtubeVideoId?: string | null;
   telegramMessageId?: number | null;
   errorMessage?: string | null;
   localOnly?: boolean;

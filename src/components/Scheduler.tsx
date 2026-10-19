@@ -673,6 +673,16 @@ const Scheduler: React.FC = () => {
                           TikTok accepted the upload. Open its inbox notification to review and publish the video.
                         </p>
                       )}
+                      {post.platform === 'YOUTUBE' && post.status === 'PUBLISHED' && post.youtubeVideoId && (
+                        <a
+                          href={`https://www.youtube.com/watch?v=${encodeURIComponent(post.youtubeVideoId)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-2 inline-block text-xs font-semibold text-sky-600 underline dark:text-sky-300"
+                        >
+                          View video on YouTube
+                        </a>
+                      )}
                       {post.platform === 'TIKTOK' && post.status === 'SUBMITTED' && (
                         <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
                           TikTok is processing this Direct Post. Its final status will update after TikTok confirms it.

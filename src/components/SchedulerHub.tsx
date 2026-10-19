@@ -53,6 +53,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   const [activityVersion, setActivityVersion] = useState(0);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submissionStage, setSubmissionStage] = useState('');
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [scheduleNotice, setScheduleNotice] = useState<string | null>(null);
@@ -60,6 +61,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   const submittingRef = React.useRef(false);
   const handledHandoffRef = React.useRef<string | null>(null);
   const videoFileInputRef = React.useRef<HTMLInputElement>(null);
+  const telegramFileInputRef = React.useRef<HTMLInputElement>(null);
 
   // Helper for local datetime string
   const getLocalISOString = (date: Date) => {
@@ -272,10 +274,8 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   };
 
   // Consumes a "schedule this" handoff from PosterGen/VideoVoice: prefills the
-  // create-post form with the generated media + caption and opens the modal,
-  // defaulting to Telegram since it's the only platform this app can actually
-  // auto-publish to on a schedule (TikTok requires the user's own connected
-  // session at publish time, so it can't be pre-scheduled from a handoff).
+  // create-post form with generated media and opens the modal. Telegram is the
+  // default destination; TikTok and YouTube use their stored owner connections.
   React.useEffect(() => {
     if (!handoffRequest || handledHandoffRef.current === handoffRequest.id) return;
     handledHandoffRef.current = handoffRequest.id;
@@ -597,6 +597,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
 
     submittingRef.current = true;
     setIsSubmitting(true);
+    setSubmissionStage('Checking connected accounts…');
     const groupId = pendingGroupIdRef.current || crypto.randomUUID();
     pendingGroupIdRef.current = groupId;
 
@@ -632,6 +633,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
 
       // TikTok/YouTube use one video upload. Telegram also needs a copy in
       // ImageKit when that upload went to Firebase Storage.
+      if (requiresVideo || effectiveTelegramMedia) setSubmissionStage('Uploading media…');
       let videoUrl = '';
       let videoImageKitUrl = '';
       if (requiresVideo && videoFile) {
@@ -679,6 +681,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
       const deliveryWarnings: string[] = [];
       for (const platform of platforms) {
         try {
+          setSubmissionStage(`Saving ${platform.toLowerCase()} schedule…`);
           if (platform === 'TELEGRAM') {
             let response: Response;
             try {
@@ -745,6 +748,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
             // periodic poller. The Firestore post remains scheduled if QStash
             // fails, so show a delivery warning instead of failing the post.
             try {
+              setSubmissionStage(`Queueing ${platform.toLowerCase()} delivery…`);
               const queueResponse = await fetch('/api/tiktok/publish?action=scheduleQstash', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
@@ -779,7 +783,9 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
 
       resetFormAfterSchedule();
       setFormError(null);
-      setScheduleNotice(deliveryWarnings.length ? deliveryWarnings.join(' ') : 'Scheduled successfully.');
+      setScheduleNotice(deliveryWarnings.length
+        ? deliveryWarnings.join(' ')
+        : `Saved ${platforms.join(', ')} for ${scheduledDate.toLocaleString()}. Track each destination in Content Timeline.`);
     } catch (err) {
       console.error('Error creating post:', err);
       const message = err instanceof Error ? err.message : t('failedSavePostErr');
@@ -787,6 +793,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     } finally {
       submittingRef.current = false;
       setIsSubmitting(false);
+      setSubmissionStage('');
     }
   };
 
@@ -1059,7 +1066,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                   )}
                   {platforms.includes('YOUTUBE') && (
                     <div>
-                      <div className="p-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800/60 rounded-xl flex items-start justify-between gap-2 text-red-600 dark:text-red-300 text-xs">
+                      <div className="p-3 bg-sky-50 dark:bg-sky-900/20 border border-sky-200 dark:border-sky-800/60 rounded-xl flex items-start justify-between gap-2 text-sky-800 dark:text-sky-300 text-xs">
                         <div className="flex items-start gap-2">
                           <Youtube size={14} className="mt-0.5 shrink-0" />
                           <p>{youtubeJustConnected ? 'YouTube connected! ' : ''}Uploads automatically to your connected YouTube channel at the scheduled time -- no manual step needed.</p>
@@ -1068,7 +1075,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                           type="button"
                           onClick={connectYouTube}
                           disabled={isConnectingYouTube}
-                          className="shrink-0 rounded-lg bg-red-600 px-2 py-1 text-[10px] font-bold text-white hover:bg-red-700"
+                          className="shrink-0 rounded-lg bg-sky-600 px-2 py-1 text-[10px] font-bold text-white hover:bg-sky-700"
                         >
                           {isConnectingYouTube ? 'Connecting…' : 'Connect YouTube'}
                         </button>
@@ -1126,6 +1133,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                             Telegram image or video{hasSharedVideoField ? ' (optional -- reuses the video above if left blank)' : ''}
                           </label>
                           <input
+                            ref={telegramFileInputRef}
                             type="file"
                             accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm"
                             onChange={(e) => {
@@ -1133,13 +1141,17 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                               if (nextFile?.type.startsWith('video/') && !videoFile) setVideoFile(nextFile);
                               if (!nextFile && telegramMediaFile === videoFile) setVideoFile(null);
                               setTelegramMediaFile(nextFile);
+                              e.target.value = '';
                             }}
-                            className="w-full p-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-700 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-sky-500 file:px-3 file:py-2 file:font-bold file:text-white dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
+                            className={telegramMediaFile
+                              ? 'hidden'
+                              : 'w-full p-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-700 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-sky-500 file:px-3 file:py-2 file:font-bold file:text-white dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100'}
                           />
                           {telegramMediaFile && (
-                            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                              Selected: {telegramMediaFile.name} ({formatFileSize(telegramMediaFile.size)})
-                            </p>
+                            <div className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-xs text-sky-800 dark:border-sky-800 dark:bg-sky-900/20 dark:text-sky-300">
+                              <p className="break-all font-semibold">File attached: {telegramMediaFile.name} ({formatFileSize(telegramMediaFile.size)})</p>
+                              <button type="button" onClick={() => telegramFileInputRef.current?.click()} className="mt-2 font-bold underline">Replace file</button>
+                            </div>
                           )}
                         </div>
                       )}
@@ -1152,6 +1164,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                   )}
                 </div>
 
+                {isSubmitting && <p role="status" aria-live="polite" className="text-center text-xs font-semibold text-brand-700 dark:text-brand-300">{submissionStage}</p>}
                 <div className="flex gap-4 pt-4">
                   <button
                     type="button"
