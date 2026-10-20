@@ -6,9 +6,8 @@ import AITrainer from './AITrainer';
 import Suggestions from './Suggestions';
 import Scheduler from './Scheduler';
 import ActivityPulse from './ActivityPulse';
-import { db, storage } from '../lib/firebase';
+import { db } from '../lib/firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
 import { useLanguage } from '../contexts/LanguageContext';
 import { saveLocalMedia } from '../lib/localMediaStore';
 import { withUploadTimeout } from '../lib/withUploadTimeout';
@@ -63,7 +62,6 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionStage, setSubmissionStage] = useState('');
-  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [scheduleNotice, setScheduleNotice] = useState<string | null>(null);
   const pendingGroupIdRef = React.useRef<string | null>(null);
@@ -96,7 +94,8 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   // api/telegram/run-scheduled.js) need no changes at all.
   const [platforms, setPlatforms] = useState<Platform[]>(['TIKTOK']);
   const [completedPlatforms, setCompletedPlatforms] = useState<Platform[]>([]);
-  const [tiktokDeliveryMode, setTikTokDeliveryMode] = useState<'inbox' | 'direct'>('direct');
+  // Smart Schedule always uses Direct Post. Inbox drafts require the owner
+  // to finish publishing inside TikTok.
   const [tiktokCreator, setTikTokCreator] = useState<TikTokCreator | null>(null);
   const [tiktokCreatorLoading, setTikTokCreatorLoading] = useState(false);
   const [tiktokCreatorError, setTikTokCreatorError] = useState('');
@@ -166,7 +165,9 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   };
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [hostedVideo, setHostedVideo] = useState<{ url: string; name: string } | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
   const sharedVideoName = videoFile?.name || hostedVideo?.name || null;
+  const sharedMediaName = imageFile?.name || sharedVideoName || null;
   useEffect(() => {
     setTikTokVideoSeconds(null);
     setTikTokConsent(false);
@@ -188,7 +189,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     setTikTokCreatorError('');
     setTikTokPrivacy('');
     setTikTokConsent(false);
-    if (!isModalOpen || !platforms.includes('TIKTOK') || tiktokDeliveryMode !== 'direct' || !user || isDemoMode) return;
+    if (!isModalOpen || !platforms.includes('TIKTOK') || !user || isDemoMode) return;
     let active = true;
     setTikTokCreatorLoading(true);
     void (async () => {
@@ -211,12 +212,12 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
       }
     })();
     return () => { active = false; };
-  }, [isModalOpen, platforms.includes('TIKTOK'), tiktokDeliveryMode, user?.uid, isDemoMode, tiktokJustConnected]);
+  }, [isModalOpen, platforms.includes('TIKTOK'), user?.uid, isDemoMode, tiktokJustConnected]);
   const [telegramMediaFile, setTelegramMediaFile] = useState<File | null>(null);
   const [showTelegramFileInput, setShowTelegramFileInput] = useState(false);
   // Every platform whose auto-post reuses the one shared "video above" field
   // (Telegram also reuses it, but through its own optional field below).
-  const hasSharedVideoField = platforms.includes('TIKTOK') || platforms.includes('YOUTUBE') || platforms.includes('FACEBOOK');
+  const hasSharedVideoField = platforms.includes('TIKTOK') || platforms.includes('YOUTUBE') || platforms.includes('FACEBOOK') || Boolean(imageFile);
   const [scheduledTime, setScheduledTime] = useState(() => {
     const nextHour = new Date();
     nextHour.setHours(nextHour.getHours() + 1);
@@ -373,10 +374,10 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     setFormError(null);
     setVideoFile(null);
     setHostedVideo(null);
+    setImageFile(null);
     setTelegramMediaFile(null);
     setShowTelegramFileInput(false);
     const requestId = handoffRequest.id;
-    const targetPlatform = handoffRequest.preferredPlatform || 'TELEGRAM';
 
     // Generated videos are already hosted in app storage. Keep that URL as
     // the shared media for every selected destination; downloading it through
@@ -406,11 +407,9 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
           // Inline videos need one shared File for every selected destination.
           setVideoFile(file);
           setTelegramMediaFile(file);
-        } else if (targetPlatform === 'TIKTOK' || targetPlatform === 'YOUTUBE' || targetPlatform === 'FACEBOOK') {
-          setVideoFile(file);
-          setTelegramMediaFile(null);
         } else {
-          setTelegramMediaFile(file);
+          setImageFile(file);
+          setTelegramMediaFile(null);
           setVideoFile(null);
         }
       } catch (error) {
@@ -429,13 +428,33 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     }
 
     setContent(handoffRequest.caption);
-    setPlatforms([targetPlatform]);
+    // A generated video is one campaign asset. Preselect every supported
+    // video destination so the handoff does not silently schedule Telegram
+    // alone; the creator can still remove destinations before submitting.
+    setPlatforms(handoffRequest.kind === 'video'
+      ? ['TIKTOK', 'FACEBOOK', 'YOUTUBE', 'TELEGRAM']
+      : ['FACEBOOK', 'TELEGRAM']);
     setIsModalOpen(true);
     onHandoffConsumed?.(handoffRequest.id);
   }, [handoffRequest?.id]);
 
   const handleTrainingComplete = () => {
     setActivityVersion(v => v + 1);
+  };
+
+  const openSuggestedTikTokSchedule = (file: File, caption: string, date: Date) => {
+    pendingGroupIdRef.current = null;
+    setCompletedPlatforms([]);
+    setFormError(null);
+    setContent(caption);
+    setPlatformCaptions({});
+    setVideoFile(file);
+    setHostedVideo(null);
+    setImageFile(null);
+    setTelegramMediaFile(null);
+    setPlatforms(['TIKTOK']);
+    setScheduledTime(getLocalISOString(date));
+    setIsModalOpen(true);
   };
 
   const formatFileSize = (bytes: number) => `${(bytes / MB).toFixed(bytes > 10 * MB ? 0 : 1)} MB`;
@@ -526,42 +545,6 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     };
   };
 
-  // uploadBytes (a single-shot XHR) previously gave a large TikTok video no
-  // progress feedback and only a fixed 180s wall-clock timeout -- a real
-  // upload that's still actively transferring bytes on a slow connection got
-  // killed at the same 180s mark as one that's genuinely stalled at 0%, with
-  // nothing telling the user which case they were in. uploadBytesResumable
-  // reports progress, so this only times out after real inactivity (no byte
-  // progress for 60s), not merely because the file is large.
-  const UPLOAD_INACTIVITY_TIMEOUT_MS = 60000;
-  const uploadVideoWithProgress = (storageRef: ReturnType<typeof ref>, file: File, onProgress: (pct: number) => void) =>
-    new Promise<void>((resolve, reject) => {
-      const uploadTask = uploadBytesResumable(storageRef, file, { contentType: file.type });
-      let lastProgressAt = Date.now();
-      const stallCheck = window.setInterval(() => {
-        if (Date.now() - lastProgressAt > UPLOAD_INACTIVITY_TIMEOUT_MS) {
-          window.clearInterval(stallCheck);
-          uploadTask.cancel();
-          reject(new Error('Upload stalled with no progress for over a minute. Please check your internet connection or use a smaller video.'));
-        }
-      }, 5000);
-      uploadTask.on(
-        'state_changed',
-        (snapshot) => {
-          lastProgressAt = Date.now();
-          onProgress(snapshot.totalBytes ? Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100) : 0);
-        },
-        (error) => {
-          window.clearInterval(stallCheck);
-          reject(error);
-        },
-        () => {
-          window.clearInterval(stallCheck);
-          resolve();
-        },
-      );
-    });
-
   const resetFormAfterSchedule = () => {
     pendingGroupIdRef.current = null;
     setCompletedPlatforms([]);
@@ -571,6 +554,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     setCustomizingCaptionFor({});
     setVideoFile(null);
     setHostedVideo(null);
+    setImageFile(null);
     setTelegramMediaFile(null);
     setShowTelegramFileInput(false);
     setTikTokPrivacy('');
@@ -593,9 +577,9 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     // Telegram can carry an image or video; TikTok and YouTube require a
     // video. Preserve the selected media for demo-mode schedule cards as well.
     const mediaFile = platform === 'TELEGRAM'
-      ? (telegramMediaFile || videoFile)
+      ? (telegramMediaFile || videoFile || imageFile)
       : platform === 'TIKTOK' || platform === 'YOUTUBE' || platform === 'FACEBOOK'
-        ? videoFile
+        ? (platform === 'FACEBOOK' && imageFile ? imageFile : videoFile)
         : null;
     const mediaDbKey = mediaFile ? `${platform.toLowerCase()}-${postId}-${crypto.randomUUID()}` : null;
     if (mediaDbKey && mediaFile) {
@@ -605,11 +589,11 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     const publishMode = platform === 'TELEGRAM'
       ? 'TELEGRAM_AUTO_POST_LOCAL'
       : platform === 'TIKTOK'
-      ? (tiktokDeliveryMode === 'inbox' ? 'TIKTOK_UPLOAD_DRAFT_LOCAL' : 'TIKTOK_DIRECT_POST_LOCAL')
+      ? 'TIKTOK_DIRECT_POST_LOCAL'
       : platform === 'YOUTUBE'
       ? 'YOUTUBE_STUDIO_READY_LOCAL'
       : platform === 'FACEBOOK'
-      ? 'FACEBOOK_REEL_PREVIEW_LOCAL'
+      ? (imageFile ? 'FACEBOOK_PHOTO_PREVIEW_LOCAL' : 'FACEBOOK_REEL_PREVIEW_LOCAL')
       : 'PLANNED_ONLY';
 
     const post = {
@@ -646,12 +630,18 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
 
     const userToUse = user || (isDemoMode ? { uid: 'demo-user' } : null);
 
-    const requiresVideo = platforms.includes('TIKTOK') || platforms.includes('YOUTUBE') || platforms.includes('FACEBOOK');
+    const requiresVideo = platforms.includes('TIKTOK') || platforms.includes('YOUTUBE') || (platforms.includes('FACEBOOK') && !imageFile);
+    if (imageFile && (platforms.includes('TIKTOK') || platforms.includes('YOUTUBE'))) {
+      setFormError(language === 'km'
+        ? 'រូបភាពរក្សាជារូបភាព។ សូមដក TikTok និង YouTube ចេញពីជម្រើសនេះ ឬជ្រើសវីដេអូសម្រាប់បណ្តាញទាំងបួន។'
+        : 'This image stays an image. Remove TikTok and YouTube from this schedule, or choose a video for all four destinations.');
+      return;
+    }
     // Telegram can post text-only or media-only, so it's the one case where a
     // blank caption is fine -- but only when it's the *sole* destination and
     // has its own media, since a combined post still needs a caption/title
     // for the other platform(s) it's also going to.
-    const telegramOnlyWithMedia = platforms.length === 1 && platforms[0] === 'TELEGRAM' && !!(telegramMediaFile || videoFile || hostedVideo);
+    const telegramOnlyWithMedia = platforms.length === 1 && platforms[0] === 'TELEGRAM' && !!(telegramMediaFile || videoFile || hostedVideo || imageFile);
     // A platform is fine with no caption only in the telegramOnlyWithMedia
     // case above -- every other selected platform needs *some* resolved
     // caption, whether that's its own override or the shared draft.
@@ -661,7 +651,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
       return;
     }
 
-    if (platforms.includes('TIKTOK') && tiktokDeliveryMode === 'direct' && !isDemoMode) {
+    if (platforms.includes('TIKTOK') && !isDemoMode) {
       const validPrivacy = tiktokCreator?.privacy_level_options?.includes(tiktokPrivacy);
       const maxDuration = Number(tiktokCreator?.max_video_post_duration_sec);
       if (!validPrivacy || !Number.isFinite(tiktokVideoSeconds) || !tiktokVideoSeconds || tiktokVideoSeconds <= 0 ||
@@ -685,10 +675,14 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     // If Telegram is one of several destinations and no separate Telegram
     // media was chosen, the shared video (required for TikTok/YouTube) is
     // reused for Telegram too rather than asking the user to upload it twice.
-    const effectiveTelegramMedia = telegramMediaFile || (platforms.includes('TELEGRAM') ? videoFile : null);
+    const effectiveTelegramMedia = telegramMediaFile || (platforms.includes('TELEGRAM') ? (videoFile || imageFile) : null);
     const mediaError = platforms.includes('TELEGRAM') ? validateTelegramMedia(effectiveTelegramMedia, isDemoMode) : null;
     if (mediaError) {
       setFormError(mediaError);
+      return;
+    }
+    if (platforms.includes('FACEBOOK') && imageFile && imageFile.size > 10 * MB) {
+      setFormError('Facebook Page photos must be under 10 MB. Choose a smaller image.');
       return;
     }
 
@@ -735,29 +729,18 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
       if (requiresVideo || effectiveTelegramMedia || hostedVideo) setSubmissionStage('Preparing media…');
       let videoUrl = hostedVideo?.url || '';
       let videoImageKitUrl = '';
+      let imageUrl = '';
       if (requiresVideo && videoFile) {
-        if (platforms.includes('TELEGRAM') && effectiveTelegramMedia === videoFile) {
-          // One hosted video works for both Telegram and TikTok/YouTube. Avoid
-          // uploading the same large file to Firebase and then ImageKit again.
-          const uploaded = await uploadMediaViaImageKit(videoFile, idToken);
-          videoUrl = uploaded.mediaUrl;
-          videoImageKitUrl = uploaded.mediaUrl;
-        } else {
-          const safeName = videoFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-          const storageRef = ref(storage, `scheduled-videos/${userToUse.uid}/${Date.now()}-${safeName}`);
-          setUploadProgress(0);
-          try {
-            await uploadVideoWithProgress(storageRef, videoFile, setUploadProgress);
-            videoUrl = await getDownloadURL(storageRef);
-          } catch (storageError) {
-            console.error('Firebase Storage upload failed, falling back to ImageKit:', storageError);
-            const uploaded = await uploadMediaViaImageKit(videoFile, idToken);
-            videoUrl = uploaded.mediaUrl;
-            videoImageKitUrl = uploaded.mediaUrl;
-          } finally {
-            setUploadProgress(null);
-          }
-        }
+        // Facebook fetches the source URL itself, while YouTube and TikTok
+        // download it from our server. A single public ImageKit URL works for
+        // all four destinations and prevents a second Telegram upload.
+        const uploaded = await uploadMediaViaImageKit(videoFile, idToken);
+        videoUrl = uploaded.mediaUrl;
+        videoImageKitUrl = uploaded.mediaUrl;
+      }
+      if (platforms.includes('FACEBOOK') && imageFile) {
+        const uploaded = await uploadMediaViaImageKit(imageFile, idToken);
+        imageUrl = uploaded.mediaUrl;
       }
 
       let telegramMediaUrl = '';
@@ -766,11 +749,13 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
         telegramMediaUrl = hostedVideo.url;
         telegramMediaType = 'video';
       } else if (platforms.includes('TELEGRAM') && effectiveTelegramMedia) {
-        // Telegram scheduling accepts ImageKit media. Firebase download URLs
-        // used for TikTok/YouTube cannot be passed to that endpoint.
+        // Reuse the same upload whenever Telegram uses the shared video.
         if (effectiveTelegramMedia === videoFile && videoImageKitUrl) {
           telegramMediaUrl = videoImageKitUrl;
           telegramMediaType = 'video';
+        } else if (effectiveTelegramMedia === imageFile && imageUrl) {
+          telegramMediaUrl = imageUrl;
+          telegramMediaType = 'photo';
         } else {
           const uploaded = await uploadMediaViaImageKit(effectiveTelegramMedia, idToken);
           telegramMediaUrl = uploaded.mediaUrl;
@@ -815,6 +800,9 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
             if (!response.ok || !data.ok) {
               throw new Error(data.error || 'could not schedule this Telegram post');
             }
+            if (data.preciseDeliveryQueued !== true) {
+              deliveryWarnings.push('TELEGRAM was saved, but exact-time delivery could not be queued. The backup scheduler will retry it and may run late.');
+            }
             continue;
           }
 
@@ -826,18 +814,18 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
             status: 'PENDING',
             userId: userToUse.uid,
             aiSuggested: false,
-            videoUrl: ['TIKTOK', 'YOUTUBE', 'FACEBOOK'].includes(platform) ? videoUrl : '',
-            videoName: sharedVideoName,
+            videoUrl: ['TIKTOK', 'YOUTUBE', 'FACEBOOK'].includes(platform) && !imageFile ? videoUrl : '',
+            videoName: imageFile ? null : sharedVideoName,
             ...(platform === 'FACEBOOK' ? { facebookPageId: selectedFacebookPageId } : {}),
-            mediaUrl: '',
-            mediaName: null,
-            mediaType: null,
+            mediaUrl: platform === 'FACEBOOK' && imageFile ? imageUrl : '',
+            mediaName: platform === 'FACEBOOK' && imageFile ? imageFile.name : null,
+            mediaType: platform === 'FACEBOOK' && imageFile ? 'photo' : null,
             publishMode: platform === 'TIKTOK'
-              ? (tiktokDeliveryMode === 'inbox' ? 'TIKTOK_UPLOAD_DRAFT' : 'TIKTOK_DIRECT_POST')
+              ? 'TIKTOK_DIRECT_POST'
               : platform === 'YOUTUBE'
                 ? 'YOUTUBE_AUTO_POST'
-                : platform === 'FACEBOOK' ? 'FACEBOOK_REEL_AUTO_POST' : 'PLANNED_ONLY',
-            ...(platform === 'TIKTOK' && tiktokDeliveryMode === 'direct' ? { directPostOptions: {
+                : platform === 'FACEBOOK' ? (imageFile ? 'FACEBOOK_PHOTO_AUTO_POST' : 'FACEBOOK_REEL_AUTO_POST') : 'PLANNED_ONLY',
+            ...(platform === 'TIKTOK' ? { directPostOptions: {
               privacyLevel: tiktokPrivacy,
               durationSeconds: tiktokVideoSeconds,
               allowComment: tiktokAllowComment,
@@ -854,7 +842,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
           void recordAuditEvent('scheduled_post_created', {
             platform,
             scheduledTime: scheduledDate.toISOString(),
-            hasMedia: Boolean(videoUrl),
+            hasMedia: Boolean(videoUrl || imageUrl),
           });
           if (platform === 'TIKTOK' || platform === 'YOUTUBE' || platform === 'FACEBOOK') {
             // Await the precise callback before reporting success. A serverless
@@ -918,7 +906,6 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     pendingGroupIdRef.current = null;
     setCompletedPlatforms([]);
     setIsSubmitting(false);
-    setUploadProgress(null);
   };
 
   return (
@@ -977,7 +964,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
            <AITrainer onTrainingComplete={handleTrainingComplete} />
 
            <div className="glass rounded-[2rem] p-6 shadow-sm">
-             <Suggestions activityVersion={activityVersion} />
+           <Suggestions activityVersion={activityVersion} onScheduleSuggestion={openSuggestedTikTokSchedule} />
            </div>
         </div>
 
@@ -1021,8 +1008,8 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
               <form onSubmit={handleCreatePost} className="p-8 space-y-6">
                 <p className="rounded-xl border border-brand-200 bg-brand-50 p-3 text-xs text-brand-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
                   {language === 'km'
-                    ? `ជ្រើសរើសកន្លែងផ្សាយច្រើន កំណត់ពេលម្តង ហើយប្រើវីដេអូតែមួយសម្រាប់កន្លែងដែលបានជ្រើស។${platforms.includes('TIKTOK') ? (tiktokDeliveryMode === 'direct' ? ' TikTok Direct Post នឹងផុសដោយស្វ័យប្រវត្តិនៅម៉ោងដែលបានកំណត់។' : ' TikTok នឹងផ្ញើទៅ inbox ដើម្បីឱ្យអ្នកបញ្ចប់ការផ្សាយក្នុង TikTok។') : ''}`
-                    : `Select destinations and one publish time. The same video is reused for each selected destination.${platforms.includes('TIKTOK') ? (tiktokDeliveryMode === 'direct' ? ' TikTok Direct Post publishes automatically at the scheduled time.' : ' TikTok sends it to your inbox for final publishing in TikTok.') : ''}`}
+                    ? `ជ្រើសរើសកន្លែងផ្សាយច្រើន កំណត់ពេលម្តង ហើយប្រើវីដេអូតែមួយសម្រាប់កន្លែងដែលបានជ្រើស។${platforms.includes('TIKTOK') ? ' TikTok Direct Post នឹងផុសដោយស្វ័យប្រវត្តិនៅម៉ោងដែលបានកំណត់។' : ''}`
+                    : `Select destinations and one publish time. The same video is reused for each selected destination.${platforms.includes('TIKTOK') ? ' TikTok Direct Post publishes automatically at the scheduled time.' : ''}`}
                 </p>
                 {isDemoMode && (
                   <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
@@ -1053,10 +1040,10 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-4">
                     <div>
-                      <label className="block text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-2">{t('platform')} (select one or more)</label>
-                      <div className="grid grid-cols-4 gap-2">
+                      <label className="block text-xs font-bold text-brand-700 dark:text-brand-300 mb-2">1. {t('platform')} · {language === 'km' ? 'ជ្រើសរើសកន្លែងផ្សាយ' : 'Choose destinations'}</label>
+                      <div className="grid grid-cols-2 gap-2">
                         {[
                           { id: 'TIKTOK', icon: Share2 },
                           { id: 'YOUTUBE', icon: Youtube },
@@ -1068,22 +1055,23 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                             type="button"
                             disabled={isSubmitting || completedPlatforms.includes(p.id as Platform)}
                             onClick={() => togglePlatform(p.id as Platform)}
-                            className={`p-3 rounded-xl border flex flex-col items-center gap-1 transition-all disabled:cursor-not-allowed disabled:opacity-50 ${
+                            aria-pressed={platforms.includes(p.id as Platform)}
+                            className={`p-3 rounded-xl border flex items-center justify-center gap-2 transition-all disabled:cursor-not-allowed disabled:opacity-50 ${
                               platforms.includes(p.id as Platform)
                                 ? 'bg-brand-50 border-brand-500 text-brand-600 dark:bg-slate-800'
                                 : 'bg-white border-brand-100 text-slate-400 hover:border-brand-200 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400'
                             }`}
                           >
                             <p.icon size={16} />
-                            <span className="text-[8px] font-bold">{p.id.charAt(0) + p.id.slice(1).toLowerCase()}</span>
-                            {completedPlatforms.includes(p.id as Platform) && <span className="text-[8px]">{language === 'km' ? 'បានកំណត់' : 'Saved'}</span>}
+                            <span className="text-xs font-bold">{p.id.charAt(0) + p.id.slice(1).toLowerCase()}</span>
+                            {completedPlatforms.includes(p.id as Platform) && <span className="text-[10px]">{language === 'km' ? 'បានកំណត់' : 'Saved'}</span>}
                           </button>
                         ))}
                       </div>
                     </div>
 
                     <div>
-                      <label className="block text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-2">{t('publishTime')}</label>
+                      <label className="block text-xs font-bold text-brand-700 dark:text-brand-300 mb-2">2. {t('publishTime')}</label>
                       <input
                         required
                         type="datetime-local"
@@ -1096,15 +1084,15 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
 
                   {hasSharedVideoField && (
                     <div>
-                      <label className="block text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-2">
-                        {language === 'km' ? 'វីដេអូរួមសម្រាប់កន្លែងដែលបានជ្រើស' : 'Shared video for selected platforms'}
+                      <label className="block text-xs font-bold text-brand-700 dark:text-brand-300 mb-2">
+                        {language === 'km' ? '3. ឯកសាររួមសម្រាប់កន្លែងដែលបានជ្រើស' : '3. One media file for selected destinations'}
                       </label>
                       {isAttachingHandoffMedia && <p role="status" className="mb-2 text-xs text-brand-700">Attaching your generated video…</p>}
                       <input
                         ref={videoFileInputRef}
                         type="file"
-                        accept="video/mp4,video/quicktime,video/webm"
-                        aria-label={language === 'km' ? 'ជ្រើសវីដេអូ' : 'Choose video'}
+                        accept="video/mp4,video/quicktime,video/webm,image/png,image/jpeg,image/webp"
+                        aria-label={language === 'km' ? 'ជ្រើសរូបភាព ឬវីដេអូ' : 'Choose an image or video'}
                         onChange={(e) => {
                           const nextFile = e.target.files?.[0] || null;
                           if (!nextFile) return;
@@ -1113,36 +1101,48 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                           // an explicitly different Telegram file stays intact.
                           setTelegramMediaFile((current) => current === videoFile ? null : current);
                           setHostedVideo(null);
-                          setVideoFile(nextFile);
+                          if (nextFile.type.startsWith('image/')) {
+                            setImageFile(nextFile);
+                            setVideoFile(null);
+                            setPlatforms(['FACEBOOK', 'TELEGRAM']);
+                          } else {
+                            setVideoFile(nextFile);
+                            setImageFile(null);
+                          }
                           setFormError(null);
                           // Allow selecting the same file again after a replacement.
                           e.target.value = '';
                         }}
-                        className={videoFile || hostedVideo || isAttachingHandoffMedia
+                        className={sharedMediaName || isAttachingHandoffMedia
                           ? 'hidden'
                           : 'w-full p-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-700 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-brand-600 file:px-3 file:py-2 file:font-bold file:text-white dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100'}
                       />
-                      {sharedVideoName && (
+                      {sharedMediaName && (
                         <div className="rounded-xl border border-brand-200 bg-brand-50 p-3 dark:border-slate-600 dark:bg-slate-700">
                           <p className="break-all text-xs font-semibold text-brand-700 dark:text-brand-300">
-                            {language === 'km' ? 'បានភ្ជាប់វីដេអូ៖ ' : 'Video attached: '}{sharedVideoName}{videoFile ? ` (${formatFileSize(videoFile.size)})` : ' (generated video)'}
+                            {imageFile ? (language === 'km' ? 'បានភ្ជាប់រូបភាព៖ ' : 'Image attached: ') : (language === 'km' ? 'បានភ្ជាប់វីដេអូ៖ ' : 'Video attached: ')}{sharedMediaName}{videoFile || imageFile ? ` (${formatFileSize((videoFile || imageFile)!.size)})` : ' (generated video)'}
                           </p>
                           <button
                             type="button"
                             onClick={() => videoFileInputRef.current?.click()}
                             className="mt-2 text-xs font-bold text-brand-600 hover:underline dark:text-brand-300"
                           >
-                            {language === 'km' ? 'ប្តូរវីដេអូ' : 'Replace video'}
+                            {language === 'km' ? 'ប្តូរឯកសារ' : 'Replace file'}
                           </button>
                         </div>
                       )}
                       <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                        {imageFile
+                          ? (language === 'km' ? 'រូបភាពនេះនឹងផុសទៅ Facebook និង Telegram ដោយស្វ័យប្រវត្តិ។ TikTok និង YouTube ត្រូវការវីដេអូក្នុង Smart Schedule នេះ។' : 'This image automatically posts to Facebook and Telegram. TikTok and YouTube require a video in this scheduler.')
+                          : (language === 'km' ? 'ផ្ទុកឡើងតែម្តង។ TikTok, Facebook, YouTube និង Telegram ប្រើវីដេអូនេះរួមគ្នា។ ' : 'Upload once. TikTok, Facebook, YouTube and Telegram reuse this video. ')}
+                        {!imageFile && <>
                         {platforms.includes('YOUTUBE') && !platforms.includes('TIKTOK') && !platforms.includes('FACEBOOK')
                           ? 'Horizontal 16:9 MP4, MOV, or WebM. Uploads automatically to your connected YouTube channel at the scheduled time.'
                           : platforms.includes('TIKTOK') || platforms.includes('FACEBOOK')
                             ? 'Use one portrait 9:16 video for all selected platforms. MP4, MOV, or WebM.'
                           : 'MP4, MOV, or WebM.'}
                         {platforms.includes('TELEGRAM') && !telegramMediaFile && ' Telegram also reuses this video unless you attach a different file below.'}
+                        </>}
                       </p>
                     </div>
                   )}
@@ -1158,22 +1158,12 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                           </button>
                         </div>
                       )}
-                      <label htmlFor="tiktok-delivery-mode" className="block text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-2">TikTok delivery</label>
-                      <select
-                        id="tiktok-delivery-mode"
-                        value={tiktokDeliveryMode}
-                        onChange={(event) => setTikTokDeliveryMode(event.target.value as 'inbox' | 'direct')}
-                        className="w-full rounded-xl border border-brand-100 bg-brand-50 p-3 text-sm text-brand-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-                      >
-                        <option value="direct">Direct Post — publish automatically at the scheduled time</option>
-                        <option value="inbox">Upload to TikTok inbox — finish posting yourself</option>
-                      </select>
-                      <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                        {tiktokDeliveryMode === 'inbox'
-                          ? 'At the scheduled time, the video goes to your TikTok inbox. Open the notification in TikTok to review and publish it; the caption must be added there.'
-                          : 'TikTok will publish automatically after you choose the account settings and consent below. Processing may take a few minutes.'}
+                      <p className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
+                        {language === 'km'
+                          ? 'TikTok Direct Post៖ ក្រោយពេលអ្នកពិនិត្យ និងយល់ព្រមពេលកំណត់កាលវិភាគ វីដេអូនឹងផុសដោយស្វ័យប្រវត្តិពេលដល់ម៉ោង ដោយមិនចាំបាច់ចុចផ្សាយម្តងទៀត។'
+                          : 'TikTok Direct Post: review the settings and consent while scheduling. The video publishes automatically at the scheduled time without another publish step.'}
                       </p>
-                      {tiktokDeliveryMode === 'direct' && !isDemoMode && (
+                      {!isDemoMode && (
                         <div className="mt-3 space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-slate-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
                           {tiktokCreatorLoading && <p role="status">Loading TikTok creator settings…</p>}
                           {tiktokCreatorError && <p role="alert" className="text-red-700 dark:text-red-300">{tiktokCreatorError}</p>}
@@ -1247,7 +1237,9 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                   )}
                   {platforms.includes('FACEBOOK') && (
                     <div className="space-y-3 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-300">
-                      <p>Facebook Page Reel: portrait 9:16 video, 4–60 seconds. Publishes automatically to the selected Page.</p>
+                      <p>{imageFile
+                        ? 'Facebook Page photo: this image publishes automatically to the selected Page.'
+                        : 'Facebook Page Reel: portrait 9:16 video, 4–60 seconds. Publishes automatically to the selected Page.'}</p>
                       {facebookConnectionLoading && <p role="status">Checking Facebook Page connection…</p>}
                       {facebookConnectionError && <p role="alert" className="font-semibold text-red-700 dark:text-red-300">{facebookConnectionError}</p>}
                       {!facebookConnectionLoading && !facebookConnected && facebookSetupReady === false && (
@@ -1309,7 +1301,11 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                             accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm"
                             onChange={(e) => {
                               const nextFile = e.target.files?.[0] || null;
-                              if (nextFile?.type.startsWith('video/') && !videoFile && !hostedVideo) setVideoFile(nextFile);
+                              if (nextFile?.type.startsWith('video/') && !videoFile && !hostedVideo) {
+                                setVideoFile(nextFile);
+                                setImageFile(null);
+                              }
+                              if (nextFile?.type.startsWith('image/') && !videoFile && !hostedVideo) setImageFile(nextFile);
                               if (!nextFile && telegramMediaFile === videoFile) setVideoFile(null);
                               setTelegramMediaFile(nextFile);
                               e.target.value = '';
@@ -1353,7 +1349,6 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                     {isSubmitting || isAttachingHandoffMedia ? (
                       <>
                         <Loader2 className="animate-spin" size={18} />
-                        {uploadProgress !== null && <span>{uploadProgress}%</span>}
                       </>
                     ) : (
                       <>

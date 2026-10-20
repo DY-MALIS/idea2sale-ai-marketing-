@@ -335,7 +335,7 @@ const startPlanVideoJob = async (item, speech) => {
 // with no need to re-upload — cap dimensions and let it auto-pick quality/format.
 const scheduleQStashDelivery = async (req, postId, scheduledDate) => {
   const token = (process.env.QSTASH_TOKEN || '').trim();
-  if (!token) return;
+  if (!token) return false;
 
   try {
     const client = new QStashClient({ token, baseUrl: process.env.QSTASH_URL });
@@ -344,6 +344,7 @@ const scheduleQStashDelivery = async (req, postId, scheduledDate) => {
       body: { postId },
       notBefore: Math.floor(scheduledDate.getTime() / 1000),
     });
+    return true;
   } catch (error) {
     // Falls back to the periodic cron/GitHub Action poller, so a QStash
     // hiccup should never block scheduling the post itself -- but that poller
@@ -353,6 +354,7 @@ const scheduleQStashDelivery = async (req, postId, scheduledDate) => {
     const message = error?.message || String(error);
     console.error('QStash scheduling failed:', message);
     await notifyAdmins(`Telegram QStash scheduling failed for post ${postId}, falling back to the periodic poller (can lag hours): ${message}`);
+    return false;
   }
 };
 
@@ -454,9 +456,9 @@ const createScheduledTelegramPost = async (req, res) => {
     meta: { postId: docRef.id, platform: 'TELEGRAM', scheduledTime: scheduledDate.toISOString(), hasMedia: true },
   });
 
-  await scheduleQStashDelivery(req, docRef.id, scheduledDate);
+  const preciseDeliveryQueued = await scheduleQStashDelivery(req, docRef.id, scheduledDate);
 
-  return res.status(200).json({ ok: true, id: docRef.id });
+  return res.status(200).json({ ok: true, id: docRef.id, preciseDeliveryQueued });
 };
 
 // Immediate (non-scheduled) Telegram send, merged in from the former

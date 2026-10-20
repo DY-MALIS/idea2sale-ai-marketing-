@@ -3,18 +3,15 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Clock, Check, Plus, Zap, AlertCircle } from 'lucide-react';
 import { geminiService, PostingSuggestion, ActivityData } from '../lib/geminiService';
 import { db, auth } from '../lib/firebase';
-import { collection, query, where, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import { useLanguage } from '../contexts/LanguageContext';
-import { recordAuditEvent } from '../lib/auditClient';
-import { withUploadTimeout } from '../lib/withUploadTimeout';
-
-const UPLOAD_TIMEOUT_MESSAGE = 'Upload is taking too long. Please check your internet connection or use a smaller video.';
 
 interface SuggestionsProps {
   activityVersion: number;
+  onScheduleSuggestion: (videoFile: File, caption: string, scheduledDate: Date) => void;
 }
 
-const Suggestions: React.FC<SuggestionsProps> = ({ activityVersion }) => {
+const Suggestions: React.FC<SuggestionsProps> = ({ activityVersion, onScheduleSuggestion }) => {
   const { t, language } = useLanguage();
   const [suggestions, setSuggestions] = useState<PostingSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
@@ -50,49 +47,6 @@ const Suggestions: React.FC<SuggestionsProps> = ({ activityVersion }) => {
     return () => unsub();
   }, [activityVersion, language]);
 
-  // TikTok never accepts a text-only post -- a real video must exist before
-  // this scheduled_posts doc satisfies firestore.rules' videoUrl requirement
-  // for the TIKTOK/YOUTUBE platforms, let alone actually publish later.
-  const uploadVideoViaImageKit = async (file: File, idToken: string): Promise<string> => {
-    let signatureResponse: Response;
-    try {
-      signatureResponse = await withUploadTimeout(fetch('/api/telegram/run-scheduled?action=sign-upload', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${idToken}` },
-      }), UPLOAD_TIMEOUT_MESSAGE);
-    } catch {
-      throw new Error('Could not reach the app server to prepare the upload. Check your internet connection and try again.');
-    }
-    const signatureText = await signatureResponse.text();
-    let signatureData: any = {};
-    try {
-      signatureData = signatureText ? JSON.parse(signatureText) : {};
-    } catch {
-      throw new Error(`Upload service returned HTTP ${signatureResponse.status} instead of JSON.`);
-    }
-    if (!signatureResponse.ok || !signatureData.ok) {
-      throw new Error(signatureData.error || 'Could not prepare the video upload.');
-    }
-
-    const form = new FormData();
-    form.set('file', file);
-    form.set('fileName', file.name || `suggested-post-${Date.now()}`);
-    form.set('publicKey', signatureData.publicKey);
-    form.set('token', signatureData.token);
-    form.set('expire', String(signatureData.expire));
-    form.set('signature', signatureData.signature);
-    form.set('folder', signatureData.folder);
-    const uploadResponse = await withUploadTimeout(fetch(signatureData.uploadUrl, {
-      method: 'POST',
-      body: form,
-    }), UPLOAD_TIMEOUT_MESSAGE);
-    const uploadData = await uploadResponse.json().catch(() => ({}));
-    if (!uploadResponse.ok || !uploadData.url) {
-      throw new Error(uploadData?.message || uploadData?.error?.message || 'Video upload failed.');
-    }
-    return String(uploadData.url);
-  };
-
   const handleApplySuggestion = async (suggestion: PostingSuggestion, videoFile: File) => {
     if (!auth.currentUser) return;
     const suggestionId = `${suggestion.dayOfWeek}-${suggestion.hour}`;
@@ -114,31 +68,9 @@ const Suggestions: React.FC<SuggestionsProps> = ({ activityVersion }) => {
 
       // Generate AI Content Draft
       const aiContentDraft = await geminiService.generateContentDraft("TIKTOK", suggestion.reason, language);
-      const idToken = await auth.currentUser.getIdToken();
-      const videoUrl = await uploadVideoViaImageKit(videoFile, idToken);
-
-      await addDoc(collection(db, 'scheduled_posts'), {
-        content: aiContentDraft,
-        platform: "TIKTOK",
-        videoUrl,
-        videoName: videoFile.name || null,
-        // Inbox draft, not direct post -- an AI-suggested quick-add should
-        // never auto-publish to a live TikTok account without the creator
-        // reviewing it first.
-        publishMode: 'TIKTOK_UPLOAD_DRAFT',
-        scheduledTime: scheduledDate.toISOString(),
-        status: "PENDING",
-        userId: auth.currentUser.uid,
-        aiSuggested: true,
-        createdAt: serverTimestamp()
-      });
-      void recordAuditEvent('scheduled_post_created', {
-        platform: 'TIKTOK',
-        scheduledTime: scheduledDate.toISOString(),
-        aiSuggested: true,
-      });
-
-      // Temporary success state would be nice, but for now just clear addingPost
+      // Open the same Direct Post review used by manual schedules. Creating a
+      // draft here would require a second publish action inside TikTok.
+      onScheduleSuggestion(videoFile, aiContentDraft, scheduledDate);
     } catch (err) {
       setAddError({ id: suggestionId, message: err instanceof Error ? err.message : 'Could not schedule this post.' });
     } finally {

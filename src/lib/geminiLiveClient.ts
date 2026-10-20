@@ -34,6 +34,7 @@ const LATE_TRANSCRIPT_WAIT_MS = 1200;
 const END_OF_SPEECH_SILENCE_MS = 300;
 
 export interface GeminiLiveHandlers {
+  onWebsiteLookup?: (url: string) => Promise<unknown>;
   onOpen?: () => void;
   onAudioStart?: () => void;
   onInterrupted?: () => void;
@@ -75,6 +76,17 @@ export interface GeminiLiveSetup {
   // session's context instead of starting a blank one. Omit to start fresh.
   resumeHandle?: string;
 }
+
+const WEBSITE_TOOL = {
+  functionDeclarations: [{
+    name: 'read_public_website',
+    description: 'Read a public website page to answer a question about its current contents. Use when the user provides a link or asks about the saved business website. The result includes same-site links; read a relevant linked page when the home page is insufficient. Do not claim to have checked a page if this tool returns an error.',
+    parameters: {
+      type: 'OBJECT',
+      properties: { url: { type: 'STRING', description: 'Public http or https page URL. Omit to read the saved business website.' } },
+    },
+  }],
+};
 
 const floatTo16BitPcm = (input: Float32Array): Int16Array => {
   const output = new Int16Array(input.length);
@@ -307,6 +319,7 @@ export async function connectGeminiLive(
         ...(setupConfig.systemInstruction ? {
           systemInstruction: { parts: [{ text: setupConfig.systemInstruction }] },
         } : {}),
+        tools: [WEBSITE_TOOL],
         // Google transcribes the user's own mic audio for us -- the only way
         // this app ever learns what was said on this audio-only connection,
         // used to detect spoken "create a video/plan" requests mid-call.
@@ -388,6 +401,20 @@ export async function connectGeminiLive(
         }
         if (message?.error) {
           fail(new Error(message.error.message || 'Gemini Live returned an error.'));
+          return;
+        }
+        if (Array.isArray(message?.toolCall?.functionCalls)) {
+          const functionResponses = await Promise.all(message.toolCall.functionCalls.map(async (call: { id?: string; name?: string; args?: { url?: string } }) => {
+            let response: unknown;
+            try {
+              if (call.name !== 'read_public_website' || !handlers.onWebsiteLookup) throw new Error('Website reading is unavailable.');
+              response = await handlers.onWebsiteLookup(String(call.args?.url || ''));
+            } catch (error) {
+              response = { error: error instanceof Error ? error.message : 'Could not read this website.' };
+            }
+            return { name: call.name || 'read_public_website', ...(call.id ? { id: call.id } : {}), response };
+          }));
+          if (!closed && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ toolResponse: { functionResponses } }));
           return;
         }
         const newHandle = message?.sessionResumptionUpdate?.newHandle;

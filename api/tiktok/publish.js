@@ -5,10 +5,10 @@ import { logAudit } from '../_audit.js';
 import { getCookie, getAutomationAccessToken, recordTikTokPostSync, scheduleTikTokQStashDelivery, markAutomationTokenRevoked } from '../_tiktok.js';
 import { claimPendingPost, findRecentDuplicateTikTokPost, findRecentDuplicateYouTubePost } from '../_telegramClaim.js';
 import { getYouTubeAutomationAccessToken, publishVideoToYouTube, scheduleYouTubeQStashDelivery } from '../_youtube.js';
-import { getFacebookPages, publishFacebookReel, getFacebookReelStatus, scheduleFacebookQStashDelivery } from '../_facebook.js';
+import { getFacebookPages, publishFacebookReel, publishFacebookPhoto, getFacebookReelStatus, scheduleFacebookQStashDelivery } from '../_facebook.js';
 import { notifyAdmins } from '../_alert.js';
 import { getUntransformedImageKitVideoUrl } from '../../shared/imageKitUrl.js';
-import { downloadTrustedVideo } from '../_videoDownload.js';
+import { downloadTrustedVideo, isTrustedVideoUrl } from '../_videoDownload.js';
 
 // Vercel's Hobby plan caps a deployment at 12 serverless functions; this file
 // was already one of them, so QStash's per-post delivery callback lives here
@@ -404,7 +404,7 @@ export async function deliverOneScheduledTikTokPost(db, docRef, token) {
   } catch (error) {
     const code = error?.code || null;
     const message = code === 'unaudited_client_can_only_post_to_private_accounts'
-      ? 'Until this app passes TikTok audit, Direct Post requires a private creator account and Only me video visibility. Use Upload to TikTok to deliver a draft instead.'
+      ? 'Until this app passes TikTok audit, Direct Post requires a private creator account and Only me video visibility. Reconnect an eligible account and create a new schedule.'
       : error?.message || 'TikTok publish failed.';
     await docRef.update({
       status: 'FAILED',
@@ -627,7 +627,7 @@ async function handleDeliverDueRequest(req, res) {
     const ref = db.collection('scheduled_posts').doc(postId);
     const snap = await ref.get();
     const post = snap.data();
-    if (!snap.exists || post?.userId !== uid || !['TIKTOK', 'YOUTUBE'].includes(post.platform)) {
+    if (!snap.exists || post?.userId !== uid || !['TIKTOK', 'YOUTUBE', 'FACEBOOK'].includes(post.platform)) {
       return res.status(404).json({ error: 'Scheduled post not found.' });
     }
     if (post.status !== 'PENDING') return res.status(409).json({ error: 'This post is no longer pending.' });
@@ -635,15 +635,20 @@ async function handleDeliverDueRequest(req, res) {
     if (!Number.isFinite(dueAt) || dueAt > Date.now()) {
       return res.status(400).json({ error: 'This post is not due yet.' });
     }
-    if (!post.videoUrl) return res.status(400).json({ error: 'This scheduled post has no attached video.' });
+    if (post.platform === 'FACEBOOK' && post.mediaType === 'photo'
+      ? !post.mediaUrl : !post.videoUrl) {
+      return res.status(400).json({ error: 'This scheduled post has no attached media.' });
+    }
 
     let result;
     if (post.platform === 'TIKTOK') {
       const token = await getAutomationAccessToken(db, uid);
       if (!token) return res.status(409).json({ error: 'Reconnect TikTok before delivering this post.' });
       result = await deliverOneScheduledTikTokPost(db, ref, token);
-    } else {
+    } else if (post.platform === 'YOUTUBE') {
       result = await deliverOneScheduledYouTubePost(db, ref);
+    } else {
+      result = await deliverOneScheduledFacebookPost(db, ref);
     }
     if (!result.ok) return res.status(502).json({ ok: false, error: result.error || 'Delivery failed.' });
     return res.status(200).json(result);
@@ -885,10 +890,11 @@ async function deliverOneScheduledYouTubePost(db, docRef) {
     }
     if (!post.videoUrl) throw new Error('This scheduled post has no video to upload.');
 
-    const { buffer: videoBuffer } = await downloadTrustedVideo(getUntransformedImageKitVideoUrl(post.videoUrl, process.env.IMAGEKIT_URL_ENDPOINT || ''));
+    const { buffer: videoBuffer, mimeType } = await downloadTrustedVideo(getUntransformedImageKitVideoUrl(post.videoUrl, process.env.IMAGEKIT_URL_ENDPOINT || ''));
 
     const { videoId } = await publishVideoToYouTube(accessToken, {
       videoBuffer,
+      mimeType,
       title: post.content,
       description: post.content,
       privacyStatus: process.env.YOUTUBE_PRIVACY_STATUS,
@@ -1012,6 +1018,13 @@ async function deliverOneScheduledFacebookPost(db, docRef) {
     const connection = await getFacebookPages(db, post.userId);
     const page = connection?.pages?.find(item => item.id === post.facebookPageId);
     if (!page) throw new Error('Facebook Page is not connected. Connect the Page again in Smart Scheduler.');
+    if (post.mediaType === 'photo') {
+      if (!post.mediaUrl) throw new Error('This scheduled Facebook photo has no image.');
+      if (!isTrustedVideoUrl(post.mediaUrl)) throw new Error('Upload the photo to the app storage before publishing.');
+      const facebookPhotoId = await publishFacebookPhoto(page.accessToken, page.id, post.mediaUrl, post.content);
+      await docRef.update({ status: 'PUBLISHED', facebookPhotoId, publishedAt: admin.firestore.FieldValue.serverTimestamp(), errorMessage: null });
+      return { ok: true, facebookPhotoId, status: 'PUBLISHED' };
+    }
     if (!post.videoUrl) throw new Error('This scheduled Facebook post has no video.');
     const duplicate = await db.collection('scheduled_posts')
       .where('platform', '==', 'FACEBOOK').where('videoUrl', '==', post.videoUrl).get();
@@ -1029,7 +1042,10 @@ async function deliverOneScheduledFacebookPost(db, docRef) {
       });
       return { ok: true, skippedDuplicate: recent.id };
     }
-    const facebookVideoId = await publishFacebookReel(page.accessToken, post.videoUrl, post.content);
+    // Use the same source clip as TikTok and YouTube. The preview URL may
+    // contain an ImageKit delivery transform that Meta cannot fetch reliably.
+    const facebookVideoUrl = getUntransformedImageKitVideoUrl(post.videoUrl, process.env.IMAGEKIT_URL_ENDPOINT || '');
+    const facebookVideoId = await publishFacebookReel(page.accessToken, facebookVideoUrl, post.content);
     await docRef.update({ status: 'SUBMITTED', facebookVideoId, facebookPageId: page.id, submittedAt: admin.firestore.FieldValue.serverTimestamp(), errorMessage: null });
     await scheduleFacebookQStashDelivery(docRef.id, new Date(Date.now() + 2 * 60 * 1000));
     return { ok: true, facebookVideoId, status: 'SUBMITTED' };

@@ -4,9 +4,21 @@ import {
   readYouTubeOAuthOwner,
   saveYouTubeAutomationTokens,
   youtubeOwnerCookieHeader,
+  publishVideoToYouTube,
 } from '../../api/_youtube.js';
 
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
+
+it('uploads the shared video with its actual media type', async () => {
+  const upload = vi.fn(async (_url, options) => {
+    expect(options.body.toString('utf8')).toContain('Content-Type: video/webm');
+    return { ok: true, json: async () => ({ id: 'youtube-video-1' }) };
+  });
+  vi.stubGlobal('fetch', upload);
+  await expect(publishVideoToYouTube('token', {
+    videoBuffer: Buffer.from([1, 2, 3]), mimeType: 'video/webm', title: 'Shared video',
+  })).resolves.toEqual({ videoId: 'youtube-video-1' });
+});
 
 describe('YouTube owner isolation', () => {
   it('binds the OAuth callback to the signed-in owner and rejects a changed state', () => {

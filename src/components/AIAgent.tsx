@@ -507,6 +507,17 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       }
 
       const geminiSession = await connectGeminiLive(data.token, data.model, playbackContext, {
+        onWebsiteLookup: async (url) => {
+          const lookup = await fetch('/api/ai', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: controller.signal,
+            body: JSON.stringify({ action: 'liveWebsiteRead', url, websiteUrl: businessContext?.websiteUrl || '' }),
+          });
+          const page = await lookup.json().catch(() => ({}));
+          if (!lookup.ok) throw new Error(page.error || 'Could not read this website.');
+          return page;
+        },
         onAudioStart: () => setIsSpeaking(true),
         onInterrupted: () => setIsSpeaking(false),
         onPlaybackComplete: () => {

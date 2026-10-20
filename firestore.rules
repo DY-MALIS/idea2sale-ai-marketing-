@@ -95,6 +95,11 @@ service cloud.firestore {
         && incoming().platform in ['TIKTOK', 'YOUTUBE', 'INSTAGRAM', 'TWITTER', 'TELEGRAM', 'FACEBOOK']
         && incoming().scheduledTime is string
         && incoming().scheduledTime.matches('^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$')
+        && (incoming().platform != 'TIKTOK'
+          || (incoming().publishMode == 'TIKTOK_DIRECT_POST'
+            && incoming().directPostOptions is map
+            && incoming().directPostOptions.consent == true
+            && incoming().directPostOptions.privacyLevel in ['PUBLIC_TO_EVERYONE', 'MUTUAL_FOLLOW_FRIENDS', 'FOLLOWER_OF_CREATOR', 'SELF_ONLY']))
         && (!(incoming().platform in ['TIKTOK', 'YOUTUBE', 'FACEBOOK']) || (incoming().videoUrl is string && incoming().videoUrl.size() <= 2000))
         && (incoming().platform != 'FACEBOOK' || (incoming().facebookPageId is string && incoming().facebookPageId.matches('^[0-9]+$')))
         && incoming().status == 'PENDING';
@@ -112,10 +117,12 @@ service cloud.firestore {
                 && incoming().diff(existing()).affectedKeys().hasOnly(['status']))
               || (existing().status == 'FAILED'
                 && incoming().status == 'PENDING'
-                && incoming().publishMode == 'TIKTOK_UPLOAD_DRAFT'
+                && existing().publishMode == 'TIKTOK_DIRECT_POST'
+                && incoming().publishMode == 'TIKTOK_DIRECT_POST'
+                && existing().directPostOptions.consent == true
                 && incoming().scheduledTime is string
                 && incoming().scheduledTime.matches('^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$')
-                && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'scheduledTime', 'publishMode']))))
+                && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'scheduledTime']))))
           || (existing().platform == 'YOUTUBE'
             && existing().status == 'FAILED'
             && incoming().status == 'PENDING'

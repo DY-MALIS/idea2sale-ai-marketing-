@@ -16,6 +16,7 @@ describe('Gemini Live browser connection', () => {
     const sources: any[] = [];
     const onAudioStart = vi.fn();
     const onPlaybackComplete = vi.fn();
+    const onWebsiteLookup = vi.fn().mockResolvedValue({ url: 'https://example.com/', text: 'Opening hours: 9–5' });
     const track = { stop: vi.fn() };
     const FakeWebSocket = class {
       static OPEN = 1;
@@ -48,7 +49,7 @@ describe('Gemini Live browser connection', () => {
       close: vi.fn().mockResolvedValue(undefined),
     } as unknown as AudioContext;
 
-    const pending = connectGeminiLive('ephemeral-token', 'gemini-3.8-live', playbackContext, { onAudioStart, onPlaybackComplete }, {
+    const pending = connectGeminiLive('ephemeral-token', 'gemini-3.8-live', playbackContext, { onAudioStart, onPlaybackComplete, onWebsiteLookup }, {
       voiceName: 'Aoede', systemInstruction: 'Speak Khmer for Khmer input.',
     });
     await vi.waitFor(() => expect(socket).toBeDefined());
@@ -62,6 +63,11 @@ describe('Gemini Live browser connection', () => {
         speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Aoede' } } },
       },
       systemInstruction: { parts: [{ text: 'Speak Khmer for Khmer input.' }] },
+      tools: [{ functionDeclarations: [{
+        name: 'read_public_website',
+        description: expect.any(String),
+        parameters: { type: 'OBJECT', properties: { url: { type: 'STRING', description: expect.any(String) } } },
+      }] }],
       inputAudioTranscription: {},
       realtimeInputConfig: {
         automaticActivityDetection: { endOfSpeechSensitivity: 'END_SENSITIVITY_HIGH', silenceDurationMs: 300 },
@@ -74,10 +80,16 @@ describe('Gemini Live browser connection', () => {
     expect(sent).toHaveLength(1);
     socket.onmessage({ data: JSON.stringify({ setupComplete: {} }) });
     const session = await pending;
+    socket.onmessage({ data: JSON.stringify({ toolCall: { functionCalls: [{ name: 'read_public_website', id: 'lookup-1', args: { url: 'https://example.com/' } }] } }) });
+    await vi.waitFor(() => expect(sent).toContainEqual({ toolResponse: { functionResponses: [{ name: 'read_public_website', id: 'lookup-1', response: { url: 'https://example.com/', text: 'Opening hours: 9–5' } }] } }));
+    expect(onWebsiteLookup).toHaveBeenCalledWith('https://example.com/');
+    onWebsiteLookup.mockRejectedValueOnce(new Error('Page requires sign in.'));
+    socket.onmessage({ data: JSON.stringify({ toolCall: { functionCalls: [{ name: 'read_public_website', id: 'lookup-2', args: { url: 'https://example.com/private' } }] } }) });
+    await vi.waitFor(() => expect(sent).toContainEqual({ toolResponse: { functionResponses: [{ name: 'read_public_website', id: 'lookup-2', response: { error: 'Page requires sign in.' } }] } }));
     expect((playbackContext.createScriptProcessor as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(1024, 1, 1);
     processor.onaudioprocess({ inputBuffer: { getChannelData: () => new Float32Array(1024).fill(0.5) } });
-    expect(sent[1].realtimeInput.audio).toMatchObject({ mimeType: 'audio/pcm;rate=16000', data: expect.any(String) });
-    expect(sent[1].realtimeInput).not.toHaveProperty('mediaChunks');
+    expect(sent[3].realtimeInput.audio).toMatchObject({ mimeType: 'audio/pcm;rate=16000', data: expect.any(String) });
+    expect(sent[3].realtimeInput).not.toHaveProperty('mediaChunks');
     const audioData = Buffer.from(new Int16Array([100, -100]).buffer).toString('base64');
     socket.onmessage({ data: JSON.stringify({ serverContent: { modelTurn: { parts: [{ inlineData: { mimeType: 'audio/pcm;rate=24000', data: audioData } }] } } }) });
     await Promise.resolve();
@@ -89,8 +101,8 @@ describe('Gemini Live browser connection', () => {
     sources[0].onended();
     expect(onPlaybackComplete).toHaveBeenCalledOnce();
     processor.onaudioprocess({ inputBuffer: { getChannelData: () => new Float32Array(1024).fill(0.25) } });
-    expect(sent[2].realtimeInput.audio).toMatchObject({ mimeType: 'audio/pcm;rate=16000', data: expect.any(String) });
-    const streamedSamples = [sent[1], sent[2]].reduce((count, message) => (
+    expect(sent[4].realtimeInput.audio).toMatchObject({ mimeType: 'audio/pcm;rate=16000', data: expect.any(String) });
+    const streamedSamples = [sent[3], sent[4]].reduce((count, message) => (
       count + Buffer.from(message.realtimeInput.audio.data, 'base64').byteLength / 2
     ), 0);
     expect(streamedSamples).toBe(1365);

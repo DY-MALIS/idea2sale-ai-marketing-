@@ -56,6 +56,7 @@ describe('GET /api/tiktok/me?action=facebookAutomation', () => {
   it('offers a connected Page even if an older connection has no selected Page ID', async () => {
     vi.stubEnv('FACEBOOK_APP_ID', 'app-id');
     vi.stubEnv('FACEBOOK_APP_SECRET', 'app-secret');
+    vi.stubEnv('FACEBOOK_CONFIG_ID', 'config-id');
     vi.stubEnv('APP_URL', 'https://example.com');
     mockVerifyIdToken.mockResolvedValue({ uid: 'company-a' });
     mockDoc.mockReturnValue({ get: async () => ({ exists: true, data: () => ({ pages: [{ id: '123', name: 'My Page', accessToken: 'private-token' }] }) }) });

@@ -109,6 +109,19 @@ export async function publishFacebookReel(pageToken, videoUrl, caption) {
   return String(start.video_id);
 }
 
+export async function publishFacebookPhoto(pageToken, pageId, imageUrl, caption) {
+  if (!/^\d+$/.test(String(pageId || '')) || !/^https:\/\//.test(imageUrl || '')) {
+    throw new Error('Facebook needs a connected Page and a publicly accessible HTTPS image URL.');
+  }
+  const result = await graphJson(`${GRAPH}/${pageId}/photos`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ access_token: pageToken, url: imageUrl, message: String(caption || '').slice(0, 5000), published: 'true' }),
+  });
+  if (!result.id) throw new Error('Facebook did not return a photo ID.');
+  return String(result.id);
+}
+
 export async function getFacebookReelStatus(pageToken, videoId) {
   return graphJson(`${GRAPH}/${encodeURIComponent(videoId)}?${new URLSearchParams({ fields: 'status', access_token: pageToken })}`);
 }

@@ -454,18 +454,18 @@ const Scheduler: React.FC = () => {
     }
   };
 
-  const uploadFailedTikTokPostToInbox = async (post: SchedulePost) => {
-    if (!user || isDemoMode || post.localOnly || post.platform !== 'TIKTOK' || post.status !== 'FAILED') return;
+  const retryFailedTikTokDirectPost = async (post: SchedulePost) => {
+    if (!user || isDemoMode || post.localOnly || post.platform !== 'TIKTOK' || post.status !== 'FAILED'
+      || post.publishMode !== 'TIKTOK_DIRECT_POST') return;
     try {
       await requireTikTokAutomationConnection(user);
       const scheduledTime = new Date().toISOString();
       const idToken = await user.getIdToken();
       await updateDoc(doc(db, 'scheduled_posts', post.id), {
         status: 'PENDING',
-        publishMode: 'TIKTOK_UPLOAD_DRAFT',
         scheduledTime,
       });
-      void recordAuditEvent('scheduled_post_retried', { postId: post.id, platform: 'TIKTOK', mode: 'inbox' });
+      void recordAuditEvent('scheduled_post_retried', { postId: post.id, platform: 'TIKTOK', mode: 'direct' });
       await fetch('/api/tiktok/publish?action=scheduleQstash', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
@@ -474,7 +474,7 @@ const Scheduler: React.FC = () => {
       // If QStash is unavailable, the periodic TikTok poller still picks up
       // this due PENDING post. No new video generation or media upload is needed.
     } catch (err: any) {
-      setErrorMsg(err?.message || 'Could not queue the TikTok inbox upload.');
+      setErrorMsg(err?.message || 'Could not retry the TikTok Direct Post.');
     }
   };
 
@@ -657,12 +657,17 @@ const Scheduler: React.FC = () => {
                           {post.mediaType === 'video' ? 'Video' : 'Image'}: {post.mediaName}
                         </p>
                       )}
+                      {post.platform === 'FACEBOOK' && post.mediaType === 'photo' && post.mediaName && (
+                        <p className="mt-2 inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-blue-700 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
+                          Photo: {post.mediaName}
+                        </p>
+                      )}
                       {(['YOUTUBE', 'TIKTOK', 'FACEBOOK'].includes(post.platform)) && (post.videoName || post.videoUrl) && (
                         <p className="mt-2 inline-flex items-center rounded-full border border-red-200 bg-red-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-red-600 dark:border-red-800/60 dark:bg-red-900/30 dark:text-red-300">
                           Video attached{post.videoName ? `: ${post.videoName}` : ''}
                         </p>
                       )}
-                      {(['TIKTOK', 'YOUTUBE'].includes(post.platform)) && post.status === 'PENDING' &&
+                      {(['TIKTOK', 'YOUTUBE', 'FACEBOOK'].includes(post.platform)) && post.status === 'PENDING' &&
                         new Date(post.scheduledTime).getTime() + 2 * 60 * 1000 < nowTick && (
                         <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
                           {language === 'km'
@@ -735,7 +740,7 @@ const Scheduler: React.FC = () => {
                           <RotateCcw size={18} />
                         </motion.button>
                       )}
-                      {(['TIKTOK', 'YOUTUBE'].includes(post.platform)) && post.status === 'PENDING' &&
+                      {(['TIKTOK', 'YOUTUBE', 'FACEBOOK'].includes(post.platform)) && post.status === 'PENDING' &&
                         !post.localOnly && new Date(post.scheduledTime).getTime() <= nowTick && (
                         <motion.button
                           whileHover={{ scale: 1.05 }}
@@ -744,23 +749,23 @@ const Scheduler: React.FC = () => {
                           disabled={deliveringPostId !== null}
                           onClick={() => deliverDuePostNow(post)}
                           className="flex items-center gap-1 rounded-md p-2 text-amber-600 hover:bg-amber-50 disabled:opacity-50 dark:hover:bg-amber-900/30"
-                          title={post.platform === 'TIKTOK' ? 'Upload due video to TikTok inbox now' : 'Publish due video to YouTube now'}
+                          title={`Publish due video to ${post.platform} now`}
                         >
                           <Send size={16} />
-                          <span className="text-xs font-semibold">{deliveringPostId === post.id ? 'Sending...' : post.platform === 'TIKTOK' ? 'Send to TikTok now' : 'Publish to YouTube now'}</span>
+                          <span className="text-xs font-semibold">{deliveringPostId === post.id ? 'Sending...' : `Publish to ${post.platform} now`}</span>
                         </motion.button>
                       )}
-                      {post.platform === 'TIKTOK' && post.status === 'FAILED' && !post.localOnly && (
+                      {post.platform === 'TIKTOK' && post.status === 'FAILED' && post.publishMode === 'TIKTOK_DIRECT_POST' && !post.localOnly && (
                         <motion.button
                           whileHover={{ scale: 1.1 }}
                           whileTap={{ scale: 0.9 }}
-                          onClick={() => uploadFailedTikTokPostToInbox(post)}
+                          onClick={() => retryFailedTikTokDirectPost(post)}
                           className="flex items-center gap-1 rounded-md p-2 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30 transition-colors"
-                          title="Upload video to TikTok inbox — finish posting in TikTok"
-                          aria-label="Upload failed video to TikTok inbox"
+                          title="Retry TikTok Direct Post"
+                          aria-label="Retry TikTok Direct Post"
                         >
                           <RotateCcw size={16} />
-                          <span className="text-xs font-semibold">Upload to TikTok</span>
+                          <span className="text-xs font-semibold">Retry TikTok</span>
                         </motion.button>
                       )}
                       {post.platform === 'YOUTUBE' && post.status === 'FAILED' && !post.localOnly && (

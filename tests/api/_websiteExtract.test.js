@@ -44,6 +44,7 @@ it('extracts readable text and the title from a real page, stripping scripts/sty
   const fetchMock = vi.fn(async () => htmlResponse(`
     <html><head><title>Sabai Coffee &amp; Roastery</title><style>body{color:red}</style></head>
     <body>
+      <a href="/courses#details">Courses</a><a href="https://other.example.com/">Outside</a>
       <script>trackPageView();</script>
       <h1>Sabai Coffee</h1>
       <p>We roast and sell specialty coffee beans in Phnom Penh.</p>
@@ -53,6 +54,7 @@ it('extracts readable text and the title from a real page, stripping scripts/sty
   vi.stubGlobal('fetch', fetchMock);
   const result = await extractWebsiteText({ url: 'https://sabaicoffee.example.com' });
   expect(result.title).toBe('Sabai Coffee & Roastery');
+  expect(result.links).toEqual(['https://sabaicoffee.example.com/courses']);
   expect(result.text).toContain('We roast and sell specialty coffee beans in Phnom Penh.');
   expect(result.text).toContain('Visit our shop on Street 240.');
   expect(result.text).not.toContain('trackPageView');

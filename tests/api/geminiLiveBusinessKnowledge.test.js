@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   text: vi.fn(),
   checkRateLimit: vi.fn(),
   liveToken: vi.fn(),
+  extractWebsite: vi.fn(),
 }));
 
 vi.mock('../../api/_openrouter.js', () => ({
@@ -35,7 +36,7 @@ vi.mock('../../api/_competitorResearch.js', () => ({ researchCompetitors: vi.fn(
 vi.mock('../../api/_marketTrendResearch.js', () => ({ researchMarketTrends: vi.fn() }));
 vi.mock('../../api/_imagekitUpload.js', () => ({ uploadMediaDataUrl: vi.fn() }));
 vi.mock('../../api/_email.js', () => ({ sendOutreachEmail: vi.fn() }));
-vi.mock('../../api/_websiteExtract.js', () => ({ extractWebsiteText: vi.fn() }));
+vi.mock('../../api/_websiteExtract.js', () => ({ extractWebsiteText: mocks.extractWebsite }));
 vi.mock('../../api/_geminiLive.js', () => ({ createGeminiLiveEphemeralToken: mocks.liveToken }));
 
 import handler from '../../api/ai.js';
@@ -115,4 +116,41 @@ it('omits the detailed knowledge block entirely when no knowledge base is saved 
   expect(res.statusCode).toBe(200);
   const systemInstruction = mocks.liveToken.mock.calls[0][0].systemInstruction;
   expect(systemInstruction).not.toContain('DETAILED BUSINESS KNOWLEDGE');
+});
+
+it('reads a public website for a Live Voice tool call', async () => {
+  mocks.extractWebsite.mockResolvedValue({ url: 'https://example.com/about', title: 'About', text: 'We sell coffee.', links: ['https://example.com/contact'] });
+  const res = responseRecorder();
+  await handler({ method: 'POST', headers: {}, body: { action: 'liveWebsiteRead', url: 'https://example.com/about' } }, res);
+  expect(res.statusCode).toBe(200);
+  expect(mocks.extractWebsite).toHaveBeenCalledWith({ url: 'https://example.com/about' });
+  expect(res.body).toMatchObject({ text: 'We sell coffee.', links: ['https://example.com/contact'] });
+});
+
+it('uses the saved website when a Live Voice tool call omits a URL', async () => {
+  mocks.extractWebsite.mockResolvedValue({ url: 'https://example.com/', title: '', text: 'Open every day.', links: [] });
+  const res = responseRecorder();
+  await handler({ method: 'POST', headers: {}, body: { action: 'liveWebsiteRead', websiteUrl: 'https://example.com/' } }, res);
+  expect(mocks.extractWebsite).toHaveBeenCalledWith({ url: 'https://example.com/' });
+  expect(res.statusCode).toBe(200);
+});
+
+it('includes freshly read website facts in a text Agent answer', async () => {
+  mocks.extractWebsite.mockResolvedValue({ url: 'https://example.com/', title: 'Shop', text: 'Open Monday to Friday, 9 am to 5 pm.', links: [] });
+  mocks.text.mockResolvedValue('The shop is open Monday to Friday, 9 am to 5 pm.');
+  const res = responseRecorder();
+  await handler({ method: 'POST', headers: {}, body: { action: 'socialAgent', message: 'What are the shop hours?', businessContext: { websiteUrl: 'https://example.com/' } } }, res);
+  expect(res.statusCode).toBe(200);
+  expect(mocks.extractWebsite).toHaveBeenCalledWith({ url: 'https://example.com/' });
+  expect(mocks.text.mock.calls.at(-1)[0].prompt).toContain('Open Monday to Friday, 9 am to 5 pm.');
+});
+
+it('tells the text Agent when the linked website could not be read', async () => {
+  mocks.extractWebsite.mockRejectedValue(new Error('Website requires sign in.'));
+  mocks.text.mockResolvedValue('I could not verify that page.');
+  const res = responseRecorder();
+  await handler({ method: 'POST', headers: {}, body: { action: 'socialAgent', message: 'Check https://example.com/ for prices.' } }, res);
+  expect(res.statusCode).toBe(200);
+  expect(mocks.text.mock.calls.at(-1)[0].prompt).toContain('WEBSITE READ FAILED');
+  expect(mocks.text.mock.calls.at(-1)[0].prompt).toContain('Do not claim you checked this website.');
 });

@@ -88,6 +88,16 @@ export async function extractWebsiteText({ url }) {
 
   const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   const title = titleMatch ? decodeHtmlEntities(titleMatch[1]).replace(/\s+/g, ' ').trim().slice(0, 200) : '';
+  const pageUrl = parsed.toString();
+  const links = [...html.matchAll(/<a\b[^>]*\bhref\s*=\s*["']([^"']+)["'][^>]*>/gi)]
+    .map((match) => {
+      try {
+        const candidate = new URL(decodeHtmlEntities(match[1]), pageUrl);
+        return /^https?:$/.test(candidate.protocol) && candidate.origin === parsed.origin
+          ? candidate.toString().split('#')[0] : '';
+      } catch { return ''; }
+    })
+    .filter(Boolean);
 
   const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
   const withoutNoise = (bodyMatch ? bodyMatch[1] : html)
@@ -100,5 +110,5 @@ export async function extractWebsiteText({ url }) {
     .replace(/\n\s*\n+/g, '\n')
     .trim();
   if (!trimmed) throw typedError('No readable text was found on this page.', 'no_text_found');
-  return { text: trimmed.slice(0, MAX_EXTRACTED_CHARS), title };
+  return { text: trimmed.slice(0, MAX_EXTRACTED_CHARS), title, url: pageUrl, links: [...new Set(links)].slice(0, 30) };
 }

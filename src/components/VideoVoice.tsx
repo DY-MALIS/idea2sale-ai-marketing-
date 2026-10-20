@@ -1062,7 +1062,6 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   const [captionLanguage, setCaptionLanguage] = useState<'Khmer' | 'English'>('Khmer');
   const [isGeneratingCaption, setIsGeneratingCaption] = useState(false);
   const [isPostingTikTok, setIsPostingTikTok] = useState(false);
-  const [tiktokPostMode, setTikTokPostMode] = useState<'inbox' | 'direct'>('inbox');
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [tiktokUser, setTiktokUser] = useState<any>(null);
   const [tiktokCreator, setTiktokCreator] = useState<TikTokCreatorInfo | null>(null);
@@ -1077,7 +1076,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   const [tiktokBrandedContent, setTiktokBrandedContent] = useState(false);
   const [tiktokConsent, setTiktokConsent] = useState(false);
   const [tiktokVideoSeconds, setTiktokVideoSeconds] = useState<number | null>(null);
-  const [tiktokPublishResult, setTiktokPublishResult] = useState<{ publishId: string; mode: 'inbox' | 'direct'; status: string; failReason: string | null } | null>(null);
+  const [tiktokPublishResult, setTiktokPublishResult] = useState<{ publishId: string; status: string; failReason: string | null } | null>(null);
   const [tiktokStatusError, setTiktokStatusError] = useState('');
   const [tiktokStatusRefresh, setTiktokStatusRefresh] = useState(0);
 
@@ -1088,7 +1087,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     setTiktokCreatorError('');
     setTiktokPrivacy('');
     setTiktokConsent(false);
-    if (tiktokPostMode !== 'direct' || !tiktokUser || !user) return;
+    if (!tiktokUser || !user) return;
     let cancelled = false;
     setTiktokCreatorLoading(true);
     void (async () => {
@@ -1107,7 +1106,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       }
     })();
     return () => { cancelled = true; };
-  }, [tiktokPostMode, tiktokUser?.open_id, user?.uid]);
+  }, [tiktokUser?.open_id, user?.uid]);
 
   const voicePersonas = {
     sreymom: {
@@ -1293,7 +1292,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       notify("Please generate or write a caption first.", 'error');
       return;
     }
-    if (tiktokPostMode === 'direct' && !directPostReady) {
+    if (!directPostReady) {
       notify('Choose TikTok privacy and consent after the account settings and video duration load.', 'error');
       return;
     }
@@ -1307,8 +1306,8 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
           ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
         },
         body: JSON.stringify({
-          videoUrl, title: aiCaption, mode: tiktokPostMode,
-          ...(tiktokPostMode === 'direct' ? { directPostOptions: {
+          videoUrl, title: aiCaption, mode: 'direct',
+          directPostOptions: {
             privacyLevel: tiktokPrivacy,
             durationSeconds: tiktokVideoSeconds,
             allowComment: tiktokAllowComment,
@@ -1318,27 +1317,26 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
             ownBrand: tiktokOwnBrand,
             brandedContent: tiktokBrandedContent,
             consent: tiktokConsent,
-          } } : {}),
+          },
         })
       });
       const data = await res.json();
-      if (res.ok) {
-        setTiktokPublishResult({ publishId: data.publishId, mode: tiktokPostMode, status: 'PROCESSING_UPLOAD', failReason: null });
+      if (res.ok && data.mode === 'direct' && data.publishId) {
+        setTiktokPublishResult({ publishId: data.publishId, status: 'PROCESSING_UPLOAD', failReason: null });
         setTiktokStatusError('');
         notify(data.message || t('postedToTiktok'), 'success');
       } else {
         throw Object.assign(new Error(data.error?.code === 'scope_not_authorized'
           ? 'TikTok has not granted video.publish to this connection. Reconnect TikTok after enabling that scope.'
-          : data.error?.message || 'Publishing failed'), {
+          : res.ok ? 'TikTok did not confirm a Direct Post. Check TikTok before trying again.' : data.error?.message || 'Publishing failed'), {
           code: data.error?.code,
         });
       }
     } catch (error: any) {
-      const auditHint = tiktokPostMode !== 'direct' ? ''
-        : error?.code === 'unaudited_client_can_only_post_to_private_accounts'
-          ? '\n\nTikTok requires the creator account itself to be private until this app passes audit. Choosing "Only me" for the video is not enough. Set the account to private in TikTok, or select Upload to TikTok to deliver a draft.'
+      const auditHint = error?.code === 'unaudited_client_can_only_post_to_private_accounts'
+          ? '\n\nTikTok requires the creator account itself to be private until this app passes audit. Choosing "Only me" for the video is not enough. Set the account to private in TikTok and try again.'
           : /integration guidelines|unaudited|private account/i.test(error.message || '')
-            ? '\n\nTikTok rejected Direct Post under the current account or app restrictions. Select Upload to TikTok to deliver a draft.'
+            ? '\n\nTikTok rejected Direct Post under the current account or app restrictions.'
             : '';
       notify(`${t('postFailed')}: ${error.message}${auditHint}`, 'error');
     } finally {
@@ -2789,20 +2787,13 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                     </label>
                   )}
                   {tiktokUser && (
-                    <div className="mb-3">
-                      <label htmlFor="video-tiktok-post-mode" className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">TikTok delivery</label>
-                      <select
-                        id="video-tiktok-post-mode"
-                        value={tiktokPostMode}
-                        onChange={(event) => setTikTokPostMode(event.target.value as 'inbox' | 'direct')}
-                        className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-                      >
-                        <option value="inbox">Upload to TikTok — finish posting in TikTok</option>
-                        <option value="direct">Direct Post — publish automatically to TikTok</option>
-                      </select>
-                    </div>
+                    <p className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-800">
+                      {language === 'km'
+                        ? 'ប៊ូតុង Post to TikTok ប្រើ Direct Post។ ជ្រើសអ្នកមើលវីដេអូ និងយល់ព្រមខាងក្រោម រួចចុចប៊ូតុងនេះម្ដង ដើម្បីផ្ញើទៅផ្សាយដោយមិនចាំបាច់បញ្ចប់នៅក្នុង TikTok។'
+                        : 'Post to TikTok uses Direct Post. Choose visibility and consent below, then post here without finishing in the TikTok inbox.'}
+                    </p>
                   )}
-                  {tiktokUser && tiktokPostMode === 'direct' && (
+                  {tiktokUser && (
                     <div className="mb-3 space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-slate-800">
                       {tiktokCreatorLoading && <p>Loading TikTok creator settings...</p>}
                       {tiktokCreatorError && <p role="alert" className="text-red-700">{tiktokCreatorError} Reconnect TikTok if video.publish was recently approved.</p>}
@@ -2846,12 +2837,10 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                         {tiktokPublishResult.status === 'PUBLISH_COMPLETE'
                           ? 'TikTok confirmed this video was published.'
                           : tiktokPublishResult.status === 'SEND_TO_USER_INBOX'
-                            ? 'Video delivered to your TikTok inbox. Open TikTok to finish posting.'
+                            ? 'TikTok returned an inbox draft instead of a published post. Open TikTok to finish this one.'
                             : tiktokPublishResult.status === 'FAILED'
                               ? `TikTok could not publish this video: ${tiktokPublishResult.failReason || 'Unknown reason'}`
-                              : tiktokPublishResult.mode === 'direct'
-                                ? 'Direct Post submitted. TikTok is still processing it.'
-                                : 'Video uploaded. TikTok is preparing your inbox notification.'}
+                              : 'Direct Post submitted. TikTok is still processing it.'}
                       </p>
                       {tiktokStatusError && <p className="mt-2 text-red-700">{tiktokStatusError}</p>}
                       <button type="button" onClick={() => setTiktokStatusRefresh((value) => value + 1)} className="mt-2 font-semibold underline">
@@ -2863,7 +2852,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                     {tiktokUser ? (
                       <button 
                         onClick={() => handlePostToTikTok(generatedVideo!)}
-                        disabled={isPostingTikTok || videoNeedsReview || performanceNeedsReview || (tiktokPublishResult !== null && tiktokPublishResult.status !== 'FAILED') || (tiktokPostMode === 'direct' && !directPostReady)}
+                        disabled={isPostingTikTok || videoNeedsReview || performanceNeedsReview || (tiktokPublishResult !== null && tiktokPublishResult.status !== 'FAILED')}
                         className="flex-1 bg-black text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-3 shadow-xl hover:bg-slate-900 transition-all disabled:opacity-50"
                       >
                         {isPostingTikTok ? <Loader2 size={20} className="animate-spin" /> : (

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { exchangeFacebookCode, facebookAuthUrl, publishFacebookReel } from '../../api/_facebook.js';
+import { exchangeFacebookCode, facebookAuthUrl, publishFacebookReel, publishFacebookPhoto } from '../../api/_facebook.js';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -64,5 +64,15 @@ describe('Facebook Page publishing', () => {
     await expect(publishFacebookReel('page-token', 'data:video/mp4;base64,AA==', 'caption'))
       .rejects.toThrow('publicly accessible HTTPS');
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('publishes a hosted image to a connected Page', async () => {
+    const fetch = vi.fn().mockResolvedValue(reply({ id: 'photo-1' }));
+    vi.stubGlobal('fetch', fetch);
+    await expect(publishFacebookPhoto('page-token', '123', 'https://cdn.example.com/photo.jpg', 'Photo caption'))
+      .resolves.toBe('photo-1');
+    expect(fetch.mock.calls[0][0]).toContain('/123/photos');
+    expect(fetch.mock.calls[0][1].body.get('url')).toBe('https://cdn.example.com/photo.jpg');
+    expect(fetch.mock.calls[0][1].body.get('published')).toBe('true');
   });
 });

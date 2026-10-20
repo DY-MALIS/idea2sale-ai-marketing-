@@ -103,6 +103,7 @@ it('keeps Telegram in the same one-upload schedule group as the other platforms'
     body: { content: 'Shared post', scheduledTime, groupId: 'schedule-group-123' },
   }, res);
   expect(res.statusCode).toBe(200);
+  expect(res.body).toMatchObject({ ok: true, preciseDeliveryQueued: false });
   expect(addPost).toHaveBeenCalledWith(expect.objectContaining({
     platform: 'TELEGRAM',
     groupId: 'schedule-group-123',

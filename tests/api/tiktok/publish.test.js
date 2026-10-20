@@ -7,7 +7,7 @@ const {
   mockInitFirebaseAdmin, mockGetAutomationAccessToken, mockClaimPendingPost, mockFindRecentDuplicate,
   mockNotifyAdmins, mockVerify,
   mockScheduleYouTube, mockGetYouTubeToken, mockPublishYouTube,
-  mockScheduleFacebook, mockGetFacebookPages, mockPublishFacebook, mockGetFacebookReelStatus,
+  mockScheduleFacebook, mockGetFacebookPages, mockPublishFacebook, mockPublishFacebookPhoto, mockGetFacebookReelStatus,
 } = vi.hoisted(() => ({
   mockGetCookie: vi.fn(),
   mockRecordTikTokPostSync: vi.fn(),
@@ -26,6 +26,7 @@ const {
   mockScheduleFacebook: vi.fn(),
   mockGetFacebookPages: vi.fn(),
   mockPublishFacebook: vi.fn(),
+  mockPublishFacebookPhoto: vi.fn(),
   mockGetFacebookReelStatus: vi.fn(),
 }));
 vi.mock('@upstash/qstash', () => ({
@@ -62,6 +63,7 @@ vi.mock('../../../api/_facebook.js', () => ({
   scheduleFacebookQStashDelivery: mockScheduleFacebook,
   getFacebookPages: mockGetFacebookPages,
   publishFacebookReel: mockPublishFacebook,
+  publishFacebookPhoto: mockPublishFacebookPhoto,
   getFacebookReelStatus: mockGetFacebookReelStatus,
 }));
 
@@ -608,6 +610,45 @@ describe('POST /api/tiktok/publish?action=deliverDue', () => {
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({ ok: true, videoId: 'youtube-due' });
     expect(ref.update).toHaveBeenCalledWith(expect.objectContaining({ status: 'PUBLISHED', youtubeVideoId: 'youtube-due' }));
+  });
+
+  it('publishes an overdue Facebook Reel using the shared source video', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'owner-1' });
+    const post = { userId: 'owner-1', platform: 'FACEBOOK', status: 'PENDING',
+      scheduledTime: '2020-01-01T00:00:00.000Z',
+      videoUrl: 'https://cdn.example.com/video.mp4?tr=w-1280,q-85,f-mp4',
+      content: 'Test clip', facebookPageId: '123' };
+    const ref = { id: 'post-1', get: async () => ({ exists: true, data: () => post }), update: vi.fn() };
+    mockInitFirebaseAdmin.mockReturnValue({ collection: () => ({
+      doc: () => ref,
+      where: () => ({ where: () => ({ get: async () => ({ docs: [] }) }) }),
+    }) });
+    mockClaimPendingPost.mockResolvedValue({ post });
+    mockGetFacebookPages.mockResolvedValue({ pages: [{ id: '123', accessToken: 'page-token' }] });
+    mockPublishFacebook.mockResolvedValue('facebook-due');
+    mockScheduleFacebook.mockResolvedValue(true);
+    const res = response();
+    await handler(makeRequest(), res);
+    expect(res.body).toMatchObject({ ok: true, facebookVideoId: 'facebook-due' });
+    expect(mockPublishFacebook).toHaveBeenCalledWith('page-token', 'https://cdn.example.com/video.mp4?tr=orig-true', 'Test clip');
+    expect(ref.update).toHaveBeenCalledWith(expect.objectContaining({ status: 'SUBMITTED', facebookVideoId: 'facebook-due' }));
+  });
+
+  it('publishes an overdue Facebook photo without requiring a video', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'owner-1' });
+    const post = { userId: 'owner-1', platform: 'FACEBOOK', status: 'PENDING',
+      scheduledTime: '2020-01-01T00:00:00.000Z', mediaType: 'photo',
+      mediaUrl: 'https://cdn.example.com/photo.jpg', content: 'Photo caption', facebookPageId: '123' };
+    const ref = { id: 'post-1', get: async () => ({ exists: true, data: () => post }), update: vi.fn() };
+    mockInitFirebaseAdmin.mockReturnValue({ collection: () => ({ doc: () => ref }) });
+    mockClaimPendingPost.mockResolvedValue({ post });
+    mockGetFacebookPages.mockResolvedValue({ pages: [{ id: '123', accessToken: 'page-token' }] });
+    mockPublishFacebookPhoto.mockResolvedValue('photo-1');
+    const res = response();
+    await handler(makeRequest(), res);
+    expect(res.body).toMatchObject({ ok: true, facebookPhotoId: 'photo-1', status: 'PUBLISHED' });
+    expect(mockPublishFacebookPhoto).toHaveBeenCalledWith('page-token', '123', post.mediaUrl, 'Photo caption');
+    expect(ref.update).toHaveBeenCalledWith(expect.objectContaining({ status: 'PUBLISHED', facebookPhotoId: 'photo-1' }));
   });
 });
 

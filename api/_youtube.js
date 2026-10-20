@@ -191,7 +191,7 @@ export async function getYouTubeAutomationAccessToken(db, ownerId) {
 // resumable -- these are short (<=8s) AI-generated clips, comfortably inside
 // Vercel's request body limit, so the extra round trips a resumable session
 // needs would only add latency and failure surface for no real benefit here.
-export async function publishVideoToYouTube(accessToken, { videoBuffer, title, description, privacyStatus }) {
+export async function publishVideoToYouTube(accessToken, { videoBuffer, mimeType = 'video/mp4', title, description, privacyStatus }) {
   const metadata = {
     snippet: {
       title: String(title || 'AI Generated Content').slice(0, 100),
@@ -203,7 +203,7 @@ export async function publishVideoToYouTube(accessToken, { videoBuffer, title, d
   };
   const boundary = `youtube-upload-${Date.now()}`;
   const metadataPart = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n`;
-  const videoPartHeader = `--${boundary}\r\nContent-Type: video/mp4\r\n\r\n`;
+  const videoPartHeader = `--${boundary}\r\nContent-Type: ${['video/mp4', 'video/quicktime', 'video/webm'].includes(mimeType) ? mimeType : 'video/mp4'}\r\n\r\n`;
   const closing = `\r\n--${boundary}--`;
   const body = Buffer.concat([
     Buffer.from(metadataPart, 'utf8'),
