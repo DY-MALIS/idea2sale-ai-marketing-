@@ -211,6 +211,10 @@ const Sidebar: React.FC<SidebarProps> = ({
           <Settings size={18} />
           <span className="text-sm font-medium">{t('settings')}</span>
         </motion.button>
+        <div className="mx-3 my-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-left">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-brand-300/70 dark:text-slate-400">Signed in as</p>
+          <p className="truncate text-xs font-medium text-white dark:text-slate-100" title={user?.email || user?.displayName || user?.uid || 'Demo mode'}>{user?.email || user?.displayName || user?.uid || 'Demo mode'}</p>
+        </div>
         <motion.button 
           whileTap={{ scale: 0.98 }}
           onClick={() => {

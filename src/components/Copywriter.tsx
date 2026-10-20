@@ -16,12 +16,13 @@ import { getLatestBusinessBranding } from '../lib/businessBranding';
 const Copywriter: React.FC = () => {
     const { t, language } = useLanguage();
     const { user, isDemoMode } = useAuth();
-    const [copyPrompt, setCopyPrompt] = useState(() => localStorage.getItem('copy_prompt') || '');
+    const storageKey = (name: string) => `${name}_${user?.uid || 'demo'}`;
+    const [copyPrompt, setCopyPrompt] = useState(() => localStorage.getItem(storageKey('copy_prompt')) || '');
     const [contentType, setContentType] = useState<'caption' | 'salepage' | 'script' | 'seo'>(
-      (localStorage.getItem('copy_content_type') as any) || 'caption'
+      (localStorage.getItem(storageKey('copy_content_type')) as any) || 'caption'
     );
     const [loading, setLoading] = useState(false);
-    const [result, setResult] = useState<string | null>(() => localStorage.getItem('copy_result'));
+    const [result, setResult] = useState<string | null>(() => localStorage.getItem(storageKey('copy_result')));
     const [needsApiKey, setNeedsApiKey] = useState(false);
   
     const handleGenerateCopy = async () => {
@@ -53,9 +54,9 @@ const Copywriter: React.FC = () => {
       
       const text = data.text || t('noResponseGenerated');
       setResult(text);
-      localStorage.setItem('copy_result', text);
-      localStorage.setItem('copy_prompt', copyPrompt);
-      localStorage.setItem('copy_content_type', contentType);
+      localStorage.setItem(storageKey('copy_result'), text);
+      localStorage.setItem(storageKey('copy_prompt'), copyPrompt);
+      localStorage.setItem(storageKey('copy_content_type'), contentType);
     } catch (error: any) {
       console.error(error);
       if (/api key|OPEN_ROUTER_API_KEY|invalid|expired/i.test(error.message || '')) {

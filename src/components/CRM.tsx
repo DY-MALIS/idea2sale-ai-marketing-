@@ -10,6 +10,7 @@ import { useIsAdmin } from '../hooks/useIsAdmin';
 
 interface TelegramLead {
   id: string;
+  ownerId?: string | null;
   chatId: string;
   username: string | null;
   displayName: string;
@@ -36,6 +37,8 @@ const CRM: React.FC = () => {
   const { t } = useLanguage();
   const { user, isDemoMode } = useAuth();
   const { isAdmin, checking: checkingAdmin } = useIsAdmin();
+  const [adminScope, setAdminScope] = useState<'own' | 'shared'>('own');
+  const viewingSharedBot = isAdmin && adminScope === 'shared';
   // A signed-in non-admin who has activated their own Telegram bot (see
   // Business Profile) gets their own scoped leads view below, instead of the
   // admin-only shared-bot one. Channel-wide reactions/comments tracking stays
@@ -51,7 +54,7 @@ const CRM: React.FC = () => {
     });
     return () => unsubscribe();
   }, [user, isDemoMode]);
-  const canView = isAdmin || hasOwnBot;
+  const canView = viewingSharedBot || hasOwnBot;
   // Split into the realtime-tracked first page and manually-paginated pages
   // beyond it: the onSnapshot listener below used to overwrite one combined
   // `leads` array outright, so any live update to the top page (e.g. a new
@@ -99,7 +102,7 @@ const CRM: React.FC = () => {
     // sorted client-side instead, same simplification Automation.tsx's inbox
     // uses -- and no server-side pagination, since this is one business's
     // own leads rather than the admin's cross-business view.
-    const q = isAdmin
+    const q = viewingSharedBot
       ? query(collection(db, 'telegram_leads'), orderBy('lastMessageAt', 'desc'), limit(PAGE_SIZE))
       : query(collection(db, 'telegram_leads'), where('ownerId', '==', user!.uid), limit(200));
     const unsubscribe = onSnapshot(
@@ -107,13 +110,13 @@ const CRM: React.FC = () => {
       (snapshot) => {
         let rows = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as TelegramLead[];
         rows = rows.filter((lead) => !lead.kind?.endsWith('summary'));
-        if (!isAdmin) {
+        if (!viewingSharedBot) {
           rows = rows.sort((a, b) => (b.lastMessageAt?.toDate?.().getTime() || 0) - (a.lastMessageAt?.toDate?.().getTime() || 0));
         }
         setLiveLeads(rows);
         if (!hasLoadedMoreRef.current) {
           setLastDoc(snapshot.docs[snapshot.docs.length - 1] || null);
-          setHasMore(isAdmin && snapshot.docs.length === PAGE_SIZE);
+          setHasMore(viewingSharedBot && snapshot.docs.length === PAGE_SIZE);
         }
         setLoading(false);
       },
@@ -123,36 +126,36 @@ const CRM: React.FC = () => {
       }
     );
     return () => unsubscribe();
-  }, [checkingAdmin, canView, isAdmin, user]);
+  }, [checkingAdmin, canView, viewingSharedBot, user]);
 
   useEffect(() => {
-    if (checkingAdmin || !isAdmin) return;
+    if (checkingAdmin || !viewingSharedBot) return;
     const unsubscribe = onSnapshot(
       doc(db, 'telegram_leads', '_channel_comments'),
       (snapshot) => setCommentCount(Number(snapshot.data()?.totalCount) || 0),
       (error) => console.error('CRM comment summary listener error:', error)
     );
     return () => unsubscribe();
-  }, [checkingAdmin, isAdmin]);
+  }, [checkingAdmin, viewingSharedBot]);
 
   // Keep channel engagement independent from lead pagination. Listening to the
   // summary document directly makes every Telegram +1/-1 visible immediately,
   // even when that synthetic document is outside the first leads page.
   useEffect(() => {
-    if (checkingAdmin || !isAdmin) return;
+    if (checkingAdmin || !viewingSharedBot) return;
     const unsubscribe = onSnapshot(
       doc(db, 'telegram_leads', '_channel_reactions'),
       (snapshot) => setReactionCount(Number(snapshot.data()?.totalCount) || 0),
       (error) => console.error('CRM reaction summary listener error:', error)
     );
     return () => unsubscribe();
-  }, [checkingAdmin, isAdmin]);
+  }, [checkingAdmin, viewingSharedBot]);
 
   const handleLoadMore = async () => {
     // Pagination (lastDoc/hasMore) is only ever populated for the admin's
     // orderBy-paginated query -- a non-admin bot owner's query has neither,
     // but guard explicitly rather than relying on hasMore staying false.
-    if (!isAdmin || !lastDoc || loadingMoreRef.current) return;
+    if (!viewingSharedBot || !lastDoc || loadingMoreRef.current) return;
     loadingMoreRef.current = true;
     hasLoadedMoreRef.current = true;
     setLoadingMore(true);
@@ -210,6 +213,13 @@ const CRM: React.FC = () => {
         <p className="text-slate-500 dark:text-slate-400 mt-1 text-lg">{t('crmSubtitle')}</p>
       </header>
 
+      {isAdmin && (
+        <div className="flex flex-wrap gap-2 rounded-xl border border-brand-100 bg-white/70 p-2 dark:border-slate-700 dark:bg-slate-800">
+          <button type="button" onClick={() => { setLiveLeads([]); setExtraLeads([]); setAdminScope('own'); }} aria-pressed={!viewingSharedBot} className={`rounded-lg px-4 py-2 text-sm font-semibold ${!viewingSharedBot ? 'bg-brand-700 text-white' : 'text-brand-700 dark:text-brand-300'}`}>My account</button>
+          <button type="button" onClick={() => { setLiveLeads([]); setExtraLeads([]); setAdminScope('shared'); }} aria-pressed={viewingSharedBot} className={`rounded-lg px-4 py-2 text-sm font-semibold ${viewingSharedBot ? 'bg-brand-700 text-white' : 'text-brand-700 dark:text-brand-300'}`}>All accounts (Admin)</button>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-7 gap-4">
         <button
           onClick={() => {
@@ -240,7 +250,7 @@ const CRM: React.FC = () => {
             <p className="text-2xl font-bold text-brand-700 dark:text-brand-400">{tagCounts[tag] || 0}</p>
           </button>
         ))}
-        {isAdmin && (
+        {viewingSharedBot && (
           <>
             <div className="glass p-5 rounded-2xl border border-brand-100 text-left">
               <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1.5">
@@ -272,7 +282,7 @@ const CRM: React.FC = () => {
       {/* Comments come only from the shared broadcast channel's discussion
           group -- a feature never extended per-user, so a bot owner has
           nothing to see there and gets just their message inbox. */}
-      {isAdmin && (
+      {viewingSharedBot && (
         <div className="grid grid-cols-2 gap-3 rounded-2xl border border-brand-100 dark:border-slate-700 bg-white/70 dark:bg-slate-900/60 p-3">
           <button
             onClick={() => {
@@ -326,8 +336,8 @@ const CRM: React.FC = () => {
             <div className="w-16 h-16 bg-amber-50 dark:bg-amber-900/30 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-100 dark:border-amber-800/60">
               <ShieldAlert size={24} className="text-amber-500" />
             </div>
-            <h3 className="text-brand-700 dark:text-brand-400 font-bold mb-1">{t('adminOnlyTitle')}</h3>
-            <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm mx-auto">{t('adminOnlyDesc')}</p>
+            <h3 className="text-brand-700 dark:text-brand-400 font-bold mb-1">Connect your Telegram bot</h3>
+            <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm mx-auto">Activate your own bot in Business Profile to see your leads here.</p>
           </div>
         ) : loading ? (
           <div className="flex justify-center p-16">
@@ -359,6 +369,7 @@ const CRM: React.FC = () => {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
                       <span className="font-bold text-brand-700 dark:text-brand-400">{lead.displayName}</span>
+                      {viewingSharedBot && <span className="text-[10px] text-slate-500 dark:text-slate-400">{lead.ownerId ? `Account ${lead.ownerId}` : 'Shared bot'}</span>}
                       {lead.username && <span className="text-xs text-slate-400 dark:text-slate-400">@{lead.username}</span>}
                       <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider border flex items-center gap-1', TAG_STYLES[lead.tag] || TAG_STYLES.general)}>
                         <Tag size={10} />

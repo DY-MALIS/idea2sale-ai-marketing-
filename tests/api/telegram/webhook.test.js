@@ -6,6 +6,7 @@ import {
   formatTelegramHtml,
   getAutomationActive,
   getBusinessName,
+  manualReplyDestinationMatches,
   messageLeadContext,
   replyRuleTriggerMatches,
   resolveOwnerBotToken,
@@ -126,6 +127,19 @@ describe('messageLeadContext', () => {
     const a = messageLeadContext(privateMessage, 'owner-a');
     const b = messageLeadContext(privateMessage, 'owner-b');
     expect(a.conversationId).not.toBe(b.conversationId);
+  });
+});
+
+describe('manual reply destination', () => {
+  it('uses the real reply chat recorded for the selected conversation', () => {
+    const lead = { ownerId: 'owner-a', chatId: 'owner-a_555', replyChatId: '555' };
+    expect(manualReplyDestinationMatches(lead, '555', 'owner-a_555')).toBe(true);
+    expect(manualReplyDestinationMatches(lead, '999', 'owner-a_555')).toBe(false);
+  });
+
+  it('rejects a missing lead and accepts an older shared-bot lead', () => {
+    expect(manualReplyDestinationMatches(null, '555', '555')).toBe(false);
+    expect(manualReplyDestinationMatches({ chatId: '555' }, '555', '555')).toBe(true);
   });
 });
 

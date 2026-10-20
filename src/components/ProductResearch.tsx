@@ -18,9 +18,10 @@ import { getLatestBusinessBranding } from '../lib/businessBranding';
 const ProductResearch: React.FC = () => {
     const { t, language } = useLanguage();
     const { user, isDemoMode } = useAuth();
-    const [queryInput, setQueryInput] = useState(() => localStorage.getItem('research_query') || '');
+    const storageKey = (name: string) => `${name}_${user?.uid || 'demo'}`;
+    const [queryInput, setQueryInput] = useState(() => localStorage.getItem(storageKey('research_query')) || '');
     const [isSearching, setIsSearching] = useState(false);
-    const [analysis, setAnalysis] = useState<string | null>(() => localStorage.getItem('research_analysis'));
+    const [analysis, setAnalysis] = useState<string | null>(() => localStorage.getItem(storageKey('research_analysis')));
     const [researchError, setResearchError] = useState<string | null>(null);
 
     const [competitorInput, setCompetitorInput] = useState('');
@@ -54,8 +55,8 @@ const ProductResearch: React.FC = () => {
 
       const text = data.analysis || t('noDataGenerated');
       setAnalysis(text);
-      localStorage.setItem('research_analysis', text);
-      localStorage.setItem('research_query', query);
+      localStorage.setItem(storageKey('research_analysis'), text);
+      localStorage.setItem(storageKey('research_query'), query);
     } catch (error) {
       console.error(error);
       const message = error instanceof Error ? error.message : t('errorPerformingResearch');

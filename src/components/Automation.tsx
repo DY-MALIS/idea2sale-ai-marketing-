@@ -26,6 +26,7 @@ import { recordAuditEvent } from '../lib/auditClient';
 
 interface TelegramLead {
   id: string;
+  ownerId?: string | null;
   chatId: string;
   username: string | null;
   displayName: string;
@@ -61,6 +62,8 @@ const Automation: React.FC = () => {
   const { t, language } = useLanguage();
   const { user, isDemoMode } = useAuth();
   const { isAdmin, checking: checkingAdmin } = useIsAdmin();
+  const [adminScope, setAdminScope] = useState<'own' | 'all'>('own');
+  const viewingAllAccounts = isAdmin && adminScope === 'all';
   const [activeTab, setActiveTab] = useState<'reply' | 'inbox'>('reply');
   const [isRuleModalOpen, setIsRuleModalOpen] = useState(false);
   const [replyRules, setReplyRules] = useState<ReplyRule[]>([]);
@@ -100,7 +103,7 @@ const Automation: React.FC = () => {
     });
     return () => unsubscribe();
   }, [user, isDemoMode]);
-  const canSeeInbox = isAdmin || hasOwnBot;
+  const canSeeInbox = viewingAllAccounts || hasOwnBot;
 
   useEffect(() => {
     if (activeTab !== 'inbox') return;
@@ -113,18 +116,18 @@ const Automation: React.FC = () => {
     // combined with an orderBy on a different field needs a composite index),
     // sorted client-side instead -- and no server-side pagination, since this
     // is one business's own inbox rather than the admin's cross-business one.
-    const q = isAdmin
+    const q = viewingAllAccounts
       ? query(collection(db, 'telegram_leads'), orderBy('lastMessageAt', 'desc'), limit(INBOX_PAGE_SIZE))
       : query(collection(db, 'telegram_leads'), where('ownerId', '==', user!.uid), limit(200));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       let data = (snapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as TelegramLead[])
         .filter((lead) => !lead.kind?.endsWith('summary'));
-      if (!isAdmin) {
+      if (!viewingAllAccounts) {
         data = data.sort((a, b) => (b.lastMessageAt?.toDate?.().getTime() || 0) - (a.lastMessageAt?.toDate?.().getTime() || 0));
       }
       setInboxLeads(data);
       setInboxLastDoc(snapshot.docs[snapshot.docs.length - 1] || null);
-      setInboxHasMore(isAdmin && snapshot.docs.length === INBOX_PAGE_SIZE);
+      setInboxHasMore(viewingAllAccounts && snapshot.docs.length === INBOX_PAGE_SIZE);
       setInboxLoading(false);
       setSelectedChatId((current) => current || data[0]?.chatId || null);
     }, (error) => {
@@ -132,10 +135,10 @@ const Automation: React.FC = () => {
       setInboxLoading(false);
     });
     return () => unsubscribe();
-  }, [activeTab, checkingAdmin, canSeeInbox, isAdmin, user]);
+  }, [activeTab, checkingAdmin, canSeeInbox, viewingAllAccounts, user]);
 
   const handleLoadMoreInboxLeads = async () => {
-    if (!inboxLastDoc || inboxLoadingMore || !isAdmin) return;
+    if (!inboxLastDoc || inboxLoadingMore || !viewingAllAccounts) return;
     setInboxLoadingMore(true);
     try {
       const q = query(collection(db, 'telegram_leads'), orderBy('lastMessageAt', 'desc'), startAfter(inboxLastDoc), limit(INBOX_PAGE_SIZE));
@@ -192,7 +195,7 @@ const Automation: React.FC = () => {
     // the query itself needs the matching where('ownerId', ...) clause (same
     // as the leads query above) or the whole listener gets rejected with
     // permission-denied for a non-admin bot owner opening their own inbox.
-    const q = isAdmin
+    const q = viewingAllAccounts
       ? query(collection(db, 'telegram_messages'), where('chatId', '==', selectedChatId))
       : query(collection(db, 'telegram_messages'), where('chatId', '==', selectedChatId), where('ownerId', '==', user!.uid));
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -205,7 +208,7 @@ const Automation: React.FC = () => {
       setMessagesLoading(false);
     });
     return () => unsubscribe();
-  }, [selectedChatId, activeTab, checkingAdmin, canSeeInbox, isAdmin, user]);
+  }, [selectedChatId, activeTab, checkingAdmin, canSeeInbox, viewingAllAccounts, user]);
 
   const handleSendReply = async () => {
     const text = replyText.trim();
@@ -332,11 +335,11 @@ const Automation: React.FC = () => {
     return () => unsubscribe();
   }, [isDemoMode, user, hasOwnBot]);
 
-  const effectiveAutomationActive = isAdmin ? isAutomationActive : hasOwnBot ? isOwnAutomationActive : isAutomationActive;
-  const canToggleAutomation = isDemoMode || isAdmin || hasOwnBot;
+  const effectiveAutomationActive = viewingAllAccounts ? isAutomationActive : hasOwnBot ? isOwnAutomationActive : false;
+  const canToggleAutomation = isDemoMode || viewingAllAccounts || hasOwnBot;
 
   const toggleGlobalAutomation = async () => {
-    if (!isAdmin && hasOwnBot) return toggleOwnAutomation();
+    if (!viewingAllAccounts && hasOwnBot) return toggleOwnAutomation();
     const newState = !isAutomationActive;
     setIsAutomationActive(newState);
     if (isDemoMode) return;
@@ -377,7 +380,7 @@ const Automation: React.FC = () => {
       setStats({ replies: 1248, hours: 12, rate: 84 });
       return;
     }
-    if (checkingAdmin || !isAdmin) {
+    if (checkingAdmin || !viewingAllAccounts) {
       setStats({ replies: 0, hours: 0, rate: 0 });
       return;
     }
@@ -404,7 +407,7 @@ const Automation: React.FC = () => {
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [checkingAdmin, isAdmin, isDemoMode, user]);
+  }, [checkingAdmin, viewingAllAccounts, isDemoMode, user]);
 
   const handleCreateRule = async () => {
     if (!ruleTrigger.trim() || !ruleResponse.trim()) {
@@ -529,6 +532,13 @@ const Automation: React.FC = () => {
         </div>
       </header>
 
+      {isAdmin && (
+        <div className="flex flex-wrap gap-2 rounded-xl border border-brand-100 bg-white/70 p-2 dark:border-slate-700 dark:bg-slate-800">
+          <button type="button" onClick={() => { setInboxLeads([]); setInboxMessages([]); setSelectedChatId(null); setAdminScope('own'); }} aria-pressed={!viewingAllAccounts} className={`rounded-lg px-4 py-2 text-sm font-semibold ${!viewingAllAccounts ? 'bg-brand-700 text-white' : 'text-brand-700 dark:text-brand-300'}`}>My account</button>
+          <button type="button" onClick={() => { setInboxLeads([]); setInboxMessages([]); setSelectedChatId(null); setAdminScope('all'); }} aria-pressed={viewingAllAccounts} className={`rounded-lg px-4 py-2 text-sm font-semibold ${viewingAllAccounts ? 'bg-brand-700 text-white' : 'text-brand-700 dark:text-brand-300'}`}>All accounts (Admin)</button>
+        </div>
+      )}
+
       {errorMsg && !isRuleModalOpen && (
         <motion.div 
           initial={{ opacity: 0, y: -20 }}
@@ -556,8 +566,8 @@ const Automation: React.FC = () => {
           <div className="w-16 h-16 bg-amber-50 dark:bg-amber-900/30 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-100 dark:border-amber-800/60">
             <ShieldAlert size={24} className="text-amber-500" />
           </div>
-          <h3 className="text-brand-700 dark:text-brand-400 font-bold mb-1">{t('adminOnlyTitle')}</h3>
-          <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm mx-auto">{t('adminOnlyDesc')}</p>
+          <h3 className="text-brand-700 dark:text-brand-400 font-bold mb-1">Connect your Telegram bot</h3>
+          <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm mx-auto">Activate your own bot in Business Profile to use your inbox.</p>
         </div>
       ) : activeTab === 'inbox' ? (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -625,6 +635,7 @@ const Automation: React.FC = () => {
                       )}
                     >
                       <p className="font-bold text-sm text-brand-700 dark:text-brand-400 truncate">{lead.displayName}</p>
+                      {viewingAllAccounts && <p className="truncate text-[10px] text-slate-500 dark:text-slate-400">{lead.ownerId ? `Account ${lead.ownerId}` : 'Shared bot'}</p>}
                       <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{lead.lastMessage}</p>
                     </button>
                   ))}

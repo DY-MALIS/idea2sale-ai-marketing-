@@ -485,6 +485,9 @@ const sendTelegramHtmlMessage = (token, chatId, text, options = {}) => telegramA
   } : {}),
 });
 
+export const manualReplyDestinationMatches = (lead, chatId, conversationId) => Boolean(lead)
+  && String(chatId) === String(lead.replyChatId || lead.chatId || conversationId);
+
 const welcomeMessage = (isKhmer, businessName) => {
   const name = businessName || 'aime.angkorgate';
   return isKhmer
@@ -563,16 +566,21 @@ const sendManualReply = async (req, res) => {
   // legacy shared bot) -- that, not anything the client claims, decides which
   // bot token replies and who is allowed to send this reply at all.
   let ownerId = null;
+  let lead = null;
   try {
     const leadSnap = await db.collection('telegram_leads').doc(conversationId).get();
-    ownerId = leadSnap.data()?.ownerId || null;
+    if (leadSnap.exists) lead = leadSnap.data();
+    ownerId = lead?.ownerId || null;
   } catch (error) {
     console.error('Could not load lead for reply ownership check:', error?.message);
   }
 
   const isCallerAdmin = await db.collection('admins').doc(decoded.uid).get().then((snap) => snap.exists).catch(() => false);
-  if (ownerId ? (decoded.uid !== ownerId && !isCallerAdmin) : !isCallerAdmin) {
+  if (!lead || (ownerId ? (decoded.uid !== ownerId && !isCallerAdmin) : !isCallerAdmin)) {
     return res.status(403).json({ error: 'You do not have permission to reply to this conversation.' });
+  }
+  if (!manualReplyDestinationMatches(lead, chatId, conversationId)) {
+    return res.status(400).json({ error: 'The reply destination does not match this conversation.' });
   }
 
   const token = await resolveOwnerBotToken(db, ownerId);

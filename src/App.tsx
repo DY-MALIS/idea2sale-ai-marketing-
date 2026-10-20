@@ -38,12 +38,13 @@ export default function App() {
   ));
   const [hasOpenedScheduler, setHasOpenedScheduler] = useState(false);
   const { user, isDemoMode, loading: authLoading, setDemoMode, logout } = useAuth();
+  const accountKey = user?.uid ?? (isDemoMode ? 'demo' : 'signed-out');
   const [configInfo, setConfigInfo] = useState<any>(null);
   const [showLanguageMenu, setShowLanguageMenu] = useState(false);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [showBusinessProfile, setShowBusinessProfile] = useState(false);
-  const [creativeAutomation, setCreativeAutomation] = useState<CreativeAutomationRequest | null>(null);
-  const [scheduleHandoff, setScheduleHandoff] = useState<ScheduleHandoffRequest | null>(null);
+  const [creativeAutomation, setCreativeAutomation] = useState<{ owner: string; request: CreativeAutomationRequest } | null>(null);
+  const [scheduleHandoff, setScheduleHandoff] = useState<{ owner: string; request: ScheduleHandoffRequest } | null>(null);
 
   const { language, setLanguage, t } = useLanguage();
   const { theme, toggleTheme } = useTheme();
@@ -104,21 +105,21 @@ export default function App() {
   };
 
   const handleCreativeAutomation = (request: CreativeAutomationRequest) => {
-    setCreativeAutomation(request);
+    setCreativeAutomation({ owner: accountKey, request });
     setActiveTab(request.kind === 'video' ? 'video-voice' : 'poster-gen');
   };
 
   const consumeCreativeAutomation = (requestId: string) => {
-    setCreativeAutomation((current) => current?.id === requestId ? null : current);
+    setCreativeAutomation((current) => current?.request.id === requestId ? null : current);
   };
 
   const handleScheduleHandoff = (request: ScheduleHandoffRequest) => {
-    setScheduleHandoff(request);
+    setScheduleHandoff({ owner: accountKey, request });
     setActiveTab('scheduler');
   };
 
   const consumeScheduleHandoff = (requestId: string) => {
-    setScheduleHandoff((current) => current?.id === requestId ? null : current);
+    setScheduleHandoff((current) => current?.request.id === requestId ? null : current);
   };
 
   const renderContent = () => {
@@ -257,7 +258,7 @@ export default function App() {
       </div>
 
       <AnimatePresence>
-        {showBusinessProfile && <BusinessProfile onClose={() => setShowBusinessProfile(false)} />}
+        {showBusinessProfile && <BusinessProfile key={accountKey} onClose={() => setShowBusinessProfile(false)} />}
       </AnimatePresence>
 
       {authLoading && !isDemoMode ? (
@@ -270,7 +271,7 @@ export default function App() {
       ) : !effectivelyAuthenticated ? (
         <Auth onDemoMode={handleDemoMode} />
       ) : (
-        <div className="flex flex-1 relative">
+        <div key={accountKey} className="flex flex-1 relative">
           <AnimatePresence>
             {isMobileNavOpen && (
               <motion.button
@@ -326,7 +327,7 @@ export default function App() {
               {openedCreativeTabs.has('poster-gen') && <div className={activeTab === 'poster-gen' ? '' : 'hidden'}>
                 <Suspense fallback={<div className="min-h-64 animate-pulse rounded-xl bg-white/60 dark:bg-slate-800/60" aria-label="Loading section" />}>
                   <PosterGen
-                    automationRequest={creativeAutomation?.kind === 'image' ? creativeAutomation : null}
+                    automationRequest={creativeAutomation?.owner === accountKey && creativeAutomation.request.kind === 'image' ? creativeAutomation.request : null}
                     onAutomationConsumed={consumeCreativeAutomation}
                     onScheduleHandoff={handleScheduleHandoff}
                   />
@@ -335,7 +336,7 @@ export default function App() {
               {openedCreativeTabs.has('video-voice') && <div className={activeTab === 'video-voice' ? '' : 'hidden'}>
                 <Suspense fallback={<div className="min-h-64 animate-pulse rounded-xl bg-white/60 dark:bg-slate-800/60" aria-label="Loading section" />}>
                   <VideoVoice
-                    automationRequest={creativeAutomation?.kind === 'video' ? creativeAutomation : null}
+                    automationRequest={creativeAutomation?.owner === accountKey && creativeAutomation.request.kind === 'video' ? creativeAutomation.request : null}
                     onAutomationConsumed={consumeCreativeAutomation}
                     onScheduleHandoff={handleScheduleHandoff}
                   />
@@ -344,8 +345,7 @@ export default function App() {
               {hasOpenedScheduler && <div className={activeTab === 'scheduler' ? '' : 'hidden'}>
                 <Suspense fallback={<div className="min-h-64 animate-pulse rounded-xl bg-white/60 dark:bg-slate-800/60" aria-label="Loading scheduler" />}>
                   <SchedulerHub
-                    key={user?.uid ?? (isDemoMode ? 'demo' : 'signed-out')}
-                    handoffRequest={scheduleHandoff}
+                    handoffRequest={scheduleHandoff?.owner === accountKey ? scheduleHandoff.request : null}
                     onHandoffConsumed={consumeScheduleHandoff}
                   />
                 </Suspense>
