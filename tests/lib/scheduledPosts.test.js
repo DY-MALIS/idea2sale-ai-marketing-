@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  getDemoScheduledPosts,
   markDemoModeSession,
   mergeStoredScheduleHistory,
   wasDemoModeThisSession,
@@ -34,6 +35,16 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('demo schedule carry-over', () => {
+  it('shows only demo posts in demo mode on a shared browser', () => {
+    localStorage.setItem('demo_scheduled_posts', JSON.stringify([
+      post({ id: 'demo' }),
+      post({ id: 'owner-a', userId: 'owner-a' }),
+      post({ id: 'legacy', userId: undefined }),
+    ]));
+
+    expect(getDemoScheduledPosts()).toEqual([post({ id: 'demo' })]);
+  });
+
   it('does not expose an old demo user\'s local schedule to a later signed-in user', () => {
     localStorage.setItem('demo_scheduled_posts', JSON.stringify([post()]));
 

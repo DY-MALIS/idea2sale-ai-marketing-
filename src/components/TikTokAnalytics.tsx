@@ -20,11 +20,11 @@ import { db } from '../lib/firebase';
 import { cn } from '../lib/utils';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
-import { getStoredScheduledPosts, mergeStoredScheduleHistory } from '../lib/scheduledPosts';
+import { getDemoScheduledPosts, mergeStoredScheduleHistory } from '../lib/scheduledPosts';
 import { useToast } from '../hooks/useToast';
 
 const getLocalTelegramPosts = () => {
-  return getStoredScheduledPosts().filter((post) => post.platform === 'TELEGRAM');
+  return getDemoScheduledPosts().filter((post) => post.platform === 'TELEGRAM');
 };
 
 const TikTokAnalytics: React.FC = () => {

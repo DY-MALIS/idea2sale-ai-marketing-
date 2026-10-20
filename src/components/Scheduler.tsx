@@ -9,7 +9,7 @@ import { format, isAfter, parseISO, addHours, subHours } from 'date-fns';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { deleteLocalMedia, getLocalMediaBlob, getLocalMediaDataUrl } from '../lib/localMediaStore';
-import { getStoredScheduledPosts, mergeStoredScheduleHistory, wasDemoModeThisSession } from '../lib/scheduledPosts';
+import { getDemoScheduledPosts, getStoredScheduledPosts, mergeStoredScheduleHistory, wasDemoModeThisSession } from '../lib/scheduledPosts';
 import { recordAuditEvent } from '../lib/auditClient';
 import { withUploadTimeout } from '../lib/withUploadTimeout';
 import { requireTikTokAutomationConnection, requireYouTubeAutomationConnection } from '../lib/tiktokConnection';
@@ -56,7 +56,7 @@ const Scheduler: React.FC = () => {
   const processingTelegram = useRef<Set<string>>(new Set());
 
   const getDemoPosts = () => {
-    const savedPosts = getLocalScheduledPosts();
+    const savedPosts = getDemoScheduledPosts();
     const now = new Date();
     const defaultPosts: SchedulePost[] = [
       {

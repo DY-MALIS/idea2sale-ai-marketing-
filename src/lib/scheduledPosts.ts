@@ -11,6 +11,9 @@ export const getStoredScheduledPosts = (): SchedulePost[] => {
   }
 };
 
+export const getDemoScheduledPosts = (): SchedulePost[] =>
+  getStoredScheduledPosts().filter((post) => post.userId === 'demo-user');
+
 // Demo Mode's synthetic 'demo-user' id isn't tied to any real identity, so on a
 // shared/handed-down browser a *different* person signing into their own real
 // account would otherwise inherit whatever an earlier, unrelated demo session
