@@ -1005,12 +1005,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                 </button>
               </div>
 
-              <form onSubmit={handleCreatePost} className="p-8 space-y-6">
-                <p className="rounded-xl border border-brand-200 bg-brand-50 p-3 text-xs text-brand-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                  {language === 'km'
-                    ? `ជ្រើសរើសកន្លែងផ្សាយច្រើន កំណត់ពេលម្តង ហើយប្រើវីដេអូតែមួយសម្រាប់កន្លែងដែលបានជ្រើស។${platforms.includes('TIKTOK') ? ' TikTok Direct Post នឹងផុសដោយស្វ័យប្រវត្តិនៅម៉ោងដែលបានកំណត់។' : ''}`
-                    : `Select destinations and one publish time. The same video is reused for each selected destination.${platforms.includes('TIKTOK') ? ' TikTok Direct Post publishes automatically at the scheduled time.' : ''}`}
-                </p>
+              <form onSubmit={handleCreatePost} className="space-y-5 p-5 sm:p-8">
                 {isDemoMode && (
                   <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
                     {language === 'km'
@@ -1083,11 +1078,16 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                   </div>
 
                   {hasSharedVideoField && (
-                    <div>
-                      <label className="block text-xs font-bold text-brand-700 dark:text-brand-300 mb-2">
-                        {language === 'km' ? '3. ឯកសាររួមសម្រាប់កន្លែងដែលបានជ្រើស' : '3. One media file for selected destinations'}
-                      </label>
-                      {isAttachingHandoffMedia && <p role="status" className="mb-2 text-xs text-brand-700">Attaching your generated video…</p>}
+                    <div className="space-y-3 rounded-2xl border border-brand-100 p-4 dark:border-slate-700">
+                      <div>
+                        <h4 className="text-sm font-bold text-brand-700 dark:text-brand-300">
+                          {language === 'km' ? '3. រូបភាព ឬវីដេអូ' : '3. Media'}
+                        </h4>
+                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                          {language === 'km' ? 'ជ្រើសឯកសារម្តង សម្រាប់កន្លែងផ្សាយដែលបានជ្រើស។' : 'Choose one file for your selected destinations.'}
+                        </p>
+                      </div>
+                      {isAttachingHandoffMedia && <p role="status" className="text-xs text-brand-700">Attaching your generated video…</p>}
                       <input
                         ref={videoFileInputRef}
                         type="file"
@@ -1113,28 +1113,27 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                           // Allow selecting the same file again after a replacement.
                           e.target.value = '';
                         }}
-                        className={sharedMediaName || isAttachingHandoffMedia
-                          ? 'hidden'
-                          : 'w-full p-3 bg-brand-50 border border-brand-100 rounded-xl text-brand-700 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-brand-600 file:px-3 file:py-2 file:font-bold file:text-white dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100'}
+                        className="sr-only"
                       />
-                      {sharedMediaName && (
-                        <div className="rounded-xl border border-brand-200 bg-brand-50 p-3 dark:border-slate-600 dark:bg-slate-700">
-                          <p className="break-all text-xs font-semibold text-brand-700 dark:text-brand-300">
-                            {imageFile ? (language === 'km' ? 'បានភ្ជាប់រូបភាព៖ ' : 'Image attached: ') : (language === 'km' ? 'បានភ្ជាប់វីដេអូ៖ ' : 'Video attached: ')}{sharedMediaName}{videoFile || imageFile ? ` (${formatFileSize((videoFile || imageFile)!.size)})` : ' (generated video)'}
-                          </p>
-                          <button
-                            type="button"
-                            onClick={() => videoFileInputRef.current?.click()}
-                            className="mt-2 text-xs font-bold text-brand-600 hover:underline dark:text-brand-300"
-                          >
-                            {language === 'km' ? 'ប្តូរឯកសារ' : 'Replace file'}
-                          </button>
-                        </div>
-                      )}
-                      <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                      <div className="flex min-w-0 items-center gap-3 rounded-xl bg-brand-50 p-3 dark:bg-slate-700">
+                        <button
+                          type="button"
+                          onClick={() => videoFileInputRef.current?.click()}
+                          disabled={isAttachingHandoffMedia || isSubmitting}
+                          className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-brand-600 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+                        >
+                          <Upload size={14} />
+                          {sharedMediaName ? (language === 'km' ? 'ប្តូរ' : 'Replace') : (language === 'km' ? 'ជ្រើសឯកសារ' : 'Choose file')}
+                        </button>
+                        <p className="min-w-0 truncate text-xs font-medium text-slate-600 dark:text-slate-200" title={sharedMediaName || undefined}>
+                          {sharedMediaName || (language === 'km' ? 'មិនទាន់មានឯកសារ' : 'No file selected')}
+                          {(videoFile || imageFile) && ` · ${formatFileSize((videoFile || imageFile).size)}`}
+                        </p>
+                      </div>
+                      <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">
                         {imageFile
                           ? (language === 'km' ? 'រូបភាពនេះនឹងផុសទៅ Facebook និង Telegram ដោយស្វ័យប្រវត្តិ។ TikTok និង YouTube ត្រូវការវីដេអូក្នុង Smart Schedule នេះ។' : 'This image automatically posts to Facebook and Telegram. TikTok and YouTube require a video in this scheduler.')
-                          : (language === 'km' ? 'ផ្ទុកឡើងតែម្តង។ TikTok, Facebook, YouTube និង Telegram ប្រើវីដេអូនេះរួមគ្នា។ ' : 'Upload once. TikTok, Facebook, YouTube and Telegram reuse this video. ')}
+                          : (language === 'km' ? 'វីដេអូនេះប្រើរួមគ្នាសម្រាប់កន្លែងដែលបានជ្រើស។ ' : 'The selected destinations share this video. ')}
                         {!imageFile && <>
                         {platforms.includes('YOUTUBE') && !platforms.includes('TIKTOK') && !platforms.includes('FACEBOOK')
                           ? 'Horizontal 16:9 MP4, MOV, or WebM. Uploads automatically to your connected YouTube channel at the scheduled time.'
@@ -1147,44 +1146,42 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                     </div>
                   )}
                   {platforms.includes('TIKTOK') && (
-                    <div>
+                    <div className="rounded-2xl border border-brand-100 p-4 dark:border-slate-700">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <h4 className="text-sm font-bold text-brand-700 dark:text-brand-300">TikTok</h4>
+                        <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                          {language === 'km' ? 'ផុសស្វ័យប្រវត្តិតាមម៉ោង' : 'Posts at scheduled time'}
+                        </span>
+                      </div>
                       {!isDemoMode && (
-                        <div className="mb-3 rounded-xl border border-brand-200 bg-brand-50 p-3 text-xs text-brand-700 dark:border-brand-800 dark:bg-brand-900/20 dark:text-brand-300">
-                          <p>{tiktokJustConnected
-                            ? (language === 'km' ? 'បានភ្ជាប់ TikTok របស់អ្នករួច។' : 'Your TikTok account is connected.')
-                            : (language === 'km' ? 'ការផុសតាមកាលវិភាគត្រូវការភ្ជាប់ TikTok ផ្ទាល់ខ្លួនរបស់អ្នក។' : 'Scheduled publishing requires your own TikTok connection.')}</p>
-                          <button type="button" onClick={connectTikTok} disabled={isConnectingTikTok} className="mt-2 rounded-lg bg-brand-600 px-3 py-1.5 font-semibold text-white disabled:opacity-50">
-                            {isConnectingTikTok ? 'Connecting...' : (language === 'km' ? 'ភ្ជាប់ TikTok' : 'Connect TikTok')}
-                          </button>
-                        </div>
-                      )}
-                      <p className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
-                        {language === 'km'
-                          ? 'TikTok Direct Post៖ ក្រោយពេលអ្នកពិនិត្យ និងយល់ព្រមពេលកំណត់កាលវិភាគ វីដេអូនឹងផុសដោយស្វ័យប្រវត្តិពេលដល់ម៉ោង ដោយមិនចាំបាច់ចុចផ្សាយម្តងទៀត។'
-                          : 'TikTok Direct Post: review the settings and consent while scheduling. The video publishes automatically at the scheduled time without another publish step.'}
-                      </p>
-                      {!isDemoMode && (
-                        <div className="mt-3 space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-slate-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
+                        <div className="mt-4 space-y-4 text-xs text-slate-700 dark:text-slate-200">
                           {tiktokCreatorLoading && <p role="status">Loading TikTok creator settings…</p>}
                           {tiktokCreatorError && <p role="alert" className="text-red-700 dark:text-red-300">{tiktokCreatorError}</p>}
+                          {!tiktokCreator && !tiktokCreatorLoading && (
+                            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-brand-50 p-3 dark:bg-slate-700">
+                              <p>{language === 'km' ? 'ភ្ជាប់គណនី TikTok ដើម្បីកំណត់ការផ្សាយ។' : 'Connect TikTok to schedule this post.'}</p>
+                              <button type="button" onClick={connectTikTok} disabled={isConnectingTikTok} className="rounded-lg bg-brand-600 px-3 py-2 font-semibold text-white disabled:opacity-50">
+                                {isConnectingTikTok ? 'Connecting…' : (language === 'km' ? 'ភ្ជាប់ TikTok' : 'Connect TikTok')}
+                              </button>
+                            </div>
+                          )}
                           {tiktokCreator && (
                             <>
-                              <p className="font-semibold">Posting to {tiktokCreator.creator_nickname || tiktokCreator.creator_username || 'your TikTok account'}</p>
-                              <p>Choose a visibility option offered by this TikTok account. “Everyone” is available when TikTok allows public posts for this account and app.</p>
+                              <p className="font-semibold text-slate-800 dark:text-slate-100">{language === 'km' ? 'គណនី៖ ' : 'Posting to '}{tiktokCreator.creator_nickname || tiktokCreator.creator_username || 'your TikTok account'}</p>
                               {tiktokPreviewUrl && (
                                 <video
                                   key={tiktokPreviewUrl}
                                   src={tiktokPreviewUrl}
                                   controls
                                   playsInline
-                                  className="max-h-64 w-full rounded-lg bg-black"
+                                  className="max-h-52 w-full rounded-xl bg-black"
                                   onLoadedMetadata={(event) => setTikTokVideoSeconds(event.currentTarget.duration)}
                                   aria-label="Preview the video to be posted to TikTok"
                                 />
                               )}
-                              <p>Video length: {Number.isFinite(tiktokVideoSeconds) && tiktokVideoSeconds ? `${tiktokVideoSeconds.toFixed(1)}s` : 'loading'} · Account limit: {tiktokCreator.max_video_post_duration_sec || 'unknown'}s</p>
-                              <label htmlFor="scheduled-tiktok-privacy" className="block font-semibold">Who can view this video?</label>
-                              <select id="scheduled-tiktok-privacy" value={tiktokPrivacy} onChange={(event) => setTikTokPrivacy(event.target.value)} className="w-full rounded-lg border border-amber-200 bg-white p-2 text-slate-800">
+                              <p className="text-slate-500 dark:text-slate-400">Video: {Number.isFinite(tiktokVideoSeconds) && tiktokVideoSeconds ? `${tiktokVideoSeconds.toFixed(1)}s` : 'loading'} · Limit: {tiktokCreator.max_video_post_duration_sec || 'unknown'}s</p>
+                              <label htmlFor="scheduled-tiktok-privacy" className="block font-semibold">{language === 'km' ? 'អ្នកណាអាចមើលវីដេអូនេះ?' : 'Who can view this video?'}</label>
+                              <select id="scheduled-tiktok-privacy" value={tiktokPrivacy} onChange={(event) => setTikTokPrivacy(event.target.value)} className="w-full rounded-xl border border-brand-200 bg-white p-3 text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">
                                 <option value="">Select visibility</option>
                                 {(tiktokCreator.privacy_level_options || []).map((option) => (
                                   <option key={option} value={option} disabled={option === 'SELF_ONLY' && tiktokBrandedContent}>
@@ -1192,23 +1189,35 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                                   </option>
                                 ))}
                               </select>
-                              {([
-                                ['Allow comments', tiktokAllowComment, setTikTokAllowComment, tiktokCreator.comment_disabled],
-                                ['Allow Duet', tiktokAllowDuet, setTikTokAllowDuet, tiktokCreator.duet_disabled],
-                                ['Allow Stitch', tiktokAllowStitch, setTikTokAllowStitch, tiktokCreator.stitch_disabled],
-                              ] as const).map(([label, checked, setter, disabled]) => (
-                                <label key={label} className="flex items-center gap-2"><input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => setter(event.target.checked)} />{label}{disabled ? ' (disabled in TikTok)' : ''}</label>
-                              ))}
-                              <label className="flex items-center gap-2"><input type="checkbox" checked={tiktokAiGenerated} onChange={(event) => setTikTokAiGenerated(event.target.checked)} />This video contains AI-generated content</label>
-                              <label className="flex items-center gap-2"><input type="checkbox" checked={tiktokCommercial} onChange={(event) => { setTikTokCommercial(event.target.checked); setTikTokOwnBrand(false); setTikTokBrandedContent(false); }} />This video promotes a brand, product or service</label>
+                              {!tiktokCreator.privacy_level_options.includes('PUBLIC_TO_EVERYONE') && (
+                                <p className="text-slate-500 dark:text-slate-400">{language === 'km' ? 'TikTok មិនទាន់អនុញ្ញាតជម្រើស Public សម្រាប់គណនីនេះទេ។' : 'Public visibility is not available for this TikTok account.'}</p>
+                              )}
+                              <div className="space-y-3 border-t border-brand-100 pt-4 dark:border-slate-700">
+                                <label className="flex items-start gap-3"><input className="mt-0.5" type="checkbox" checked={tiktokAiGenerated} onChange={(event) => setTikTokAiGenerated(event.target.checked)} />This video contains AI-generated content</label>
+                                <label className="flex items-start gap-3"><input className="mt-0.5" type="checkbox" checked={tiktokCommercial} onChange={(event) => { setTikTokCommercial(event.target.checked); setTikTokOwnBrand(false); setTikTokBrandedContent(false); }} />This video promotes a brand, product or service</label>
+                              </div>
                               {tiktokCommercial && (
-                                <div className="space-y-2 pl-5">
+                                <div className="space-y-3 rounded-xl bg-brand-50 p-3 dark:bg-slate-700">
                                   <label className="flex items-center gap-2"><input type="checkbox" checked={tiktokOwnBrand} onChange={(event) => setTikTokOwnBrand(event.target.checked)} />Your brand (Promotional content)</label>
                                   <label className="flex items-center gap-2"><input type="checkbox" checked={tiktokBrandedContent} disabled={tiktokPrivacy === 'SELF_ONLY'} onChange={(event) => setTikTokBrandedContent(event.target.checked)} />Branded content (Paid partnership)</label>
                                   {tiktokPrivacy === 'SELF_ONLY' && <p>Branded content cannot use “Only me” visibility.</p>}
                                 </div>
                               )}
-                              <label className="flex items-start gap-2 border-t border-amber-200 pt-3"><input type="checkbox" checked={tiktokConsent} onChange={(event) => setTikTokConsent(event.target.checked)} />By scheduling this Direct Post, you agree to TikTok&apos;s {tiktokBrandedContent ? 'Branded Content Policy and ' : ''}Music Usage Confirmation and consent to the video being sent at the scheduled time.</label>
+                              {(!tiktokCreator.comment_disabled || !tiktokCreator.duet_disabled || !tiktokCreator.stitch_disabled) && (
+                                <details className="rounded-xl border border-brand-100 px-3 py-2 dark:border-slate-700">
+                                  <summary className="cursor-pointer font-semibold text-brand-700 dark:text-brand-300">{language === 'km' ? 'ជម្រើសបន្ថែម' : 'More options'}</summary>
+                                  <div className="space-y-3 pb-1 pt-3">
+                                    {([
+                                      ['Allow comments', tiktokAllowComment, setTikTokAllowComment, tiktokCreator.comment_disabled],
+                                      ['Allow Duet', tiktokAllowDuet, setTikTokAllowDuet, tiktokCreator.duet_disabled],
+                                      ['Allow Stitch', tiktokAllowStitch, setTikTokAllowStitch, tiktokCreator.stitch_disabled],
+                                    ] as const).filter(([, , , disabled]) => !disabled).map(([label, checked, setter]) => (
+                                      <label key={label} className="flex items-center gap-3"><input type="checkbox" checked={checked} onChange={(event) => setter(event.target.checked)} />{label}</label>
+                                    ))}
+                                  </div>
+                                </details>
+                              )}
+                              <label className="flex items-start gap-3 border-t border-brand-100 pt-4 leading-relaxed dark:border-slate-700"><input className="mt-0.5" type="checkbox" checked={tiktokConsent} onChange={(event) => setTikTokConsent(event.target.checked)} />By scheduling this Direct Post, you agree to TikTok&apos;s {tiktokBrandedContent ? 'Branded Content Policy and ' : ''}Music Usage Confirmation and consent to the video being sent at the scheduled time.</label>
                             </>
                           )}
                         </div>
