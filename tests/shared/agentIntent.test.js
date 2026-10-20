@@ -1,5 +1,13 @@
 import { expect, it } from 'vitest';
-import { isContentPlanCreationRequest, isStandaloneAudioRequest, isVideoCreationFromPlanRequest, shouldClassifyCreativeMedia } from '../../shared/agentIntent.js';
+import { isContentPlanCreationRequest, isStandaloneAudioRequest, isTextContentCreationRequest, isVideoCreationFromPlanRequest, shouldClassifyCreativeMedia } from '../../shared/agentIntent.js';
+
+it('routes spoken text content creation to a visible agent response', () => {
+  expect(isTextContentCreationRequest('បង្កើត content សម្រាប់ហាងកាហ្វេ')).toBe(true);
+  expect(isTextContentCreationRequest('Write a Facebook caption for my shop')).toBe(true);
+  expect(isTextContentCreationRequest('Create a content plan for next week')).toBe(false);
+  expect(isTextContentCreationRequest('Create a video of coffee')).toBe(false);
+  expect(isTextContentCreationRequest('How do I create content?')).toBe(false);
+});
 
 it('routes direct content plan requests while leaving advice questions in chat', () => {
   expect(isContentPlanCreationRequest('សូមបង្កើត content plan 7 ថ្ងៃសម្រាប់ហាងកាហ្វេ')).toBe(true);

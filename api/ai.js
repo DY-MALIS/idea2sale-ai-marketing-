@@ -56,6 +56,7 @@ const agentContentPlanText = (body, limit = 14) => (Array.isArray(body?.contentP
 // Live Voice call setup have separate budgets suited to their usage patterns.
 const AI_RATE_LIMIT_PER_HOUR = Number(process.env.AI_RATE_LIMIT_PER_HOUR) || 60;
 const AI_LIVE_VOICE_RATE_LIMIT_PER_HOUR = Number(process.env.AI_LIVE_VOICE_RATE_LIMIT_PER_HOUR) || 30;
+const AI_LIVE_COMMAND_RATE_LIMIT_PER_HOUR = Number(process.env.AI_LIVE_COMMAND_RATE_LIMIT_PER_HOUR) || 60;
 const VIDEO_GENERATION_RATE_LIMIT_PER_HOUR = Number(process.env.VIDEO_GENERATION_RATE_LIMIT_PER_HOUR) || 3;
 const VIDEO_GENERATION_IP_RATE_LIMIT_PER_HOUR = Number(process.env.VIDEO_GENERATION_IP_RATE_LIMIT_PER_HOUR) || 6;
 const VIDEO_STATUS_RATE_LIMIT_PER_HOUR = Number(process.env.VIDEO_STATUS_RATE_LIMIT_PER_HOUR) || 300;
@@ -84,7 +85,7 @@ export const resolveAgentReplyLanguage = (message, detectedLanguage = '') => {
   return detectedLanguage === 'mixed' ? 'Mixed Khmer and English' : detectedLanguage === 'km' ? 'Khmer' : 'English';
 };
 
-export const getAiRateLimitPolicy = (action) => {
+export const getAiRateLimitPolicy = (action, { liveVoice = false } = {}) => {
   if (action === 'videoGenerate') {
     return {
       scope: 'video-generate',
@@ -103,13 +104,17 @@ export const getAiRateLimitPolicy = (action) => {
   if (action === 'uploadProductImage') {
     return { scope: 'product-image-upload', limit: 40, failClosed: false };
   }
-  // One token opens an entire bidirectional audio call. Starting a call must
-  // not spend the same quota used by typed chat and other AI tools.
-  // voiceAutomationCheck fires automatically per spoken turn while a Live
-  // Voice call is open, so it shares that call's own budget rather than
-  // typed chat's -- a long call will fire this many times.
-  if (action === 'geminiLiveToken' || action === 'voiceAutomationCheck') {
+  // Opening a call, handling an explicit creative command, and the recorded
+  // fallback each need their own allowance. A normal conversation must not
+  // consume the budget needed to start video generation later in the call.
+  if (action === 'geminiLiveToken') {
     return { scope: 'ai-live-voice', limit: AI_LIVE_VOICE_RATE_LIMIT_PER_HOUR, failClosed: false };
+  }
+  if (action === 'voiceAutomationCheck') {
+    return { scope: 'ai-live-commands', limit: AI_LIVE_COMMAND_RATE_LIMIT_PER_HOUR, failClosed: false };
+  }
+  if (action === 'socialAgent' && liveVoice) {
+    return { scope: 'ai-voice-fallback', limit: AI_RATE_LIMIT_PER_HOUR, failClosed: false };
   }
   if (action === 'liveWebsiteRead') {
     return { scope: 'ai-live-website', limit: 80, failClosed: false };
@@ -1121,7 +1126,7 @@ export default async function handler(req, res) {
   // Video submission has a small, fail-closed per-user budget because it starts
   // paid work. Polling has a separate larger budget, so an ordinary multi-minute
   // job never consumes the general AI allowance or blocks itself at 60 checks.
-  const rateLimitPolicy = getAiRateLimitPolicy(action);
+  const rateLimitPolicy = getAiRateLimitPolicy(action, { liveVoice: req.body?.liveVoice === true });
   try {
     const db = initFirebaseAdmin();
     const checks = [{
@@ -1140,7 +1145,7 @@ export default async function handler(req, res) {
         res.setHeader('Retry-After', String(retryAfterSeconds));
         return res.status(429).json({ error: action === 'videoGenerate'
           ? 'Video generation limit reached for this account or connection. Please try again later.'
-          : action === 'geminiLiveToken'
+          : action === 'geminiLiveToken' || action === 'voiceAutomationCheck' || (action === 'socialAgent' && req.body?.liveVoice === true)
             ? 'Live Voice limit reached for this connection. Please try again later.'
             : 'Too many AI requests from this connection. Please wait a bit and try again.', retryAfterSeconds });
       }

@@ -64,9 +64,12 @@ describe('video rate-limit policy', () => {
     expect(getAiRateLimitPolicy('videoRecover')).toMatchObject({ scope: 'video-status', failClosed: false });
     expect(getAiRateLimitPolicy('geminiLiveToken')).toMatchObject({ scope: 'ai-live-voice', failClosed: false });
     expect(getAiRateLimitPolicy('geminiLiveToken').limit).toBeGreaterThan(10);
-    // Fires once per spoken turn during a call, so it shares the call's own
-    // budget instead of typed chat's shared quota.
-    expect(getAiRateLimitPolicy('voiceAutomationCheck')).toMatchObject({ scope: 'ai-live-voice', failClosed: false });
+    // Explicit media commands and recorded fallback replies stay available
+    // after ordinary Live Voice call setup or typed chat reaches its quota.
+    expect(getAiRateLimitPolicy('voiceAutomationCheck')).toMatchObject({ scope: 'ai-live-commands', failClosed: false });
+    expect(getAiRateLimitPolicy('voiceAutomationCheck').limit).toBeGreaterThan(30);
+    expect(getAiRateLimitPolicy('socialAgent', { liveVoice: true })).toMatchObject({ scope: 'ai-voice-fallback', failClosed: false });
+    expect(getAiRateLimitPolicy('socialAgent')).toMatchObject({ scope: 'ai' });
     expect(getAiRateLimitPolicy('copyGenerate')).toMatchObject({ scope: 'ai' });
     expect(getAiRateLimitPolicy('videoStatus').limit).toBeGreaterThan(80);
     expect(getAiRateLimitPolicy('uploadProductImage')).toMatchObject({ scope: 'product-image-upload', failClosed: false });

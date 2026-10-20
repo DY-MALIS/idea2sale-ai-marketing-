@@ -18,7 +18,7 @@ import { downloadAgentDocument, isAgentDocumentCommand, type AgentDocument } fro
 import { AgentDocumentCard, AgentDocumentDialog } from './AgentDocumentCard';
 import { isContentPlanEditFollowup, isContentPlanEditPronounFollowup, isContentPlanEditRequest } from '../../shared/contentPlanEditIntent.js';
 import { shouldCompleteVoiceAutomation } from '../../shared/voiceAutomationSession.js';
-import { isContentPlanCreationRequest, shouldClassifyCreativeMedia } from '../../shared/agentIntent.js';
+import { isContentPlanCreationRequest, isTextContentCreationRequest, shouldClassifyCreativeMedia } from '../../shared/agentIntent.js';
 import { compareKhmerTranscript } from '../../shared/videoSpeech.js';
 
 const DEMO_AGENT_CONVERSATION_STORAGE_KEY = 'demo_agent_conversation';
@@ -327,13 +327,20 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     const documentCommand = isAgentDocumentCommand(transcript);
     const planEditCommand = !documentCommand && isPlanEditMessage(transcript);
     const agentPlanCommand = !documentCommand && isAgentPlanMessage(transcript);
+    const textContentCommand = !documentCommand && !agentPlanCommand && !planEditCommand && isTextContentCreationRequest(transcript);
     const mediaCommand = shouldClassifyCreativeMedia(transcript, messagesRef.current
       .slice(-4).map((item) => `${item.role === 'assistant' ? 'Assistant' : 'User'}: ${item.content}`).join('\n'));
-    const handledCommand = planEditCommand || agentPlanCommand || documentCommand || mediaCommand;
+    const handledCommand = planEditCommand || agentPlanCommand || documentCommand || textContentCommand || mediaCommand;
     if (session !== voiceSessionRef.current || !voiceActiveRef.current) return handledCommand;
+    // Ordinary conversation is already handled by Gemini Live. Classifying
+    // every spoken turn burns the command quota before the user asks to create
+    // a video and makes a normal call fail with a rate-limit toast.
+    if (!handledCommand) return false;
     if (handledCommand) {
       setVoiceProcessing(true);
-      setVoiceCaption(planEditCommand
+      setVoiceCaption(textContentCommand
+        ? (language === 'km' ? 'កំពុងសរសេរ content...' : 'Creating your content...')
+        : planEditCommand
         ? (language === 'km' ? 'កំពុងកែ Content Plan...' : 'Updating Content Plan...')
         : agentPlanCommand
           ? (language === 'km' ? 'កំពុងបង្កើត Content Plan ជា Excel...' : 'Creating your Excel content plan...')
@@ -343,7 +350,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     }
     void (async () => {
       try {
-        if (agentPlanCommand) {
+        if (agentPlanCommand || textContentCommand) {
           const answer = await askAgent(transcript, true);
           if (answer && session === voiceSessionRef.current && voiceActiveRef.current) setVoiceCaption(answer);
           return;
@@ -374,7 +381,11 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
           if ((documentCommand || mediaCommand) && session === voiceSessionRef.current) {
-            const error = String(data.error || (language === 'km' ? 'មិនអាចចាប់ផ្ដើមការបង្កើតបានទេ។' : 'Could not start generation.'));
+            const retryMinutes = response.status === 429 && Number(data.retryAfterSeconds) > 0
+              ? Math.ceil(Number(data.retryAfterSeconds) / 60) : 0;
+            const error = retryMinutes
+              ? (language === 'km' ? `សំណើ Live Voice ច្រើនពេក។ សូមសាកល្បងម្ដងទៀតក្នុងប្រហែល ${retryMinutes} នាទី។` : `Live Voice request limit reached. Try again in about ${retryMinutes} minutes.`)
+              : String(data.error || (language === 'km' ? 'មិនអាចចាប់ផ្ដើមការបង្កើតបានទេ។' : 'Could not start generation.'));
             setVoiceCaption(error);
             notify(error, 'error');
           }
@@ -525,6 +536,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         },
         onUserTurnText: (text) => handleLiveUserTurn(session, text),
         onUserTranscription: (text) => isAgentDocumentCommand(text) || isAgentPlanMessage(text) || isPlanEditMessage(text)
+          || isTextContentCreationRequest(text)
           || shouldClassifyCreativeMedia(text, messagesRef.current
             .slice(-4).map((item) => `${item.role === 'assistant' ? 'Assistant' : 'User'}: ${item.content}`).join('\n')),
         // Every drop to the slow fallback path previously left no trace of
