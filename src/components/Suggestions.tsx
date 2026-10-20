@@ -5,6 +5,8 @@ import { geminiService, PostingSuggestion, ActivityData } from '../lib/geminiSer
 import { db, auth } from '../lib/firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useAuth } from '../contexts/AuthContext';
+import { getLatestBusinessBranding } from '../lib/businessBranding';
 
 interface SuggestionsProps {
   activityVersion: number;
@@ -13,6 +15,7 @@ interface SuggestionsProps {
 
 const Suggestions: React.FC<SuggestionsProps> = ({ activityVersion, onScheduleSuggestion }) => {
   const { t, language } = useLanguage();
+  const { user, isDemoMode } = useAuth();
   const [suggestions, setSuggestions] = useState<PostingSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
   const [addingPost, setAddingPost] = useState<string | null>(null);
@@ -67,7 +70,8 @@ const Suggestions: React.FC<SuggestionsProps> = ({ activityVersion, onScheduleSu
       scheduledDate.setHours(suggestion.hour, 0, 0, 0);
 
       // Generate AI Content Draft
-      const aiContentDraft = await geminiService.generateContentDraft("TIKTOK", suggestion.reason, language);
+      const businessContext = await getLatestBusinessBranding(user, isDemoMode);
+      const aiContentDraft = await geminiService.generateContentDraft('TIKTOK', suggestion.reason, language, businessContext);
       // Open the same Direct Post review used by manual schedules. Creating a
       // draft here would require a second publish action inside TikTok.
       onScheduleSuggestion(videoFile, aiContentDraft, scheduledDate);

@@ -17,6 +17,7 @@ import { requireTikTokAutomationConnection, requireYouTubeAutomationConnection }
 import { useAuth } from '../contexts/AuthContext';
 import { ScheduleHandoffRequest } from '../types';
 import { recordAuditEvent } from '../lib/auditClient';
+import { getLatestBusinessBranding } from '../lib/businessBranding';
 
 type Platform = 'TIKTOK' | 'YOUTUBE' | 'INSTAGRAM' | 'TWITTER' | 'TELEGRAM' | 'FACEBOOK';
 type TikTokCreator = {
@@ -247,6 +248,25 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   const [facebookConnectionLoading, setFacebookConnectionLoading] = useState(false);
   const [facebookConnectionError, setFacebookConnectionError] = useState('');
   const [telegramDestination, setTelegramDestination] = useState<{ ready: boolean; label: string } | null>(null);
+  const [profileTikTokHandle, setProfileTikTokHandle] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    let requestId = 0;
+    const loadProfileHandle = () => {
+      const currentRequest = ++requestId;
+      void getLatestBusinessBranding(user, isDemoMode).then((branding) => {
+        if (!cancelled && currentRequest === requestId) setProfileTikTokHandle(branding.tiktokHandle.replace(/^@/, '').toLowerCase());
+      });
+    };
+    setProfileTikTokHandle('');
+    loadProfileHandle();
+    window.addEventListener('business-profile-updated', loadProfileHandle);
+    return () => { cancelled = true; window.removeEventListener('business-profile-updated', loadProfileHandle); };
+  }, [user?.uid, isDemoMode]);
+
+  const tiktokProfileMismatch = Boolean(profileTikTokHandle && tiktokCreator?.creator_username
+    && profileTikTokHandle !== tiktokCreator.creator_username.replace(/^@/, '').toLowerCase());
 
   useEffect(() => {
     if (!user || !isModalOpen || !platforms.includes('TELEGRAM')) return;
@@ -714,6 +734,12 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
       };
       if (!tiktokCreator) {
         showTikTokError('connection', language === 'km' ? 'សូមភ្ជាប់គណនី TikTok និងរង់ចាំការកំណត់គណនីបង្ហាញសិន។' : 'Connect TikTok and wait for your posting settings to load.');
+        return;
+      }
+      if (tiktokProfileMismatch) {
+        showTikTokError('connection', language === 'km'
+          ? `Business Profile កំណត់ TikTok @${profileTikTokHandle} ប៉ុន្តែគណនីភ្ជាប់គឺ @${tiktokCreator.creator_username}។ សូមភ្ជាប់គណនី TikTok ឱ្យត្រូវ មុនកំណត់ផ្សាយ។`
+          : `Business Profile says TikTok @${profileTikTokHandle}, but @${tiktokCreator.creator_username} is connected. Connect the matching TikTok account before scheduling.`);
         return;
       }
       if (!validPrivacy) {
@@ -1260,6 +1286,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                           {tiktokCreator && (
                             <>
                               <p className="font-semibold text-slate-800 dark:text-slate-100">{language === 'km' ? 'គណនី៖ ' : 'Posting to '}{tiktokCreator.creator_nickname || tiktokCreator.creator_username || 'your TikTok account'}</p>
+                              {tiktokProfileMismatch && <p role="alert" className="rounded-xl bg-red-50 p-3 font-semibold text-red-700 dark:bg-red-950 dark:text-red-300">{language === 'km' ? `Business Profile៖ @${profileTikTokHandle} · គណនីភ្ជាប់៖ @${tiktokCreator.creator_username}។ សូមភ្ជាប់គណនីឱ្យត្រូវ។` : `Business Profile: @${profileTikTokHandle} · Connected: @${tiktokCreator.creator_username}. Connect the matching account before scheduling.`}</p>}
                               <div className="flex flex-wrap gap-2" aria-label={language === 'km' ? 'តម្រូវការមុនកំណត់ពេល' : 'Before scheduling'}>
                                 <span className={`rounded-full px-2.5 py-1 font-semibold ${tiktokCreator.privacy_level_options?.includes(tiktokPrivacy) ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-300'}`}>
                                   {language === 'km' ? 'អ្នកមើល៖ ' : 'Visibility: '}{tiktokCreator.privacy_level_options?.includes(tiktokPrivacy) ? (language === 'km' ? 'បានជ្រើស' : 'Selected') : (language === 'km' ? 'ត្រូវជ្រើស' : 'Required')}

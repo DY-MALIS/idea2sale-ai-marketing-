@@ -2714,8 +2714,9 @@ Return ONLY a single valid JSON object with this exact structure:
     if (action === 'schedulerDraft') {
       const platform = String(req.body?.platform || 'TikTok');
       const reason = String(req.body?.reason || '');
+      const businessContext = businessContextFromBody(req.body);
       const text = await generateOpenRouterText({
-        system: CAMBODIA_MARKET_CONTEXT,
+        system: `${CAMBODIA_MARKET_CONTEXT}${businessContentInstruction(businessContext, { requireName: true })}`,
         prompt: `Generate a short, viral-ready social media post for ${platform}. Reason/context: "${reason}". Write entirely in ${language}. Include relevant hashtags. Return only the post copy.`,
       });
       return res.status(200).json({ text });

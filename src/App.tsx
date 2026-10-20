@@ -25,6 +25,9 @@ import { CreativeAutomationRequest, ScheduleHandoffRequest, TabType } from './ty
 import { useLanguage } from './contexts/LanguageContext';
 import { useAuth } from './contexts/AuthContext';
 import { useTheme } from './contexts/ThemeContext';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from './lib/firebase';
+import { getLatestBusinessBranding, type BusinessBranding } from './lib/businessBranding';
 
 export default function App() {
   const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
@@ -45,9 +48,28 @@ export default function App() {
   const [showBusinessProfile, setShowBusinessProfile] = useState(false);
   const [creativeAutomation, setCreativeAutomation] = useState<{ owner: string; request: CreativeAutomationRequest } | null>(null);
   const [scheduleHandoff, setScheduleHandoff] = useState<{ owner: string; request: ScheduleHandoffRequest } | null>(null);
+  const [activeBusiness, setActiveBusiness] = useState<BusinessBranding | null>(null);
 
   const { language, setLanguage, t } = useLanguage();
   const { theme, toggleTheme } = useTheme();
+
+  useEffect(() => {
+    let cancelled = false;
+    let requestId = 0;
+    setActiveBusiness(null);
+    const refreshBusiness = () => {
+      const currentRequest = ++requestId;
+      void getLatestBusinessBranding(user, isDemoMode).then((profile) => {
+        if (!cancelled && currentRequest === requestId) setActiveBusiness(profile);
+      });
+    };
+    if (user || isDemoMode) refreshBusiness();
+    window.addEventListener('business-profile-updated', refreshBusiness);
+    const unsubscribe = user && !isDemoMode
+      ? onSnapshot(doc(db, 'business_profiles', user.uid), refreshBusiness)
+      : null;
+    return () => { cancelled = true; window.removeEventListener('business-profile-updated', refreshBusiness); unsubscribe?.(); };
+  }, [user?.uid, isDemoMode]);
 
   useEffect(() => {
     if (activeTab !== 'poster-gen' && activeTab !== 'video-voice') return;
@@ -296,6 +318,14 @@ export default function App() {
           
           <main className="min-w-0 flex-1 px-4 pb-6 pt-20 sm:px-6 lg:ml-72 lg:p-8">
             <div className="max-w-7xl mx-auto">
+              <div className="mb-5 flex items-center gap-3 rounded-2xl border border-brand-100 bg-white/80 px-4 py-3 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-800/80">
+                <img src={activeBusiness?.logoDataUrl || '/favicon.svg'} alt="" className="h-9 w-9 rounded-lg object-cover" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">{language === 'km' ? 'ប្រវត្តិរូបអាជីវកម្មកំពុងប្រើ' : 'Active business profile'}</p>
+                  <p className="truncate font-semibold text-brand-700 dark:text-brand-300">{activeBusiness?.businessName || (language === 'km' ? 'មិនទាន់កំណត់ឈ្មោះអាជីវកម្ម' : 'No business name saved')}</p>
+                </div>
+                <button type="button" onClick={() => setShowBusinessProfile(true)} className="rounded-xl px-3 py-2 font-semibold text-brand-700 hover:bg-brand-50 dark:text-brand-300 dark:hover:bg-slate-700">{language === 'km' ? 'កែប្រែ' : 'Edit'}</button>
+              </div>
               <Suspense fallback={<div className="min-h-64 animate-pulse rounded-xl bg-white/60 dark:bg-slate-800/60" aria-label="Loading section" />}>
               <AnimatePresence mode="wait">
                 <motion.div

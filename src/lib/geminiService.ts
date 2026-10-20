@@ -1,3 +1,5 @@
+import type { BusinessBranding } from './businessBranding';
+
 export interface ActivityData {
   dayOfWeek: string;
   hour: number;
@@ -72,9 +74,9 @@ export const geminiService = {
     }
   },
 
-  generateContentDraft: async (platform: string, reason: string, language: string = 'en'): Promise<string> => {
+  generateContentDraft: async (platform: string, reason: string, language: string = 'en', businessContext?: BusinessBranding): Promise<string> => {
     try {
-      const response = await fetchAiWithTimeout({ action: 'schedulerDraft', platform, reason, language });
+      const response = await fetchAiWithTimeout({ action: 'schedulerDraft', platform, reason, language, businessContext });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to generate draft');
       return String(data.text || '').trim();
