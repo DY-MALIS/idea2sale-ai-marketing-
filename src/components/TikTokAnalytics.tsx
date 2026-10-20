@@ -15,7 +15,7 @@ import {
   BadgeCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { collection, query, where, limit, onSnapshot, Timestamp, doc, getDoc } from 'firebase/firestore';
+import { collection, query, where, limit, onSnapshot, Timestamp, doc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { cn } from '../lib/utils';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -175,13 +175,25 @@ const TikTokAnalytics: React.FC = () => {
 
   useEffect(() => {
     accountRequestIdRef.current += 1;
-    let cancelled = false;
     setHandle('');
     const savedHandle = localStorage.getItem(cacheKey('tiktok_handle')) || '';
+    let currentHandle = savedHandle;
+    let unsubscribe: (() => void) | null = null;
+    const updateProfileHandle = (profileHandle: string) => {
+      const nextHandle = profileHandle.trim();
+      if (currentHandle !== nextHandle) {
+        accountRequestIdRef.current += 1;
+        localStorage.removeItem(cacheKey('tiktok_stats'));
+        setPublicStats(null);
+        setLastUpdated(null);
+      }
+      currentHandle = nextHandle;
+      setHandle(nextHandle);
+    };
     if (user && !isDemoMode) {
-      getDoc(doc(db, 'business_profiles', user.uid)).then((snapshot) => {
-        if (!cancelled) setHandle(String(snapshot.data()?.tiktokHandle || savedHandle));
-      }).catch(() => { if (!cancelled) setHandle(savedHandle); });
+      unsubscribe = onSnapshot(doc(db, 'business_profiles', user.uid), (snapshot) => {
+        updateProfileHandle(snapshot.exists() ? String(snapshot.data()?.tiktokHandle || '') : savedHandle);
+      }, () => updateProfileHandle(savedHandle));
     } else {
       setHandle(savedHandle);
     }
@@ -193,7 +205,7 @@ const TikTokAnalytics: React.FC = () => {
     setStatsError(null);
     setStatsErrorCode(null);
     setLastUpdated(null);
-    return () => { cancelled = true; };
+    return () => unsubscribe?.();
   }, [user?.uid, isDemoMode]);
 
   const connectTikTok = async () => {

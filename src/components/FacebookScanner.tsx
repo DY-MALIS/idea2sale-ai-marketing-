@@ -317,13 +317,19 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
 
   useEffect(() => {
     let cancelled = false;
-    void getLatestBusinessBranding(user, isDemoMode).then((branding) => {
-      if (cancelled) return;
-      setBusinessName(branding.businessName);
-      setTelegramBotUsername(branding.telegramBotUsername);
-      setTelegramBotActive(branding.telegramBotActive);
-    });
-    return () => { cancelled = true; };
+    let requestId = 0;
+    const loadProfile = () => {
+      const currentRequest = ++requestId;
+      void getLatestBusinessBranding(user, isDemoMode).then((branding) => {
+        if (cancelled || currentRequest !== requestId) return;
+        setBusinessName(branding.businessName);
+        setTelegramBotUsername(branding.telegramBotUsername);
+        setTelegramBotActive(branding.telegramBotActive);
+      });
+    };
+    loadProfile();
+    window.addEventListener('business-profile-updated', loadProfile);
+    return () => { cancelled = true; window.removeEventListener('business-profile-updated', loadProfile); };
   }, [user, isDemoMode]);
 
   // A source-by-source report can be long. Keep each new/restored scan compact

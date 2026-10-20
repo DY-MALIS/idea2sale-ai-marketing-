@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { 
   Sparkles, 
   Copy, 
@@ -24,9 +24,21 @@ const Copywriter: React.FC = () => {
     const [loading, setLoading] = useState(false);
     const [result, setResult] = useState<string | null>(() => localStorage.getItem(storageKey('copy_result')));
     const [needsApiKey, setNeedsApiKey] = useState(false);
+    const profileVersionRef = useRef(0);
+
+    useEffect(() => {
+      const clearOldResult = () => {
+        profileVersionRef.current += 1;
+        setResult(null);
+        setLoading(false);
+      };
+      window.addEventListener('business-profile-updated', clearOldResult);
+      return () => window.removeEventListener('business-profile-updated', clearOldResult);
+    }, []);
   
     const handleGenerateCopy = async () => {
       if (!copyPrompt) return;
+      const profileVersion = profileVersionRef.current;
       setLoading(true);
       setResult(null);
       setNeedsApiKey(false);
@@ -50,6 +62,7 @@ const Copywriter: React.FC = () => {
         window.clearTimeout(timeoutId);
       }
       const data = await response.json();
+      if (profileVersion !== profileVersionRef.current) return;
       if (!response.ok) throw new Error(data.error || 'Error generating content.');
       
       const text = data.text || t('noResponseGenerated');
@@ -58,13 +71,14 @@ const Copywriter: React.FC = () => {
       localStorage.setItem(storageKey('copy_prompt'), copyPrompt);
       localStorage.setItem(storageKey('copy_content_type'), contentType);
     } catch (error: any) {
+      if (profileVersion !== profileVersionRef.current) return;
       console.error(error);
       if (/api key|OPEN_ROUTER_API_KEY|invalid|expired/i.test(error.message || '')) {
         setNeedsApiKey(true);
       }
       setResult(error.message || t('errorGeneratingContent'));
     } finally {
-      setLoading(false);
+      if (profileVersion === profileVersionRef.current) setLoading(false);
     }
   };
 

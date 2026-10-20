@@ -61,6 +61,22 @@ const AdsManager: React.FC = () => {
     setTargetQuery('');
   }, [user?.uid, isDemoMode]);
 
+  useEffect(() => {
+    const clearOldProfileResults = () => {
+      accountRequestIdRef.current += 1;
+      analysisRequestIdRef.current += 1;
+      setStrategy(null);
+      setAdCreative(null);
+      setScalingAdvice(null);
+      setImageAnalysis(null);
+      setIsGenerating(false);
+      setIsCreatingAd(false);
+      setIsGettingScalingAdvice(false);
+    };
+    window.addEventListener('business-profile-updated', clearOldProfileResults);
+    return () => window.removeEventListener('business-profile-updated', clearOldProfileResults);
+  }, []);
+
   const handleGetScalingAdvice = async () => {
     if (!strategy) return;
     const requestId = accountRequestIdRef.current;

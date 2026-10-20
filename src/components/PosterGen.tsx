@@ -332,12 +332,17 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
   // it follows.
   React.useEffect(() => {
     let cancelled = false;
-    void getLatestBusinessBranding(user, isDemoMode).then((branding) => {
-      if (!cancelled && branding.businessName) {
+    let requestId = 0;
+    const loadBrand = () => {
+      const currentRequest = ++requestId;
+      void getLatestBusinessBranding(user, isDemoMode).then((branding) => {
+        if (cancelled || currentRequest !== requestId) return;
         setPosterDetails((current) => ({ ...current, brand: branding.businessName }));
-      }
-    });
-    return () => { cancelled = true; };
+      });
+    };
+    loadBrand();
+    window.addEventListener('business-profile-updated', loadBrand);
+    return () => { cancelled = true; window.removeEventListener('business-profile-updated', loadBrand); };
   }, [user, isDemoMode]);
 
   React.useEffect(() => {

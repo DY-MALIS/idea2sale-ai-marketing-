@@ -22,6 +22,20 @@ export interface BusinessBranding {
 
 const emptyBranding = (): BusinessBranding => ({ businessName: '', businessDescription: '', businessKnowledgeBase: '', businessDocumentKnowledge: '', logoDataUrl: '', directory: [], productImages: [], telegramBotUsername: '', telegramBotActive: false, telegramChannelUrl: '', tiktokHandle: '', facebookPageUrl: '', websiteUrl: '', linkedinUrl: '' });
 
+// AI drafts cached in this browser belong to the profile that created them.
+// Keep the user's prompts, but clear generated output after a profile edit so
+// another business's copy or strategy is not presented as the new profile's.
+export function notifyBusinessProfileUpdated(ownerId: string): void {
+  try {
+    for (const name of ['copy_result', 'research_analysis', 'ads_strategy', 'ads_creative', 'ads_scaling_advice']) {
+      localStorage.removeItem(`${name}_${ownerId}`);
+    }
+  } catch {
+    // The in-memory views still refresh when browser storage is unavailable.
+  }
+  window.dispatchEvent(new Event('business-profile-updated'));
+}
+
 // Read at the moment an asset/script is generated. The main tabs stay mounted
 // while Business Profile is edited, so mount-time state otherwise becomes stale.
 export async function getLatestBusinessBranding(user: User | null, isDemoMode: boolean): Promise<BusinessBranding> {

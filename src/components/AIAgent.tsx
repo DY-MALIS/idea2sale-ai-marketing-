@@ -767,27 +767,31 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   // in api/ai.js), so a partial context silently under-used what was saved.
   useEffect(() => {
     let cancelled = false;
+    let requestId = 0;
     // Reset synchronously, before the async load resolves -- this is an SPA
     // where switching accounts or toggling demo mode doesn't reload the page,
     // so without this a message sent in that gap would still be grounded in
     // the previous account's business name, description, and social channels.
     setBusinessContext(null);
-    const loadBusinessContext = () => getLatestBusinessBranding(user, isDemoMode).then((branding) => {
-      if (cancelled) return;
-      setBusinessContext({
-        businessName: branding.businessName,
-        businessDescription: branding.businessDescription,
-        businessKnowledgeBase: branding.businessKnowledgeBase,
-        businessDocumentKnowledge: branding.businessDocumentKnowledge,
-        directory: branding.directory,
-        productImages: branding.productImages,
-        tiktokHandle: branding.tiktokHandle,
-        facebookPageUrl: branding.facebookPageUrl,
-        websiteUrl: branding.websiteUrl,
-        linkedinUrl: branding.linkedinUrl,
-        telegramChannelUrl: branding.telegramChannelUrl,
+    const loadBusinessContext = () => {
+      const currentRequest = ++requestId;
+      return getLatestBusinessBranding(user, isDemoMode).then((branding) => {
+        if (cancelled || currentRequest !== requestId) return;
+        setBusinessContext({
+          businessName: branding.businessName,
+          businessDescription: branding.businessDescription,
+          businessKnowledgeBase: branding.businessKnowledgeBase,
+          businessDocumentKnowledge: branding.businessDocumentKnowledge,
+          directory: branding.directory,
+          productImages: branding.productImages,
+          tiktokHandle: branding.tiktokHandle,
+          facebookPageUrl: branding.facebookPageUrl,
+          websiteUrl: branding.websiteUrl,
+          linkedinUrl: branding.linkedinUrl,
+          telegramChannelUrl: branding.telegramChannelUrl,
+        });
       });
-    });
+    };
     void loadBusinessContext();
     window.addEventListener('business-profile-updated', loadBusinessContext);
     return () => {

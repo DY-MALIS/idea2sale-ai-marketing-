@@ -23,6 +23,8 @@ import { cn } from '../lib/utils';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { getLatestBusinessBranding, type BusinessBranding } from '../lib/businessBranding';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 
 interface SidebarProps {
   activeTab: TabType;
@@ -47,13 +49,20 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   useEffect(() => {
     let cancelled = false;
+    let requestId = 0;
     setBranding(null);
-    const load = () => getLatestBusinessBranding(user, isDemoMode).then((profile) => {
-      if (!cancelled) setBranding(profile);
-    });
+    const load = () => {
+      const currentRequest = ++requestId;
+      return getLatestBusinessBranding(user, isDemoMode).then((profile) => {
+        if (!cancelled && currentRequest === requestId) setBranding(profile);
+      });
+    };
     void load();
     window.addEventListener('business-profile-updated', load);
-    return () => { cancelled = true; window.removeEventListener('business-profile-updated', load); };
+    const unsubscribe = user && !isDemoMode
+      ? onSnapshot(doc(db, 'business_profiles', user.uid), () => { void load(); })
+      : null;
+    return () => { cancelled = true; window.removeEventListener('business-profile-updated', load); unsubscribe?.(); };
   }, [user?.uid, isDemoMode]);
 
   const handleTabChange = (tab: TabType) => {

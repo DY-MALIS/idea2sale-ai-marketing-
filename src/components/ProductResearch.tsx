@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Search,
   TrendingUp,
@@ -33,10 +33,26 @@ const ProductResearch: React.FC = () => {
     const [isCheckingSentiment, setIsCheckingSentiment] = useState(false);
     const [sentimentReport, setSentimentReport] = useState<string | null>(null);
     const [sentimentError, setSentimentError] = useState<string | null>(null);
+    const profileVersionRef = useRef(0);
+
+    useEffect(() => {
+      const clearOldResults = () => {
+        profileVersionRef.current += 1;
+        setAnalysis(null);
+        setCompetitorReport(null);
+        setSentimentReport(null);
+        setIsSearching(false);
+        setIsTrackingCompetitor(false);
+        setIsCheckingSentiment(false);
+      };
+      window.addEventListener('business-profile-updated', clearOldResults);
+      return () => window.removeEventListener('business-profile-updated', clearOldResults);
+    }, []);
 
     const handleSearch = async () => {
       const query = queryInput.trim();
       if (!query) return;
+      const profileVersion = profileVersionRef.current;
       setIsSearching(true);
       setAnalysis(null);
       setResearchError(null);
@@ -49,6 +65,7 @@ const ProductResearch: React.FC = () => {
       });
 
       const data = await response.json();
+      if (profileVersion !== profileVersionRef.current) return;
       if (!response.ok) {
         throw new Error(data?.error || t('errorPerformingResearch'));
       }
@@ -58,6 +75,7 @@ const ProductResearch: React.FC = () => {
       localStorage.setItem(storageKey('research_analysis'), text);
       localStorage.setItem(storageKey('research_query'), query);
     } catch (error) {
+      if (profileVersion !== profileVersionRef.current) return;
       console.error(error);
       const message = error instanceof Error ? error.message : t('errorPerformingResearch');
       // A dedicated error state (matching competitorError/sentimentError below)
@@ -66,13 +84,14 @@ const ProductResearch: React.FC = () => {
       // a real result, with no red error styling to distinguish it.
       setResearchError(message);
     } finally {
-      setIsSearching(false);
+      if (profileVersion === profileVersionRef.current) setIsSearching(false);
     }
   };
 
   const handleTrackCompetitor = async () => {
     const competitor = competitorInput.trim();
     if (!competitor) return;
+    const profileVersion = profileVersionRef.current;
     setIsTrackingCompetitor(true);
     setCompetitorReport(null);
     setCompetitorError(null);
@@ -84,19 +103,22 @@ const ProductResearch: React.FC = () => {
         body: JSON.stringify({ action: 'competitorTracker', competitor, language, businessContext }),
       });
       const data = await response.json();
+      if (profileVersion !== profileVersionRef.current) return;
       if (!response.ok) throw new Error(data?.error || t('errorPerformingResearch'));
       setCompetitorReport(data.report || t('noDataGenerated'));
     } catch (error) {
+      if (profileVersion !== profileVersionRef.current) return;
       const message = error instanceof Error ? error.message : t('errorPerformingResearch');
       setCompetitorError(message);
     } finally {
-      setIsTrackingCompetitor(false);
+      if (profileVersion === profileVersionRef.current) setIsTrackingCompetitor(false);
     }
   };
 
   const handleCheckSentiment = async () => {
     const brand = brandInput.trim();
     if (!brand) return;
+    const profileVersion = profileVersionRef.current;
     setIsCheckingSentiment(true);
     setSentimentReport(null);
     setSentimentError(null);
@@ -108,13 +130,15 @@ const ProductResearch: React.FC = () => {
         body: JSON.stringify({ action: 'brandSentiment', brand, language, businessContext }),
       });
       const data = await response.json();
+      if (profileVersion !== profileVersionRef.current) return;
       if (!response.ok) throw new Error(data?.error || t('errorPerformingResearch'));
       setSentimentReport(data.report || t('noDataGenerated'));
     } catch (error) {
+      if (profileVersion !== profileVersionRef.current) return;
       const message = error instanceof Error ? error.message : t('errorPerformingResearch');
       setSentimentError(message);
     } finally {
-      setIsCheckingSentiment(false);
+      if (profileVersion === profileVersionRef.current) setIsCheckingSentiment(false);
     }
   };
 

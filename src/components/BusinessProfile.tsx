@@ -9,6 +9,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { BusinessDirectoryEntry, BusinessProductImage, BusinessProfileData } from '../types';
 import { recordAuditEvent } from '../lib/auditClient';
 import { withUploadTimeout } from '../lib/withUploadTimeout';
+import { notifyBusinessProfileUpdated } from '../lib/businessBranding';
 import { channelUsernameFromProfile } from '../../shared/telegramDestination.js';
 
 const DEMO_STORAGE_KEY = 'demo_business_profile';
@@ -364,6 +365,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
       } else {
         await setDoc(doc(db, 'business_profiles', user.uid), persisted, { merge: true });
       }
+      notifyBusinessProfileUpdated(user?.uid || 'demo');
     } catch (err: any) {
       setKnowledgeRefreshError(err.message || 'Could not read the saved links.');
     } finally {
@@ -469,7 +471,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
       }
       setSavedTelegramBotToken(profile.telegramBotToken);
       setSaved(true);
-      window.dispatchEvent(new Event('business-profile-updated'));
+      notifyBusinessProfileUpdated(user?.uid || 'demo');
       setTimeout(() => setSaved(false), 3000);
       // Fire-and-forget: Save Profile itself is already done, so a slow or
       // unreachable link reads this knowledge base in the background rather
