@@ -69,6 +69,9 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   const handledHandoffRef = React.useRef<string | null>(null);
   const videoFileInputRef = React.useRef<HTMLInputElement>(null);
   const telegramFileInputRef = React.useRef<HTMLInputElement>(null);
+  const tiktokSettingsRef = React.useRef<HTMLDivElement>(null);
+  const tiktokPrivacyRef = React.useRef<HTMLSelectElement>(null);
+  const tiktokConsentRef = React.useRef<HTMLInputElement>(null);
 
   // Helper for local datetime string
   const getLocalISOString = (date: Date) => {
@@ -102,6 +105,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   const [tiktokCreatorError, setTikTokCreatorError] = useState('');
   const [tiktokPrivacy, setTikTokPrivacy] = useState('');
   const [tiktokConsent, setTikTokConsent] = useState(false);
+  const [tiktokValidationTarget, setTikTokValidationTarget] = useState<'connection' | 'privacy' | 'video' | 'disclosure' | 'consent' | null>(null);
   const [tiktokAllowComment, setTikTokAllowComment] = useState(false);
   const [tiktokAllowDuet, setTikTokAllowDuet] = useState(false);
   const [tiktokAllowStitch, setTikTokAllowStitch] = useState(false);
@@ -623,6 +627,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     e.preventDefault();
     if (submittingRef.current) return;
     setFormError(null);
+    setTikTokValidationTarget(null);
 
     if (isAttachingHandoffMedia) {
       setFormError('Still attaching the generated media — please wait a moment and try again.');
@@ -655,11 +660,42 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     if (platforms.includes('TIKTOK') && !isDemoMode) {
       const validPrivacy = tiktokCreator?.privacy_level_options?.includes(tiktokPrivacy);
       const maxDuration = Number(tiktokCreator?.max_video_post_duration_sec);
-      if (!validPrivacy || !Number.isFinite(tiktokVideoSeconds) || !tiktokVideoSeconds || tiktokVideoSeconds <= 0 ||
-          (maxDuration > 0 && tiktokVideoSeconds > maxDuration) ||
-          (tiktokCommercial && !tiktokOwnBrand && !tiktokBrandedContent) ||
-          (tiktokBrandedContent && tiktokPrivacy === 'SELF_ONLY') || !tiktokConsent) {
-        setFormError('Choose TikTok visibility, review the video and posting options, then agree to Direct Post before scheduling.');
+      const showTikTokError = (target: NonNullable<typeof tiktokValidationTarget>, message: string) => {
+        setTikTokValidationTarget(target);
+        setFormError(message);
+        requestAnimationFrame(() => {
+          const field = target === 'privacy' ? tiktokPrivacyRef.current
+            : target === 'consent' ? tiktokConsentRef.current : tiktokSettingsRef.current;
+          field?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          field?.focus({ preventScroll: true });
+        });
+      };
+      if (!tiktokCreator) {
+        showTikTokError('connection', language === 'km' ? 'សូមភ្ជាប់គណនី TikTok និងរង់ចាំការកំណត់គណនីបង្ហាញសិន។' : 'Connect TikTok and wait for your posting settings to load.');
+        return;
+      }
+      if (!validPrivacy) {
+        showTikTokError('privacy', language === 'km' ? 'សូមជ្រើសអ្នកដែលអាចមើលវីដេអូក្នុងផ្នែក TikTok ខាងក្រោម។' : 'Choose who can view this video in the TikTok section below.');
+        return;
+      }
+      if (!Number.isFinite(tiktokVideoSeconds) || !tiktokVideoSeconds || tiktokVideoSeconds <= 0) {
+        showTikTokError('video', language === 'km' ? 'មិនទាន់អាចអានរយៈពេលវីដេអូបានទេ។ សូមរង់ចាំ ឬប្តូរឯកសារវីដេអូ។' : 'The video duration is not ready. Wait a moment or replace the video file.');
+        return;
+      }
+      if (maxDuration > 0 && tiktokVideoSeconds > maxDuration) {
+        showTikTokError('video', language === 'km' ? `វីដេអូវែងជាងកម្រិត ${maxDuration} វិនាទីរបស់គណនី TikTok នេះ។` : `This video exceeds this TikTok account's ${maxDuration}-second limit.`);
+        return;
+      }
+      if (tiktokCommercial && !tiktokOwnBrand && !tiktokBrandedContent) {
+        showTikTokError('disclosure', language === 'km' ? 'សូមជ្រើសប្រភេទមាតិកាពាណិជ្ជកម្មក្នុងផ្នែក TikTok។' : 'Choose a commercial content type in the TikTok section.');
+        return;
+      }
+      if (tiktokBrandedContent && tiktokPrivacy === 'SELF_ONLY') {
+        showTikTokError('privacy', language === 'km' ? 'Branded content មិនអាចប្រើ “Only me” បានទេ។' : 'Branded content cannot use “Only me” visibility.');
+        return;
+      }
+      if (!tiktokConsent) {
+        showTikTokError('consent', language === 'km' ? 'សូមធីកប្រអប់យល់ព្រម TikTok Direct Post ខាងក្រោម មុនកំណត់កាលវិភាគ។' : 'Agree to TikTok Direct Post in the TikTok section below before scheduling.');
         return;
       }
     }
@@ -904,6 +940,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     if (submittingRef.current) return;
     setIsModalOpen(false);
     setFormError(null);
+    setTikTokValidationTarget(null);
     pendingGroupIdRef.current = null;
     setCompletedPlatforms([]);
     setIsSubmitting(false);
@@ -1014,7 +1051,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                       : 'Demo Mode saves schedules in this browser only. Sign in to publish to the selected destinations.'}
                   </p>
                 )}
-                {formError && (
+                {formError && !tiktokValidationTarget && (
                   <motion.div
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: 'auto' }}
@@ -1147,13 +1184,16 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                     </div>
                   )}
                   {platforms.includes('TIKTOK') && (
-                    <div className="rounded-2xl border border-brand-100 p-4 dark:border-slate-700">
+                    <div ref={tiktokSettingsRef} tabIndex={-1} className={`rounded-2xl border p-4 outline-none dark:border-slate-700 ${tiktokValidationTarget ? 'border-red-300' : 'border-brand-100'}`}>
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <h4 className="text-sm font-bold text-brand-700 dark:text-brand-300">TikTok</h4>
                         <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
                           {language === 'km' ? 'ផុសស្វ័យប្រវត្តិតាមម៉ោង' : 'Posts at scheduled time'}
                         </span>
                       </div>
+                      {tiktokValidationTarget && formError && tiktokValidationTarget !== 'consent' && (
+                        <p role="alert" className="mt-3 rounded-xl bg-red-50 p-3 text-xs font-semibold text-red-700 dark:bg-red-950 dark:text-red-300">{formError}</p>
+                      )}
                       {!isDemoMode && (
                         <div className="mt-4 space-y-4 text-xs text-slate-700 dark:text-slate-200">
                           {tiktokCreatorLoading && <p role="status">Loading TikTok creator settings…</p>}
@@ -1175,14 +1215,18 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                                   src={tiktokPreviewUrl}
                                   controls
                                   playsInline
+                                  preload="metadata"
                                   className="max-h-52 w-full rounded-xl bg-black"
                                   onLoadedMetadata={(event) => setTikTokVideoSeconds(event.currentTarget.duration)}
+                                  onDurationChange={(event) => {
+                                    if (Number.isFinite(event.currentTarget.duration)) setTikTokVideoSeconds(event.currentTarget.duration);
+                                  }}
                                   aria-label="Preview the video to be posted to TikTok"
                                 />
                               )}
                               <p className="text-slate-500 dark:text-slate-400">Video: {Number.isFinite(tiktokVideoSeconds) && tiktokVideoSeconds ? `${tiktokVideoSeconds.toFixed(1)}s` : 'loading'} · Limit: {tiktokCreator.max_video_post_duration_sec || 'unknown'}s</p>
                               <label htmlFor="scheduled-tiktok-privacy" className="block font-semibold">{language === 'km' ? 'អ្នកណាអាចមើលវីដេអូនេះ?' : 'Who can view this video?'}</label>
-                              <select id="scheduled-tiktok-privacy" value={tiktokPrivacy} onChange={(event) => setTikTokPrivacy(event.target.value)} className="w-full rounded-xl border border-brand-200 bg-white p-3 text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">
+                              <select ref={tiktokPrivacyRef} id="scheduled-tiktok-privacy" value={tiktokPrivacy} onChange={(event) => { setTikTokPrivacy(event.target.value); setTikTokValidationTarget(null); }} aria-invalid={tiktokValidationTarget === 'privacy'} className="w-full rounded-xl border border-brand-200 bg-white p-3 text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">
                                 <option value="">Select visibility</option>
                                 {(tiktokCreator.privacy_level_options || []).map((option) => (
                                   <option key={option} value={option} disabled={option === 'SELF_ONLY' && tiktokBrandedContent}>
@@ -1228,7 +1272,8 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                                   </div>
                                 </details>
                               )}
-                              <label className="flex items-start gap-3 border-t border-brand-100 pt-4 leading-relaxed dark:border-slate-700"><input className="mt-0.5" type="checkbox" checked={tiktokConsent} onChange={(event) => setTikTokConsent(event.target.checked)} />By scheduling this Direct Post, you agree to TikTok&apos;s {tiktokBrandedContent ? 'Branded Content Policy and ' : ''}Music Usage Confirmation and consent to the video being sent at the scheduled time.</label>
+                              <label className="flex items-start gap-3 border-t border-brand-100 pt-4 leading-relaxed dark:border-slate-700"><input ref={tiktokConsentRef} className="mt-0.5" type="checkbox" checked={tiktokConsent} onChange={(event) => { setTikTokConsent(event.target.checked); setTikTokValidationTarget(null); }} aria-invalid={tiktokValidationTarget === 'consent'} />By scheduling this Direct Post, you agree to TikTok&apos;s {tiktokBrandedContent ? 'Branded Content Policy and ' : ''}Music Usage Confirmation and consent to the video being sent at the scheduled time.</label>
+                              {tiktokValidationTarget === 'consent' && formError && <p role="alert" className="rounded-xl bg-red-50 p-3 text-xs font-semibold text-red-700 dark:bg-red-950 dark:text-red-300">{formError}</p>}
                             </>
                           )}
                         </div>
