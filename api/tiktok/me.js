@@ -75,7 +75,12 @@ export default async function handler(req, res) {
       const db = initFirebaseAdmin();
       const owner = await admin.auth().verifyIdToken(idToken, true);
       const token = await getYouTubeAutomationAccessToken(db, owner.uid);
-      return res.status(200).json({ connected: Boolean(token) });
+      const connection = token ? (await db.collection('youtube_automation_tokens').doc(owner.uid).get()).data() : null;
+      return res.status(200).json({
+        connected: Boolean(token),
+        channelId: connection?.channelId || null,
+        channelTitle: connection?.channelTitle || null,
+      });
     } catch (error) {
       console.error('Could not check YouTube automation connection:', error?.message || error);
       return res.status(503).json({ error: 'Could not verify your YouTube connection. Please try again.' });

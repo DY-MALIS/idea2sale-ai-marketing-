@@ -235,6 +235,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   // media attached even though the user sees the generated content on screen.
   const [isAttachingHandoffMedia, setIsAttachingHandoffMedia] = useState(false);
   const [youtubeJustConnected, setYoutubeJustConnected] = useState(false);
+  const [youtubeConnection, setYoutubeConnection] = useState<{ connected: boolean; channelId: string | null; channelTitle: string | null } | null>(null);
   const [isConnectingYouTube, setIsConnectingYouTube] = useState(false);
   const [isConnectingTikTok, setIsConnectingTikTok] = useState(false);
   const [isConnectingFacebook, setIsConnectingFacebook] = useState(false);
@@ -294,6 +295,19 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   }, [user]);
 
   useEffect(() => { setTiktokJustConnected(false); setYoutubeJustConnected(false); }, [user?.uid]);
+
+  useEffect(() => {
+    if (!user || !isModalOpen || !platforms.includes('YOUTUBE')) return;
+    let active = true;
+    user.getIdToken().then((idToken) => fetch('/api/tiktok/me?action=youtubeAutomation', {
+      headers: { Authorization: `Bearer ${idToken}` },
+    })).then(async (response) => {
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Could not check your YouTube channel.');
+      if (active) setYoutubeConnection({ connected: data.connected === true, channelId: data.channelId || null, channelTitle: data.channelTitle || null });
+    }).catch(() => { if (active) setYoutubeConnection(null); });
+    return () => { active = false; };
+  }, [user?.uid, isModalOpen, platforms.includes('YOUTUBE'), youtubeJustConnected]);
 
   const connectYouTube = async () => {
     if (!user) {
@@ -1296,7 +1310,13 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                       <div className="p-3 bg-sky-50 dark:bg-sky-900/20 border border-sky-200 dark:border-sky-800/60 rounded-xl flex items-start justify-between gap-2 text-sky-800 dark:text-sky-300 text-xs">
                         <div className="flex items-start gap-2">
                           <Youtube size={14} className="mt-0.5 shrink-0" />
-                          <p>{youtubeJustConnected ? 'YouTube connected! ' : ''}Uploads automatically to your connected YouTube channel at the scheduled time -- no manual step needed.</p>
+                          <div className="space-y-1">
+                            <p>{youtubeConnection?.connected ? 'Connected YouTube channel' : 'Connect your YouTube channel before scheduling.'}</p>
+                            {youtubeConnection?.channelTitle && <p className="font-bold">{youtubeConnection.channelTitle}</p>}
+                            {youtubeConnection?.channelId && <a className="font-semibold underline" href={`https://www.youtube.com/channel/${encodeURIComponent(youtubeConnection.channelId)}`} target="_blank" rel="noopener noreferrer">View connected channel</a>}
+                            {youtubeConnection?.connected && !youtubeConnection.channelId && <p>Channel name unavailable. Check the Google account in the connection popup before scheduling.</p>}
+                            <p>Uploads automatically at the scheduled time. Check each video's visibility and processing in Content Timeline.</p>
+                          </div>
                         </div>
                         <button
                           type="button"

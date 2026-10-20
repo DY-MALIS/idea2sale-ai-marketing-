@@ -6,7 +6,7 @@ const {
   mockGetCookie, mockRecordTikTokPostSync, mockVerifyIdToken, mockLogAudit, mockScheduleQstash,
   mockInitFirebaseAdmin, mockGetAutomationAccessToken, mockClaimPendingPost, mockFindRecentDuplicate,
   mockNotifyAdmins, mockVerify,
-  mockScheduleYouTube, mockGetYouTubeToken, mockPublishYouTube,
+  mockScheduleYouTube, mockGetYouTubeToken, mockPublishYouTube, mockGetYouTubeVideoStatus,
   mockScheduleFacebook, mockGetFacebookPages, mockPublishFacebook, mockPublishFacebookPhoto, mockGetFacebookReelStatus,
 } = vi.hoisted(() => ({
   mockGetCookie: vi.fn(),
@@ -23,6 +23,7 @@ const {
   mockScheduleYouTube: vi.fn(),
   mockGetYouTubeToken: vi.fn(),
   mockPublishYouTube: vi.fn(),
+  mockGetYouTubeVideoStatus: vi.fn(),
   mockScheduleFacebook: vi.fn(),
   mockGetFacebookPages: vi.fn(),
   mockPublishFacebook: vi.fn(),
@@ -58,6 +59,7 @@ vi.mock('../../../api/_youtube.js', () => ({
   scheduleYouTubeQStashDelivery: mockScheduleYouTube,
   getYouTubeAutomationAccessToken: mockGetYouTubeToken,
   publishVideoToYouTube: mockPublishYouTube,
+  getYouTubeVideoStatus: mockGetYouTubeVideoStatus,
 }));
 vi.mock('../../../api/_facebook.js', () => ({
   scheduleFacebookQStashDelivery: mockScheduleFacebook,
@@ -146,6 +148,25 @@ it('checks the real TikTok status for the connected owner', async () => {
   await handler({ method: 'GET', query: { action: 'status', publishId: 'v_pub_file~123' }, headers: { authorization: 'Bearer id-token' } }, res);
   expect(res.statusCode).toBe(200);
   expect(res.body).toEqual({ publishId: 'v_pub_file~123', status: 'PUBLISH_COMPLETE', failReason: null });
+});
+
+it('checks a YouTube upload only for its owner and saves the actual visibility', async () => {
+  const update = vi.fn();
+  const post = { userId: 'owner-1', platform: 'YOUTUBE', youtubeVideoId: 'video-1' };
+  mockInitFirebaseAdmin.mockReturnValue({ collection: () => ({ doc: () => ({
+    get: async () => ({ exists: true, data: () => post }), update,
+  }) }) });
+  mockGetYouTubeToken.mockResolvedValue('youtube-token');
+  mockGetYouTubeVideoStatus.mockResolvedValue({ privacyStatus: 'private', uploadStatus: 'processed', channelId: 'channel-1', channelTitle: 'Daily Food', failureReason: null });
+  const res = response();
+  await handler({ method: 'GET', query: { action: 'youtubePostStatus', postId: 'post-1' }, headers: { authorization: 'Bearer id-token' } }, res);
+  expect(res.statusCode).toBe(200);
+  expect(update).toHaveBeenCalledWith(expect.objectContaining({ youtubePrivacyStatus: 'private', youtubeChannelId: 'channel-1' }));
+  mockVerifyIdToken.mockResolvedValueOnce({ uid: 'someone-else' });
+  const other = response();
+  await handler({ method: 'GET', query: { action: 'youtubePostStatus', postId: 'post-1' }, headers: { authorization: 'Bearer id-token' } }, other);
+  expect(other.statusCode).toBe(404);
+  expect(mockGetYouTubeVideoStatus).toHaveBeenCalledTimes(1);
 });
 
 it('does not disclose TikTok status without the connected owner or a valid publish ID', async () => {
