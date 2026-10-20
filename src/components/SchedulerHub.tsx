@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Calendar, Bot, Zap, Plus, Sparkles, Clock, X, Send, Share2, Loader2, AlertCircle, Upload, Youtube, Facebook } from 'lucide-react';
+import { Calendar, Bot, Zap, Plus, Sparkles, Clock, X, Send, Share2, Loader2, AlertCircle, Upload, Youtube, Facebook, RefreshCw } from 'lucide-react';
 import { formatImageKitUploadError } from '../../shared/imageKitError.js';
 import AITrainer from './AITrainer';
 import Suggestions from './Suggestions';
@@ -98,6 +98,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   // to finish publishing inside TikTok.
   const [tiktokCreator, setTikTokCreator] = useState<TikTokCreator | null>(null);
   const [tiktokCreatorLoading, setTikTokCreatorLoading] = useState(false);
+  const [tiktokCreatorRefresh, setTikTokCreatorRefresh] = useState(0);
   const [tiktokCreatorError, setTikTokCreatorError] = useState('');
   const [tiktokPrivacy, setTikTokPrivacy] = useState('');
   const [tiktokConsent, setTikTokConsent] = useState(false);
@@ -212,7 +213,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
       }
     })();
     return () => { active = false; };
-  }, [isModalOpen, platforms.includes('TIKTOK'), user?.uid, isDemoMode, tiktokJustConnected]);
+  }, [isModalOpen, platforms.includes('TIKTOK'), user?.uid, isDemoMode, tiktokJustConnected, tiktokCreatorRefresh]);
   const [telegramMediaFile, setTelegramMediaFile] = useState<File | null>(null);
   const [showTelegramFileInput, setShowTelegramFileInput] = useState(false);
   // Every platform whose auto-post reuses the one shared "video above" field
@@ -1190,7 +1191,17 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                                 ))}
                               </select>
                               {!tiktokCreator.privacy_level_options.includes('PUBLIC_TO_EVERYONE') && (
-                                <p className="text-slate-500 dark:text-slate-400">{language === 'km' ? 'TikTok មិនទាន់អនុញ្ញាតជម្រើស Public សម្រាប់គណនីនេះទេ។' : 'Public visibility is not available for this TikTok account.'}</p>
+                                <div className="space-y-2 rounded-xl bg-brand-50 p-3 text-slate-600 dark:bg-slate-700 dark:text-slate-200">
+                                  <p>{tiktokCreator.privacy_level_options.includes('FOLLOWER_OF_CREATOR')
+                                    ? (language === 'km'
+                                      ? 'គណនី TikTok នេះជា Private។ ដើម្បីឱ្យ Public បង្ហាញ សូមបិទ Private account ក្នុង TikTok: Profile → Menu → Settings and privacy → Privacy។'
+                                      : 'This TikTok account is private. To make Public available, turn off Private account in TikTok: Profile → Menu → Settings and privacy → Privacy.')
+                                    : (language === 'km' ? 'TikTok មិនបានផ្តល់ជម្រើស Public សម្រាប់គណនីនេះទេ។' : 'TikTok has not offered Public for this account.')}</p>
+                                  <p>{language === 'km' ? 'ការផុសជា Public ត្រូវការឱ្យ TikTok អនុម័ត app នេះសម្រាប់ការផ្សាយសាធារណៈផងដែរ។' : 'Public posting also requires TikTok approval of this app.'}</p>
+                                  <button type="button" onClick={() => setTikTokCreatorRefresh((value) => value + 1)} className="inline-flex items-center gap-1.5 font-semibold text-brand-700 hover:underline dark:text-brand-300">
+                                    <RefreshCw size={13} />{language === 'km' ? 'ពិនិត្យជម្រើសម្ដងទៀត' : 'Refresh options'}
+                                  </button>
+                                </div>
                               )}
                               <div className="space-y-3 border-t border-brand-100 pt-4 dark:border-slate-700">
                                 <label className="flex items-start gap-3"><input className="mt-0.5" type="checkbox" checked={tiktokAiGenerated} onChange={(event) => setTikTokAiGenerated(event.target.checked)} />This video contains AI-generated content</label>

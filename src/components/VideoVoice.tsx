@@ -1067,6 +1067,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   const [tiktokCreator, setTiktokCreator] = useState<TikTokCreatorInfo | null>(null);
   const [tiktokCreatorError, setTiktokCreatorError] = useState('');
   const [tiktokCreatorLoading, setTiktokCreatorLoading] = useState(false);
+  const [tiktokCreatorRefresh, setTiktokCreatorRefresh] = useState(0);
   const [tiktokPrivacy, setTiktokPrivacy] = useState('');
   const [tiktokAllowComment, setTiktokAllowComment] = useState(false);
   const [tiktokAllowDuet, setTiktokAllowDuet] = useState(false);
@@ -1106,7 +1107,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       }
     })();
     return () => { cancelled = true; };
-  }, [tiktokUser?.open_id, user?.uid]);
+  }, [tiktokUser?.open_id, user?.uid, tiktokCreatorRefresh]);
 
   const voicePersonas = {
     sreymom: {
@@ -2800,7 +2801,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                       {tiktokCreator && (
                         <>
                           <p className="font-semibold">Posting to {tiktokCreator.creator_nickname || tiktokCreator.creator_username}</p>
-                          <p className="text-xs">Choose a visibility option offered by this TikTok account. “Everyone” appears when TikTok allows public posts for this account and app. Processing can take several minutes after upload.</p>
+                          <p className="text-xs">Choose a visibility option provided by TikTok for this account.</p>
                           <label className="block font-semibold" htmlFor="tiktok-privacy">Who can view this video?</label>
                           <select id="tiktok-privacy" value={tiktokPrivacy} onChange={(event) => setTiktokPrivacy(event.target.value)} className="w-full rounded-lg border bg-white p-2">
                             <option value="">Select visibility</option>
@@ -2810,6 +2811,19 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                               </option>
                             ))}
                           </select>
+                          {!tiktokCreator.privacy_level_options.includes('PUBLIC_TO_EVERYONE') && (
+                            <div className="space-y-2 rounded-lg bg-white/70 p-3 text-xs">
+                              <p>{tiktokCreator.privacy_level_options.includes('FOLLOWER_OF_CREATOR')
+                                ? (language === 'km'
+                                  ? 'គណនី TikTok នេះជា Private។ ដើម្បីឱ្យ Public បង្ហាញ សូមបិទ Private account ក្នុង TikTok: Profile → Menu → Settings and privacy → Privacy។'
+                                  : 'This TikTok account is private. To make Public available, turn off Private account in TikTok: Profile → Menu → Settings and privacy → Privacy.')
+                                : (language === 'km' ? 'TikTok មិនបានផ្តល់ជម្រើស Public សម្រាប់គណនីនេះទេ។' : 'TikTok has not offered Public for this account.')}</p>
+                              <p>{language === 'km' ? 'ការផុសជា Public ត្រូវការឱ្យ TikTok អនុម័ត app នេះសម្រាប់ការផ្សាយសាធារណៈផងដែរ។' : 'Public posting also requires TikTok approval of this app.'}</p>
+                              <button type="button" onClick={() => setTiktokCreatorRefresh((value) => value + 1)} className="inline-flex items-center gap-1.5 font-semibold text-brand-700 hover:underline">
+                                <RefreshCw size={13} />{language === 'km' ? 'ពិនិត្យជម្រើសម្ដងទៀត' : 'Refresh options'}
+                              </button>
+                            </div>
+                          )}
                           <p className="text-xs">Video: {tiktokVideoSeconds?.toFixed(1) || 'loading'}s · Account limit: {tiktokCreator.max_video_post_duration_sec || 'unknown'}s</p>
                           {([
                             ['Allow comments', tiktokAllowComment, setTiktokAllowComment, tiktokCreator.comment_disabled],
