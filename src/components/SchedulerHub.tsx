@@ -1314,8 +1314,8 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                             <p>{youtubeConnection?.connected ? 'Connected YouTube channel' : 'Connect your YouTube channel before scheduling.'}</p>
                             {youtubeConnection?.channelTitle && <p className="font-bold">{youtubeConnection.channelTitle}</p>}
                             {youtubeConnection?.channelId && <a className="font-semibold underline" href={`https://www.youtube.com/channel/${encodeURIComponent(youtubeConnection.channelId)}`} target="_blank" rel="noopener noreferrer">View connected channel</a>}
-                            {youtubeConnection?.connected && !youtubeConnection.channelId && <p>Channel name unavailable. Check the Google account in the connection popup before scheduling.</p>}
-                            <p>Uploads automatically at the scheduled time. Check each video's visibility and processing in Content Timeline.</p>
+                            {youtubeConnection?.connected && !youtubeConnection.channelId && <p>The connected Google account can upload. Use Change channel to choose another account.</p>}
+                            <p>Uploads automatically at the scheduled time. New uploads show their destination and visibility in Content Timeline.</p>
                           </div>
                         </div>
                         <button
@@ -1324,7 +1324,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                           disabled={isConnectingYouTube}
                           className="shrink-0 rounded-lg bg-sky-600 px-2 py-1 text-[10px] font-bold text-white hover:bg-sky-700"
                         >
-                          {isConnectingYouTube ? 'Connecting…' : 'Connect YouTube'}
+                          {isConnectingYouTube ? 'Connecting…' : youtubeConnection?.connected ? 'Change channel' : 'Connect YouTube'}
                         </button>
                       </div>
                       {renderCaptionOverride('YOUTUBE', 'YouTube')}
