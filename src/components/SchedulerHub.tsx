@@ -675,7 +675,9 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
         return;
       }
       if (!validPrivacy) {
-        showTikTokError('privacy', language === 'km' ? 'សូមជ្រើសអ្នកដែលអាចមើលវីដេអូក្នុងផ្នែក TikTok ខាងក្រោម។' : 'Choose who can view this video in the TikTok section below.');
+        showTikTokError('privacy', !tiktokConsent
+          ? (language === 'km' ? 'សូមជ្រើសអ្នកមើលវីដេអូ និងយល់ព្រម TikTok Direct Post ក្នុងផ្នែកខាងក្រោម។' : 'Choose who can view this video and agree to TikTok Direct Post below.')
+          : (language === 'km' ? 'សូមជ្រើសអ្នកដែលអាចមើលវីដេអូក្នុងផ្នែក TikTok ខាងក្រោម។' : 'Choose who can view this video in the TikTok section below.'));
         return;
       }
       if (!Number.isFinite(tiktokVideoSeconds) || !tiktokVideoSeconds || tiktokVideoSeconds <= 0) {
@@ -1209,6 +1211,14 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                           {tiktokCreator && (
                             <>
                               <p className="font-semibold text-slate-800 dark:text-slate-100">{language === 'km' ? 'គណនី៖ ' : 'Posting to '}{tiktokCreator.creator_nickname || tiktokCreator.creator_username || 'your TikTok account'}</p>
+                              <div className="flex flex-wrap gap-2" aria-label={language === 'km' ? 'តម្រូវការមុនកំណត់ពេល' : 'Before scheduling'}>
+                                <span className={`rounded-full px-2.5 py-1 font-semibold ${tiktokCreator.privacy_level_options?.includes(tiktokPrivacy) ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-300'}`}>
+                                  {language === 'km' ? 'អ្នកមើល៖ ' : 'Visibility: '}{tiktokCreator.privacy_level_options?.includes(tiktokPrivacy) ? (language === 'km' ? 'បានជ្រើស' : 'Selected') : (language === 'km' ? 'ត្រូវជ្រើស' : 'Required')}
+                                </span>
+                                <span className={`rounded-full px-2.5 py-1 font-semibold ${tiktokConsent ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-300'}`}>
+                                  {language === 'km' ? 'Direct Post៖ ' : 'Direct Post consent: '}{tiktokConsent ? (language === 'km' ? 'បានយល់ព្រម' : 'Agreed') : (language === 'km' ? 'ត្រូវយល់ព្រម' : 'Required')}
+                                </span>
+                              </div>
                               {tiktokPreviewUrl && (
                                 <video
                                   key={tiktokPreviewUrl}
@@ -1226,7 +1236,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                               )}
                               <p className="text-slate-500 dark:text-slate-400">Video: {Number.isFinite(tiktokVideoSeconds) && tiktokVideoSeconds ? `${tiktokVideoSeconds.toFixed(1)}s` : 'loading'} · Limit: {tiktokCreator.max_video_post_duration_sec || 'unknown'}s</p>
                               <label htmlFor="scheduled-tiktok-privacy" className="block font-semibold">{language === 'km' ? 'អ្នកណាអាចមើលវីដេអូនេះ?' : 'Who can view this video?'}</label>
-                              <select ref={tiktokPrivacyRef} id="scheduled-tiktok-privacy" value={tiktokPrivacy} onChange={(event) => { setTikTokPrivacy(event.target.value); setTikTokValidationTarget(null); }} aria-invalid={tiktokValidationTarget === 'privacy'} className="w-full rounded-xl border border-brand-200 bg-white p-3 text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">
+                              <select ref={tiktokPrivacyRef} id="scheduled-tiktok-privacy" value={tiktokPrivacy} onChange={(event) => { setTikTokPrivacy(event.target.value); setTikTokValidationTarget(null); setFormError(null); }} aria-invalid={tiktokValidationTarget === 'privacy'} className="w-full rounded-xl border border-brand-200 bg-white p-3 text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">
                                 <option value="">Select visibility</option>
                                 {(tiktokCreator.privacy_level_options || []).map((option) => (
                                   <option key={option} value={option} disabled={option === 'SELF_ONLY' && tiktokBrandedContent}>
@@ -1272,7 +1282,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                                   </div>
                                 </details>
                               )}
-                              <label className="flex items-start gap-3 border-t border-brand-100 pt-4 leading-relaxed dark:border-slate-700"><input ref={tiktokConsentRef} className="mt-0.5" type="checkbox" checked={tiktokConsent} onChange={(event) => { setTikTokConsent(event.target.checked); setTikTokValidationTarget(null); }} aria-invalid={tiktokValidationTarget === 'consent'} />By scheduling this Direct Post, you agree to TikTok&apos;s {tiktokBrandedContent ? 'Branded Content Policy and ' : ''}Music Usage Confirmation and consent to the video being sent at the scheduled time.</label>
+                              <label className="flex items-start gap-3 border-t border-brand-100 pt-4 leading-relaxed dark:border-slate-700"><input ref={tiktokConsentRef} className="mt-0.5" type="checkbox" checked={tiktokConsent} onChange={(event) => { setTikTokConsent(event.target.checked); setTikTokValidationTarget(null); setFormError(null); }} aria-invalid={tiktokValidationTarget === 'consent'} />By scheduling this Direct Post, you agree to TikTok&apos;s {tiktokBrandedContent ? 'Branded Content Policy and ' : ''}Music Usage Confirmation and consent to the video being sent at the scheduled time.</label>
                               {tiktokValidationTarget === 'consent' && formError && <p role="alert" className="rounded-xl bg-red-50 p-3 text-xs font-semibold text-red-700 dark:bg-red-950 dark:text-red-300">{formError}</p>}
                             </>
                           )}
