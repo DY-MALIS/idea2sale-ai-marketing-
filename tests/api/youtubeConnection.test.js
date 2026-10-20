@@ -5,7 +5,6 @@ import {
   saveYouTubeAutomationTokens,
   youtubeOwnerCookieHeader,
   publishVideoToYouTube,
-  getYouTubeVideoStatus,
 } from '../../api/_youtube.js';
 
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
@@ -21,10 +20,6 @@ it('uploads the shared video with its actual media type', async () => {
   })).resolves.toEqual({ videoId: 'youtube-video-1', privacyStatus: 'private', uploadStatus: 'uploaded', channelId: 'channel-1', channelTitle: 'Daily Food' });
 });
 
-it('reads the actual video visibility and processing status from YouTube', async () => {
-  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ items: [{ status: { privacyStatus: 'unlisted', uploadStatus: 'processed' }, snippet: { channelId: 'channel-2', channelTitle: 'Other channel' } }] }) })));
-  await expect(getYouTubeVideoStatus('token', 'video-1')).resolves.toMatchObject({ privacyStatus: 'unlisted', uploadStatus: 'processed', channelId: 'channel-2' });
-});
 
 describe('YouTube owner isolation', () => {
   it('binds the OAuth callback to the signed-in owner and rejects a changed state', () => {

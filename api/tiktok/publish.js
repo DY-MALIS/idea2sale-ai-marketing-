@@ -4,7 +4,7 @@ import admin, { initFirebaseAdmin } from '../_firebaseAdmin.js';
 import { logAudit } from '../_audit.js';
 import { getCookie, getAutomationAccessToken, recordTikTokPostSync, scheduleTikTokQStashDelivery, markAutomationTokenRevoked } from '../_tiktok.js';
 import { claimPendingPost, findRecentDuplicateTikTokPost, findRecentDuplicateYouTubePost } from '../_telegramClaim.js';
-import { getYouTubeAutomationAccessToken, getYouTubeVideoStatus, publishVideoToYouTube, scheduleYouTubeQStashDelivery } from '../_youtube.js';
+import { getYouTubeAutomationAccessToken, publishVideoToYouTube, scheduleYouTubeQStashDelivery } from '../_youtube.js';
 import { getFacebookPages, publishFacebookReel, publishFacebookPhoto, getFacebookReelStatus, scheduleFacebookQStashDelivery } from '../_facebook.js';
 import { notifyAdmins } from '../_alert.js';
 import { getUntransformedImageKitVideoUrl } from '../../shared/imageKitUrl.js';
@@ -932,38 +932,6 @@ async function deliverOneScheduledYouTubePost(db, docRef) {
   }
 }
 
-async function handleYouTubePostStatus(req, res) {
-  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed.' });
-  const uid = await resolveActorUid(req);
-  if (!uid) return res.status(401).json({ error: 'Sign in to check this YouTube upload.' });
-  const postId = String(req.query?.postId || '').trim();
-  if (!/^[A-Za-z0-9_-]{1,128}$/.test(postId)) return res.status(400).json({ error: 'Invalid post ID.' });
-  try {
-    const db = initFirebaseAdmin();
-    const ref = db.collection('scheduled_posts').doc(postId);
-    const snap = await ref.get();
-    const post = snap.data();
-    if (!snap.exists || post?.userId !== uid || post.platform !== 'YOUTUBE' || !post.youtubeVideoId) {
-      return res.status(404).json({ error: 'YouTube upload not found.' });
-    }
-    const token = await getYouTubeAutomationAccessToken(db, uid);
-    if (!token) return res.status(409).json({ error: 'Reconnect the YouTube channel to check this upload.' });
-    const status = await getYouTubeVideoStatus(token, post.youtubeVideoId);
-    await ref.update({
-      youtubePrivacyStatus: status.privacyStatus,
-      youtubeUploadStatus: status.uploadStatus,
-      youtubeChannelId: status.channelId,
-      youtubeChannelTitle: status.channelTitle,
-      youtubeFailureReason: status.failureReason,
-      youtubeCheckedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-    return res.status(200).json({ ok: true, ...status });
-  } catch (error) {
-    console.error('Could not check YouTube post:', error?.message || error);
-    return res.status(502).json({ error: error?.message || 'Could not check this YouTube upload.' });
-  }
-}
-
 // Auto-publishes due YouTube posts created via Smart Scheduler
 // (SchedulerHub.tsx, platform YOUTUBE). Invoked by vercel.json's cron, same
 // shared-secret check as runTikTokCron above.
@@ -1133,7 +1101,6 @@ async function runFacebookCron(req, res) {
 }
 
 export default async function handler(req, res) {
-  if (req.query?.action === 'youtubePostStatus') return handleYouTubePostStatus(req, res);
   if (req.query?.action === 'status') {
     if (req.method !== 'GET') return res.status(405).json({ error: { message: 'Method not allowed' } });
     return handleStatusRequest(req, res);

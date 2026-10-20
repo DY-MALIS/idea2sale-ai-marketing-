@@ -55,8 +55,6 @@ const Scheduler: React.FC = () => {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [nowTick, setNowTick] = useState(Date.now());
   const [deliveringPostId, setDeliveringPostId] = useState<string | null>(null);
-  const [checkingYouTubePostId, setCheckingYouTubePostId] = useState<string | null>(null);
-  const checkedYouTubePostIds = useRef<Set<string>>(new Set());
   const processingTelegram = useRef<Set<string>>(new Set());
 
   const getDemoPosts = () => {
@@ -498,34 +496,6 @@ const Scheduler: React.FC = () => {
     }
   };
 
-  const checkYouTubePost = async (post: SchedulePost, silent = false) => {
-    if (!user || isDemoMode || !post.youtubeVideoId) return;
-    if (!silent) setCheckingYouTubePostId(post.id);
-    try {
-      const idToken = await user.getIdToken();
-      const response = await fetch(`/api/tiktok/publish?action=youtubePostStatus&postId=${encodeURIComponent(post.id)}`, {
-        headers: { Authorization: `Bearer ${idToken}` },
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || 'Could not check this YouTube upload.');
-    } catch (error) {
-      if (!silent) setErrorMsg(error instanceof Error ? error.message : 'Could not check this YouTube upload.');
-    } finally {
-      if (!silent) setCheckingYouTubePostId(null);
-    }
-  };
-
-  useEffect(() => {
-    if (!user || isDemoMode) return;
-    posts.filter((post) => post.userId === user.uid && post.platform === 'YOUTUBE' && post.youtubeVideoId && post.status === 'PUBLISHED'
-      && Date.now() - new Date(post.scheduledTime).getTime() < 7 * 24 * 60 * 60 * 1000)
-      .slice(0, 3).forEach((post) => {
-        if (checkedYouTubePostIds.current.has(post.id)) return;
-        checkedYouTubePostIds.current.add(post.id);
-        void checkYouTubePost(post, true);
-      });
-  }, [posts, user?.uid, isDemoMode]);
-
   const deliverDuePostNow = async (post: SchedulePost) => {
     if (!user || isDemoMode || post.localOnly || deliveringPostId) return;
     setDeliveringPostId(post.id);
@@ -717,7 +687,7 @@ const Scheduler: React.FC = () => {
                         <div className="mt-2 space-y-1 text-xs">
                           <div className="flex flex-wrap items-center gap-3">
                             <a href={`https://www.youtube.com/watch?v=${encodeURIComponent(post.youtubeVideoId)}`} target="_blank" rel="noopener noreferrer" className="font-semibold text-sky-600 underline dark:text-sky-300">View video on YouTube</a>
-                            <button type="button" onClick={() => checkYouTubePost(post)} disabled={checkingYouTubePostId === post.id} className="font-semibold text-sky-600 underline disabled:opacity-50 dark:text-sky-300">{checkingYouTubePostId === post.id ? 'Checking…' : 'Check YouTube status'}</button>
+                            <a href={`https://www.youtube.com/shorts/${encodeURIComponent(post.youtubeVideoId)}`} target="_blank" rel="noopener noreferrer" className="font-semibold text-sky-600 underline dark:text-sky-300">Open as Short</a>
                           </div>
                           {post.youtubeChannelId && (
                             <div className="flex flex-wrap gap-3">
@@ -727,7 +697,6 @@ const Scheduler: React.FC = () => {
                           )}
                           {post.youtubePrivacyStatus && <p className={post.youtubePrivacyStatus === 'public' ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}>Visibility: {post.youtubePrivacyStatus}{post.youtubePrivacyStatus === 'private' ? ' — visible only in YouTube Studio' : post.youtubePrivacyStatus === 'unlisted' ? ' — not listed on the channel page' : ''}</p>}
                           {post.youtubeUploadStatus && <p className="text-slate-500 dark:text-slate-400">YouTube processing: {post.youtubeUploadStatus}</p>}
-                          {post.youtubeFailureReason && <p className="text-red-600 dark:text-red-300">YouTube reason: {post.youtubeFailureReason}</p>}
                         </div>
                       )}
                       {post.platform === 'TIKTOK' && post.status === 'SUBMITTED' && (

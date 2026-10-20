@@ -209,7 +209,6 @@ export interface SchedulePost {
   youtubeUploadStatus?: string | null;
   youtubeChannelId?: string | null;
   youtubeChannelTitle?: string | null;
-  youtubeFailureReason?: string | null;
   telegramMessageId?: number | null;
   errorMessage?: string | null;
   localOnly?: boolean;

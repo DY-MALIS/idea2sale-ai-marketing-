@@ -238,20 +238,3 @@ export async function publishVideoToYouTube(accessToken, { videoBuffer, mimeType
   };
 }
 
-export async function getYouTubeVideoStatus(accessToken, videoId) {
-  const params = new URLSearchParams({ part: 'snippet,status', id: videoId });
-  const response = await fetch(`https://www.googleapis.com/youtube/v3/videos?${params}`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok || data?.error) throw new Error(data?.error?.message || `Could not check YouTube video (HTTP ${response.status}).`);
-  const video = data?.items?.[0];
-  if (!video) throw new Error('YouTube did not return this video for the connected account. Check the video link and connected channel in YouTube Studio.');
-  return {
-    privacyStatus: video.status?.privacyStatus || null,
-    uploadStatus: video.status?.uploadStatus || null,
-    channelId: video.snippet?.channelId || null,
-    channelTitle: video.snippet?.channelTitle || null,
-    failureReason: video.status?.failureReason || video.status?.rejectionReason || null,
-  };
-}
