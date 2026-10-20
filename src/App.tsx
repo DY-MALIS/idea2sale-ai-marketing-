@@ -344,6 +344,7 @@ export default function App() {
               {hasOpenedScheduler && <div className={activeTab === 'scheduler' ? '' : 'hidden'}>
                 <Suspense fallback={<div className="min-h-64 animate-pulse rounded-xl bg-white/60 dark:bg-slate-800/60" aria-label="Loading scheduler" />}>
                   <SchedulerHub
+                    key={user?.uid ?? (isDemoMode ? 'demo' : 'signed-out')}
                     handoffRequest={scheduleHandoff}
                     onHandoffConsumed={consumeScheduleHandoff}
                   />

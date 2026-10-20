@@ -8,7 +8,6 @@ import { SchedulePost } from '../types';
 import { format, isAfter, parseISO, addHours, subHours } from 'date-fns';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
-import { useIsAdmin } from '../hooks/useIsAdmin';
 import { deleteLocalMedia, getLocalMediaBlob, getLocalMediaDataUrl } from '../lib/localMediaStore';
 import { getStoredScheduledPosts, mergeStoredScheduleHistory, wasDemoModeThisSession } from '../lib/scheduledPosts';
 import { recordAuditEvent } from '../lib/auditClient';
@@ -49,7 +48,6 @@ const normalizeScheduledTime = (value: unknown): string => {
 const Scheduler: React.FC = () => {
   const { t, language } = useLanguage();
   const { user, isDemoMode } = useAuth();
-  const { isAdmin, checking: checkingAdmin } = useIsAdmin();
   const [posts, setPosts] = useState<SchedulePost[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -90,9 +88,7 @@ const Scheduler: React.FC = () => {
 
     const userToUse = user || (isDemoMode ? { uid: 'demo-user' } : null);
 
-    if (checkingAdmin && !isDemoMode) {
-      setLoading(true);
-    } else if (userToUse) {
+    if (userToUse) {
       if (isDemoMode) {
         const refreshDemoPosts = () => setPosts(getDemoPosts());
         refreshDemoPosts();
@@ -100,9 +96,9 @@ const Scheduler: React.FC = () => {
         window.addEventListener('demo-scheduled-posts-updated', refreshDemoPosts);
         unsubscribe = () => window.removeEventListener('demo-scheduled-posts-updated', refreshDemoPosts);
       } else {
-        const q = isAdmin
-          ? query(collection(db, 'scheduled_posts'))
-          : query(collection(db, 'scheduled_posts'), where('userId', '==', userToUse.uid));
+        // The regular timeline always shows the signed-in owner's posts,
+        // including when that owner also has administrator access.
+        const q = query(collection(db, 'scheduled_posts'), where('userId', '==', userToUse.uid));
 
         let remotePosts: SchedulePost[] = [];
         const mergeLocalAndRemotePosts = () => {
@@ -144,7 +140,7 @@ const Scheduler: React.FC = () => {
     return () => {
       if (unsubscribe) unsubscribe();
     };
-  }, [user, isDemoMode, isAdmin, checkingAdmin]);
+  }, [user, isDemoMode]);
 
   useEffect(() => {
     if (!user || isDemoMode) return;

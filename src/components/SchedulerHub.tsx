@@ -7,7 +7,8 @@ import Suggestions from './Suggestions';
 import Scheduler from './Scheduler';
 import ActivityPulse from './ActivityPulse';
 import { db } from '../lib/firebase';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, doc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { telegramDestinationFromProfile } from '../../shared/telegramDestination.js';
 import { useLanguage } from '../contexts/LanguageContext';
 import { saveLocalMedia } from '../lib/localMediaStore';
 import { withUploadTimeout } from '../lib/withUploadTimeout';
@@ -245,6 +246,26 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   const [facebookSetupReady, setFacebookSetupReady] = useState<boolean | null>(null);
   const [facebookConnectionLoading, setFacebookConnectionLoading] = useState(false);
   const [facebookConnectionError, setFacebookConnectionError] = useState('');
+  const [telegramDestination, setTelegramDestination] = useState<{ ready: boolean; label: string } | null>(null);
+
+  useEffect(() => {
+    if (!user || !isModalOpen || !platforms.includes('TELEGRAM')) return;
+    let active = true;
+    const loadDestination = async () => {
+      try {
+        const snapshot = await getDoc(doc(db, 'business_profiles', user.uid));
+        const profile = snapshot.data() || {};
+        const destination = telegramDestinationFromProfile(profile);
+        if (active) setTelegramDestination({ ready: Boolean(destination.token && destination.chatId), label: destination.chatId });
+      } catch {
+        if (active) setTelegramDestination({ ready: false, label: '' });
+      }
+    };
+    setTelegramDestination(null);
+    void loadDestination();
+    window.addEventListener('business-profile-updated', loadDestination);
+    return () => { active = false; window.removeEventListener('business-profile-updated', loadDestination); };
+  }, [user?.uid, isModalOpen, platforms.includes('TELEGRAM')]);
 
   const loadFacebookPages = async () => {
     if (!user) return;
@@ -649,6 +670,13 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     }
 
     const userToUse = user || (isDemoMode ? { uid: 'demo-user' } : null);
+
+    if (platforms.includes('TELEGRAM') && !isDemoMode && !telegramDestination?.ready) {
+      setFormError(language === 'km'
+        ? 'សូមកំណត់ Bot Token និង Channel របស់អ្នកក្នុង Business Profile មុនកំណត់ Telegram។'
+        : 'Set up your own Telegram bot and channel in Business Profile before scheduling Telegram.');
+      return;
+    }
 
     const requiresVideo = platforms.includes('TIKTOK') || platforms.includes('YOUTUBE') || (platforms.includes('FACEBOOK') && !imageFile);
     if (imageFile && (platforms.includes('TIKTOK') || platforms.includes('YOUTUBE'))) {
@@ -1060,6 +1088,13 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
               </div>
 
               <form onSubmit={handleCreatePost} className="space-y-5 p-5 sm:p-8">
+                {user && !isDemoMode && (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs dark:border-slate-600 dark:bg-slate-700/50">
+                    <p className="font-semibold text-slate-800 dark:text-slate-100">{language === 'km' ? 'កំពុងកំណត់ការផុសសម្រាប់គណនីនេះ' : 'Scheduling for this account'}</p>
+                    <p className="mt-1 break-all text-slate-600 dark:text-slate-300">{user.email || user.displayName || user.uid}</p>
+                    <p className="mt-1 text-slate-500 dark:text-slate-400">{language === 'km' ? 'គោលដៅខាងក្រោមជាការភ្ជាប់របស់គណនីនេះ។ សូមពិនិត្យមុនចុច Schedule។' : 'The destinations below belong to this account. Check them before scheduling.'}</p>
+                  </div>
+                )}
                 {isDemoMode && (
                   <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
                     {language === 'km'
@@ -1372,6 +1407,15 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                   )}
                   {platforms.includes('TELEGRAM') && (
                     <div className="space-y-3">
+                      {!isDemoMode && (
+                        <div className={`rounded-xl border px-3 py-2 text-xs ${telegramDestination?.ready ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
+                          {telegramDestination === null
+                            ? (language === 'km' ? 'កំពុងពិនិត្យ Telegram channel…' : 'Checking Telegram channel…')
+                            : telegramDestination.ready
+                              ? `${language === 'km' ? 'ផុសទៅ Telegram channel របស់គណនីនេះ៖' : 'Posting to this account’s Telegram channel:'} ${telegramDestination.label}`
+                              : (language === 'km' ? 'មិនទាន់ភ្ជាប់ Telegram channel ទេ។ សូមរក្សាទុក Bot Token និង Channel ក្នុង Business Profile។' : 'No Telegram channel connected. Save a bot token and channel in Business Profile.')}
+                        </div>
+                      )}
                       {!hasSharedVideoField && sharedVideoName && !telegramMediaFile && (
                         <p className="text-xs font-semibold text-sky-700 dark:text-sky-300">
                           {language === 'km' ? 'Telegram នឹងប្រើវីដេអូរួម៖ ' : 'Telegram will use the shared video: '}{sharedVideoName}
