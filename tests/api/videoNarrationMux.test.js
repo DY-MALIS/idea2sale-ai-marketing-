@@ -8,7 +8,7 @@ import ffmpeg from 'ffmpeg-static';
 import { replaceVideoNarration } from '../../api/_videoNarrationMux.js';
 
 const run = promisify(execFile);
-it('replaces the generated audio, preserves video length, and pads the narration tail with silence', async () => {
+it('replaces generated audio and removes a long silent video tail', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'mux-test-'));
   const originalFetch = global.fetch;
   vi.stubEnv('IMAGEKIT_URL_ENDPOINT', 'https://ik.imagekit.io/test');
@@ -27,8 +27,8 @@ it('replaces the generated audio, preserves video length, and pads the narration
     const result = await replaceVideoNarration('https://ik.imagekit.io/test/video.mp4', 'https://ik.imagekit.io/test/audio.wav');
     await writeFile(output, Buffer.from(result.split(',')[1], 'base64'));
     const { stdout } = await run(ffmpeg, ['-v', 'error', '-i', output, '-map', '0:a:0', '-f', 's16le', '-ac', '1', '-ar', '8000', 'pipe:1'], { encoding: 'buffer', windowsHide: true });
-    expect(stdout.length / 16000).toBeGreaterThanOrEqual(1.95);
-    expect(stdout.length / 16000).toBeLessThan(2.15);
+    expect(stdout.length / 16000).toBeGreaterThanOrEqual(1.55);
+    expect(stdout.length / 16000).toBeLessThan(1.75);
     // Count positive zero crossings over 0.5 seconds: reference is 880 Hz,
     // whereas retaining the model's original track would measure 220 Hz.
     let crossings = 0;
@@ -38,7 +38,7 @@ it('replaces the generated audio, preserves video length, and pads the narration
     expect(crossings * 2).toBeGreaterThan(860);
     expect(crossings * 2).toBeLessThan(900);
     let tailPeak = 0;
-    for (let i = 13600; i < 15200; i++) tailPeak = Math.max(tailPeak, Math.abs(stdout.readInt16LE(i * 2)));
+    for (let i = 11600; i < 12400; i++) tailPeak = Math.max(tailPeak, Math.abs(stdout.readInt16LE(i * 2)));
     expect(tailPeak).toBeLessThan(10);
   } finally {
     global.fetch = originalFetch;

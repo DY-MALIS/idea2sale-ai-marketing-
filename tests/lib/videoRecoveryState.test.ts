@@ -3,11 +3,13 @@ import { videoOptionsFromRecoveredStart } from '../../src/lib/videoRecoveryState
 
 it('restores English narration after a video start response is lost', () => {
   const saved = videoOptionsFromRecoveredStart({
-    resumeNarration: { text: 'Welcome to DGACADEMY', voice: 'alloy', languageHint: 'English', performanceStyle: 'Warm' },
+    resumeNarration: { text: 'Welcome to DGACADEMY', voice: 'alloy', languageHint: 'English', performanceStyle: 'Warm', audioUrl: 'https://example.com/narration.wav', duration: 2.4 },
     silentRequested: false,
     aspectRatio: '16:9',
   }, {});
   expect(saved.resumeNarration?.text).toBe('Welcome to DGACADEMY');
+  expect(saved.resumeNarration?.audioUrl).toBe('https://example.com/narration.wav');
+  expect(saved.resumeNarration?.duration).toBe(2.4);
   expect(saved.silentRequested).toBe(false);
   expect(saved.aspectRatio).toBe('16:9');
 });

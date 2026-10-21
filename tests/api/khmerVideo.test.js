@@ -79,10 +79,63 @@ it('retries a rejected automatic presenter image as text-to-video for later Khme
     referenceUrls: [], audioReferenceUrls: [], generateAudio: false, duration: 4,
   });
   expect(mocks.video.mock.calls[1][0].prompt).toContain('No reference image or audio is supplied');
+  expect(mocks.video.mock.calls[1][0].prompt).toContain('Do not show visible lips');
   expect(mocks.video.mock.calls[1][0].prompt).not.toContain('from the reference image');
   expect(result.job.jobId).toBe('text-video-job');
   expect(result.imageFallbackReason).toContain('rejected');
   expect(result.imageFallbackReason).toContain('Review lip sync');
+});
+
+it('keeps Khmer narration when automatic presenter image generation times out', async () => {
+  mocks.image.mockRejectedValue(new Error('Image generation timed out'));
+  mocks.speech.mockResolvedValue({ audioUrl: 'audio-data', duration: 3.4, provider: 'edge' });
+  mocks.video.mockResolvedValue({ jobId: 'text-video-job' });
+
+  const result = await startKhmerVideoJob(
+    {}, { script: 'សួស្តី', prompt: 'Presenter from the reference image', motionPrompt: 'Normal speed' },
+    uploadStub(), { duration: 4, allowImageFallback: true },
+  );
+
+  expect(mocks.video).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+    referenceUrls: [], audioReferenceUrls: [], generateAudio: false, duration: 4,
+  }));
+  expect(result.avatarImage).toBeNull();
+  expect(result.narrationAudio.mediaUrl).toBe('https://audio');
+  expect(result.imageFallbackReason).toMatch(/review.*lip sync/i);
+});
+
+it('keeps a video job when the automatically generated portrait cannot be uploaded', async () => {
+  mocks.image.mockResolvedValue({ imageUrl: 'generated-portrait' });
+  mocks.speech.mockResolvedValue({ audioUrl: 'audio-data', duration: 3.4, provider: 'edge' });
+  mocks.video.mockResolvedValue({ jobId: 'text-video-job' });
+  const upload = vi.fn(async ({ mediaType }) => {
+    if (mediaType === 'audio') return { mediaUrl: 'https://audio', duration: 3.4 };
+    throw new Error('Portrait upload failed');
+  });
+
+  const result = await startKhmerVideoJob(
+    {}, { script: 'សួស្តី', prompt: 'Presenter' }, upload,
+    { duration: 4, allowImageFallback: true },
+  );
+
+  expect(mocks.video).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+    referenceUrls: [], audioReferenceUrls: [], generateAudio: false,
+  }));
+  expect(result.narrationAudio.mediaUrl).toBe('https://audio');
+  expect(result.imageFallbackReason).toMatch(/review.*lip sync/i);
+});
+
+it('does not discard a user supplied portrait when automatic image fallback is allowed', async () => {
+  mocks.speech.mockResolvedValue({ audioUrl: 'audio-data', duration: 3.4 });
+  const upload = vi.fn(async ({ mediaType }) => {
+    if (mediaType === 'audio') return { mediaUrl: 'https://audio', duration: 3.4 };
+    throw new Error('Portrait upload failed');
+  });
+  await expect(startKhmerVideoJob(
+    {}, { script: 'សួស្តី', prompt: 'Presenter' }, upload,
+    { duration: 4, images: [{ mimeType: 'image/png', base64: 'AAAA' }], allowImageFallback: true },
+  )).rejects.toThrow('Portrait upload failed');
+  expect(mocks.video).not.toHaveBeenCalled();
 });
 
 it('does not publish an audio-only fallback from an unattended scheduled video', async () => {

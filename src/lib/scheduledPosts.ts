@@ -11,46 +11,19 @@ export const getStoredScheduledPosts = (): SchedulePost[] => {
   }
 };
 
-export const getDemoScheduledPosts = (): SchedulePost[] =>
-  getStoredScheduledPosts().filter((post) => post.userId === 'demo-user');
-
-// Demo Mode's synthetic 'demo-user' id isn't tied to any real identity, so on a
-// shared/handed-down browser a *different* person signing into their own real
-// account would otherwise inherit whatever an earlier, unrelated demo session
-// left in localStorage (see mergeStoredScheduleHistory below). Gate that
-// carry-over on sessionStorage, which -- unlike localStorage -- clears when the
-// tab/browser closes, so it only survives the intended "tried the demo, then
-// signed up in the same session" flow, not a demo session from days ago on a
-// public computer.
-const DEMO_SESSION_KEY = 'was_demo_mode_this_session';
-const DEMO_CLAIMED_BY_KEY = 'demo_scheduled_posts_claimed_by';
-
-export const markDemoModeSession = () => {
+export const getDemoBusinessName = (): string => {
   try {
-    sessionStorage.setItem(DEMO_SESSION_KEY, '1');
+    return String(JSON.parse(localStorage.getItem('demo_business_profile') || 'null')?.businessName || '').trim();
   } catch {
-    // sessionStorage unavailable (private browsing, etc) -- carry-over simply won't apply.
+    return '';
   }
 };
 
-export const wasDemoModeThisSession = (): boolean => {
-  try {
-    return sessionStorage.getItem(DEMO_SESSION_KEY) === '1';
-  } catch {
-    return false;
-  }
-};
-
-const canUseDemoCarryOver = (currentUserId: string): boolean => {
-  if (!wasDemoModeThisSession()) return false;
-  try {
-    const claimedBy = sessionStorage.getItem(DEMO_CLAIMED_BY_KEY);
-    if (claimedBy && claimedBy !== currentUserId) return false;
-    if (!claimedBy) sessionStorage.setItem(DEMO_CLAIMED_BY_KEY, currentUserId);
-    return true;
-  } catch {
-    return false;
-  }
+export const getDemoScheduledPosts = (): SchedulePost[] => {
+  const businessName = getDemoBusinessName();
+  return getStoredScheduledPosts().filter((post) =>
+    post.userId === 'demo-user' && (businessName ? post.businessName === businessName : !post.businessName)
+  );
 };
 
 const postIdentity = (post: SchedulePost) => [
@@ -67,13 +40,10 @@ export const mergeStoredScheduleHistory = (
   remotePosts: SchedulePost[],
   currentUserId: string,
 ) => {
-  const demoCarryOverAllowed = canUseDemoCarryOver(currentUserId);
   const merged = new Map<string, SchedulePost>();
-  remotePosts.forEach((post) => merged.set(postIdentity(post), post));
+  remotePosts.filter((post) => post.userId === currentUserId).forEach((post) => merged.set(postIdentity(post), post));
   getStoredScheduledPosts()
-    // Ownerless legacy browser records cannot safely be attributed to a
-    // signed-in company, so keep them in demo history only.
-    .filter((post) => post.userId === currentUserId || (post.userId === 'demo-user' && demoCarryOverAllowed))
+    .filter((post) => post.userId === currentUserId && !post.localOnly)
     .forEach((post) => {
       const key = postIdentity(post);
       if (!merged.has(key)) merged.set(key, post);

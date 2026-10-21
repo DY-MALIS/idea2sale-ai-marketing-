@@ -315,16 +315,20 @@ service cloud.firestore {
         && incoming().trigger.size() <= 500
         && incoming().response is string
         && incoming().response.size() <= 2000
-        && incoming().platform in ['TikTok', 'Facebook', 'Instagram', 'TELEGRAM'];
+        && incoming().platform in ['TikTok', 'Facebook', 'Instagram', 'TELEGRAM']
+        && (!('sharedBot' in incoming()) || (isAdmin() && incoming().sharedBot == true));
         
       allow update: if isAdmin() || (isSignedIn()
         && existing().userId == request.auth.uid
         && incoming().userId == request.auth.uid
+        && !('sharedBot' in existing())
         && (
           incoming().diff(existing()).affectedKeys().hasOnly(['trigger', 'response', 'platform', 'updatedAt'])
         ));
         
-      allow delete: if isAdmin() || (isSignedIn() && existing().userId == request.auth.uid);
+      allow delete: if isAdmin() || (isSignedIn()
+        && existing().userId == request.auth.uid
+        && !('sharedBot' in existing()));
     }
 
     match /business_profiles/{profileId} {
@@ -356,8 +360,10 @@ service cloud.firestore {
       // endpoint. A client may save profile fields but cannot forge that state.
       allow update: if isSignedIn()
         && profileId == request.auth.uid
-        && existing().userId == request.auth.uid
+        && (!('userId' in existing()) || existing().userId == request.auth.uid)
         && incoming().userId == request.auth.uid
+        // The owner may correct the company name. Records remain scoped to
+        // the same userId; this does not transfer them to another account.
         && incoming().businessName is string
         && incoming().businessName.size() <= 200
         && incoming().logoDataUrl is string
@@ -373,7 +379,8 @@ service cloud.firestore {
         && (!('linkedinUrl' in incoming()) || (incoming().linkedinUrl is string && incoming().linkedinUrl.size() <= 300))
         && !incoming().diff(existing()).affectedKeys().hasAny(['telegramBotActive', 'telegramBotUsername']);
 
-      allow delete: if isSignedIn() && profileId == request.auth.uid;
+      // Keep the account's profile linked to its existing records.
+      allow delete: if false;
     }
 
     match /agent_conversations/{profileId} {

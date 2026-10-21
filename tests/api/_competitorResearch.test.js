@@ -225,6 +225,44 @@ it('splits discovery into focused search passes and dedupes entries found across
   expect(result.competitors.find((c) => c.name === 'Academy B')).toBeTruthy();
 });
 
+it('dedupes alternate competitor names that share an official Page', async () => {
+  mocks.webSearch
+    .mockResolvedValueOnce({ content: JSON.stringify({ competitors: [{
+      name: 'Angkor Croissant Bakery', isDirectCompetitor: true, matchConfidence: 'high',
+      matchReason: 'Same bakery market', facebookUrl: 'https://www.facebook.com/angkorcroissant/',
+      sourceUrl: 'https://directory.example.com/angkor-croissant',
+    }] }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({ competitors: [{
+      name: 'Angkor Croissant Bakery Street 27', isDirectCompetitor: true, matchConfidence: 'high',
+      matchReason: 'Same bakery market', facebookUrl: 'https://www.facebook.com/angkorcroissant',
+      sourceUrl: 'https://reviews.example.com/angkor-croissant',
+    }] }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({ competitors: [] }) });
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+
+  const result = await researchCompetitors({ query: 'Siem Reap bakeries' });
+  expect(result.competitors).toHaveLength(1);
+});
+
+it('keeps businesses with different official Pages even when they share a website', async () => {
+  mocks.webSearch
+    .mockResolvedValueOnce({ content: JSON.stringify({ competitors: [{
+      name: 'Cafe North', isDirectCompetitor: true, matchConfidence: 'high',
+      matchReason: 'Same coffee market', facebookUrl: 'https://www.facebook.com/cafe-north',
+      websiteUrl: 'https://brand.example.com', sourceUrl: 'https://www.facebook.com/cafe-north',
+    }] }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({ competitors: [{
+      name: 'Cafe South', isDirectCompetitor: true, matchConfidence: 'high',
+      matchReason: 'Same coffee market', facebookUrl: 'https://www.facebook.com/cafe-south',
+      websiteUrl: 'https://brand.example.com', sourceUrl: 'https://www.facebook.com/cafe-south',
+    }] }) })
+    .mockResolvedValueOnce({ content: JSON.stringify({ competitors: [] }) });
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+
+  const result = await researchCompetitors({ query: 'coffee shops' });
+  expect(result.competitors).toHaveLength(2);
+});
+
 it('keeps same-name competitors with a shared directory URL and their posts separate', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
   mocks.webSearch.mockResolvedValue({ content: JSON.stringify({
@@ -495,6 +533,13 @@ it('gives up discovery after a single retry instead of calling OpenRouter repeat
 
   // 3 concurrent focused passes, each retrying once = 6 attempts total.
   expect(mocks.webSearch).toHaveBeenCalledTimes(6);
+});
+
+it('does not retry a search when OpenRouter reports insufficient credits', async () => {
+  mocks.webSearch.mockRejectedValue(new Error('This request requires more credits, or fewer max_tokens.'));
+
+  await expect(researchCompetitors({ query: 'cafes Phnom Penh' })).rejects.toThrow('requires more credits');
+  expect(mocks.webSearch).toHaveBeenCalledTimes(3);
 });
 
 it('retries the activity search once when it returns unparseable data, then finds activity', async () => {
@@ -1005,6 +1050,36 @@ it('finds an official website from a separate lookup even when no posts were fou
     facebookUrl: 'https://www.facebook.com/trainingacademy',
     recentActivities: [],
   });
+});
+
+it('merges alternate business names when a later website lookup reveals the same owner', async () => {
+  queueDiscoveryTimes({ content: JSON.stringify({ competitors: [
+    { name: 'Hari Bakery', isDirectCompetitor: true, matchConfidence: 'high', matchReason: 'Sells bread and cakes locally', sourceUrl: 'https://directory.example.com/hari', websiteUrl: 'https://hari.example.com/' },
+    { name: 'HARI Bakery and Restaurant', isDirectCompetitor: true, matchConfidence: 'high', matchReason: 'Sells bread and cakes locally', sourceUrl: 'https://reviews.example.com/hari' },
+  ] }) });
+  mocks.webSearch.mockImplementation(async ({ prompt }) => ({ content: prompt.includes('Find the official business website')
+    ? JSON.stringify({ websites: [
+      { competitorName: 'HARI Bakery and Restaurant', knownSourceUrl: 'https://reviews.example.com/hari', websiteUrl: 'https://hari.example.com/' },
+    ] })
+    : JSON.stringify({ activities: [], profiles: [] }) }));
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+
+  const result = await researchCompetitors({ query: 'bakeries Siem Reap', activityStartDate: '2026-10-13', activityEndDate: '2026-10-20' });
+
+  expect(result.competitors).toHaveLength(1);
+  expect(result.competitors[0].websiteUrl).toBe('https://hari.example.com/');
+});
+
+it('treats a website home page and its index.html as the same competitor', async () => {
+  queueDiscoveryTimes({ content: JSON.stringify({ competitors: [
+    { name: 'Angkor Cake Studio', isDirectCompetitor: true, matchConfidence: 'high', matchReason: 'Sells cakes locally', sourceUrl: 'https://angkorcake.example.com/index.html', websiteUrl: 'https://angkorcake.example.com/index.html' },
+    { name: 'Angkor Cake Studio and Coffee', isDirectCompetitor: true, matchConfidence: 'high', matchReason: 'Sells cakes locally', sourceUrl: 'https://angkorcake.example.com/', websiteUrl: 'https://angkorcake.example.com/' },
+  ] }) });
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+
+  const result = await researchCompetitors({ query: 'cakes Siem Reap' });
+
+  expect(result.competitors).toHaveLength(1);
 });
 
 it('omits an unreachable URL supplied as an official website', async () => {

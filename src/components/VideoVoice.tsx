@@ -113,7 +113,7 @@ interface PendingVideoJob {
   imageFallbackReason?: string;
   expectedScript?: string;
   silentRequested?: boolean;
-  resumeNarration?: { text: string; voice: string; languageHint: 'Khmer' | 'English'; performanceStyle: string };
+  resumeNarration?: { text: string; voice: string; languageHint: 'Khmer' | 'English'; performanceStyle: string; audioUrl?: string; duration?: number };
   aspectRatio?: VideoAspectRatio;
   createdAt: number;
 }
@@ -204,19 +204,19 @@ const removePendingVideoStart = (userId: string, fingerprint: string) => {
   }
 };
 
-const uploadVideoDirectly = async (videoDataUrl: string, idToken: string): Promise<string> => {
-  if (/^https:\/\//i.test(videoDataUrl)) return videoDataUrl;
+const uploadMediaDirectly = async (mediaDataUrl: string, idToken: string, fileName: string): Promise<string> => {
+  if (/^https:\/\//i.test(mediaDataUrl)) return mediaDataUrl;
   const signatureResponse = await fetch('/api/telegram/run-scheduled?action=sign-upload', {
     method: 'POST',
     headers: { Authorization: `Bearer ${idToken}` },
   });
   const signature = await signatureResponse.json().catch(() => ({}));
   if (!signatureResponse.ok || !signature.ok) throw new Error(signature.error || 'Could not prepare the final video upload.');
-  const blob = await fetch(videoDataUrl).then((response) => response.blob());
-  if (blob.size > Number(signature.maxBytes || 48 * 1024 * 1024)) throw new Error('The final video is too large to upload.');
+  const blob = await fetch(mediaDataUrl).then((response) => response.blob());
+  if (blob.size > Number(signature.maxBytes || 48 * 1024 * 1024)) throw new Error('The generated media is too large to upload.');
   const form = new FormData();
-  form.set('file', new File([blob], 'generated-video.mp4', { type: blob.type || 'video/mp4' }));
-  form.set('fileName', 'generated-video.mp4');
+  form.set('file', new File([blob], fileName, { type: blob.type || (fileName.endsWith('.mp3') ? 'audio/mpeg' : fileName.endsWith('.wav') ? 'audio/wav' : 'video/mp4') }));
+  form.set('fileName', fileName);
   form.set('publicKey', signature.publicKey);
   form.set('token', signature.token);
   form.set('expire', String(signature.expire));
@@ -228,6 +228,24 @@ const uploadVideoDirectly = async (videoDataUrl: string, idToken: string): Promi
     throw new Error(formatImageKitUploadError(uploaded?.message || uploaded?.error?.message || 'Could not upload the final video.', [signature.publicKey]));
   }
   return String(uploaded.url);
+};
+
+const uploadVideoDirectly = (videoDataUrl: string, idToken: string) =>
+  uploadMediaDirectly(videoDataUrl, idToken, 'generated-video.mp4');
+
+const measureNarrationDuration = async (audioUrl: string): Promise<number> => {
+  const ffmpeg = await getFFmpeg();
+  const { fetchFile } = await import('@ffmpeg/util');
+  const input = 'narration_preflight_audio';
+  const output = 'narration_preflight_duration.txt';
+  try {
+    await ffmpeg.writeFile(input, await fetchFile(audioUrl));
+    const duration = await ffprobeDurationSeconds(ffmpeg, input, output);
+    if (!duration) throw new Error('Could not measure narration length before starting the video.');
+    return duration;
+  } finally {
+    await cleanupFfmpegFiles(ffmpeg, [input, output]);
+  }
 };
 
 // Both the budget Veo path and the Khmer presenter path use one opening image.
@@ -1061,6 +1079,17 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   const [aiCaption, setAiCaption] = useState('');
   const [captionLanguage, setCaptionLanguage] = useState<'Khmer' | 'English'>('Khmer');
   const [isGeneratingCaption, setIsGeneratingCaption] = useState(false);
+  const captionProfileVersionRef = React.useRef(0);
+
+  React.useEffect(() => {
+    const clearPreviousProfileCaption = () => {
+      captionProfileVersionRef.current += 1;
+      setAiCaption('');
+      setIsGeneratingCaption(false);
+    };
+    window.addEventListener('business-profile-updated', clearPreviousProfileCaption);
+    return () => window.removeEventListener('business-profile-updated', clearPreviousProfileCaption);
+  }, []);
   const [isPostingTikTok, setIsPostingTikTok] = useState(false);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [tiktokUser, setTiktokUser] = useState<any>(null);
@@ -1193,6 +1222,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
 
   const generateCaptionForPlatform = async (platform: 'TikTok' | 'YouTube') => {
     if (!videoPrompt) return '';
+    const profileVersion = captionProfileVersionRef.current;
     setCaptionPlatform(platform);
     setIsGeneratingCaption(true);
     try {
@@ -1205,16 +1235,18 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         businessContext,
       });
       const data = await response.json();
+      if (profileVersion !== captionProfileVersionRef.current) return '';
       if (!response.ok) throw new Error(data.error || 'Failed to generate caption.');
       const generatedCaption = String(data.text || '').trim();
       setAiCaption(generatedCaption);
       return generatedCaption;
     } catch (error) {
+      if (profileVersion !== captionProfileVersionRef.current) return '';
       console.error("Caption error:", error);
       notify("Failed to generate caption.", 'error');
       return '';
     } finally {
-      setIsGeneratingCaption(false);
+      if (profileVersion === captionProfileVersionRef.current) setIsGeneratingCaption(false);
     }
   };
 
@@ -1443,16 +1475,31 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       let video = await pollPendingVideoJob(currentJob, idToken);
       if (currentJob.resumeNarration) {
         const narration = currentJob.resumeNarration;
-        const ttsResponse = await fetchAiWithTimeout({
-          action: 'ttsGenerate',
-          input: narration.text,
-          voice: narration.voice,
-          languageHint: narration.languageHint,
-          performanceStyle: narration.performanceStyle,
-        }, TTS_FETCH_TIMEOUT_MS);
-        const ttsData = await ttsResponse.json();
-        if (!ttsResponse.ok || !ttsData.audioUrl) throw new Error(ttsData.error || 'Could not restore video narration.');
-        video = await applyVoiceOver(video, ttsData.audioUrl, 1);
+        let audioUrl = narration.audioUrl;
+        if (!audioUrl) {
+          // Jobs created before narration preflight have no saved audio URL.
+          const ttsResponse = await fetchAiWithTimeout({
+            action: 'ttsGenerate',
+            input: narration.text,
+            voice: narration.voice,
+            languageHint: narration.languageHint,
+            performanceStyle: narration.performanceStyle,
+          }, TTS_FETCH_TIMEOUT_MS);
+          const ttsData = await ttsResponse.json();
+          if (!ttsResponse.ok || !ttsData.audioUrl) throw new Error(ttsData.error || 'Could not restore video narration.');
+          audioUrl = ttsData.audioUrl;
+        }
+        video = await applyVoiceOver(video, audioUrl, 1,
+          narration.duration && currentJob.outputDuration
+            ? { audio: narration.duration, video: currentJob.outputDuration }
+            : undefined);
+      }
+      if (currentJob.imageFallbackReason && currentJob.expectedScript) {
+        try {
+          video = (await trimVideoAfterSpeech(video)).videoDataUrl;
+        } catch (trimError) {
+          console.warn('Could not trim the fallback video after Khmer speech:', trimError);
+        }
       }
       let speechNeedsReview = false;
       if (currentJob.expectedScript) {
@@ -1616,6 +1663,17 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       // The scene-description language is independent of the spoken script.
       // Agent commands are often in English while requesting Khmer speech.
       const nativeKhmerSpeech = !silentRequested && /[\u1780-\u17ff]/u.test(voiceOverContent);
+      const narrationPersona = voicePersonas[generationVoicePersona];
+      const resumeNarration = voiceOverContent && !nativeKhmerSpeech
+        ? {
+          text: voiceOverContent,
+          voice: narrationPersona.openRouterVoice,
+          languageHint: 'English' as const,
+          performanceStyle: `${narrationPersona.style} Read the exact provided text like you are speaking in a real conversation, not reading a script. Use human emotion, natural rhythm, clear consonants, natural pacing. Avoid robotic or AI narration.`,
+          audioUrl: undefined as string | undefined,
+          duration: undefined as number | undefined,
+        }
+        : undefined;
       const audioDirection = nativeKhmerSpeech ? 'Khmer/Cambodian context. '
         : (voiceOverContent ? 'Visual footage only. No speech or dialogue; narration is added separately. ' : '');
       const prompt = `${audioDirection}${promptText || 'Create a realistic short marketing video from the uploaded reference image.'}${businessContext.businessName ? `\nThis marketing asset represents ${businessContext.businessName}. Do not render its name as AI-generated text; the app applies the saved logo afterward.` : ''}`;
@@ -1630,6 +1688,40 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       const spokenSegments = nativeKhmerSpeech && voiceOverContent
         ? (segments.length === 1 ? [voiceOverContent] : splitKhmerScript(voiceOverContent, segments))
         : null;
+      if (resumeNarration) {
+        const fingerprint = videoRequestFingerprint(
+          prompt, videoImages, segments[0], generationAspectRatio, undefined,
+          { silentRequested, resumeNarration },
+        );
+        const savedNarration = readPendingVideoJobs().find((job) => job.userId === user.uid && job.fingerprint === fingerprint)?.resumeNarration
+          || readPendingVideoStarts().find((start) => start.userId === user.uid && start.fingerprint === fingerprint)?.resumeNarration;
+        if (savedNarration?.audioUrl && savedNarration.duration) {
+          resumeNarration.audioUrl = savedNarration.audioUrl;
+          resumeNarration.duration = savedNarration.duration;
+        }
+      }
+      if (resumeNarration && !resumeNarration.audioUrl) {
+        // Generate and measure the actual track before any paid video request.
+        // A word-count estimate cannot reliably predict the TTS delivery time.
+        const ttsResponse = await fetchAiWithTimeout({
+          action: 'ttsGenerate',
+          input: resumeNarration.text,
+          voice: resumeNarration.voice,
+          languageHint: resumeNarration.languageHint,
+          performanceStyle: resumeNarration.performanceStyle,
+        }, TTS_FETCH_TIMEOUT_MS);
+        const ttsData = await ttsResponse.json().catch(() => ({}));
+        if (!ttsResponse.ok || !ttsData.audioUrl) throw new Error(ttsData.error || 'Could not prepare video narration.');
+        const narrationDuration = await measureNarrationDuration(ttsData.audioUrl);
+        if (narrationDuration > segments[0] + 0.1) {
+          throw new Error(`Narration is ${narrationDuration.toFixed(1)} seconds, longer than the ${segments[0]}-second video. Shorten the script before generating.`);
+        }
+        resumeNarration.duration = narrationDuration;
+        resumeNarration.audioUrl = await uploadMediaDirectly(
+          ttsData.audioUrl, idToken,
+          /^data:audio\/(?:wav|x-wav)/i.test(ttsData.audioUrl) ? 'video-narration.wav' : 'video-narration.mp3',
+        );
+      }
       const clipUrls: string[] = [];
       let referenceImages = videoImages;
       for (let i = 0; i < segments.length; i += 1) {
@@ -1658,14 +1750,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
           user.uid,
           {
             silentRequested,
-            resumeNarration: voiceOverContent && !nativeKhmerSpeech
-              ? {
-                text: voiceOverContent,
-                voice: voicePersonas[generationVoicePersona].openRouterVoice,
-                languageHint: /[\u1780-\u17FF]/u.test(voiceOverContent) ? 'Khmer' : 'English',
-                performanceStyle: `${voicePersonas[generationVoicePersona].style} Read the exact provided text like you are speaking in a real conversation, not reading a script. Use human emotion, natural rhythm, clear consonants, natural pacing. Avoid robotic or AI narration.`,
-              }
-              : undefined,
+            resumeNarration,
           },
           typeof promptOverride === 'string' ? () => {
             setAutomationNoticeKind('pending');
@@ -1685,6 +1770,14 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         lastGeneratedClip = clip;
         if (generatedClip.narrationFallbackReason) usedKhmerVoiceFallback = true;
         if (generatedClip.imageFallbackReason) usedImageFallback = true;
+        if (generatedClip.imageFallbackReason && generatedClip.expectedScript) {
+          try {
+            clip = (await trimVideoAfterSpeech(clip)).videoDataUrl;
+            lastGeneratedClip = clip;
+          } catch (trimError) {
+            console.warn('Could not trim the fallback video after Khmer speech:', trimError);
+          }
+        }
         // A fully silent result can be muted reliably by ImageKit after the
         // final upload. Only mixed spoken/silent segment videos still need a
         // per-segment browser edit before concatenation.
@@ -1695,6 +1788,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
           } catch (error) {
             console.warn('Automatic speech verification needs manual review:', error);
             setGeneratedVideo(clip);
+            setGeneratedVideoHasSpeech(true);
             setRetainedClips([...clipUrls, clip]);
             setVideoNeedsReview(true);
             if (typeof promptOverride === 'string') {
@@ -1752,27 +1846,9 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       if (voiceOverContent && !nativeKhmerSpeech) {
         setAddingVoiceOver(true);
         try {
-          const persona = voicePersonas[generationVoicePersona];
-          const hasKhmerText = /[ក-៿]/.test(voiceOverContent);
-          const ttsResponse = await fetchAiWithTimeout({
-            action: 'ttsGenerate',
-            input: voiceOverContent,
-            voice: persona.openRouterVoice,
-            languageHint: hasKhmerText ? 'Khmer' : 'English',
-            performanceStyle: `${persona.style} Read the exact provided text like you are speaking in a real conversation, not reading a script. Use human emotion, natural rhythm, clear consonants, natural pacing. Avoid robotic or AI narration.`,
-          }, TTS_FETCH_TIMEOUT_MS);
-          const ttsData = await ttsResponse.json();
-          if (ttsResponse.ok && ttsData.audioUrl) {
-            // Preserve natural speech speed; never rush or truncate Khmer words.
-            video = await applyVoiceOver(video, ttsData.audioUrl, 1);
-            if (ttsData.fallbackReason && hasKhmerText) {
-              setVideoVoiceQualityNotice(language === 'km'
-                ? 'វីដេអូនេះប្រើសំឡេងខ្មែរស្តង់ដារ។ សំឡេងខ្មែរធម្មជាតិមិនទាន់បានភ្ជាប់នៅឡើយ។'
-                : 'This video uses standard Khmer speech. Natural Khmer voices have not been connected yet.');
-            }
-          } else {
-            throw new Error(ttsData.error || 'Could not generate narration.');
-          }
+          if (!resumeNarration?.audioUrl) throw new Error('Prepared narration was not saved. Resume this video job.');
+          // Mux the exact track measured before the paid render.
+          video = await applyVoiceOver(video, resumeNarration.audioUrl, 1);
         } finally {
           setAddingVoiceOver(false);
         }

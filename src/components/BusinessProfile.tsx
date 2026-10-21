@@ -71,14 +71,6 @@ const resizeImageToDataUrl = (file: File, maxDimension: number = LOGO_MAX_DIMENS
 
 const INTRO_FILE_MAX_BYTES = 8 * 1024 * 1024;
 
-const readFileAsDataUrl = (file: File): Promise<string> =>
-  new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error('Could not read this file.'));
-    reader.onload = () => resolve(reader.result as string);
-    reader.readAsDataURL(file);
-  });
-
 interface BusinessProfileProps {
   onClose: () => void;
 }
@@ -99,6 +91,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
   const [botStatusMessage, setBotStatusMessage] = useState<string | null>(null);
 
   const [businessName, setBusinessName] = useState('');
+  const [savedBusinessName, setSavedBusinessName] = useState('');
   const [businessDescription, setBusinessDescription] = useState('');
   const [logoDataUrl, setLogoDataUrl] = useState('');
   const [directory, setDirectory] = useState<BusinessDirectoryEntry[]>([]);
@@ -125,6 +118,8 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
   // paste) -- persisted on the next normal Save Profile, same as
   // businessDescription itself.
   const [businessDocumentKnowledge, setBusinessDocumentKnowledge] = useState('');
+  const [profileFiles, setProfileFiles] = useState<Array<{ id: string; name: string; size: number; createdAt: string }>>([]);
+  const [fileStatus, setFileStatus] = useState<string | null>(null);
 
   const [entryName, setEntryName] = useState('');
   const [entryType, setEntryType] = useState<'COMPANY' | 'INDIVIDUAL'>('COMPANY');
@@ -141,11 +136,13 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
     const load = async () => {
       setLoading(true);
       setBusinessName(''); setBusinessDescription(''); setLogoDataUrl(''); setDirectory([]); setProductImages([]);
+      setSavedBusinessName('');
       setTelegramBotToken(''); setTelegramChatId(''); setTelegramChannelUrl('');
       setSavedTelegramBotToken('');
       setTiktokHandle(''); setFacebookPageUrl(''); setWebsiteUrl(''); setLinkedinUrl(''); setTelegramBotActive(false);
       setBusinessKnowledgeBase(''); setBusinessKnowledgeBaseSources([]); setBusinessKnowledgeBaseUpdatedAt(0); setKnowledgeRefreshError(null);
       setBusinessDocumentKnowledge('');
+      setProfileFiles([]);
       try {
         if (isDemoMode || !user) {
           const local = getLocalProfile();
@@ -168,11 +165,18 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
           setBusinessKnowledgeBaseUpdatedAt(local.businessKnowledgeBaseUpdatedAt || 0);
           setBusinessDocumentKnowledge(local.businessDocumentKnowledge || '');
         } else {
+          const idToken = await user.getIdToken();
+          const filesResponse = await fetch('/api/ai?profileFiles=1', { headers: { Authorization: `Bearer ${idToken}` } });
+          if (filesResponse.ok) {
+            const listed = await filesResponse.json();
+            if (!cancelled) setProfileFiles(Array.isArray(listed.files) ? listed.files : []);
+          }
           const snap = await getDoc(doc(db, 'business_profiles', user.uid));
           if (cancelled) return;
           if (snap.exists()) {
             const data = snap.data() as BusinessProfileData & { telegramBotActive?: boolean };
             setBusinessName(data.businessName || '');
+            setSavedBusinessName(data.businessName || '');
             setBusinessDescription(data.businessDescription || '');
             setLogoDataUrl(data.logoDataUrl || '');
             setDirectory(data.directory || []);
@@ -285,24 +289,81 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
       setError(language === 'km' ? 'ឯកសារនេះធំពេក (កំណត់ត្រឹម ៨MB)។' : 'That file is too large (8 MB limit).');
       return;
     }
+    if (isDemoMode || !user) {
+      setError(language === 'km' ? 'សូមចូលគណនី ដើម្បីរក្សាទុក file ដើម។' : 'Sign in to save the original file.');
+      return;
+    }
     setIntroUploading(true);
     setError(null);
+    setFileStatus(null);
     try {
-      const fileDataUrl = await readFileAsDataUrl(file);
-      const response = await withUploadTimeout(fetch('/api/ai', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'extractBusinessIntro', fileDataUrl, fileName: file.name, language }),
-      }));
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || 'Could not read this file.');
-      setBusinessDescription(String(data.businessDescription || ''));
-      setBusinessDocumentKnowledge(String(data.businessDocumentKnowledge || ''));
+      {
+        const idToken = await user.getIdToken();
+        const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` };
+        const authResponse = await fetch('/api/ai?profileFiles=1&action=auth', { method: 'POST', headers });
+        const auth = await authResponse.json().catch(() => ({}));
+        if (!authResponse.ok) throw new Error(auth.error || 'Could not prepare file storage.');
+        const form = new FormData();
+        form.set('file', file);
+        form.set('fileName', file.name);
+        form.set('publicKey', auth.publicKey);
+        form.set('token', auth.token);
+        form.set('expire', String(auth.expire));
+        form.set('signature', auth.signature);
+        form.set('folder', auth.folder);
+        form.set('isPrivateFile', 'true');
+        form.set('useUniqueFileName', 'true');
+        const uploadedResponse = await withUploadTimeout(fetch(auth.uploadUrl, { method: 'POST', body: form }));
+        const uploaded = await uploadedResponse.json().catch(() => ({}));
+        if (!uploadedResponse.ok || !uploaded.fileId) throw new Error(uploaded.message || 'Could not upload file.');
+        const finalizedResponse = await fetch('/api/ai?profileFiles=1&action=finalize', {
+          method: 'POST', headers, body: JSON.stringify({ fileId: uploaded.fileId, name: file.name }),
+        });
+        const finalized = await finalizedResponse.json().catch(() => ({}));
+        if (!finalizedResponse.ok) throw new Error(finalized.error || 'Could not save file to this profile.');
+        setProfileFiles((current) => [finalized.file, ...current.filter((item) => item.id !== finalized.file.id)]);
+        setFileStatus(language === 'km' ? 'បានរក្សាទុក file ដើមជាឯកជនក្នុងគណនីនេះ។' : 'Original file saved privately to this account.');
+        const extractResponse = await fetch('/api/ai?profileFiles=1&action=extract', {
+          method: 'POST', headers, body: JSON.stringify({ fileId: uploaded.fileId }),
+        });
+        const extracted = await extractResponse.json().catch(() => ({}));
+        if (extractResponse.ok) {
+          setBusinessDocumentKnowledge(String(extracted.businessDocumentKnowledge || ''));
+          setFileStatus(language === 'km' ? 'បានរក្សាទុក file ដើម និងខ្លឹមសារសម្រាប់ Agent។' : 'Original file and Agent knowledge saved.');
+          notifyBusinessProfileUpdated(user.uid);
+        } else {
+          setFileStatus(language === 'km'
+            ? 'បានរក្សាទុក file ដើម។ មិនអាចអានខ្លឹមសារសម្រាប់ Agent បាន៖ ' + (extracted.error || '')
+            : 'Original file saved. Agent could not read its contents: ' + (extracted.error || 'Unsupported file.'));
+        }
+      }
     } catch (err: any) {
       setError(err.message || t('businessProfileLoadError'));
     } finally {
       setIntroUploading(false);
     }
+  };
+
+  const downloadProfileFile = async (fileId: string) => {
+    if (!user) return;
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch(`/api/ai?profileFiles=1&action=download&fileId=${encodeURIComponent(fileId)}`, { headers: { Authorization: `Bearer ${token}` } });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Could not download file.');
+      window.open(result.url, '_blank', 'noopener,noreferrer');
+    } catch (err: any) { setError(err.message || 'Could not download file.'); }
+  };
+
+  const deleteProfileFile = async (fileId: string) => {
+    if (!user) return;
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch(`/api/ai?profileFiles=1&action=delete&fileId=${encodeURIComponent(fileId)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Could not delete file.');
+      setProfileFiles((current) => current.filter((item) => item.id !== fileId));
+    } catch (err: any) { setError(err.message || 'Could not delete file.'); }
   };
 
   const handleWebsiteIntroSubmit = async () => {
@@ -387,7 +448,19 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
     setDirectory((prev) => prev.filter((entry) => entry.id !== id));
   };
 
+  const handleUpdateEntry = (id: string, changes: Partial<Pick<BusinessDirectoryEntry, 'name' | 'type'>>) => {
+    setDirectory((prev) => prev.map((entry) => entry.id === id ? { ...entry, ...changes } : entry));
+  };
+
   const handleSave = async () => {
+    if (savedBusinessName && !businessName.trim()) {
+      setError(language === 'km' ? 'សូមបញ្ចូលឈ្មោះអាជីវកម្ម មុនពេលរក្សាទុក។' : 'Enter a business name before saving.');
+      return;
+    }
+    if (directory.some((entry) => !entry.name.trim())) {
+      setError(language === 'km' ? 'សូមបញ្ចូលឈ្មោះសម្រាប់គ្រប់ជួរក្នុងបញ្ជី។' : 'Enter a name for every directory entry.');
+      return;
+    }
     const channelInput = telegramChannelUrl.trim();
     const channelUsername = channelUsernameFromProfile(channelInput);
     if (channelInput && !channelUsername) {
@@ -429,7 +502,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
       businessKnowledgeBaseSources,
       businessKnowledgeBaseUpdatedAt,
       logoDataUrl,
-      directory,
+      directory: directory.map((entry) => ({ ...entry, name: entry.name.trim() })),
       productImages: productImages.map((image) => ({ ...image, label: image.label.trim().slice(0, 60) })),
       telegramBotToken: telegramBotToken.trim(),
       telegramChatId: telegramChatId.trim(),
@@ -470,6 +543,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
         });
       }
       setSavedTelegramBotToken(profile.telegramBotToken);
+      if (user && !isDemoMode) setSavedBusinessName(profile.businessName);
       setSaved(true);
       notifyBusinessProfileUpdated(user?.uid || 'demo');
       setTimeout(() => setSaved(false), 3000);
@@ -578,9 +652,17 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
                 type="text"
                 value={businessName}
                 onChange={(e) => setBusinessName(e.target.value)}
+                maxLength={200}
                 placeholder={t('businessNamePlaceholder')}
                 className="w-full px-4 py-3 bg-brand-50 border border-brand-100 dark:bg-slate-800 dark:border-slate-700 rounded-2xl text-sm text-brand-700 dark:text-slate-100 focus:outline-none focus:ring-2 ring-brand-500/20"
               />
+              {user && !isDemoMode && savedBusinessName && (
+                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                  {language === 'km'
+                    ? 'អ្នកអាចកែឈ្មោះក្រុមហ៊ុននេះបាន។ កំណត់ត្រាដែលបានបង្កើតរួចនៅតែភ្ជាប់នឹងគណនីនេះ។'
+                    : 'You can edit this company name. Existing records remain linked to this account.'}
+                </p>
+              )}
             </div>
 
             <div>
@@ -606,12 +688,26 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
                 {introUploading ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
                 {introUploading
                   ? (language === 'km' ? 'កំពុងអាន...' : 'Reading file...')
-                  : (language === 'km' ? 'ឬ Upload ឯកសារណែនាំក្រុមហ៊ុន (.txt, .pdf, .docx, .json, .js, .html...)' : 'Or upload a company intro file (.txt, .pdf, .docx, .json, .js, .html...)')}
+                  : (language === 'km' ? 'ឬ Upload ឯកសារណែនាំក្រុមហ៊ុន (.txt, .pdf, .docx, .xlsx, .csv...)' : 'Or upload a company intro file (.txt, .pdf, .docx, .xlsx, .csv...)')}
               </button>
+              {fileStatus && <p className="mt-2 text-xs text-emerald-600 dark:text-emerald-400">{fileStatus}</p>}
+              {profileFiles.length > 0 && (
+                <div className="mt-3 space-y-2" aria-label="Saved business files">
+                  <p className="text-xs font-bold text-brand-700 dark:text-slate-200">{language === 'km' ? 'ឯកសារដើមដែលបានរក្សាទុក' : 'Saved original files'}</p>
+                  {profileFiles.map((item) => (
+                    <div key={item.id} className="flex items-center gap-2 rounded-xl bg-brand-50 dark:bg-slate-800 px-3 py-2 text-xs">
+                      <FileText size={14} className="shrink-0" />
+                      <span className="min-w-0 flex-1 truncate" title={item.name}>{item.name} ({Math.ceil(item.size / 1024)} KB)</span>
+                      <button type="button" onClick={() => downloadProfileFile(item.id)} className="font-bold text-brand-700 dark:text-brand-300">{language === 'km' ? 'ទាញយក' : 'Download'}</button>
+                      <button type="button" onClick={() => deleteProfileFile(item.id)} aria-label={`Delete ${item.name}`} className="text-red-600"><Trash2 size={14} /></button>
+                    </div>
+                  ))}
+                </div>
+              )}
               {businessDocumentKnowledge && !introUploading && (
                 <p className="mt-1.5 flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
                   <CheckCircle2 size={13} />
-                  {language === 'km' ? 'Agent បានអានព័ត៌មានលម្អិតពីឯកសារ/តំណនេះ -- ចុច រក្សាទុកព័ត៌មាន ដើម្បីរក្សាទុក' : 'Agent read detailed information from this file/link -- click Save Profile to keep it'}
+                  {language === 'km' ? 'Agent បានរក្សាទុកខ្លឹមសារពីឯកសារនេះ។' : 'Agent knowledge from this file is saved.'}
                 </p>
               )}
             </div>
@@ -737,6 +833,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
                   type="text"
                   value={entryName}
                   onChange={(e) => setEntryName(e.target.value)}
+                  maxLength={200}
                   onKeyDown={(e) => e.key === 'Enter' && handleAddEntry()}
                   placeholder={t('entryNamePlaceholder')}
                   className="flex-1 px-4 py-2.5 bg-brand-50 border border-brand-100 dark:bg-slate-800 dark:border-slate-700 rounded-xl text-sm text-brand-700 dark:text-slate-100 focus:outline-none focus:ring-2 ring-brand-500/20"
@@ -771,11 +868,24 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
                         <div className="p-2 rounded-lg bg-white dark:bg-slate-900 text-brand-500 shrink-0">
                           {entry.type === 'COMPANY' ? <Building2 size={16} /> : <User size={16} />}
                         </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-brand-700 dark:text-slate-100 line-clamp-1">{entry.name}</p>
-                          <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold">
-                            {entry.type === 'COMPANY' ? t('entryTypeCompany') : t('entryTypeIndividual')}
-                          </p>
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <input
+                            type="text"
+                            value={entry.name}
+                            onChange={(event) => handleUpdateEntry(entry.id, { name: event.target.value })}
+                            maxLength={200}
+                            aria-label={language === 'km' ? 'កែឈ្មោះក្នុងបញ្ជី' : 'Edit directory name'}
+                            className="w-full rounded-lg border border-brand-100 bg-white px-2 py-1 text-sm font-medium text-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                          />
+                          <select
+                            value={entry.type}
+                            onChange={(event) => handleUpdateEntry(entry.id, { type: event.target.value as BusinessDirectoryEntry['type'] })}
+                            aria-label={language === 'km' ? 'កែប្រភេទក្នុងបញ្ជី' : 'Edit directory type'}
+                            className="w-full rounded-lg border border-brand-100 bg-white px-2 py-1 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                          >
+                            <option value="COMPANY">{t('entryTypeCompany')}</option>
+                            <option value="INDIVIDUAL">{t('entryTypeIndividual')}</option>
+                          </select>
                         </div>
                       </div>
                       <button

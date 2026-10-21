@@ -109,6 +109,11 @@ export async function extractWebsiteText({ url }) {
     .replace(/[ \t]+/g, ' ')
     .replace(/\n\s*\n+/g, '\n')
     .trim();
-  if (!trimmed) throw typedError('No readable text was found on this page.', 'no_text_found');
-  return { text: trimmed.slice(0, MAX_EXTRACTED_CHARS), title, url: pageUrl, links: [...new Set(links)].slice(0, 30) };
+  const metaDescriptionTag = [...html.matchAll(/<meta\b[^>]*>/gi)].map(([tag]) => tag)
+    .find((tag) => /(?:property|name)\s*=\s*["'](?:og:description|description)["']/i.test(tag));
+  const metaDescription = metaDescriptionTag
+    ? decodeHtmlEntities(metaDescriptionTag.match(/content\s*=\s*["']([^"']*)["']/i)?.[1] || '').replace(/\s+/g, ' ').trim()
+    : '';
+  if (!trimmed && !metaDescription) throw typedError('No readable text was found on this page.', 'no_text_found');
+  return { text: (trimmed || metaDescription).slice(0, MAX_EXTRACTED_CHARS), title, url: pageUrl, links: [...new Set(links)].slice(0, 30), metadataOnly: !trimmed };
 }

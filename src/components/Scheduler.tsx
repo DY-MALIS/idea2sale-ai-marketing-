@@ -9,7 +9,7 @@ import { format, isAfter, parseISO, addHours, subHours } from 'date-fns';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { deleteLocalMedia, getLocalMediaBlob, getLocalMediaDataUrl } from '../lib/localMediaStore';
-import { getDemoScheduledPosts, getStoredScheduledPosts, mergeStoredScheduleHistory, wasDemoModeThisSession } from '../lib/scheduledPosts';
+import { getDemoBusinessName, getDemoScheduledPosts, getStoredScheduledPosts, mergeStoredScheduleHistory } from '../lib/scheduledPosts';
 import { recordAuditEvent } from '../lib/auditClient';
 import { withUploadTimeout } from '../lib/withUploadTimeout';
 import { requireTikTokAutomationConnection, requireYouTubeAutomationConnection } from '../lib/tiktokConnection';
@@ -21,13 +21,17 @@ const getLocalScheduledPosts = (): SchedulePost[] => {
 };
 
 const saveLocalScheduledPosts = (posts: SchedulePost[]) => {
+  const currentBusiness = getDemoBusinessName();
+  const otherBusinesses = getStoredScheduledPosts().filter(p =>
+    p.userId === 'demo-user' && p.businessName !== currentBusiness
+  );
   const compactPosts = posts
     .filter(p => !DEMO_DEFAULT_POST_IDS.includes(p.id))
     .map(({ mediaDataUrl, ...post }) => post);
   localStorage.removeItem('demo_scheduled_posts');
   localStorage.setItem(
     'demo_scheduled_posts',
-    JSON.stringify(compactPosts)
+    JSON.stringify([...compactPosts, ...otherBusinesses])
   );
 };
 
@@ -80,11 +84,13 @@ const Scheduler: React.FC = () => {
         createdAt: subHours(now, 24).toISOString()
       }
     ];
-    return sortScheduledPosts([...savedPosts, ...defaultPosts]);
+    return sortScheduledPosts(getDemoBusinessName() ? savedPosts : [...savedPosts, ...defaultPosts]);
   };
 
   useEffect(() => {
     let unsubscribe: () => void;
+    setPosts([]);
+    setLoading(true);
 
     const userToUse = user || (isDemoMode ? { uid: 'demo-user' } : null);
 
@@ -94,7 +100,11 @@ const Scheduler: React.FC = () => {
         refreshDemoPosts();
         setLoading(false);
         window.addEventListener('demo-scheduled-posts-updated', refreshDemoPosts);
-        unsubscribe = () => window.removeEventListener('demo-scheduled-posts-updated', refreshDemoPosts);
+        window.addEventListener('business-profile-updated', refreshDemoPosts);
+        unsubscribe = () => {
+          window.removeEventListener('demo-scheduled-posts-updated', refreshDemoPosts);
+          window.removeEventListener('business-profile-updated', refreshDemoPosts);
+        };
       } else {
         // The regular timeline always shows the signed-in owner's posts,
         // including when that owner also has administrator access.
@@ -140,26 +150,6 @@ const Scheduler: React.FC = () => {
     return () => {
       if (unsubscribe) unsubscribe();
     };
-  }, [user, isDemoMode]);
-
-  useEffect(() => {
-    if (!user || isDemoMode) return;
-
-    const demoCarryOverAllowed = wasDemoModeThisSession();
-    const savedPosts = getLocalScheduledPosts();
-    let changed = false;
-    const claimedPosts = savedPosts.map((post) => {
-      if (post.localOnly && (!post.userId || (post.userId === 'demo-user' && demoCarryOverAllowed))) {
-        changed = true;
-        return { ...post, userId: user.uid };
-      }
-      return post;
-    });
-
-    if (changed) {
-      saveLocalScheduledPosts(claimedPosts);
-      window.dispatchEvent(new Event('demo-scheduled-posts-updated'));
-    }
   }, [user, isDemoMode]);
 
   useEffect(() => {

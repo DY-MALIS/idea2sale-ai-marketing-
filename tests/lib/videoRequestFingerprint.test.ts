@@ -26,6 +26,7 @@ it('keeps separate recovered videos for different English narration', () => {
   const original = videoRequestFingerprint(prompt, [], 4, '16:9', undefined, options);
   expect(videoRequestFingerprint(prompt, [], 4, '16:9', undefined, { resumeNarration: { ...options.resumeNarration, text: 'Goodbye' } })).not.toBe(original);
   expect(videoRequestFingerprint(prompt, [], 4, '16:9', undefined, { resumeNarration: { ...options.resumeNarration, voice: 'onyx' } })).not.toBe(original);
+  expect(videoRequestFingerprint(prompt, [], 4, '16:9', undefined, { resumeNarration: { ...options.resumeNarration, audioUrl: 'https://example.com/audio.wav', duration: 2.3 } })).toBe(original);
 });
 
 it('treats a changed product-image selection as a different request', () => {

@@ -1,7 +1,7 @@
 type SavedStart = {
   expectedScript?: string;
   silentRequested?: boolean;
-  resumeNarration?: { text: string; voice: string; languageHint: 'Khmer' | 'English'; performanceStyle: string };
+  resumeNarration?: { text: string; voice: string; languageHint: 'Khmer' | 'English'; performanceStyle: string; audioUrl?: string; duration?: number };
   aspectRatio?: string;
 };
 

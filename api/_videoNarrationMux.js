@@ -56,8 +56,9 @@ async function download(url) {
   return Buffer.concat(chunks);
 }
 
-// Map ONLY the original video stream and the separately generated Khmer audio.
-// Padding preserves the tail of the clip; no generated speech survives the mux.
+// Map only the original video stream and the separately generated Khmer audio.
+// Remove a long silent tail so a fallback presenter does not keep moving its
+// mouth after narration ends. No generated speech survives the mux.
 export async function replaceVideoNarration(videoUrl, audioUrl) {
   if (!ffmpegPath) throw new Error('Video narration assembly is unavailable on this platform.');
   const directory = await mkdtemp(join(tmpdir(), 'khmer-narration-'));
@@ -74,12 +75,16 @@ export async function replaceVideoNarration(videoUrl, audioUrl) {
     if (videoDuration != null && audioDuration != null && audioDuration > videoDuration + DURATION_GUARD_TOLERANCE_SECONDS) {
       throw new Error(`Khmer narration (${audioDuration.toFixed(2)}s) is longer than the generated video (${videoDuration.toFixed(2)}s). Regenerate the video instead of shipping cut-off speech.`);
     }
+    const cutAt = videoDuration != null && audioDuration != null
+      && videoDuration - (audioDuration + 0.2) >= 0.4
+      ? audioDuration + 0.2 : null;
     await run(ffmpegPath, [
       '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
       '-protocol_whitelist', 'file,pipe', '-i', videoPath,
       '-protocol_whitelist', 'file,pipe', '-i', audioPath,
       '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy',
       '-c:a', 'aac', '-b:a', '192k', '-af', 'apad', '-shortest',
+      ...(cutAt == null ? [] : ['-t', cutAt.toFixed(3)]),
       '-movflags', '+faststart', '-fs', String(MAX_BYTES), outputPath,
     ], { timeout: 60000, windowsHide: true, maxBuffer: 1024 * 1024 });
     const output = await readFile(outputPath);

@@ -195,6 +195,7 @@ export interface SchedulePost {
   scheduledTime: string;
   status: 'PENDING' | 'PROCESSING' | 'SUBMITTED' | 'PUBLISHED' | 'UPLOADED' | 'FAILED';
   userId: string;
+  businessName?: string;
   aiSuggested: boolean;
   publishMode?: string;
   mediaUrl?: string;

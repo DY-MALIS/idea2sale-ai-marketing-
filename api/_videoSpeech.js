@@ -131,7 +131,7 @@ export async function verifyUploadedVideoSpeech(videoUrl, expected, { waitForRet
       }
       continue;
     }
-    if (isUnreliableKhmerTranscript(transcript)) continue;
+    if (isUnreliableKhmerTranscript(transcript) || !/[\u1780-\u17ff]/u.test(transcript)) continue;
     const check = compareKhmerTranscript(expected, transcript);
     verification = { ...check, transcript, expected, method: 'transcript-comparison', naturalnessReviewed: false };
     if (check.passed) return verification;

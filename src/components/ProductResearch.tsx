@@ -36,6 +36,22 @@ const ProductResearch: React.FC = () => {
     const profileVersionRef = useRef(0);
 
     useEffect(() => {
+      profileVersionRef.current += 1;
+      setQueryInput(localStorage.getItem(storageKey('research_query')) || '');
+      setAnalysis(localStorage.getItem(storageKey('research_analysis')));
+      setResearchError(null);
+      setCompetitorInput('');
+      setCompetitorReport(null);
+      setCompetitorError(null);
+      setBrandInput('');
+      setSentimentReport(null);
+      setSentimentError(null);
+      setIsSearching(false);
+      setIsTrackingCompetitor(false);
+      setIsCheckingSentiment(false);
+    }, [user?.uid, isDemoMode]);
+
+    useEffect(() => {
       const clearOldResults = () => {
         profileVersionRef.current += 1;
         setAnalysis(null);

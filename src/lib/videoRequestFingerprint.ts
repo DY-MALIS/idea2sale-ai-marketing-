@@ -13,6 +13,8 @@ type ResumeOptions = {
     voice: string;
     languageHint: 'Khmer' | 'English';
     performanceStyle: string;
+    audioUrl?: string;
+    duration?: number;
   };
 };
 
@@ -31,7 +33,14 @@ export const videoRequestFingerprint = (
   const source = JSON.stringify({
     prompt, images, duration, aspectRatio, khmerSpeech,
     silentRequested: resumeOptions?.silentRequested,
-    resumeNarration: resumeOptions?.resumeNarration,
+    // The hosted audio URL changes on a safe retry. Identify the user's
+    // narration choice, not the particular upload of that same speech.
+    resumeNarration: resumeOptions?.resumeNarration && {
+      text: resumeOptions.resumeNarration.text,
+      voice: resumeOptions.resumeNarration.voice,
+      languageHint: resumeOptions.resumeNarration.languageHint,
+      performanceStyle: resumeOptions.resumeNarration.performanceStyle,
+    },
     productImageUrl,
   });
   let hash = 2166136261;

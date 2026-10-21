@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   Sparkles,
   Image as ImageIcon,
@@ -273,6 +273,17 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
   const [automationNotice, setAutomationNotice] = useState<string | null>(null);
   const [isGeneratingScheduleCaption, setIsGeneratingScheduleCaption] = useState(false);
   const handledAutomationRef = React.useRef<string | null>(null);
+  const profileVersionRef = useRef(0);
+
+  React.useEffect(() => {
+    const clearPreviousProfileImage = () => {
+      profileVersionRef.current += 1;
+      setGeneratedImage(null);
+      setLoading(false);
+    };
+    window.addEventListener('business-profile-updated', clearPreviousProfileImage);
+    return () => window.removeEventListener('business-profile-updated', clearPreviousProfileImage);
+  }, []);
 
   const imageHistory = useGenerationHistory(user, isDemoMode, 'image');
   const persistImageHistory = async (imageDataUrl: string, title: string, payload: Record<string, unknown>) => {
@@ -445,6 +456,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
     // request; whichever resolves last silently wins setGeneratedImage, with no
     // indication the other request was superseded.
     if (loading) return;
+    const profileVersion = profileVersionRef.current;
     setLoading(true);
     setGeneratedImage(null);
     try {
@@ -477,6 +489,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
       if (!response.ok) throw new Error(data.error || 'Image generation failed.');
       const withLogo = await applyLogoWatermark(data.imageUrl, businessContext.logoDataUrl);
       const finalImage = await overlayPosterText(withLogo, requestedDetails.headline, requestedDetails.cta);
+      if (profileVersion !== profileVersionRef.current) return;
       setGeneratedImage(finalImage);
       void persistImageHistory(finalImage, requestedDetails.headline || requestedPrompt, {
         tool: 'poster',
@@ -484,6 +497,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
         posterDetails: { ...requestedDetails, brand: effectiveBrand },
       });
     } catch (error: any) {
+      if (profileVersion !== profileVersionRef.current) return;
       console.error(error);
       if (error?.name === 'AbortError') {
         notify(
@@ -499,12 +513,13 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
       }
       notify(t('errorGeneratingPoster'), 'error');
     } finally {
-      setLoading(false);
+      if (profileVersion === profileVersionRef.current) setLoading(false);
     }
   };
 
   const handleGenerateImage = async (promptOverride?: string, aspectRatioOverride?: string) => {
     if (loading) return;
+    const profileVersion = profileVersionRef.current;
     const prompt = typeof promptOverride === 'string' ? promptOverride.trim() : visualPrompt.trim();
     const aspectRatio = typeof aspectRatioOverride === 'string' ? aspectRatioOverride : '1:1';
     if (!prompt) return;
@@ -519,9 +534,11 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Image generation failed.');
       const finalImage = await applyLogoWatermark(data.imageUrl, businessContext.logoDataUrl);
+      if (profileVersion !== profileVersionRef.current) return;
       setGeneratedImage(finalImage);
       void persistImageHistory(finalImage, prompt, { tool: 'visual', visualPrompt: prompt });
     } catch (error: any) {
+      if (profileVersion !== profileVersionRef.current) return;
       console.error(error);
       if (error?.name === 'AbortError') {
         notify(
@@ -537,7 +554,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
       }
       notify(t('errorGeneratingPoster'), 'error');
     } finally {
-      setLoading(false);
+      if (profileVersion === profileVersionRef.current) setLoading(false);
     }
   };
 

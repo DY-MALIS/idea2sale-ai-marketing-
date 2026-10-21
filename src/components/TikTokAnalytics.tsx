@@ -20,7 +20,7 @@ import { db } from '../lib/firebase';
 import { cn } from '../lib/utils';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
-import { getDemoScheduledPosts, mergeStoredScheduleHistory } from '../lib/scheduledPosts';
+import { getDemoBusinessName, getDemoScheduledPosts, mergeStoredScheduleHistory } from '../lib/scheduledPosts';
 import { useToast } from '../hooks/useToast';
 
 const getLocalTelegramPosts = () => {
@@ -28,7 +28,7 @@ const getLocalTelegramPosts = () => {
 };
 
 const TikTokAnalytics: React.FC = () => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const { user, isDemoMode } = useAuth();
   const { notify, ToastHost } = useToast();
   const accountRequestIdRef = useRef(0);
@@ -45,6 +45,7 @@ const TikTokAnalytics: React.FC = () => {
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [statsError, setStatsError] = useState<string | null>(null);
   const [statsErrorCode, setStatsErrorCode] = useState<string | null>(null);
+  const isTikTokNotConnected = statsErrorCode === 'not_connected' || publicStats?.source === 'not_connected';
   const [videos, setVideos] = useState<any[]>([]);
   const [videosLoading, setVideosLoading] = useState(true);
   const [videosMessage, setVideosMessage] = useState<string | null>(null);
@@ -190,14 +191,22 @@ const TikTokAnalytics: React.FC = () => {
       currentHandle = nextHandle;
       setHandle(nextHandle);
     };
+    let refreshDemoHandle: (() => void) | null = null;
     if (user && !isDemoMode) {
       unsubscribe = onSnapshot(doc(db, 'business_profiles', user.uid), (snapshot) => {
         updateProfileHandle(snapshot.exists() ? String(snapshot.data()?.tiktokHandle || '') : savedHandle);
       }, () => updateProfileHandle(savedHandle));
     } else {
-      setHandle(savedHandle);
+      refreshDemoHandle = () => {
+        try {
+          const profile = JSON.parse(localStorage.getItem('demo_business_profile') || 'null');
+          updateProfileHandle(getDemoBusinessName() ? String(profile?.tiktokHandle || '') : savedHandle);
+        } catch { updateProfileHandle(''); }
+      };
+      refreshDemoHandle();
+      window.addEventListener('business-profile-updated', refreshDemoHandle);
     }
-    const saved = localStorage.getItem(cacheKey('tiktok_stats'));
+    const saved = isDemoMode ? null : localStorage.getItem(cacheKey('tiktok_stats'));
     try { setPublicStats(saved ? JSON.parse(saved) : null); } catch { setPublicStats(null); }
     setVideos([]);
     setPosts([]);
@@ -205,7 +214,10 @@ const TikTokAnalytics: React.FC = () => {
     setStatsError(null);
     setStatsErrorCode(null);
     setLastUpdated(null);
-    return () => unsubscribe?.();
+    return () => {
+      unsubscribe?.();
+      if (refreshDemoHandle) window.removeEventListener('business-profile-updated', refreshDemoHandle);
+    };
   }, [user?.uid, isDemoMode]);
 
   const connectTikTok = async () => {
@@ -270,7 +282,11 @@ const TikTokAnalytics: React.FC = () => {
       setTelegramPosts(getLocalTelegramPosts());
       const refresh = () => setTelegramPosts(getLocalTelegramPosts());
       window.addEventListener('demo-scheduled-posts-updated', refresh);
-      return () => window.removeEventListener('demo-scheduled-posts-updated', refresh);
+      window.addEventListener('business-profile-updated', refresh);
+      return () => {
+        window.removeEventListener('demo-scheduled-posts-updated', refresh);
+        window.removeEventListener('business-profile-updated', refresh);
+      };
     }
 
     if (!user) {
@@ -320,10 +336,12 @@ const TikTokAnalytics: React.FC = () => {
           </h2>
           <div className="flex items-center gap-2 mt-2">
             <div className="flex items-center gap-2 px-3 py-1 bg-brand-50 dark:bg-slate-800 rounded-full border border-brand-100 dark:border-slate-700 relative group">
-              <div className="w-5 h-5 bg-brand-500 rounded-full flex items-center justify-center text-[10px] text-white font-bold">@</div>
-              <span className="text-sm font-bold text-brand-600">{handle}</span>
+              {handle ? <>
+                <div className="w-5 h-5 bg-brand-500 rounded-full flex items-center justify-center text-[10px] text-white font-bold">@</div>
+                <span className="text-sm font-bold text-brand-600">{handle}</span>
+              </> : <span className="text-sm font-bold text-brand-600">TikTok not connected</span>}
               
-              <button 
+              {user && <button
                 onClick={() => {
                   setTempHandle(handle);
                   setIsEditingHandle(true);
@@ -332,7 +350,7 @@ const TikTokAnalytics: React.FC = () => {
                 title={t('changeAccount')}
               >
                 <Settings2 size={14} />
-              </button>
+              </button>}
 
               <AnimatePresence>
                 {isEditingHandle && (
@@ -374,14 +392,14 @@ const TikTokAnalytics: React.FC = () => {
                 )}
               </AnimatePresence>
             </div>
-            <a
+            {handle && <a
               href={publicStats?.profileDeepLink || `https://www.tiktok.com/@${handle}`}
               target="_blank"
               rel="no-referrer"
               className="text-xs text-brand-400 hover:text-brand-600 underline font-medium"
             >
               {t('viewOnTikTok')}
-            </a>
+            </a>}
             {publicStats?.isVerified && (
               <span className="flex items-center gap-1 text-xs font-bold text-sky-500" title="TikTok verified account">
                 <BadgeCheck size={14} />
@@ -401,55 +419,56 @@ const TikTokAnalytics: React.FC = () => {
           </div>
           <button 
             onClick={fetchPublicStats}
-            disabled={syncing}
+            disabled={syncing || !user}
             className="p-3 bg-brand-50 dark:bg-slate-800 text-brand-600 dark:text-brand-400 rounded-2xl hover:bg-brand-100 dark:hover:bg-slate-700 transition-all disabled:opacity-50"
           >
             <RefreshCw size={20} className={cn(syncing && "animate-spin")} />
           </button>
-          <button
+          {user && publicStats?.source === 'tiktok_official_api' && <button
             onClick={disconnectTikTok}
             disabled={disconnecting}
             className="px-4 py-3 bg-brand-50 dark:bg-slate-800 text-brand-600 dark:text-brand-400 rounded-2xl font-bold hover:bg-brand-100 dark:hover:bg-slate-700 transition-all disabled:opacity-50"
           >
             {t('disconnectAccount')}
-          </button>
-          <button
+          </button>}
+          {user && <button
             onClick={connectTikTok}
             className="px-6 py-3 bg-black text-white rounded-2xl font-bold flex items-center gap-2 hover:bg-neutral-800 transition-all shadow-lg"
           >
             <RefreshCw size={18} />
             {t('reconnectAccount')}
-          </button>
+          </button>}
         </div>
       </header>
       <ToastHost />
+      {isDemoMode && <p className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-200">{language === 'km' ? 'សូមចូលគណនី និងភ្ជាប់ TikTok ដើម្បីមើលស្ថិតិ និងវីដេអូពិត។' : 'Sign in and connect TikTok to view live account statistics and videos.'}</p>}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         {[
           { 
             label: t('totalFollowers'), 
-            value: syncing ? '...' : (publicStats?.followers ?? '0'), 
+            value: syncing ? '...' : (publicStats?.followers ?? '—'),
             icon: Eye, 
             color: 'text-blue-500',
             bg: 'bg-blue-50 dark:bg-blue-900/30'
           },
           {
             label: t('totalLikes'),
-            value: syncing ? '...' : (publicStats?.likes ?? '0'),
+            value: syncing ? '...' : (publicStats?.likes ?? '—'),
             icon: Heart,
             color: 'text-rose-500',
             bg: 'bg-rose-50 dark:bg-rose-900/30'
           },
           {
             label: t('following'),
-            value: syncing ? '...' : (publicStats?.following ?? '0'),
+            value: syncing ? '...' : (publicStats?.following ?? '—'),
             icon: BarChart3,
             color: 'text-emerald-500',
             bg: 'bg-emerald-50 dark:bg-emerald-900/30'
           },
           {
             label: t('videoPosts'),
-            value: syncing ? '...' : (publicStats?.videoCount ?? '0'),
+            value: syncing ? '...' : (publicStats?.videoCount ?? '—'),
             icon: Share2,
             color: 'text-purple-500',
             bg: 'bg-purple-50 dark:bg-purple-900/30'
@@ -475,10 +494,10 @@ const TikTokAnalytics: React.FC = () => {
           <AlertCircle size={18} className="mt-0.5 shrink-0" />
           <div>
             <p className="font-bold">
-              {statsErrorCode === 'not_connected' ? 'TikTok account is not connected yet' : publicStats?.source === 'configured_public_fallback' ? 'Showing public fallback stats for now.' : publicStats?.canReadStats === false ? 'TikTok account connected. Statistics are waiting for approval.' : 'TikTok statistics are not available yet'}
+              {isTikTokNotConnected ? 'TikTok account is not connected yet' : publicStats?.source === 'configured_public_fallback' ? 'Showing public fallback stats for now.' : publicStats?.canReadStats === false ? 'TikTok account connected. Statistics are waiting for approval.' : 'TikTok statistics are not available yet'}
             </p>
             {(statsError || publicStats?.message) && <p>{statsError || publicStats?.message}</p>}
-            {statsErrorCode === 'not_connected' ? (
+            {isTikTokNotConnected ? (
               <p className="mt-1">Click <strong>Reconnect Account</strong> and authorize the TikTok account you want to connect.</p>
             ) : (
               <p className="mt-1">To show Followers, Likes, Following, and Video Posts, TikTok must approve <code>user.info.stats</code>. Login can still work with <code>user.info.basic</code>.</p>

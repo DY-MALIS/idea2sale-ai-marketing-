@@ -67,6 +67,10 @@ describe('Gemini Live browser connection', () => {
         name: 'read_public_website',
         description: expect.any(String),
         parameters: { type: 'OBJECT', properties: { url: { type: 'STRING', description: expect.any(String) } } },
+      }, {
+        name: 'read_connected_facebook_page',
+        description: expect.any(String),
+        parameters: { type: 'OBJECT', properties: {} },
       }] }],
       inputAudioTranscription: {},
       realtimeInputConfig: {

@@ -33,7 +33,7 @@ type TikTokCreator = {
 const MB = 1024 * 1024;
 const TELEGRAM_MEDIA_LIMIT_MB = 47;
 const DEMO_INLINE_MEDIA_LIMIT_MB = 3;
-const DEFAULT_HASHTAGS = '#foryou #foodies #aicafe';
+const DEFAULT_CONTENT = '';
 const LOCAL_POSTS_KEY = 'demo_scheduled_posts';
 const UPLOAD_TIMEOUT_MESSAGE = 'Upload is taking too long. Please check your internet connection or use a smaller video.';
 
@@ -82,7 +82,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   };
   
   // Form state
-  const [content, setContent] = useState(DEFAULT_HASHTAGS);
+  const [content, setContent] = useState(DEFAULT_CONTENT);
   // Per-platform caption override -- when empty/unset for a platform, that
   // platform's post falls back to the shared Content Draft above. Each
   // platform has its own caption conventions (TikTok short + hashtags,
@@ -493,7 +493,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     // alone; the creator can still remove destinations before submitting.
     setPlatforms(handoffRequest.kind === 'video'
       ? ['TIKTOK', 'FACEBOOK', 'YOUTUBE', 'TELEGRAM']
-      : ['FACEBOOK', 'TELEGRAM']);
+      : ['FACEBOOK']);
     setIsModalOpen(true);
     onHandoffConsumed?.(handoffRequest.id);
   }, [handoffRequest?.id]);
@@ -609,7 +609,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     pendingGroupIdRef.current = null;
     setCompletedPlatforms([]);
     setIsModalOpen(false);
-    setContent(DEFAULT_HASHTAGS);
+    setContent(DEFAULT_CONTENT);
     setPlatformCaptions({});
     setCustomizingCaptionFor({});
     setVideoFile(null);
@@ -633,6 +633,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   // so a combined TikTok + Telegram post shows up as two demo cards sharing
   // groupId, mirroring how the live path writes two scheduled_posts docs.
   const saveLocalSchedule = async (userId: string, scheduledDate: Date, platform: Platform, groupId: string) => {
+    const { businessName } = await getLatestBusinessBranding(user, isDemoMode);
     const postId = `${Date.now().toString()}-${platform}`;
     // Telegram can carry an image or video; TikTok and YouTube require a
     // video. Preserve the selected media for demo-mode schedule cards as well.
@@ -664,6 +665,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
       scheduledTime: scheduledDate.toISOString(),
       status: 'PENDING',
       userId,
+      businessName,
       aiSuggested: false,
       videoName: videoFile?.name || null,
       mediaDbKey,
@@ -705,16 +707,23 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
         : 'This image stays an image. Remove TikTok and YouTube from this schedule, or choose a video for all four destinations.');
       return;
     }
-    // Telegram can post text-only or media-only, so it's the one case where a
-    // blank caption is fine -- but only when it's the *sole* destination and
-    // has its own media, since a combined post still needs a caption/title
-    // for the other platform(s) it's also going to.
-    const telegramOnlyWithMedia = platforms.length === 1 && platforms[0] === 'TELEGRAM' && !!(telegramMediaFile || videoFile || hostedVideo || imageFile);
-    // A platform is fine with no caption only in the telegramOnlyWithMedia
-    // case above -- every other selected platform needs *some* resolved
-    // caption, whether that's its own override or the shared draft.
-    const missingCaption = platforms.some((p) => !captionFor(p) && !(p === 'TELEGRAM' && telegramOnlyWithMedia));
-    if (missingCaption || !scheduledTime || !userToUse || (requiresVideo && !videoFile && !hostedVideo)) {
+    // Telegram media and Facebook Page photos can be posted without a
+    // caption, including when the same photo goes to both destinations.
+    const telegramHasMedia = Boolean(telegramMediaFile || videoFile || hostedVideo || imageFile);
+    const missingCaption = platforms.some((p) => !captionFor(p)
+      && !(p === 'TELEGRAM' && telegramHasMedia)
+      && !(p === 'FACEBOOK' && imageFile));
+    if (missingCaption) {
+      setFormError(language === 'km'
+        ? 'សូមសរសេរខ្លឹមសារផុសសម្រាប់គោលដៅដែលបានជ្រើស។ រូបភាព Facebook និង Telegram អាចផុសដោយគ្មានអត្ថបទបាន។'
+        : 'Add post text for the selected destinations. Facebook photos and Telegram media can be scheduled without text.');
+      return;
+    }
+    if (requiresVideo && !videoFile && !hostedVideo) {
+      setFormError(language === 'km' ? 'គោលដៅដែលបានជ្រើសត្រូវការវីដេអូ។ សូមជ្រើសឯកសារវីដេអូ។' : 'The selected destination needs a video. Choose a video file.');
+      return;
+    }
+    if (!scheduledTime || !userToUse) {
       setFormError(t('fillAllFieldsErr'));
       return;
     }
@@ -1219,7 +1228,13 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                           if (nextFile.type.startsWith('image/')) {
                             setImageFile(nextFile);
                             setVideoFile(null);
-                            setPlatforms(['FACEBOOK', 'TELEGRAM']);
+                            // Keep the destinations the user chose. An image
+                            // cannot go to TikTok/YouTube, and adding an
+                            // unconfigured Telegram channel blocks Facebook.
+                            setPlatforms((current) => {
+                              const imageDestinations = current.filter((platform) => platform === 'FACEBOOK' || platform === 'TELEGRAM');
+                              return imageDestinations.length ? imageDestinations : ['FACEBOOK'];
+                            });
                           } else {
                             setVideoFile(nextFile);
                             setImageFile(null);
@@ -1247,7 +1262,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                       </div>
                       <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">
                         {imageFile
-                          ? (language === 'km' ? 'រូបភាពនេះនឹងផុសទៅ Facebook និង Telegram ដោយស្វ័យប្រវត្តិ។ TikTok និង YouTube ត្រូវការវីដេអូក្នុង Smart Schedule នេះ។' : 'This image automatically posts to Facebook and Telegram. TikTok and YouTube require a video in this scheduler.')
+                          ? (language === 'km' ? 'រូបភាពនេះអាចកំណត់ផុសទៅ Facebook ឬ Telegram ដែលអ្នកបានជ្រើស។ TikTok និង YouTube ត្រូវការវីដេអូ។' : 'This image can be scheduled to the Facebook or Telegram destinations you select. TikTok and YouTube require a video.')
                           : (language === 'km' ? 'វីដេអូនេះប្រើរួមគ្នាសម្រាប់កន្លែងដែលបានជ្រើស។ ' : 'The selected destinations share this video. ')}
                         {!imageFile && <>
                         {platforms.includes('YOUTUBE') && !platforms.includes('TIKTOK') && !platforms.includes('FACEBOOK')

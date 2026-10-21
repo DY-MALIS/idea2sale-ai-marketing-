@@ -29,6 +29,11 @@ const AITrainer: React.FC<AITrainerProps> = ({ onTrainingComplete }) => {
       return;
     }
 
+    if (isDemoMode) {
+      setError(t('signInToTrainError'));
+      return;
+    }
+
     if (!userToUse) {
       setError(t('signInToTrainError'));
       return;
@@ -37,18 +42,6 @@ const AITrainer: React.FC<AITrainerProps> = ({ onTrainingComplete }) => {
     setIsTraining(true);
     setError(null);
     setShowSuccess(false);
-
-    if (isDemoMode) {
-      // Simulate training success in demo mode
-      setTimeout(() => {
-        setDescription('');
-        setShowSuccess(true);
-        setTimeout(() => setShowSuccess(false), 5000);
-        onTrainingComplete();
-        setIsTraining(false);
-      }, 1500);
-      return;
-    }
 
     try {
       const dataPoints = await geminiService.trainAIOnActivity(description);

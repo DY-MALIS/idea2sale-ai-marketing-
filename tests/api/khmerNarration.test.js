@@ -31,14 +31,26 @@ it('uses the Khmer neural voice when STT returns numeric hallucinations instead 
   expect(audio.spokenText).toBe('សួស្តីអ្នកទាំងអស់គ្នា');
 });
 
-it('rejects a coherent English transcript from Gemini before selecting the Khmer neural voice', async () => {
+it('treats a wrong-script transcript as inconclusive before selecting the Khmer neural voice', async () => {
   mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,AAAA', provider: 'gemini' });
   mocks.transcribe.mockResolvedValue('Hello everyone, welcome to the festival today.');
   mocks.edge.mockResolvedValue({ audioUrl: 'data:audio/mpeg;base64,BBBB', provider: 'edge' });
 
   const audio = await generateKhmerSpeech({ input: 'សួស្តីអ្នកទាំងអស់គ្នា', targetDuration: 8 });
 
-  expect(mocks.gemini).toHaveBeenCalledTimes(2);
+  expect(mocks.gemini).toHaveBeenCalledTimes(1);
   expect(mocks.edge).toHaveBeenCalledTimes(1);
   expect(audio.provider).toBe('edge');
+});
+
+it('retains the unverified Gemini audio for review when wrong-script STT and Edge both fail', async () => {
+  mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,AAAA', provider: 'gemini' });
+  mocks.transcribe.mockResolvedValue('Rien, prends pas, c’est que j’ai 2000.');
+  mocks.edge.mockRejectedValue(new Error('Edge rate limited'));
+
+  const audio = await generateKhmerSpeech({ input: 'រៀនប្រើបច្ចេកវិទ្យាជាមួយយើង។', targetDuration: 4 });
+
+  expect(mocks.gemini).toHaveBeenCalledTimes(1);
+  expect(audio.provider).toBe('gemini');
+  expect(audio.fallbackReason).toMatch(/review the spoken language/i);
 });

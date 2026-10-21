@@ -114,6 +114,13 @@ it('rejects a page with no readable text', async () => {
   await expect(extractWebsiteText({ url: 'https://example.com/empty' })).rejects.toMatchObject({ code: 'no_text_found' });
 });
 
+it('reads public description metadata when a social Page has no server-rendered body', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => htmlResponse('<html><head><title>Example Cafe</title><meta property="og:description" content="Example Cafe. Coffee &amp; fresh food in Phnom Penh."></head><body><script>render()</script></body></html>')));
+  const page = await extractWebsiteText({ url: 'https://www.facebook.com/example.cafe/' });
+  expect(page.text).toBe('Example Cafe. Coffee & fresh food in Phnom Penh.');
+  expect(page.metadataOnly).toBe(true);
+});
+
 it('rejects a page larger than the size limit', async () => {
   const huge = `<html><body>${'a'.repeat(3 * 1024 * 1024 + 1)}</body></html>`;
   vi.stubGlobal('fetch', vi.fn(async () => htmlResponse(huge)));

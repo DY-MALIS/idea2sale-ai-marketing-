@@ -43,6 +43,13 @@ const matchesKhmerScript = async (audio, expectedScript) => {
         console.warn('Khmer speech transcription returned a numeric hallucination; treating this verification pass as unavailable.');
         return 'unavailable';
       }
+      // Chirp can render a real Khmer waveform as a fluent French sentence.
+      // A transcript without a Khmer character cannot prove what language the
+      // TTS spoke; keep the take for review if the backup voice also fails.
+      if (!/[\u1780-\u17ff]/u.test(transcript)) {
+        console.warn('Khmer speech transcription returned a different script; treating this verification pass as inconclusive.');
+        continue;
+      }
       gotTranscript = true;
       const comparison = compareKhmerTranscript(expectedScript, transcript);
       if (comparison.passed) return 'match';

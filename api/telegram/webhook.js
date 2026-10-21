@@ -35,17 +35,18 @@ export const replyRuleTriggerMatches = (text, trigger) => {
   return normalizedText.includes(normalizedTrigger);
 };
 
-// A per-user bot (see resolveBotContext) only matches that user's own rules --
-// reply_rules already carries userId for edit-ownership, but matching used to
-// ignore it and apply every rule to every bot. The shared bot (ownerId null)
-// keeps its original app-wide behavior unchanged, matching any rule.
+// Per-user bots match only their owner's rules. The shared bot matches only
+// rules explicitly designated for it by an admin. Querying all Telegram rules
+// here could send another company's private reply from the shared bot.
 export const findMatchingReplyRule = async (db, text, ownerId) => {
-  const base = db.collection('reply_rules').where('platform', '==', 'TELEGRAM');
-  const snapshot = await (ownerId ? base.where('userId', '==', ownerId) : base).limit(200).get();
+  const snapshot = await db.collection('reply_rules')
+    .where(ownerId ? 'userId' : 'sharedBot', '==', ownerId || true)
+    .limit(200).get();
   const matches = [];
 
   for (const doc of snapshot.docs) {
     const rule = doc.data() || {};
+    if (rule.platform !== 'TELEGRAM') continue;
     const triggers = splitReplyRuleTriggers(rule.trigger);
     const matchingTrigger = triggers
       .filter((trigger) => replyRuleTriggerMatches(text, trigger))

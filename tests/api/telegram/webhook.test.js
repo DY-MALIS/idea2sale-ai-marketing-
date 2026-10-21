@@ -171,8 +171,7 @@ describe('resolveOwnerBotToken', () => {
 describe('findMatchingReplyRule', () => {
   // A minimal chainable query stub: each .where() narrows the in-memory rule
   // list by an exact-match field/value, mirroring how the real Firestore
-  // query in findMatchingReplyRule chains .where('platform', ...) and,
-  // only when an ownerId is given, a second .where('userId', ...).
+  // query in findMatchingReplyRule filters by owner or the explicit shared-bot flag.
   const fakeRulesDb = (rules) => {
     const makeQuery = (filtered) => ({
       where: (field, _op, value) => makeQuery(filtered.filter((r) => r[field] === value)),
@@ -181,9 +180,18 @@ describe('findMatchingReplyRule', () => {
     return { collection: () => makeQuery(rules) };
   };
 
-  it('matches any rule for the shared bot (no ownerId), same as before this feature', async () => {
-    const db = fakeRulesDb([{ platform: 'TELEGRAM', trigger: 'price', response: 'It is $10', userId: 'someone-else' }]);
-    expect(await findMatchingReplyRule(db, 'what is the price?', null)).toBe('It is $10');
+  it('does not use another company’s private rule for the shared bot', async () => {
+    const db = fakeRulesDb([{ platform: 'TELEGRAM', trigger: 'price', response: 'Other company price', userId: 'someone-else' }]);
+    expect(await findMatchingReplyRule(db, 'what is the price?', null)).toBeNull();
+  });
+
+  it('uses only explicitly designated shared-bot rules', async () => {
+    const db = fakeRulesDb([
+      { platform: 'TELEGRAM', trigger: 'price', response: 'Private price', userId: 'owner-a' },
+      { platform: 'TELEGRAM', trigger: 'price', response: 'Shared price', userId: 'admin', sharedBot: true },
+      { platform: 'Facebook', trigger: 'price', response: 'Wrong platform', userId: 'admin', sharedBot: true },
+    ]);
+    expect(await findMatchingReplyRule(db, 'price please', null)).toBe('Shared price');
   });
 
   it("only matches the bot owner's own rules when an ownerId is given", async () => {

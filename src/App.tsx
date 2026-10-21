@@ -327,21 +327,13 @@ export default function App() {
                 <button type="button" onClick={() => setShowBusinessProfile(true)} className="rounded-xl px-3 py-2 font-semibold text-brand-700 hover:bg-brand-50 dark:text-brand-300 dark:hover:bg-slate-700">{language === 'km' ? 'កែប្រែ' : 'Edit'}</button>
               </div>
               <Suspense fallback={<div className="min-h-64 animate-pulse rounded-xl bg-white/60 dark:bg-slate-800/60" aria-label="Loading section" />}>
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={activeTab}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
-                  transition={{ duration: 0.3, ease: "easeOut" }}
-                >
+                <div key={activeTab}>
                   {/* key={activeTab} resets the boundary on every tab switch, so a crash in
                       one tab doesn't permanently disable navigating to a different one. */}
                   <ErrorBoundary key={activeTab}>
                     {renderContent()}
                   </ErrorBoundary>
-                </motion.div>
-              </AnimatePresence>
+                </div>
               </Suspense>
 
               {/* PosterGen and VideoVoice stay mounted permanently instead of going through

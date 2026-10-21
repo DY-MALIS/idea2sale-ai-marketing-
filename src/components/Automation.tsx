@@ -21,6 +21,7 @@ import { db } from '../lib/firebase';
 import { collection, query, where, orderBy, limit, startAfter, getDocs, onSnapshot, addDoc, serverTimestamp, deleteDoc, doc, setDoc, QueryDocumentSnapshot, DocumentData } from 'firebase/firestore';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
+import { getDemoBusinessName } from '../lib/scheduledPosts';
 import { useIsAdmin } from '../hooks/useIsAdmin';
 import { recordAuditEvent } from '../lib/auditClient';
 
@@ -95,6 +96,7 @@ const Automation: React.FC = () => {
   // the admin-only shared-bot view.
   const [hasOwnBot, setHasOwnBot] = useState(false);
   useEffect(() => {
+    setHasOwnBot(false);
     if (isDemoMode || !user) return;
     const unsubscribe = onSnapshot(doc(db, 'business_profiles', user.uid), (snap) => {
       setHasOwnBot(Boolean(snap.data()?.telegramBotActive));
@@ -107,6 +109,12 @@ const Automation: React.FC = () => {
 
   useEffect(() => {
     if (activeTab !== 'inbox') return;
+    setInboxLeads([]);
+    setInboxMessages([]);
+    setSelectedChatId(null);
+    setInboxLastDoc(null);
+    setInboxHasMore(false);
+    setInboxLoading(true);
     if (checkingAdmin || !canSeeInbox) {
       setInboxLoading(false);
       return;
@@ -259,16 +267,20 @@ const Automation: React.FC = () => {
 
   useEffect(() => {
     let unsubscribe: () => void;
+    setReplyRules([]);
+    setLoading(true);
 
     const userToUse = user || (isDemoMode ? { uid: 'demo-user' } : null);
 
     if (userToUse) {
       if (isDemoMode) {
-        // Mock data for demo mode
-        setReplyRules([
+        const refreshDemoRules = () => setReplyRules(getDemoBusinessName() ? [] : [
           { id: '1', trigger: 'price', response: 'Hi! The price is $25.', platform: 'TikTok', userId: 'demo-user' },
           { id: '2', trigger: 'available', response: 'Yes, it is available!', platform: 'Facebook', userId: 'demo-user' }
         ]);
+        refreshDemoRules();
+        window.addEventListener('business-profile-updated', refreshDemoRules);
+        unsubscribe = () => window.removeEventListener('business-profile-updated', refreshDemoRules);
         setLoading(false);
       } else {
         const qR = query(
@@ -377,8 +389,12 @@ const Automation: React.FC = () => {
 
   useEffect(() => {
     if (isDemoMode) {
-      setStats({ replies: 1248, hours: 12, rate: 84 });
-      return;
+      const refreshDemoStats = () => setStats(getDemoBusinessName()
+        ? { replies: 0, hours: 0, rate: 0 }
+        : { replies: 1248, hours: 12, rate: 84 });
+      refreshDemoStats();
+      window.addEventListener('business-profile-updated', refreshDemoStats);
+      return () => window.removeEventListener('business-profile-updated', refreshDemoStats);
     }
     if (checkingAdmin || !viewingAllAccounts) {
       setStats({ replies: 0, hours: 0, rate: 0 });

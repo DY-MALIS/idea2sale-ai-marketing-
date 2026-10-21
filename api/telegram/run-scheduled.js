@@ -2,7 +2,7 @@ import { startKhmerVideoJob } from '../_khmerVideo.js';
 import admin from 'firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { initFirebaseAdmin } from '../_firebaseAdmin.js';
-import { createHash } from 'crypto';
+import { randomBytes } from 'crypto';
 import { Client as QStashClient } from '@upstash/qstash';
 import sharp from 'sharp';
 import { logAudit } from '../_audit.js';
@@ -131,28 +131,6 @@ const verifyUser = async (req) => {
   return admin.auth().verifyIdToken(token, true);
 };
 
-const USER_DATA_COLLECTIONS = [
-  'scheduled_posts',
-  'audience_activity',
-  'campaigns',
-  'reply_rules'
-];
-
-const getStableGuestUid = (installationId) => {
-  const normalizedId = String(installationId || '').trim();
-  if (!normalizedId || normalizedId.length > 200 || !/^[a-zA-Z0-9_-]+$/.test(normalizedId)) {
-    const error = new Error('A valid guest installation ID is required.');
-    error.statusCode = 400;
-    throw error;
-  }
-
-  const digest = createHash('sha256')
-    .update(`aime.angkorgate:${normalizedId}`)
-    .digest('hex')
-    .slice(0, 40);
-  return `guest_device_${digest}`;
-};
-
 const createGuestToken = async (req, res, db) => {
   // No auth exists yet at this point (this endpoint is what *creates* a guest
   // session) -- the client IP is the only available throttling key.
@@ -169,50 +147,12 @@ const createGuestToken = async (req, res, db) => {
     console.error('Guest-token rate limit check failed, allowing request through:', error?.message || error);
   }
 
-  const uid = getStableGuestUid(req.body?.installationId);
+  // The caller must never choose its Firebase UID. A caller-selected installation
+  // ID could be reused to mint a token for an existing guest account.
+  const uid = `guest_device_${randomBytes(20).toString('hex')}`;
   const token = await admin.auth().createCustomToken(uid, { guest: true });
   res.setHeader('Cache-Control', 'no-store');
   return res.status(200).json({ ok: true, token });
-};
-
-const migrateGuestData = async (req, res) => {
-  const decoded = await verifyUser(req);
-  if (decoded.guest !== true) {
-    return res.status(403).json({ error: 'Only guest sessions can be migrated.' });
-  }
-
-  const targetUid = getStableGuestUid(req.body?.installationId);
-  const db = initFirebaseAdmin();
-  const migrated = {};
-
-  if (decoded.uid !== targetUid) {
-    for (const collectionName of USER_DATA_COLLECTIONS) {
-      let migratedCount = 0;
-
-      while (true) {
-        const snapshot = await db
-          .collection(collectionName)
-          .where('userId', '==', decoded.uid)
-          .limit(400)
-          .get();
-
-        if (snapshot.empty) break;
-
-        const batch = db.batch();
-        snapshot.docs.forEach((document) => {
-          batch.update(document.ref, { userId: targetUid });
-        });
-        await batch.commit();
-        migratedCount += snapshot.size;
-      }
-
-      migrated[collectionName] = migratedCount;
-    }
-  }
-
-  const token = await admin.auth().createCustomToken(targetUid, { guest: true });
-  res.setHeader('Cache-Control', 'no-store');
-  return res.status(200).json({ ok: true, token, migrated });
 };
 
 const createSignedUpload = async (req, res) => {
@@ -685,15 +625,7 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST' && req.query?.action === 'migrate-guest') {
-    try {
-      initFirebaseAdmin();
-      return await migrateGuestData(req, res);
-    } catch (error) {
-      return res.status(error?.statusCode || 500).json({
-        ok: false,
-        error: error?.message || 'Could not preserve this guest account.'
-      });
-    }
+    return res.status(410).json({ ok: false, error: 'Guest migration is no longer available. Refresh the app to continue with your existing session.' });
   }
 
   if (req.method === 'POST' && req.query?.action === 'create') {

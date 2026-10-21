@@ -5,6 +5,7 @@
 // the package's own repo, crashing at import time.
 import pdfParse from 'pdf-parse/lib/pdf-parse.js';
 import mammoth from 'mammoth';
+import readXlsxFile from 'read-excel-file/node';
 
 // Business Profile's "upload an introduction" control: a user hands over a
 // company brochure/profile document instead of typing a description by hand.
@@ -16,7 +17,7 @@ const MAX_DOCUMENT_BYTES = 8 * 1024 * 1024;
 const MAX_EXTRACTED_CHARS = 20000;
 
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-const EXTENSION_MIME = { txt: 'text/plain', pdf: 'application/pdf', docx: DOCX_MIME };
+const EXTENSION_MIME = { txt: 'text/plain', pdf: 'application/pdf', docx: DOCX_MIME, xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' };
 
 const extensionFromFileName = (fileName = '') => {
   const match = String(fileName).toLowerCase().match(/\.([a-z0-9]+)$/);
@@ -40,8 +41,8 @@ export async function extractDocumentText({ dataUrl, fileName }) {
   if (buffer.length > MAX_DOCUMENT_BYTES) throw typedError('The uploaded file exceeds the 8 MB limit.', 'file_too_large', 413);
 
   const extension = extensionFromFileName(fileName);
-  if (extension === 'doc') {
-    throw typedError('The old .doc format is not supported. Save it as .docx, .pdf, or .txt and try again.', 'unsupported_file_type');
+  if (extension === 'doc' || extension === 'xls') {
+    throw typedError('The old .doc and .xls formats are not supported. Save as .docx, .xlsx, .pdf, or .txt.', 'unsupported_file_type');
   }
   const mimeType = declaredMime && declaredMime !== 'application/octet-stream' ? declaredMime : EXTENSION_MIME[extension] || declaredMime;
 
@@ -61,6 +62,14 @@ export async function extractDocumentText({ dataUrl, fileName }) {
     } catch (error) {
       console.error('DOCX text extraction failed:', error?.message || error);
       throw typedError('Could not read text from this Word document.', 'docx_parse_failed');
+    }
+  } else if (extension === 'xlsx') {
+    try {
+      const sheets = await readXlsxFile(buffer);
+      rawText = sheets.map((sheet) => [sheet.sheet, ...sheet.data.map((row) => row.map((cell) => cell == null ? '' : String(cell)).join(' | '))].join('\n')).join('\n');
+    } catch (error) {
+      console.error('XLSX text extraction failed:', error?.message || error);
+      throw typedError('Could not read this Excel document.', 'xlsx_parse_failed');
     }
   } else {
     // Anything else (.json, .js, .html, .md, .csv, ...) is read the same way

@@ -37,6 +37,17 @@ const finishPreparationBefore = async (preparation, timeoutMs) => {
 // shared by scheduled and interactive clips and bypasses ai.js's visual prompt.
 const visualPrompt = (prompt = '') => `${prompt}\nVISUAL TEXT RULE: Do not generate readable text, invented letters, subtitles or captions anywhere. Show computer and phone screens as clean icon-based interfaces, charts and colored blocks without text; show documents, labels and signs as blank surfaces. Never paint the spoken transcript into the scene. Preserve an existing supplied logo without inventing or changing its lettering. Exact text must be added separately with a real font renderer.\nPHOTOREALISM: Film this like a real camera shot on location -- never an illustration, cartoon, 3D render, or plastic/synthetic-looking AI image. Use natural realistic lighting, true-to-life shadows and authentic material texture. Keep the entire frame in crisp, high-detail sharp focus -- no blur, haze, softness, or low-resolution artifacts anywhere. Render every subject, object and action named above exactly as described; the background and any visible props must genuinely belong to that scene and relate naturally to it -- never a generic, empty, or mismatched backdrop.`;
 
+const textOnlyPresenterRequest = ({ speech, duration, aspectRatio }) => ({
+  model: KHMER_VIDEO_MODEL,
+  khmerSpeech: true,
+  prompt: `${visualPrompt(speech.prompt).replace(/from the reference image/gi, 'described in the scene')}\n${speech.motionPrompt || ''}\nNo reference image or audio is supplied. This is a Khmer voiceover scene, not an on-camera speaking shot. Show the product, hands, work, or an over-the-shoulder view with the speaker's mouth out of frame. Do not show visible lips, a talking face, or mouth movement anywhere in the clip. The final Khmer narration will be added after rendering; do not invent audible speech or captions.`,
+  duration,
+  aspectRatio,
+  referenceUrls: [],
+  audioReferenceUrls: [],
+  generateAudio: false,
+});
+
 export const fitKhmerClipDurationToNarration = (narrationDuration, requestedDuration) => {
   const requested = [4, 6, 8].includes(Number(requestedDuration)) ? Number(requestedDuration) : 8;
   // The provider can animate a talking mouth throughout a requested 8-second
@@ -186,9 +197,28 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
   const fittedDuration = fitKhmerClipDurationToNarration(narrationAudio.duration, duration);
   assertVideoGenerationWithinBudget({ duration: fittedDuration, khmerSpeech: true, model: KHMER_VIDEO_MODEL });
   const imageResult = await imagePromise;
-  if ('error' in imageResult) throw imageResult.error;
+  if ('error' in imageResult) {
+    if (!allowImageFallback || images.length) throw imageResult.error;
+    return {
+      videoRequest: textOnlyPresenterRequest({ speech, duration: fittedDuration, aspectRatio }),
+      avatarImage: null, narrationAudio, audio, fittedDuration,
+      avatarReferenceUrl: '', normalizedProductImageUrl: '', productReferenceBlock: '', spokenScript,
+      imageFallbackReason: 'The presenter image could not be generated. The video was created from the scene and the original Khmer narration was added afterward. Review the speaker and lip sync before publishing.',
+    };
+  }
   const image = imageResult.image;
-  const avatarImage = await uploadMediaDataUrl({ mediaDataUrl: image.imageUrl, mediaType: 'photo' });
+  let avatarImage;
+  try {
+    avatarImage = await uploadMediaDataUrl({ mediaDataUrl: image.imageUrl, mediaType: 'photo' });
+  } catch (error) {
+    if (!allowImageFallback || images.length) throw error;
+    return {
+      videoRequest: textOnlyPresenterRequest({ speech, duration: fittedDuration, aspectRatio }),
+      avatarImage: null, narrationAudio, audio, fittedDuration,
+      avatarReferenceUrl: '', normalizedProductImageUrl: '', productReferenceBlock: '', spokenScript,
+      imageFallbackReason: 'The presenter image could not be uploaded. The video was created from the scene and the original Khmer narration was added afterward. Review the speaker and lip sync before publishing.',
+    };
+  }
   const avatarReferenceUrl = getOriginalImageKitUrl(avatarImage.mediaUrl, process.env.IMAGEKIT_URL_ENDPOINT || '');
   // startOpenRouterVideo silently drops any referenceUrls entry that isn't an
   // https:// URL (api/_openrouter.js), and a Khmer presenter request always
@@ -199,6 +229,14 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
   // submission attempt) has already been spent. Fail loudly here instead,
   // before any of that money is at risk.
   if (!/^https:\/\//.test(avatarReferenceUrl)) {
+    if (allowImageFallback && !images.length) {
+      return {
+        videoRequest: textOnlyPresenterRequest({ speech, duration: fittedDuration, aspectRatio }),
+        avatarImage: null, narrationAudio, audio, fittedDuration,
+        avatarReferenceUrl: '', normalizedProductImageUrl: '', productReferenceBlock: '', spokenScript,
+        imageFallbackReason: 'The presenter image upload returned no usable URL. The video was created from the scene and the original Khmer narration was added afterward. Review the speaker and lip sync before publishing.',
+      };
+    }
     throw new Error('Could not prepare the presenter image for this video (upload returned no usable URL). Please try generating again.');
   }
   const normalizedProductImageUrl = productImageUrl
@@ -245,7 +283,7 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
     return startOpenRouterVideo({ ...request, timeoutMs });
   };
   let job;
-  let imageFallbackReason = '';
+  let imageFallbackReason = prepared.imageFallbackReason || '';
   try {
     job = await submitVideo(videoRequest);
   } catch (error) {
@@ -286,15 +324,7 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
       // original Khmer narration after generation. Warn that lip sync needs
       // review because this fallback could not use audio-driven animation.
       imageFallbackReason = 'The video provider rejected the generated presenter image. The clip was created from the scene and the original Khmer narration was added afterward. Review lip sync before publishing.';
-      const textOnlyPrompt = visualPrompt(speech.prompt)
-        .replace(/from the reference image/gi, 'described in the scene');
-      job = await submitVideo({
-        ...videoRequest,
-        prompt: `${textOnlyPrompt}\n${speech.motionPrompt || ''}\nNo reference image or audio is supplied. Create one continuous shot with the presenter addressing the camera and moving naturally. The final Khmer narration will be added after rendering; do not invent audible speech or captions.`,
-        referenceUrls: [],
-        audioReferenceUrls: [],
-        generateAudio: false,
-      });
+      job = await submitVideo(textOnlyPresenterRequest({ speech, duration: fittedDuration, aspectRatio }));
     }
   }
   return {

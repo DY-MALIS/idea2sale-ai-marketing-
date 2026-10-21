@@ -25,6 +25,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { getLatestBusinessBranding, type BusinessBranding } from '../lib/businessBranding';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { isStableGuestUid } from '../lib/guestIdentity';
 
 interface SidebarProps {
   activeTab: TabType;
@@ -43,7 +44,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   isOpen,
   onClose,
 }) => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const { user, isDemoMode } = useAuth();
   const [branding, setBranding] = useState<BusinessBranding | null>(null);
 
@@ -224,6 +225,13 @@ const Sidebar: React.FC<SidebarProps> = ({
           <p className="text-[10px] font-semibold uppercase tracking-wide text-brand-300/70 dark:text-slate-400">Signed in as</p>
           <p className="truncate text-xs font-medium text-white dark:text-slate-100" title={user?.email || user?.displayName || user?.uid || 'Demo mode'}>{user?.email || user?.displayName || user?.uid || 'Demo mode'}</p>
         </div>
+        {user && isStableGuestUid(user.uid) && (
+          <p className="mx-3 mb-2 text-xs leading-relaxed text-amber-200">
+            {language === 'km'
+              ? 'បើចេញពី Guest នេះ អ្នកមិនអាចចូលមកយកទិន្នន័យនេះវិញបានទេ។'
+              : 'Logging out of this Guest account ends access to its data.'}
+          </p>
+        )}
         <motion.button 
           whileTap={{ scale: 0.98 }}
           onClick={() => {

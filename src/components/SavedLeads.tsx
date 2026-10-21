@@ -62,6 +62,8 @@ const SavedLeads: React.FC = () => {
   const [movingRecordId, setMovingRecordId] = useState<string | null>(null);
 
   useEffect(() => {
+    setSavedLeads([]);
+    setLoading(true);
     if (isDemoMode || !user) {
       setLoading(false);
       return;

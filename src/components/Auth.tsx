@@ -10,7 +10,6 @@ import {
 import { signInWithGoogle, auth, authPersistenceReady } from '../lib/firebase';
 import { signInWithCustomToken } from 'firebase/auth';
 import { useLanguage } from '../contexts/LanguageContext';
-import { getGuestInstallationId } from '../lib/guestIdentity';
 
 interface AuthProps {
   onDemoMode?: () => void;
@@ -81,9 +80,7 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
           headers: {
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({
-            installationId: getGuestInstallationId()
-          }),
+          body: '{}',
           signal: guestTokenController.signal
         });
       } finally {
@@ -188,6 +185,12 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
                 </>
               )}
             </motion.button>
+
+            <p className="text-center text-xs text-slate-600 dark:text-slate-300">
+              {language === 'km'
+                ? 'Guest សម្រាប់សាកល្បងបណ្ដោះអាសន្ន។ ដើម្បីរក្សាទិន្នន័យក្រុមហ៊ុនឱ្យចូលវិញបាន សូមប្រើ Google account ផ្ទាល់ខ្លួន។'
+                : 'Guest is temporary. Use your own Google account to return to your company data later.'}
+            </p>
 
             {onDemoMode && (
               <p className="text-center text-slate-600 dark:text-slate-300 text-[11px] sm:text-xs font-bold uppercase tracking-wide mt-4 leading-relaxed">

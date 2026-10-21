@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Markdown from 'react-markdown';
 import { useAuth } from '../contexts/AuthContext';
 import { ensureBusinessInInboxMessage, getLatestBusinessBranding } from '../lib/businessBranding';
@@ -102,6 +102,24 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
   const [copiedLead, setCopiedLead] = useState<number | null>(null);
   const [businessName, setBusinessName] = useState('');
   const [deselectedLeads, setDeselectedLeads] = useState<Set<number>>(new Set());
+  const profileVersionRef = useRef(0);
+  const scanControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    const clearPreviousProfileScan = () => {
+      profileVersionRef.current += 1;
+      scanControllerRef.current?.abort();
+      scanControllerRef.current = null;
+      setQuery('');
+      setResult(null);
+      setComparisonBaseline(null);
+      setDeselectedLeads(new Set());
+      setError('');
+      setLoading(false);
+    };
+    window.addEventListener('business-profile-updated', clearPreviousProfileScan);
+    return () => window.removeEventListener('business-profile-updated', clearPreviousProfileScan);
+  }, []);
 
   const toggleLeadSelection = (index: number) => {
     setDeselectedLeads((prev) => {
@@ -630,6 +648,12 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
   const scan = async () => {
     const cleanQuery = query.trim();
     if (!cleanQuery || loading) return;
+    const profileVersion = profileVersionRef.current;
+    const controller = new AbortController();
+    // Production allows this serverless scan up to five minutes. Give it a
+    // small response margin, then release the UI if a provider never settles.
+    const timeoutId = window.setTimeout(() => controller.abort(), 310000);
+    scanControllerRef.current = controller;
     setLoading(true);
     setError('');
     // A new target must not display the previous scan's competitors while its
@@ -638,11 +662,13 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
     setComparisonBaseline(null);
     try {
       const businessContext = await getLatestBusinessBranding(user, isDemoMode);
+      if (profileVersion !== profileVersionRef.current) return;
       const currentBusinessName = businessContext.businessName;
       setBusinessName(currentBusinessName);
       const response = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           action: 'facebookIntelligenceScan',
           query: cleanQuery,
@@ -658,6 +684,7 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
         }),
       });
       const data = await response.json().catch(() => ({}));
+      if (profileVersion !== profileVersionRef.current) return;
       if (!response.ok) throw new Error(data?.error || 'Facebook research could not be completed.');
       setResult(data as FacebookScanResult);
       // The server resolves 'auto' into a concrete mode and returns it on the
@@ -680,12 +707,19 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
           : resolvedMode === 'competitor_activity'
           ? (isKm ? `ចាប់យកបាន ${activityCount} សកម្មភាពក្នុង ៧ ថ្ងៃ` : `${activityCount} competitor activit${activityCount === 1 ? 'y' : 'ies'} captured in 7 days`)
           : (isKm ? `Lead ចំនួន ${leadCount}` : `${leadCount} lead${leadCount === 1 ? '' : 's'} found`),
-        payload: { query: cleanQuery, country, days, scanMode: resolvedMode, result: data },
+        payload: { query: cleanQuery, country, days, scanMode: resolvedMode, businessName: currentBusinessName, result: data },
       }).catch((historyError) => console.error('Failed to save scan history:', historyError));
     } catch (scanError: any) {
-      setError(scanError?.message || (isKm ? 'មិនអាចវិភាគបានទេ។ សូមព្យាយាមម្តងទៀត។' : 'The scan failed. Please try again.'));
+      if (profileVersion !== profileVersionRef.current) return;
+      setError(scanError?.name === 'AbortError'
+        ? (isKm ? 'ការស្កេនចំណាយពេលយូរពេក។ សូមសាកម្តងទៀត។' : 'The scan took too long. Please try again.')
+        : scanError?.message || (isKm ? 'មិនអាចវិភាគបានទេ។ សូមព្យាយាមម្តងទៀត។' : 'The scan failed. Please try again.'));
     } finally {
-      setLoading(false);
+      window.clearTimeout(timeoutId);
+      if (profileVersion === profileVersionRef.current) {
+        scanControllerRef.current = null;
+        setLoading(false);
+      }
     }
   };
 
@@ -698,6 +732,14 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
   const restoreScanHistory = (entry: GenerationHistoryEntry) => {
     try {
       const payload = (entry.payload || {}) as Record<string, unknown>;
+      const savedBusinessName = String(payload.businessName || (payload.result as Partial<FacebookScanResult> | undefined)?.businessPresence?.businessName || '').trim();
+      if (savedBusinessName && businessName && savedBusinessName.toLocaleLowerCase() !== businessName.toLocaleLowerCase()) {
+        setError(isKm
+          ? `លទ្ធផលស្កេននេះជារបស់ ${savedBusinessName}។ សូមប្ដូរ Business Profile ទៅអាជីវកម្មនោះដើម្បីមើល។`
+          : `This scan belongs to ${savedBusinessName}. Switch Business Profile back to that business to view it.`);
+        return;
+      }
+      setError('');
       if (typeof payload.query === 'string') setQuery(payload.query);
       if (typeof payload.country === 'string') setCountry(payload.country);
       if (typeof payload.days === 'number') setDays(payload.days);
@@ -876,6 +918,14 @@ const FacebookScanner: React.FC<FacebookScannerProps> = ({ onCreativeAutomation 
             </div>
             <div className="flex items-center gap-2 overflow-x-auto pb-1 pt-1">
               <span className="shrink-0 text-xs font-medium text-slate-400">{text.tryAsking}</span>
+              {businessName && <>
+                <button type="button" onClick={() => { setQuery('find customers'); setScanMode('customer'); setModeExplicit(true); }} className="shrink-0 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300">
+                  {isKm ? `អតិថិជនសម្រាប់ ${businessName}` : `Customers for ${businessName}`}
+                </button>
+                <button type="button" onClick={() => { setQuery('my competitors'); setScanMode('competitor_activity'); setModeExplicit(true); }} className="shrink-0 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300">
+                  {isKm ? `គូប្រកួតរបស់ ${businessName}` : `Competitors of ${businessName}`}
+                </button>
+              </>}
               {activeScanMode.suggestions.map((suggestion) => (
                 <button
                   key={suggestion}

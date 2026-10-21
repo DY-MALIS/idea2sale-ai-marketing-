@@ -76,7 +76,10 @@ const jsonFromText = (text) => {
 };
 
 const competitorKey = (value) => String(value || '').trim().toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
-const normalizedIdentityUrl = (value) => String(value || '').trim().replace(/\/$/, '').toLowerCase();
+const normalizedIdentityUrl = (value) => String(value || '').trim()
+  .replace(/\/(?:index\.html?|index\.php)\/?$/i, '')
+  .replace(/\/$/, '')
+  .toLowerCase();
 const businessWebsiteUrl = (value) => {
   const url = String(value || '').trim().slice(0, 300);
   return /^https?:\/\//i.test(url) && socialPlatformFromUrl(url) === 'Web' ? url : '';
@@ -105,6 +108,17 @@ const sharesPublicIdentity = (left, right) => {
   return ['sourceUrl', 'facebookUrl', 'tiktokUrl', 'linkedinUrl', 'websiteUrl'].some((field) => (
     normalizedIdentityUrl(left[field]) && normalizedIdentityUrl(left[field]) === normalizedIdentityUrl(right[field])
   ));
+};
+
+const sharesOfficialProfile = (left, right) => {
+  const socialFields = ['facebookUrl', 'tiktokUrl', 'linkedinUrl'];
+  if (socialFields.some((field) => normalizedIdentityUrl(left[field])
+    && normalizedIdentityUrl(left[field]) === normalizedIdentityUrl(right[field]))) return true;
+  const sameWebsite = normalizedIdentityUrl(left.websiteUrl)
+    && normalizedIdentityUrl(left.websiteUrl) === normalizedIdentityUrl(right.websiteUrl);
+  const conflictingSocialPages = socialFields.some((field) => normalizedIdentityUrl(left[field])
+    && normalizedIdentityUrl(right[field]) && normalizedIdentityUrl(left[field]) !== normalizedIdentityUrl(right[field]));
+  return Boolean(sameWebsite && !conflictingSocialPages);
 };
 
 // A model can put another company's post under a familiar competitor name.
@@ -275,6 +289,7 @@ const searchWithRetry = async (prompt, { maxResults, maxTokens, isUsable, onFail
       parsed = jsonFromText(response.content);
       if (isUsable(parsed)) return parsed;
     } catch (error) {
+      if (/requires more credits|insufficient credits|not enough credits/i.test(String(error?.message || ''))) throw error;
       lastError = error;
       parsed = null;
     }
@@ -406,7 +421,8 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
     const nameKey = competitorKey(candidate.name);
     if (!nameKey) return;
     const matched = [...mergedCandidates.entries()].find(([, previous]) => (
-      competitorKey(previous.name) === nameKey && sharesPublicIdentity(previous, candidate)
+      sharesOfficialProfile(previous, candidate)
+      || (competitorKey(previous.name) === nameKey && sharesPublicIdentity(previous, candidate))
     ));
     const key = matched?.[0] || `${nameKey}|${mergedCandidates.size}`;
     const existing = matched?.[1];
@@ -744,9 +760,28 @@ If nothing reliable was found, return {"isSpecificEntity": false, "entitySummary
     return hasActivityWindow ? { ...verifiedItem, ...(websiteUrl ? { websiteUrl } : {}), facebookUrl, tiktokUrl, linkedinUrl, recentActivities: activityChecks.filter(Boolean), lastKnownActivity } : { name: item.name, matchReason: item.matchReason, marketPresence: item.marketPresence, positioning: item.positioning, ...(websiteUrl ? { websiteUrl } : {}), facebookUrl, tiktokUrl, linkedinUrl, sourceUrl: item.sourceUrl };
   })).filter(Boolean);
 
+  // A later official-website lookup can reveal that two names from separate
+  // discovery passes refer to the same business. Merge again after enrichment.
+  const uniqueVerified = [];
+  for (const item of verified) {
+    const previous = uniqueVerified.find((entry) => sharesOfficialProfile(entry, item));
+    if (!previous) {
+      uniqueVerified.push(item);
+      continue;
+    }
+    for (const field of ['facebookUrl', 'tiktokUrl', 'linkedinUrl', 'websiteUrl']) {
+      if (!previous[field] && item[field]) previous[field] = item[field];
+    }
+    if (Array.isArray(item.recentActivities)) {
+      const seen = new Set((previous.recentActivities || []).map((activity) => activity.sourceUrl));
+      previous.recentActivities = [...(previous.recentActivities || []), ...item.recentActivities.filter((activity) => !seen.has(activity.sourceUrl))];
+    }
+    if (!previous.lastKnownActivity && item.lastKnownActivity) previous.lastKnownActivity = item.lastKnownActivity;
+  }
+
   return {
     isSpecificEntity: !!discoveryParsed?.isSpecificEntity,
     entitySummary: String(discoveryParsed?.entitySummary || '').trim().slice(0, 400),
-    competitors: verified,
+    competitors: uniqueVerified,
   };
 }

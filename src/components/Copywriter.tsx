@@ -27,6 +27,15 @@ const Copywriter: React.FC = () => {
     const profileVersionRef = useRef(0);
 
     useEffect(() => {
+      profileVersionRef.current += 1;
+      setCopyPrompt(localStorage.getItem(storageKey('copy_prompt')) || '');
+      setContentType((localStorage.getItem(storageKey('copy_content_type')) as 'caption' | 'salepage' | 'script' | 'seo') || 'caption');
+      setResult(localStorage.getItem(storageKey('copy_result')));
+      setLoading(false);
+      setNeedsApiKey(false);
+    }, [user?.uid, isDemoMode]);
+
+    useEffect(() => {
       const clearOldResult = () => {
         profileVersionRef.current += 1;
         setResult(null);

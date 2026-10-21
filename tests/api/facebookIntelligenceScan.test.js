@@ -93,6 +93,38 @@ beforeEach(() => {
   }));
 });
 
+it('uses a different signed-in company profile for generic customer and competitor targets', async () => {
+  mocks.findBusinessPresence.mockResolvedValue({ businessName: 'AI Cafe', matches: [], candidates: [] });
+  mocks.searchBusinesses.mockResolvedValue([{
+    businessName: 'Office Catering Buyer', businessType: 'Office', sourceUrl: 'https://buyer.example.com',
+  }]);
+  const businessContext = {
+    businessName: 'AI Cafe', businessDescription: 'Coffee and catering for Phnom Penh offices',
+    facebookPageUrl: 'https://www.facebook.com/aicafe',
+  };
+  const customer = responseRecorder();
+  await handler({ method: 'POST', headers: {}, socket: { remoteAddress: '127.0.0.1' }, body: {
+    action: 'facebookIntelligenceScan', query: 'find customers', scanMode: 'customer',
+    businessContext, language: 'en', countries: ['KH'], days: 7,
+  } }, customer);
+  expect(customer.statusCode).toBe(200);
+  expect(mocks.searchBusinesses).toHaveBeenCalledWith(expect.objectContaining({
+    searchTerms: expect.stringContaining('AI Cafe'),
+    searchObjective: expect.stringContaining('Coffee and catering for Phnom Penh offices'),
+  }));
+  mocks.researchCompetitors.mockClear();
+  const competitor = responseRecorder();
+  await handler({ method: 'POST', headers: {}, socket: { remoteAddress: '127.0.0.1' }, body: {
+    action: 'facebookIntelligenceScan', query: 'my competitors', scanMode: 'competitor_activity',
+    businessContext, language: 'en', countries: ['KH'], days: 7,
+  } }, competitor);
+  expect(competitor.statusCode).toBe(200);
+  expect(mocks.researchCompetitors).toHaveBeenCalledWith(expect.objectContaining({
+    query: 'AI Cafe', targetDescription: 'Coffee and catering for Phnom Penh offices',
+    targetFacebookPageUrl: 'https://www.facebook.com/aicafe',
+  }));
+});
+
 it('grounds a generic competitor request in the current business profile links', async () => {
   mocks.readBusinessProfileSources.mockResolvedValue({
     sources: [{ label: 'Website', url: 'https://dg.example.com', readable: true }],
@@ -112,7 +144,24 @@ it('grounds a generic competitor request in the current business profile links',
   expect(mocks.researchCompetitors).toHaveBeenCalledWith(expect.objectContaining({
     query: 'DG Academy', targetDescription: 'AI training', targetProfileEvidence: expect.stringContaining('AI courses for Cambodian businesses'),
   }));
+  expect(mocks.researchCompetitors).toHaveBeenCalledTimes(1);
   expect(res.body.profileSources).toEqual([{ label: 'Website', url: 'https://dg.example.com', readable: true }]);
+});
+
+it('stops before report generation when competitor research runs out of credits', async () => {
+  mocks.researchCompetitors.mockRejectedValue(new Error('This request requires more credits, or fewer max_tokens.'));
+  const res = responseRecorder();
+  await handler({
+    method: 'POST', headers: {}, socket: { remoteAddress: '127.0.0.1' },
+    body: {
+      action: 'facebookIntelligenceScan', query: 'find competitors', scanMode: 'competitor_activity',
+      businessContext: { businessName: 'AI Cafe Test', businessDescription: 'Cafe in Cambodia' },
+      countries: ['KH'], language: 'en',
+    },
+  }, res);
+
+  expect(res.statusCode).toBe(402);
+  expect(mocks.text).not.toHaveBeenCalled();
 });
 
 it('routes the workers scan mode through worker/trade web discovery end to end', async () => {
@@ -387,6 +436,7 @@ it('uses the Business Profile as the target for a generic competitor-activity in
     targetFacebookPageUrl: 'https://www.facebook.com/dgacademy',
     targetLogoDataUrl: 'data:image/jpeg;base64,aGVsbG8=',
   }));
+  expect(mocks.researchCompetitors).toHaveBeenCalledTimes(1);
   expect(mocks.findBusinessPresence).toHaveBeenCalledWith(expect.objectContaining({
     businessName: 'DGACADEMY',
     businessDescription: 'AI skills training in Phnom Penh',

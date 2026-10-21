@@ -46,6 +46,7 @@ const CRM: React.FC = () => {
   // extended to per-user channels, unlike the per-user chat-reply leads.
   const [hasOwnBot, setHasOwnBot] = useState(false);
   useEffect(() => {
+    setHasOwnBot(false);
     if (isDemoMode || !user) return;
     const unsubscribe = onSnapshot(doc(db, 'business_profiles', user.uid), (snap) => {
       setHasOwnBot(Boolean(snap.data()?.telegramBotActive));
@@ -91,6 +92,11 @@ const CRM: React.FC = () => {
   }, [liveLeads, extraLeads]);
 
   useEffect(() => {
+    setLiveLeads([]);
+    setExtraLeads([]);
+    setLastDoc(null);
+    setHasMore(false);
+    setLoading(true);
     if (checkingAdmin || !canView) {
       setLoading(false);
       return;

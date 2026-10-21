@@ -14,6 +14,7 @@ import { reportClientError } from '../lib/errorReporting';
 import { startVoiceConversationFallback, type VoiceConversationFallback } from '../lib/voiceConversationFallback';
 import { getLatestBusinessBranding } from '../lib/businessBranding';
 import { BusinessProductImage, CreativeAutomationRequest } from '../types';
+import { buildCreativeAutomationRequest } from '../lib/creativeAutomationRequest';
 import { downloadAgentDocument, isAgentDocumentCommand, type AgentDocument } from '../lib/agentDocument';
 import { AgentDocumentCard, AgentDocumentDialog } from './AgentDocumentCard';
 import { isContentPlanEditFollowup, isContentPlanEditPronounFollowup, isContentPlanEditRequest } from '../../shared/contentPlanEditIntent.js';
@@ -244,33 +245,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   // request and sanitizes its fields. Returns the sanitized request so a
   // caller can also use it to caption on screen what's being created.
   const triggerCreativeAutomation = (automation: any, detectedLanguage: 'km' | 'en'): CreativeAutomationRequest => {
-    const kind = automation.kind === 'video' ? 'video' : 'image';
-    const request: CreativeAutomationRequest = {
-      id: `${Date.now()}-${kind}`,
-      kind,
-      imageMode: kind === 'image' && automation.imageMode === 'poster' ? 'poster' : 'visual',
-      prompt: String(automation.prompt || '').trim(),
-      platform: ['TikTok', 'Facebook', 'X', 'Telegram'].includes(automation.platform)
-        ? automation.platform
-        : 'General',
-      aspectRatio: ['1:1', '9:16', '16:9', '4:5', '3:4'].includes(automation.aspectRatio)
-        ? automation.aspectRatio
-        : (kind === 'video' ? '9:16' : '1:1'),
-      language: detectedLanguage,
-      voiceOverWanted: kind === 'video' ? automation.voiceOverWanted === true : undefined,
-      voiceOverText: kind === 'video' ? String(automation.voiceOverText || '').trim() : undefined,
-      headline: kind === 'image' ? String(automation.headline || '').trim() : undefined,
-      cta: kind === 'image' ? String(automation.cta || '').trim() : undefined,
-      posterStyle: kind === 'image' ? String(automation.posterStyle || 'Modern').trim() : undefined,
-      duration: kind === 'video' && [4, 6, 8].includes(Number(automation.duration))
-        ? Number(automation.duration)
-        : undefined,
-      voiceGender: kind === 'video' && ['Male', 'Female'].includes(automation.voiceGender)
-        ? automation.voiceGender
-        : undefined,
-      performanceStyle: kind === 'video' ? String(automation.performanceStyle || '').trim() || undefined : undefined,
-      allowScriptShortening: kind === 'video',
-    };
+    const request = buildCreativeAutomationRequest(automation, detectedLanguage, `${Date.now()}-${automation.kind}`);
     onCreativeAutomation(request);
     return request;
   };
@@ -518,6 +493,19 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       }
 
       const geminiSession = await connectGeminiLive(data.token, data.model, playbackContext, {
+        onFacebookLookup: async () => {
+          if (!user) throw new Error('Sign in to read your Facebook Page.');
+          const idToken = await user.getIdToken();
+          const lookup = await fetch('/api/ai', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+            signal: controller.signal,
+            body: JSON.stringify({ action: 'liveFacebookRead' }),
+          });
+          const page = await lookup.json().catch(() => ({}));
+          if (!lookup.ok) throw new Error(page.error || 'Could not read the Facebook Page saved in Business Profile.');
+          return page;
+        },
         onWebsiteLookup: async (url) => {
           const lookup = await fetch('/api/ai', {
             method: 'POST',
@@ -576,7 +564,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const [businessContext, setBusinessContext] = useState<AgentBusinessContext | null>(null);
   // Speech language is independent of the UI language. Auto allows Khmer,
   // English, and mixed turns; explicit choices guide the live audio model.
-  const [voiceInputLanguage, setVoiceInputLanguage] = useState<'auto' | 'km' | 'en'>('auto');
+  const [voiceInputLanguage, setVoiceInputLanguage] = useState<'auto' | 'km' | 'en'>(language === 'km' ? 'km' : 'auto');
   const voiceInputLanguageRef = useRef(voiceInputLanguage);
   // Picks both which Gemini voice speaks (Achird/Aoede) and the gendered
   // delivery style sent alongside it (firm for male, gentle for female) --
@@ -908,6 +896,17 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     setActiveSessionId(nextSessionId);
     persistConversation([], nextSessions, nextSessionId);
   };
+
+  // Keep conversations made for an earlier business in History, while making
+  // the active chat use only the newly saved profile's context.
+  useEffect(() => {
+    const resetForProfile = () => {
+      startNewChat();
+      setAttachedImages([]);
+    };
+    window.addEventListener('business-profile-updated', resetForProfile);
+    return () => window.removeEventListener('business-profile-updated', resetForProfile);
+  });
 
   const openConversationSession = (session: AgentConversationSession) => {
     requestControllerRef.current?.abort();

@@ -2,6 +2,8 @@ import crypto from 'crypto';
 import { Client as QStashClient } from '@upstash/qstash';
 import { getCookie, sessionCookieAttributes } from './_tiktok.js';
 import { getScheduledCallbackBaseUrl } from './_callbackUrl.js';
+import { extractWebsiteText } from './_websiteExtract.js';
+import { facebookBusinessPageKey } from './_socialUrls.js';
 
 const COLLECTION = 'facebook_automation_tokens';
 const VERSION = process.env.FACEBOOK_GRAPH_API_VERSION || 'v25.0';
@@ -93,6 +95,86 @@ export async function saveFacebookPages(db, ownerId, pages) {
 export async function getFacebookPages(db, ownerId) {
   const snapshot = await db.collection(COLLECTION).doc(ownerId).get();
   return snapshot.exists ? snapshot.data() : null;
+}
+
+export async function readConnectedFacebookPage(db, ownerId) {
+  const connection = await getFacebookPages(db, ownerId);
+  const page = connection?.pages?.find((item) => item.id === connection.selectedPageId) || connection?.pages?.[0];
+  if (!page?.id || !page?.accessToken) {
+    throw Object.assign(new Error('Connect your Facebook Page in Social Automation first.'), { status: 409 });
+  }
+  const headers = { Authorization: `Bearer ${page.accessToken}` };
+  const read = async (path, params) => {
+    const response = await fetch(`${GRAPH}/${encodeURIComponent(page.id)}${path}?${new URLSearchParams(params)}`, {
+      headers, signal: AbortSignal.timeout(12000),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || body.error) throw new Error(body.error?.message || `Facebook returned HTTP ${response.status}`);
+    return body;
+  };
+  const [details, posts] = await Promise.allSettled([
+    read('', { fields: 'id,name,about,description,website,phone,link' }),
+    read('/posts', { fields: 'message,created_time,permalink_url', limit: '20' }),
+  ]);
+  if (details.status === 'rejected' && posts.status === 'rejected') {
+    throw Object.assign(new Error('Facebook did not allow this Page data to be read. Reconnect the Page and check Page read permissions.'), { status: 502 });
+  }
+  const info = details.status === 'fulfilled' ? details.value : {};
+  return {
+    pageName: String(info.name || page.name || '').slice(0, 180),
+    pageUrl: String(info.link || '').slice(0, 300),
+    about: String(info.about || info.description || '').slice(0, 1500),
+    website: String(info.website || '').slice(0, 300),
+    phone: String(info.phone || '').slice(0, 100),
+    posts: posts.status === 'fulfilled' ? (posts.value.data || []).slice(0, 20).map((post) => ({
+      text: String(post.message || '').slice(0, 1500),
+      publishedAt: String(post.created_time || ''),
+      url: String(post.permalink_url || '').slice(0, 300),
+    })) : [],
+    postsReadable: posts.status === 'fulfilled',
+    source: 'Connected Facebook Page (Graph API)',
+  };
+}
+
+export async function readProfileFacebookPage(db, ownerId, { extract = extractWebsiteText, readConnected = readConnectedFacebookPage } = {}) {
+  const profileSnapshot = await db.collection('business_profiles').doc(ownerId).get();
+  const savedUrl = String(profileSnapshot.data()?.facebookPageUrl || '').trim().slice(0, 300);
+  const savedKey = facebookBusinessPageKey(savedUrl);
+  if (!savedKey) {
+    if (savedUrl) throw Object.assign(new Error('Save a valid public Facebook Page link in Business Profile.'), { status: 400 });
+    return readConnected(db, ownerId);
+  }
+
+  // A connection is useful only when its Graph Page matches this account's
+  // saved profile link. Never return a different selected Page as evidence.
+  try {
+    const connected = await readConnected(db, ownerId);
+    const connectedKey = facebookBusinessPageKey(connected.pageUrl);
+    if (connectedKey && connectedKey === savedKey) return { ...connected, profilePageUrl: savedUrl };
+  } catch { /* A public Page may still be readable without a connection. */ }
+
+  let page;
+  try {
+    page = await extract({ url: savedUrl });
+  } catch {
+    throw Object.assign(new Error('Could not read the Facebook Page saved in Business Profile. Facebook may require login; connect that Page in Social Automation to read its current posts.'), { status: 502 });
+  }
+  const finalKey = facebookBusinessPageKey(page.url);
+  const content = String(page.text || '').replace(/\s+/g, ' ').trim();
+  const title = String(page.title || '').trim();
+  const loginWall = /(?:facebook.*(?:log in|sign up)|(?:log in|sign up).*facebook|ចូលគណនី.*facebook)/i.test(title)
+    || (content.length < 500 && /(?:log in to facebook|log into facebook|you must log in|បង្កើតគណនីថ្មី)/i.test(content));
+  if (finalKey !== savedKey || content.length < (page.metadataOnly ? 40 : 80) || loginWall) {
+    throw Object.assign(new Error('Facebook did not expose readable Page content at the saved Profile link. Connect this Page in Social Automation to read its current posts.'), { status: 502 });
+  }
+  return {
+    pageName: title.slice(0, 180),
+    pageUrl: savedUrl,
+    text: content.slice(0, 12000),
+    posts: [],
+    postsReadable: false,
+    source: page.metadataOnly ? 'Public Facebook Page description saved in Business Profile (posts unavailable)' : 'Public Facebook Page saved in Business Profile',
+  };
 }
 
 export async function publishFacebookReel(pageToken, videoUrl, caption) {
