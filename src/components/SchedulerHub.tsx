@@ -7,7 +7,7 @@ import Suggestions from './Suggestions';
 import Scheduler from './Scheduler';
 import ActivityPulse from './ActivityPulse';
 import { db } from '../lib/firebase';
-import { collection, addDoc, doc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, doc, getDocFromServer, serverTimestamp } from 'firebase/firestore';
 import { telegramDestinationFromProfile } from '../../shared/telegramDestination.js';
 import { useLanguage } from '../contexts/LanguageContext';
 import { saveLocalMedia } from '../lib/localMediaStore';
@@ -32,6 +32,7 @@ type TikTokCreator = {
 
 const MB = 1024 * 1024;
 const TELEGRAM_MEDIA_LIMIT_MB = 47;
+const TELEGRAM_PHOTO_LIMIT_MB = 10;
 const DEMO_INLINE_MEDIA_LIMIT_MB = 3;
 const DEFAULT_CONTENT = '';
 const LOCAL_POSTS_KEY = 'demo_scheduled_posts';
@@ -273,7 +274,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     let active = true;
     const loadDestination = async () => {
       try {
-        const snapshot = await getDoc(doc(db, 'business_profiles', user.uid));
+        const snapshot = await getDocFromServer(doc(db, 'business_profiles', user.uid));
         const profile = snapshot.data() || {};
         const destination = telegramDestinationFromProfile(profile);
         if (active) setTelegramDestination({ ready: Boolean(destination.token && destination.chatId), label: destination.chatId });
@@ -521,6 +522,9 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
 
   const validateTelegramMedia = (file: File | null, demoMode: boolean) => {
     if (!file) return null;
+    if (file.type.startsWith('image/') && file.size > TELEGRAM_PHOTO_LIMIT_MB * 1000 * 1000) {
+      return `This image is ${formatFileSize(file.size)}. Telegram photos must be under ${TELEGRAM_PHOTO_LIMIT_MB} MB. Please choose a smaller image.`;
+    }
     if (file.size > TELEGRAM_MEDIA_LIMIT_MB * MB) {
       return `This file is ${formatFileSize(file.size)}. Telegram videos must be under ${TELEGRAM_MEDIA_LIMIT_MB} MB. Please choose a smaller/compressed video.`;
     }
@@ -1418,7 +1422,14 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                         <p role="alert" className="font-semibold">Facebook scheduling is not configured on this server. The site owner must set FACEBOOK_APP_ID, FACEBOOK_APP_SECRET, FACEBOOK_CONFIG_ID, and APP_URL in Vercel.</p>
                       )}
                       {!facebookConnectionLoading && !facebookConnected && facebookSetupReady !== false && (
-                        <p role="status" className="font-semibold">No Facebook Page is connected to this account. Connect a Page with permission to create content before scheduling.</p>
+                        <div role="status" className="space-y-2 font-semibold">
+                          <p>{language === 'km' ? 'គណនីនេះមិនទាន់ភ្ជាប់ Facebook Page ទេ។ សូមភ្ជាប់ Page ដែលអ្នកមានសិទ្ធិបង្កើតផុស។' : 'No Facebook Page is connected to this account. Connect a Page with permission to create content before scheduling.'}</p>
+                          <p className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-amber-900">
+                            {language === 'km'
+                              ? 'បើ Facebook បង្ហាញ “App not active” ម្ចាស់អេបត្រូវបើកអេបឡើងវិញក្នុង Meta Developer និងកំណត់សិទ្ធិ Facebook Login/Page សម្រាប់អ្នកប្រើផ្សេងៗ។ ការរក្សា Facebook link ក្នុង Business Profile មិនអាចជំនួសការភ្ជាប់ Page បានទេ។'
+                              : 'If Facebook shows “App not active”, the app owner must reactivate the Meta app and enable Facebook Login/Page access for other users. Saving a Facebook link in Business Profile does not connect a Page for publishing.'}
+                          </p>
+                        </div>
                       )}
                       {facebookConnected && <p className="font-semibold">Connected Page: {facebookPages.find(page => page.id === facebookPageId)?.name || 'Select a Page below'}</p>}
                       <button type="button" onClick={connectFacebook} disabled={isConnectingFacebook || isDemoMode || facebookSetupReady === false} className="rounded-lg bg-blue-600 px-3 py-1.5 font-semibold text-white disabled:opacity-50">

@@ -118,6 +118,7 @@ const MAX_IMAGES = 4;
 // larger) inside the /api/ai JSON body, and extractDocumentText's own 8MB
 // cap means anything larger fails there anyway -- better to say so up front.
 const PLAN_FILE_MAX_BYTES = 8 * 1024 * 1024;
+const planDraftStorageKey = (owner: string) => `agent_content_plan_draft_${owner}`;
 const SILENT_WAV_DATA_URL = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
 
 // A plain `session-${Date.now()}` id collides whenever two sessions are created
@@ -470,7 +471,10 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     try {
       const response = await fetch('/api/ai', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(user ? { Authorization: `Bearer ${await user.getIdToken()}` } : {}),
+        },
         signal: controller.signal,
         body: JSON.stringify({
           businessContext: businessContext || undefined,
@@ -509,7 +513,10 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         onWebsiteLookup: async (url) => {
           const lookup = await fetch('/api/ai', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              ...(user ? { Authorization: `Bearer ${await user.getIdToken()}` } : {}),
+            },
             signal: controller.signal,
             body: JSON.stringify({ action: 'liveWebsiteRead', url, websiteUrl: businessContext?.websiteUrl || '' }),
           });
@@ -584,7 +591,20 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const [planOpen, setPlanOpen] = useState(false);
   const [planLink, setPlanLink] = useState('');
   const [planExtracting, setPlanExtracting] = useState(false);
-  const [planItems, setPlanItems] = useState<PlanItem[]>([]);
+  const [planItems, setPlanItems] = useState<PlanItem[]>(() => {
+    try {
+      return normalizePlanItems(JSON.parse(sessionStorage.getItem(planDraftStorageKey(user?.uid || 'demo')) || '[]')).slice(0, 60);
+    } catch {
+      return [];
+    }
+  });
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(planDraftStorageKey(user?.uid || 'demo'), JSON.stringify(planItems.slice(0, 60)));
+    } catch {
+      // The draft remains available in memory when browser storage is full.
+    }
+  }, [planItems, user?.uid]);
   const [replaceOldPlan, setReplaceOldPlan] = useState(true);
   const [planSaving, setPlanSaving] = useState(false);
   const [planError, setPlanError] = useState<string | null>(null);
@@ -1092,6 +1112,29 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     setPlanItems((items) => items.map((item, i) => (i === index ? { ...item, productImageUrl, productImageLabel } : item)));
   };
 
+  const createPlanVideoNow = (item: PlanItem) => {
+    if (!user || isDemoMode) {
+      notify(videoSignInMessage(), 'error');
+      return;
+    }
+    try {
+      triggerCreativeAutomation({
+        ready: true,
+        kind: 'video',
+        prompt: item.prompt,
+        platform: 'General',
+        aspectRatio: item.aspectRatio || '9:16',
+        duration: 8,
+        voiceOverWanted: true,
+        voiceOverText: item.voiceOverText,
+        voiceGender: item.voiceGender || 'Female',
+        performanceStyle: item.performanceStyle || '',
+      }, 'km');
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Could not start this video.', 'error');
+    }
+  };
+
   const handleSavePlan = async () => {
     if (!user || isDemoMode) return;
     const selectedItems = planItems.filter((item) => item.selected);
@@ -1398,7 +1441,10 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       }
       const response = await fetch('/api/ai', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(user ? { Authorization: `Bearer ${await user.getIdToken()}` } : {}),
+        },
         signal: controller.signal,
         body: JSON.stringify({
           action: 'socialAgent',
@@ -1419,12 +1465,22 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'AI Agent failed.');
+      if (Array.isArray(data.planItems) && data.planItems.length) {
+        setPlanItems(normalizePlanItems(data.planItems));
+        setPlanOpen(true);
+        setPlanError(null);
+        setPlanSavedCount(null);
+        setPlanEditNotice(null);
+      } else if (data.planItemsError) {
+        setPlanOpen(true);
+        setPlanError(String(data.planItemsError));
+      }
       const document = data.document as AgentDocument | undefined;
       const videoNeedsSignIn = autoCreateRequested && data.automation?.ready
         && data.automation.kind === 'video' && !user;
       const answer = videoNeedsSignIn ? videoSignInMessage() : document
         ? (language === 'km' ? `ឯកសារ ${document.format.toUpperCase()} រួចរាល់៖ ${document.title}` : `${document.format.toUpperCase()} ready: ${document.title}`)
-        : String(data.text || 'No response generated.').trim();
+        : [String(data.text || 'No response generated.').trim(), data.planItemsError ? String(data.planItemsError) : ''].filter(Boolean).join('\n\n');
 
       const assistantMessage: AgentMessage = { role: 'assistant', content: answer, modality: spoken ? 'voice' : 'text', ...(document ? { document } : {}), ...(data.agentPlan ? { agentPlan: true } : {}), ...(data.audioScript && !videoNeedsSignIn ? { audioPending: true } : {}) };
       updateMessages([...pendingMessages, assistantMessage]);
@@ -1584,14 +1640,14 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         )}
       </section>
 
-      <section ref={planSectionRef} className="glass rounded-2xl p-5">
+      <section ref={planSectionRef} className="glass min-w-0 rounded-2xl p-4 sm:p-5">
         <button
           type="button"
           onClick={() => setPlanOpen((open) => !open)}
           className="flex items-center gap-2 text-lg font-bold text-brand-700 dark:text-brand-300"
         >
           <CalendarClock size={20} />
-          <span>{language === 'km' ? 'ផែនការដែលបានអាប់ឡូត (Uploaded Content Plan)' : 'Uploaded Content Plan'}</span>
+          <span>{language === 'km' ? 'Content Plan របស់អ្នក' : 'Your Content Plan'}</span>
           {savedPlanItems.some((item) => item.type === 'video' && item.status === 'FAILED') && (
             <span className="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-bold text-rose-700 dark:bg-rose-900/40 dark:text-rose-300">
               {language === 'km' ? 'វីដេអូបរាជ័យ' : 'Video failed'}
@@ -1613,7 +1669,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                 <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-400">
                   {language === 'km'
                     ? 'អាប់ឡូតឯកសារ Excel/CSV/PDF/Word/text ឬបិទភ្ជាប់ link Google Sheet ដែលមានកាលបរិច្ឆេទ + សំណើបង្កើតរូបភាព/វីដេអូ។ AI នឹងស្រង់ចេញជា prompt ត្រៀមរួច ហើយបង្កើតឲ្យស្វ័យប្រវត្តិនៅថ្ងៃដល់កំណត់ រួចផ្ញើទៅ Telegram Channel/Bot ដែលអ្នកបានភ្ជាប់។'
-                    : 'Upload an Excel/CSV/PDF/Word/text file or paste a Google Sheet link with dates + image/video requests. The AI extracts ready-to-use prompts and generates each one automatically on its scheduled date, delivered to your connected Telegram Channel/Bot.'}
+                    : 'Ask the Agent to create a plan, upload an Excel/CSV/PDF/Word/text file, or paste a Google Sheet link. Review the image/video rows before saving; saved rows generate on their scheduled dates and go to your connected Telegram channel.'}
                 </p>
 
                 <div className="flex flex-wrap items-center gap-3">
@@ -1627,14 +1683,14 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                     <ImagePlus size={16} />
                     {language === 'km' ? 'អាប់ឡូត Excel/CSV' : 'Upload Excel/CSV'}
                   </button>
-                  <div className="flex flex-1 min-w-[240px] items-center gap-2">
+                  <div className="flex min-w-0 flex-1 basis-full items-center gap-2 sm:basis-auto">
                     <input
                       type="text"
                       value={planLink}
                       onChange={(event) => setPlanLink(event.target.value)}
                       onKeyDown={(event) => event.key === 'Enter' && handlePlanLinkSubmit()}
                       placeholder={language === 'km' ? 'ឬបិទភ្ជាប់ Google Sheet link...' : 'or paste a Google Sheet link...'}
-                      className="flex-1 rounded-xl border border-brand-100 bg-white px-3 py-2.5 text-sm text-brand-800 outline-none focus:ring-2 ring-brand-500/20 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
+                      className="min-w-0 flex-1 rounded-xl border border-brand-100 bg-white px-3 py-2.5 text-sm text-brand-800 outline-none focus:ring-2 ring-brand-500/20 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
                     />
                     <button
                       type="button"
@@ -1718,6 +1774,9 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                                     ))}
                                   </select>
                                 )}
+                                <button type="button" onClick={() => createPlanVideoNow(item)} className="mt-2 rounded-lg bg-brand-600 px-3 py-2 text-xs font-bold text-white hover:bg-brand-700">
+                                  {language === 'km' ? 'បង្កើតវីដេអូនេះឥឡូវ' : 'Create this video now'}
+                                </button>
                               </div>
                             )}
                           </div>
@@ -1881,8 +1940,8 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         )}
       </section>
 
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
-        <section className="xl:col-span-4 glass rounded-[2rem] p-7 space-y-5 self-start">
+      <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-12 xl:gap-8">
+        <section className="xl:col-span-4 glass min-w-0 rounded-[2rem] p-4 space-y-5 self-start sm:p-7">
           <div className="space-y-2">
             <label className="text-[10px] font-bold text-brand-700 dark:text-brand-300 uppercase tracking-widest">{text.prompt}</label>
             <textarea
@@ -2067,7 +2126,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
 
         </section>
 
-        <section className="xl:col-span-8 glass rounded-[2rem] p-7 min-h-[650px] flex flex-col">
+        <section className="xl:col-span-8 glass min-w-0 rounded-[2rem] p-4 min-h-[420px] flex flex-col sm:min-h-[650px] sm:p-7">
           <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
             <h3 className="text-xl font-bold text-brand-700 dark:text-brand-300 flex items-center gap-2">
               <span className="w-2 h-6 bg-brand-500 rounded-full" />
@@ -2101,7 +2160,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
 
           <div className="flex-1 max-h-[720px] overflow-y-auto pr-2 space-y-4">
             {liveVoiceEnabled ? (
-              <div className={`h-full min-h-[500px] flex flex-col items-center text-center ${voiceDocument ? 'justify-start pt-3' : 'justify-center'}`} role={voiceDocument ? undefined : 'status'} aria-live={voiceDocument ? 'off' : 'polite'}>
+              <div className={`h-full min-h-[300px] sm:min-h-[500px] flex flex-col items-center text-center ${voiceDocument ? 'justify-start pt-3' : 'justify-center'}`} role={voiceDocument ? undefined : 'status'} aria-live={voiceDocument ? 'off' : 'polite'}>
                 {!voiceDocument && <>
                 <div className={`w-24 h-24 rounded-full flex items-center justify-center mb-5 ${isSpeaking ? 'bg-brand-600 text-white animate-pulse' : 'bg-brand-50 text-brand-600'}`}>
                   {voiceConnecting || voiceProcessing ? <Loader2 size={42} className="animate-spin" /> : isSpeaking ? <Bot size={42} /> : <Mic size={42} />}

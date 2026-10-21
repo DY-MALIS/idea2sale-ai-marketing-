@@ -3,7 +3,7 @@ import { Client as QStashClient } from '@upstash/qstash';
 import { getCookie, sessionCookieAttributes } from './_tiktok.js';
 import { getScheduledCallbackBaseUrl } from './_callbackUrl.js';
 import { extractWebsiteText } from './_websiteExtract.js';
-import { facebookBusinessPageKey } from './_socialUrls.js';
+import { facebookBusinessPageKey, socialPlatformFromUrl } from './_socialUrls.js';
 
 const COLLECTION = 'facebook_automation_tokens';
 const VERSION = process.env.FACEBOOK_GRAPH_API_VERSION || 'v25.0';
@@ -121,6 +121,7 @@ export async function readConnectedFacebookPage(db, ownerId) {
   }
   const info = details.status === 'fulfilled' ? details.value : {};
   return {
+    pageId: String(page.id),
     pageName: String(info.name || page.name || '').slice(0, 180),
     pageUrl: String(info.link || '').slice(0, 300),
     about: String(info.about || info.description || '').slice(0, 1500),
@@ -139,7 +140,20 @@ export async function readConnectedFacebookPage(db, ownerId) {
 export async function readProfileFacebookPage(db, ownerId, { extract = extractWebsiteText, readConnected = readConnectedFacebookPage } = {}) {
   const profileSnapshot = await db.collection('business_profiles').doc(ownerId).get();
   const savedUrl = String(profileSnapshot.data()?.facebookPageUrl || '').trim().slice(0, 300);
-  const savedKey = facebookBusinessPageKey(savedUrl);
+  let savedPageUrl = savedUrl;
+  let savedNumericId = '';
+  try {
+    const parsed = new URL(savedUrl);
+    if (socialPlatformFromUrl(savedUrl) === 'Facebook' && /^https?:$/.test(parsed.protocol)) {
+      parsed.protocol = 'https:';
+      savedPageUrl = parsed.toString();
+      if (parsed.pathname.toLowerCase() === '/profile.php') {
+        const id = parsed.searchParams.get('id') || '';
+        if (/^\d{5,20}$/.test(id)) savedNumericId = id;
+      }
+    }
+  } catch { /* Invalid links are rejected by the identity check below. */ }
+  const savedKey = savedNumericId ? `id:${savedNumericId}` : facebookBusinessPageKey(savedPageUrl);
   if (!savedKey) {
     if (savedUrl) throw Object.assign(new Error('Save a valid public Facebook Page link in Business Profile.'), { status: 400 });
     return readConnected(db, ownerId);
@@ -150,21 +164,37 @@ export async function readProfileFacebookPage(db, ownerId, { extract = extractWe
   try {
     const connected = await readConnected(db, ownerId);
     const connectedKey = facebookBusinessPageKey(connected.pageUrl);
-    if (connectedKey && connectedKey === savedKey) return { ...connected, profilePageUrl: savedUrl };
+    if ((savedNumericId && String(connected.pageId || '') === savedNumericId)
+      || (!savedNumericId && connectedKey && connectedKey === savedKey)) {
+      return { ...connected, profilePageUrl: savedUrl };
+    }
   } catch { /* A public Page may still be readable without a connection. */ }
 
   let page;
   try {
-    page = await extract({ url: savedUrl });
+    page = await extract({ url: savedPageUrl });
   } catch {
     throw Object.assign(new Error('Could not read the Facebook Page saved in Business Profile. Facebook may require login; connect that Page in Social Automation to read its current posts.'), { status: 502 });
   }
   const finalKey = facebookBusinessPageKey(page.url);
+  const finalUrlIsSavedNumericProfile = savedNumericId && (() => {
+    try {
+      const finalUrl = new URL(page.url);
+      return socialPlatformFromUrl(page.url) === 'Facebook'
+        && finalUrl.pathname.toLowerCase() === '/profile.php'
+        && finalUrl.searchParams.get('id') === savedNumericId;
+    } catch { return false; }
+  })();
+  // Numeric Page links may redirect to a Facebook vanity URL. The redirect
+  // itself came from the owner-saved URL; reject any off-Facebook destination.
+  const sameSavedPage = savedNumericId
+    ? Boolean(finalUrlIsSavedNumericProfile || (socialPlatformFromUrl(page.url) === 'Facebook' && finalKey))
+    : finalKey === savedKey;
   const content = String(page.text || '').replace(/\s+/g, ' ').trim();
   const title = String(page.title || '').trim();
   const loginWall = /(?:facebook.*(?:log in|sign up)|(?:log in|sign up).*facebook|ចូលគណនី.*facebook)/i.test(title)
     || (content.length < 500 && /(?:log in to facebook|log into facebook|you must log in|បង្កើតគណនីថ្មី)/i.test(content));
-  if (finalKey !== savedKey || content.length < (page.metadataOnly ? 40 : 80) || loginWall) {
+  if (!sameSavedPage || content.length < (page.metadataOnly ? 40 : 80) || loginWall) {
     throw Object.assign(new Error('Facebook did not expose readable Page content at the saved Profile link. Connect this Page in Social Automation to read its current posts.'), { status: 502 });
   }
   return {

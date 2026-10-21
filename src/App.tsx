@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Info, ExternalLink, Copy, Settings, Globe, Languages, Check, Sun, Moon, Menu } from 'lucide-react';
+import { Info, ExternalLink, Copy, Settings, Globe, Languages, Check, Menu } from 'lucide-react';
 import { cn } from './lib/utils';
 import Sidebar from './components/Sidebar';
 const Copywriter = lazy(() => import('./components/Copywriter'));
@@ -24,7 +24,6 @@ import ErrorBoundary from './components/ErrorBoundary';
 import { CreativeAutomationRequest, ScheduleHandoffRequest, TabType } from './types';
 import { useLanguage } from './contexts/LanguageContext';
 import { useAuth } from './contexts/AuthContext';
-import { useTheme } from './contexts/ThemeContext';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from './lib/firebase';
 import { getLatestBusinessBranding, type BusinessBranding } from './lib/businessBranding';
@@ -51,7 +50,6 @@ export default function App() {
   const [activeBusiness, setActiveBusiness] = useState<BusinessBranding | null>(null);
 
   const { language, setLanguage, t } = useLanguage();
-  const { theme, toggleTheme } = useTheme();
 
   useEffect(() => {
     let cancelled = false;
@@ -209,16 +207,6 @@ export default function App() {
       )}
 
       <div className="fixed right-3 top-[max(0.75rem,env(safe-area-inset-top))] z-[100] flex items-center gap-1.5 sm:right-4 sm:gap-2 lg:top-4">
-        <motion.button
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={toggleTheme}
-          aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-          className="p-2 bg-white/80 backdrop-blur-md border border-white/50 rounded-full shadow-lg hover:shadow-xl transition-all text-brand-600 dark:bg-slate-800/80 dark:border-white/10 dark:text-brand-400"
-        >
-          {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
-        </motion.button>
-
         <div className="relative">
           <motion.button
             whileHover={{ scale: 1.05 }}

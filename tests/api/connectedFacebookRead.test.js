@@ -74,3 +74,36 @@ it('uses Graph posts only when the connected Page matches the profile link', asy
   expect(result.posts[0].text).toBe('New post');
   expect(extract).not.toHaveBeenCalled();
 });
+
+it('reads a saved numeric Facebook Page link through its matching connected Page ID', async () => {
+  const savedUrl = 'https://www.facebook.com/profile.php?id=61590702807502';
+  const db = profileDb({ company_b: { facebookPageUrl: savedUrl } });
+  const extract = vi.fn();
+  const result = await readProfileFacebookPage(db, 'company_b', {
+    readConnected: async () => ({ pageId: '61590702807502', pageUrl: 'https://facebook.com/company.b', posts: [{ text: 'Today’s offer' }], postsReadable: true }),
+    extract,
+  });
+  expect(result.profilePageUrl).toBe(savedUrl);
+  expect(result.posts[0].text).toBe('Today’s offer');
+  expect(extract).not.toHaveBeenCalled();
+});
+
+it('reads a saved numeric Facebook link that redirects to the Page public URL', async () => {
+  const db = profileDb({ company_b: { facebookPageUrl: 'http://facebook.com/profile.php?id=61590702807502' } });
+  const extract = vi.fn(async () => ({ url: 'https://www.facebook.com/company.b/', title: 'Company B', text: 'Company B sells coffee and pastries. '.repeat(5) }));
+  const result = await readProfileFacebookPage(db, 'company_b', {
+    readConnected: async () => { throw new Error('Not connected'); }, extract,
+  });
+  expect(extract).toHaveBeenCalledWith({ url: 'https://facebook.com/profile.php?id=61590702807502' });
+  expect(result.pageUrl).toBe('http://facebook.com/profile.php?id=61590702807502');
+  expect(result.text).toContain('coffee and pastries');
+  expect(result.postsReadable).toBe(false);
+});
+
+it('rejects a numeric profile link redirected outside Facebook', async () => {
+  const db = profileDb({ company_b: { facebookPageUrl: 'https://facebook.com/profile.php?id=61590702807502' } });
+  await expect(readProfileFacebookPage(db, 'company_b', {
+    readConnected: async () => { throw new Error('Not connected'); },
+    extract: async () => ({ url: 'https://unrelated.example/', title: 'Company B', text: 'Company B text. '.repeat(10) }),
+  })).rejects.toThrow(/did not expose readable Page content/);
+});

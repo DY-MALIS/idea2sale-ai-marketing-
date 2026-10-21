@@ -12,9 +12,9 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 const getInitialTheme = (): Theme => {
-  const stored = localStorage.getItem('theme');
-  if (stored === 'light' || stored === 'dark') return stored;
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  // Every signed-in business sees the same light canvas, regardless of the
+  // device's OS preference or a theme saved by a previous account.
+  return 'light';
 };
 
 export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) => {

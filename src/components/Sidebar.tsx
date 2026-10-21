@@ -26,6 +26,7 @@ import { getLatestBusinessBranding, type BusinessBranding } from '../lib/busines
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { isStableGuestUid } from '../lib/guestIdentity';
+import { telegramChannelLinkFromProfile } from '../../shared/telegramDestination.js';
 
 interface SidebarProps {
   activeTab: TabType;
@@ -199,9 +200,9 @@ const Sidebar: React.FC<SidebarProps> = ({
           <Bot size={18} />
           <span className="text-sm font-medium">{t('openTelegramBot')}</span>
         </motion.a> : null}
-        {branding?.telegramChannelUrl ? <motion.a
+        {telegramChannelLinkFromProfile(branding?.telegramChannelUrl) ? <motion.a
           whileTap={{ scale: 0.98 }}
-          href={branding.telegramChannelUrl}
+          href={telegramChannelLinkFromProfile(branding?.telegramChannelUrl)}
           target="_blank"
           rel="noopener noreferrer"
           onClick={onClose}

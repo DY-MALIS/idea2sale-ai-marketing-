@@ -1,4 +1,4 @@
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDocFromServer } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { db } from './firebase';
 import type { BusinessDirectoryEntry, BusinessProductImage, BusinessProfileData } from '../types';
@@ -44,7 +44,7 @@ export async function getLatestBusinessBranding(user: User | null, isDemoMode: b
     if (isDemoMode || !user) {
       profile = JSON.parse(localStorage.getItem('demo_business_profile') || 'null');
     } else {
-      const snapshot = await getDoc(doc(db, 'business_profiles', user.uid));
+      const snapshot = await getDocFromServer(doc(db, 'business_profiles', user.uid));
       profile = snapshot.exists() ? snapshot.data() as BusinessProfileData : null;
     }
     return {

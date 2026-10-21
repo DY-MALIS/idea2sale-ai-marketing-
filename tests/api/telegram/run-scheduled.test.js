@@ -111,6 +111,30 @@ it('keeps Telegram in the same one-upload schedule group as the other platforms'
   }));
 });
 
+it.each(['photo', 'video'])('saves a scheduled Telegram %s for the owner username', async (mediaType) => {
+  delete process.env.QSTASH_TOKEN;
+  process.env.IMAGEKIT_PUBLIC_KEY = 'public-test';
+  process.env.IMAGEKIT_PRIVATE_KEY = 'private-test';
+  process.env.IMAGEKIT_URL_ENDPOINT = 'https://ik.imagekit.io/demo';
+  mockVerifyIdToken.mockResolvedValue({ uid: 'owner' });
+  const addPost = vi.fn().mockResolvedValue({ id: `telegram-${mediaType}` });
+  planMocks.db = {
+    collection: (name) => name === 'business_profiles'
+      ? { doc: () => ({ get: async () => ({ data: () => ({ telegramBotToken: 'bot-token', telegramChannelUrl: '@datingcafe168' }) }) }) }
+      : { add: addPost },
+  };
+  const mediaUrl = `https://ik.imagekit.io/demo/telegram-media/post.${mediaType === 'video' ? 'mp4' : 'jpg'}`;
+  const res = createMockRes();
+  await scheduledHandler({
+    method: 'POST', query: { action: 'create' }, headers: { authorization: 'Bearer owner-token' },
+    body: { scheduledTime: new Date(Date.now() + 60 * 60 * 1000).toISOString(), mediaUrl, mediaType },
+  }, res);
+  expect(res.statusCode).toBe(200);
+  expect(addPost).toHaveBeenCalledWith(expect.objectContaining({
+    userId: 'owner', platform: 'TELEGRAM', mediaUrl, mediaType, publishMode: 'TELEGRAM_AUTO_POST',
+  }));
+});
+
 it('detects a timed-out plan video start without treating an accepted paid job as retryable', () => {
   const now = Date.now();
   const processingAt = { toMillis: () => now - 11 * 60 * 1000 };
@@ -450,6 +474,53 @@ describe('Telegram video delivery', () => {
     expect(fetchSpy.mock.calls[1][0]).toContain('/sendVideo');
     expect(fetchSpy.mock.calls[1][1].body).toBeInstanceOf(FormData);
     expect(fetchSpy.mock.calls[1][1].body.get('video').size).toBe(3);
+  });
+
+  it('sends a scheduled photo to the owner channel username', async () => {
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'content-type': 'image/jpeg', 'content-length': '3' }),
+        arrayBuffer: async () => new Uint8Array([0, 1, 2]).buffer,
+      })
+      .mockResolvedValueOnce(okTelegramResponse());
+    global.fetch = fetchSpy;
+    await sendTelegram({
+      userId: 'u1', content: 'New photo', mediaType: 'photo', mediaUrl: 'https://ik.imagekit.io/demo/telegram-media/photo.jpg',
+    }, fakeDbWithProfile({ telegramBotToken: 'own-token', telegramChannelUrl: '@datingcafe168' }));
+    expect(fetchSpy.mock.calls[0][0]).toContain('/telegram-media/photo.jpg');
+    expect(fetchSpy.mock.calls[1][0]).toContain('/sendPhoto');
+    expect(fetchSpy.mock.calls[1][1].body).toBeInstanceOf(FormData);
+    expect(fetchSpy.mock.calls[1][1].body.get('chat_id')).toBe('@datingcafe168');
+    expect(fetchSpy.mock.calls[1][1].body.get('photo').size).toBe(3);
+  });
+
+  it('sends a scheduled video to the owner channel username', async () => {
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'content-type': 'video/mp4', 'content-length': '3' }),
+        arrayBuffer: async () => new Uint8Array([0, 1, 2]).buffer,
+      })
+      .mockResolvedValueOnce(okTelegramResponse());
+    global.fetch = fetchSpy;
+    await sendTelegram({
+      userId: 'u1', content: 'New video', mediaType: 'video', mediaUrl: 'https://ik.imagekit.io/demo/telegram-media/video.mp4',
+    }, fakeDbWithProfile({ telegramBotToken: 'own-token', telegramChannelUrl: '@datingcafe168' }));
+    expect(fetchSpy.mock.calls[1][0]).toContain('/sendVideo');
+    expect(fetchSpy.mock.calls[1][1].body.get('chat_id')).toBe('@datingcafe168');
+  });
+
+  it('rejects an oversized scheduled photo before calling Telegram', async () => {
+    const fetchSpy = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      headers: new Headers({ 'content-type': 'image/jpeg', 'content-length': '10000001' }),
+    });
+    global.fetch = fetchSpy;
+    await expect(sendTelegram({
+      userId: 'u1', content: 'Large photo', mediaType: 'photo', mediaUrl: 'https://ik.imagekit.io/demo/telegram-media/photo.jpg',
+    }, fakeDbWithProfile({ telegramBotToken: 'own-token', telegramChannelUrl: '@datingcafe168' }))).rejects.toThrow('10 MB');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
   it('preserves generated video overlays and narration transforms', () => {

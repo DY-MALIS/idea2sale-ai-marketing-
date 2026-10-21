@@ -81,7 +81,7 @@ export interface GeminiLiveSetup {
 const WEBSITE_TOOL = {
   functionDeclarations: [{
     name: 'read_public_website',
-    description: 'Read a public website page to answer a question about its current contents. Use when the user provides a link or asks about the saved business website. The result includes same-site links; read a relevant linked page when the home page is insufficient. Do not claim to have checked a page if this tool returns an error.',
+    description: 'Read a public website or LinkedIn page to answer a question about its current contents. Use when the user provides a link or asks about the saved business website or LinkedIn link. Pass the saved LinkedIn URL explicitly when checking LinkedIn. The result includes same-site links; read a relevant linked page when the home page is insufficient. Do not claim to have checked a page if this tool returns an error.',
     parameters: {
       type: 'OBJECT',
       properties: { url: { type: 'STRING', description: 'Public http or https page URL. Omit to read the saved business website.' } },

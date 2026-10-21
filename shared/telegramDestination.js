@@ -7,6 +7,13 @@ export function channelUsernameFromProfile(value) {
   return match ? `@${match[1]}` : '';
 }
 
+// The profile stores @username for Telegram's chat_id. Only navigation in the
+// browser needs a t.me URL; never pass that URL to the Bot API as chat_id.
+export function telegramChannelLinkFromProfile(value) {
+  const username = channelUsernameFromProfile(value);
+  return username ? `https://t.me/${username.slice(1)}` : '';
+}
+
 export function telegramDestinationFromProfile(profile = {}) {
   const token = String(profile.telegramBotToken || '').trim();
   const channel = String(profile.telegramChannelUrl || '').trim();

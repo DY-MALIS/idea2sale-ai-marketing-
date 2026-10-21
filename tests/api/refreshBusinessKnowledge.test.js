@@ -4,6 +4,8 @@ const mocks = vi.hoisted(() => ({
   text: vi.fn(),
   checkRateLimit: vi.fn(),
   extractWebsite: vi.fn(),
+  facebookRead: vi.fn(),
+  profiles: {},
 }));
 
 vi.mock('../../api/_openrouter.js', () => ({
@@ -23,7 +25,7 @@ vi.mock('../../api/_videoSpeech.js', () => ({ preparePlanVideoSpeech: vi.fn() })
 vi.mock('../../api/_khmerVideo.js', () => ({ startKhmerVideoJob: vi.fn() }));
 vi.mock('../../api/_firebaseAdmin.js', () => ({
   default: { auth: vi.fn() },
-  initFirebaseAdmin: () => ({}),
+  initFirebaseAdmin: () => ({ collection: () => ({ doc: (uid) => ({ get: async () => ({ data: () => mocks.profiles[uid] || {} }) }) }) }),
 }));
 vi.mock('../../api/_rateLimit.js', () => ({
   checkRateLimit: mocks.checkRateLimit,
@@ -36,8 +38,10 @@ vi.mock('../../api/_marketTrendResearch.js', () => ({ researchMarketTrends: vi.f
 vi.mock('../../api/_imagekitUpload.js', () => ({ uploadMediaDataUrl: vi.fn() }));
 vi.mock('../../api/_email.js', () => ({ sendOutreachEmail: vi.fn() }));
 vi.mock('../../api/_websiteExtract.js', () => ({ extractWebsiteText: mocks.extractWebsite }));
+vi.mock('../../api/_facebook.js', () => ({ readProfileFacebookPage: mocks.facebookRead }));
 
 import handler from '../../api/ai.js';
+import admin from '../../api/_firebaseAdmin.js';
 
 const responseRecorder = () => {
   const response = {
@@ -58,7 +62,32 @@ const responseRecorder = () => {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  mocks.profiles = {};
   mocks.checkRateLimit.mockResolvedValue({ allowed: true });
+});
+
+it('reads only the signed-in profile links and uses verified Facebook Page evidence', async () => {
+  admin.auth.mockReturnValue({ verifyIdToken: vi.fn().mockResolvedValue({ uid: 'other-company' }) });
+  mocks.profiles['other-company'] = {
+    websiteUrl: 'https://other.example.com',
+    facebookPageUrl: 'https://www.facebook.com/profile.php?id=61512345678901',
+  };
+  mocks.extractWebsite.mockResolvedValue({ text: 'Other Company offers accounting and payroll services to businesses in Phnom Penh, with monthly reporting and consultations.', title: 'Other Company' });
+  mocks.facebookRead.mockResolvedValue({ pageName: 'Other Company', pageUrl: mocks.profiles['other-company'].facebookPageUrl, text: 'Other Company shares payroll guidance and tax reminders for local businesses.', posts: [{ message: 'New payroll reporting service is available this month.' }] });
+  mocks.text.mockResolvedValue('Other Company offers accounting and payroll services.');
+  const res = responseRecorder();
+  await handler({ method: 'POST', headers: { authorization: 'Bearer company-token' }, body: {
+    action: 'refreshBusinessKnowledge',
+    websiteUrl: 'https://dgacademy.example.com',
+    facebookPageUrl: 'https://www.facebook.com/dgacademy',
+    language: 'en',
+  } }, res);
+  expect(res.statusCode).toBe(200);
+  expect(mocks.extractWebsite).toHaveBeenCalledWith({ url: 'https://other.example.com' });
+  expect(mocks.extractWebsite).not.toHaveBeenCalledWith({ url: 'https://dgacademy.example.com' });
+  expect(mocks.facebookRead).toHaveBeenCalledWith(expect.anything(), 'other-company');
+  expect(mocks.text.mock.calls[0][0].prompt).toContain('New payroll reporting service');
+  expect(res.body.sources).toEqual(['https://other.example.com', mocks.profiles['other-company'].facebookPageUrl]);
 });
 
 it('rejects when no website, Facebook, or LinkedIn link is saved', async () => {

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Upload, FileText, Building2, User, Plus, Trash2, Save, CheckCircle2, Loader2, Send, Bot, ArrowRight, Image as ImageIcon } from 'lucide-react';
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDocFromServer, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { cn } from '../lib/utils';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -30,6 +30,15 @@ const validHttpUrl = (value: string, allowedHosts?: string[]): boolean => {
   } catch {
     return false;
   }
+};
+
+const stableValue = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, child]) => [key, stableValue(child)]));
+  }
+  return value;
 };
 
 const getLocalProfile = (): BusinessProfileData => {
@@ -80,6 +89,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
   const { user, isDemoMode, loading: authLoading } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const introFileInputRef = useRef<HTMLInputElement>(null);
+  const businessNameInputRef = useRef<HTMLInputElement>(null);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -123,6 +133,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
 
   const [entryName, setEntryName] = useState('');
   const [entryType, setEntryType] = useState<'COMPANY' | 'INDIVIDUAL'>('COMPANY');
+  const channelPreviewUsername = channelUsernameFromProfile(telegramChannelUrl.trim());
 
   useEffect(() => {
     // Waiting for Firebase auth to actually settle avoids a load-then-reload: this
@@ -155,7 +166,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
           setTelegramBotToken(local.telegramBotToken || '');
           setSavedTelegramBotToken(local.telegramBotToken || '');
           setTelegramChatId(local.telegramChatId || '');
-          setTelegramChannelUrl(local.telegramChannelUrl || '');
+          setTelegramChannelUrl(channelUsernameFromProfile(local.telegramChannelUrl) || local.telegramChannelUrl || '');
           setTiktokHandle(local.tiktokHandle || '');
           setFacebookPageUrl(local.facebookPageUrl || '');
           setWebsiteUrl(local.websiteUrl || '');
@@ -171,7 +182,9 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
             const listed = await filesResponse.json();
             if (!cancelled) setProfileFiles(Array.isArray(listed.files) ? listed.files : []);
           }
-          const snap = await getDoc(doc(db, 'business_profiles', user.uid));
+          // Reopening the editor must show the committed server value, not an
+          // older local snapshot that can make a successful edit look lost.
+          const snap = await getDocFromServer(doc(db, 'business_profiles', user.uid));
           if (cancelled) return;
           if (snap.exists()) {
             const data = snap.data() as BusinessProfileData & { telegramBotActive?: boolean };
@@ -184,7 +197,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
             setTelegramBotToken(data.telegramBotToken || '');
             setSavedTelegramBotToken(data.telegramBotToken || '');
             setTelegramChatId(data.telegramChatId || '');
-            setTelegramChannelUrl(data.telegramChannelUrl || '');
+            setTelegramChannelUrl(channelUsernameFromProfile(data.telegramChannelUrl) || data.telegramChannelUrl || '');
             setTiktokHandle(data.tiktokHandle || '');
             setFacebookPageUrl(data.facebookPageUrl || '');
             setWebsiteUrl(data.websiteUrl || '');
@@ -408,9 +421,10 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
     setKnowledgeRefreshing(true);
     setKnowledgeRefreshError(null);
     try {
+      const idToken = user && !isDemoMode ? await user.getIdToken() : '';
       const response = await fetch('/api/ai', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}) },
         body: JSON.stringify({ action: 'refreshBusinessKnowledge', websiteUrl, facebookPageUrl, linkedinUrl, language }),
       });
       const data = await response.json().catch(() => ({}));
@@ -453,7 +467,11 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
   };
 
   const handleSave = async () => {
-    if (savedBusinessName && !businessName.trim()) {
+    // Read the field itself at Save time. Keeping the name input uncontrolled
+    // prevents an unrelated profile render from replacing text while it is
+    // being edited (notably with browser translation/input helpers).
+    const editedBusinessName = businessNameInputRef.current?.value ?? businessName;
+    if (savedBusinessName && !editedBusinessName.trim()) {
       setError(language === 'km' ? 'សូមបញ្ចូលឈ្មោះអាជីវកម្ម មុនពេលរក្សាទុក។' : 'Enter a business name before saving.');
       return;
     }
@@ -467,7 +485,6 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
       setError('Enter a public Telegram channel username such as @mycompany or https://t.me/mycompany.');
       return;
     }
-    const channelUrl = channelUsername ? `https://t.me/${channelUsername.slice(1)}` : '';
     const pageUrl = facebookPageUrl.trim();
     if (pageUrl && !validHttpUrl(pageUrl, ['facebook.com', 'www.facebook.com', 'm.facebook.com', 'fb.com', 'www.fb.com'])) {
       setError('Enter a Facebook Page URL beginning with https://facebook.com/');
@@ -491,7 +508,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
     setError(null);
     setSaved(false);
     const profile: BusinessProfileData = {
-      businessName: businessName.trim(),
+      businessName: editedBusinessName.trim(),
       businessDescription: businessDescription.trim().slice(0, 1000),
       businessDocumentKnowledge: businessDocumentKnowledge.slice(0, 4000),
       // Carried through from current state (set by extraction, or by a
@@ -506,7 +523,9 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
       productImages: productImages.map((image) => ({ ...image, label: image.label.trim().slice(0, 60) })),
       telegramBotToken: telegramBotToken.trim(),
       telegramChatId: telegramChatId.trim(),
-      telegramChannelUrl: channelUrl,
+      // Keep the legacy field key for stored profiles, but persist Telegram's
+      // actual chat_id format so the UI and publisher agree on @username.
+      telegramChannelUrl: channelUsername,
       tiktokHandle: tiktokHandle.trim().replace(/^@/, ''),
       facebookPageUrl: facebookPageUrl.trim(),
       websiteUrl: siteUrl,
@@ -531,11 +550,34 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
         // which the server sets independently (see activateOwnBot in
         // api/telegram/webhook.js) whenever the user activates/deactivates their
         // own bot, not through this form.
-        await setDoc(doc(db, 'business_profiles', user.uid), {
+        const profileRef = doc(db, 'business_profiles', user.uid);
+        await setDoc(profileRef, {
           ...profile,
           userId: user.uid,
           updatedAt: serverTimestamp()
         }, { merge: true });
+        // Confirm the actual stored values before displaying "Saved". This
+        // catches a second tab or server writer replacing an edit immediately.
+        let confirmed;
+        try {
+          confirmed = await getDocFromServer(profileRef);
+        } catch {
+          throw new Error(language === 'km'
+            ? 'ការរក្សាទុកបានផ្ញើទៅម៉ាស៊ីនមេ ប៉ុន្តែមិនអាចផ្ទៀងផ្ទាត់វិញបាន។ សូមបើកព័ត៌មានអាជីវកម្មឡើងវិញដើម្បីពិនិត្យ។'
+            : 'The save was sent to the server, but its result could not be verified. Reopen Business Profile to check.');
+        }
+        const stored = confirmed.data() as Partial<BusinessProfileData> | undefined;
+        const fieldsToConfirm: (keyof BusinessProfileData)[] = [
+          'businessName', 'businessDescription', 'businessDocumentKnowledge',
+          'logoDataUrl', 'directory', 'productImages', 'telegramBotToken',
+          'telegramChatId', 'telegramChannelUrl', 'tiktokHandle',
+          'facebookPageUrl', 'websiteUrl', 'linkedinUrl',
+        ];
+        if (!stored || fieldsToConfirm.some((field) => JSON.stringify(stableValue(stored[field])) !== JSON.stringify(stableValue(profile[field])))) {
+          throw new Error(language === 'km'
+            ? 'ការកែប្រែមិនត្រូវគ្នានឹងទិន្នន័យលើម៉ាស៊ីនមេ។ សូមបើកព័ត៌មានអាជីវកម្មឡើងវិញ ហើយព្យាយាមម្ដងទៀត។'
+            : 'The saved values do not match the server. Reopen Business Profile and try again.');
+        }
         void recordAuditEvent('business_profile_updated', {
           businessName: profile.businessName,
           directoryEntries: profile.directory.length,
@@ -543,6 +585,8 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
         });
       }
       setSavedTelegramBotToken(profile.telegramBotToken);
+      setBusinessName(profile.businessName);
+      setTelegramChannelUrl(channelUsername);
       if (user && !isDemoMode) setSavedBusinessName(profile.businessName);
       setSaved(true);
       notifyBusinessProfileUpdated(user?.uid || 'demo');
@@ -645,13 +689,14 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
             </div>
 
             <div>
-              <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-2 block">
+              <label htmlFor="business-name" className="text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-2 block">
                 {t('businessName')}
               </label>
               <input
+                id="business-name"
+                ref={businessNameInputRef}
                 type="text"
-                value={businessName}
-                onChange={(e) => setBusinessName(e.target.value)}
+                defaultValue={businessName}
                 maxLength={200}
                 placeholder={t('businessNamePlaceholder')}
                 className="w-full px-4 py-3 bg-brand-50 border border-brand-100 dark:bg-slate-800 dark:border-slate-700 rounded-2xl text-sm text-brand-700 dark:text-slate-100 focus:outline-none focus:ring-2 ring-brand-500/20"
@@ -955,6 +1000,13 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
                     placeholder={t('telegramChannelUsernamePlaceholder')}
                     className="w-full px-4 py-3 bg-brand-50 border border-brand-100 dark:bg-slate-800 dark:border-slate-700 rounded-2xl text-sm text-brand-700 dark:text-slate-100 focus:outline-none focus:ring-2 ring-brand-500/20"
                   />
+                  {channelPreviewUsername && (
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      {language === 'km'
+                        ? `រក្សាទុកជា ${channelPreviewUsername} សម្រាប់ផ្ញើតាម Telegram។`
+                        : `Saved as ${channelPreviewUsername} for Telegram publishing.`}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label htmlFor="telegram-chat-id" className="mb-1 block text-[10px] font-bold text-slate-500 dark:text-slate-400">{t('telegramChatIdLabel')}</label>

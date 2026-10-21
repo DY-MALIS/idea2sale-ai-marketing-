@@ -186,6 +186,7 @@ export const telegramMediaUrlFor = (mediaUrl, mediaType) => {
 };
 
 const MAX_TELEGRAM_UPLOAD_BYTES = 50 * 1000 * 1000;
+const MAX_TELEGRAM_PHOTO_BYTES = 10 * 1000 * 1000;
 const isTrustedMediaDownloadUrl = (mediaUrl) => {
   if (isImageKitMediaUrl(mediaUrl)) return true;
   try {
@@ -201,6 +202,8 @@ const isTrustedMediaDownloadUrl = (mediaUrl) => {
 // directly so large videos and long ImageKit filenames can be published.
 export const uploadTelegramMediaUrl = async ({ token, chatId, mediaUrl, mediaType, caption }) => {
   if (!isTrustedMediaDownloadUrl(mediaUrl)) throw new Error('The scheduled media URL is not from app storage. Please upload the file again.');
+  const isVideo = mediaType === 'video';
+  const maxBytes = isVideo ? MAX_TELEGRAM_UPLOAD_BYTES : MAX_TELEGRAM_PHOTO_BYTES;
   const source = await fetch(mediaUrl, { signal: AbortSignal.timeout(120000) });
   if (!source.ok) {
     throw new Error(source.status === 403 && isImageKitMediaUrl(mediaUrl)
@@ -208,10 +211,13 @@ export const uploadTelegramMediaUrl = async ({ token, chatId, mediaUrl, mediaTyp
       : `The stored media could not be downloaded (HTTP ${source.status}). Please upload the file again.`);
   }
   const declaredSize = Number(source.headers.get('content-length'));
-  if (declaredSize > MAX_TELEGRAM_UPLOAD_BYTES) throw new Error('Telegram accepts video files up to 50 MB. Please choose a smaller file.');
+  if (declaredSize > maxBytes) throw new Error(isVideo
+    ? 'Telegram accepts video files up to 50 MB. Please choose a smaller file.'
+    : 'Telegram accepts photos up to 10 MB. Please choose a smaller image.');
   const bytes = Buffer.from(await source.arrayBuffer());
-  if (!bytes.length || bytes.length > MAX_TELEGRAM_UPLOAD_BYTES) throw new Error('The media file is empty or exceeds Telegram\'s 50 MB limit.');
-  const isVideo = mediaType === 'video';
+  if (!bytes.length || bytes.length > maxBytes) throw new Error(isVideo
+    ? 'The video is empty or exceeds Telegram\'s 50 MB limit.'
+    : 'The photo is empty or exceeds Telegram\'s 10 MB limit.');
   const contentType = source.headers.get('content-type') || '';
   if (isVideo && !/^video\//i.test(contentType)) throw new Error('The stored video URL did not return a video file. Please upload the file again.');
   const form = new FormData();
@@ -559,43 +565,28 @@ export const sendTelegram = async (post, db) => {
 
   const text = telegramTextFor(rawText, mediaUrl ? TELEGRAM_CAPTION_LIMIT : TELEGRAM_MESSAGE_LIMIT);
 
-  if (mediaUrl && mediaType === 'video') {
+  if (mediaUrl) {
+    // Use multipart for photos as well as videos. Telegram's URL fetch limit
+    // for photos is lower, and fetching through our trusted storage avoids a
+    // scheduled photo failing because Telegram could not reach its URL.
     const { messageId } = await uploadTelegramMediaUrl({ token, chatId, mediaUrl, mediaType, caption: text });
     return { messageId, chatId };
   }
 
-  const method = mediaUrl
-    ? mediaType === 'video'
-      ? 'sendVideo'
-      : 'sendPhoto'
-    : 'sendMessage';
+  const payload = {
+    chat_id: chatId,
+    text,
+    parse_mode: 'HTML',
+    disable_web_page_preview: false
+  };
 
-  const payload = mediaUrl
-    ? {
-        chat_id: chatId,
-        [mediaType === 'video' ? 'video' : 'photo']: mediaUrl,
-        caption: text || undefined,
-        parse_mode: text ? 'HTML' : undefined
-      }
-    : {
-        chat_id: chatId,
-        text,
-        parse_mode: 'HTML',
-        disable_web_page_preview: false
-      };
-
-  let response = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+  const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   });
 
-  let data = await response.json();
-
-  if (mediaUrl && (!response.ok || !data.ok)) {
-    const { messageId } = await uploadTelegramMediaUrl({ token, chatId, mediaUrl, mediaType, caption: text });
-    return { messageId, chatId };
-  }
+  const data = await response.json();
 
   if (!response.ok || !data.ok) {
     throw new Error(data?.description || 'Telegram could not publish this message.');

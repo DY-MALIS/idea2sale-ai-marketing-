@@ -62,21 +62,24 @@ beforeEach(() => {
   mocks.checkRateLimit.mockResolvedValue({ allowed: true });
 });
 
-it('returns an AI-created Content Planner in the chat instead of uploaded-plan items', async () => {
-  mocks.text.mockResolvedValue('## Content Planner\n\n### Day 1 — 2026-10-10\nFacebook: Try our fresh coffee today.');
+it('returns a company-specific Content Planner with ready-to-generate rows', async () => {
+  mocks.text
+    .mockResolvedValueOnce('## Content Planner\n\n### Day 1 — 2026-10-22\nFacebook: Try our fresh coffee today.')
+    .mockResolvedValueOnce(JSON.stringify({ items: [{ date: '2026-10-22', type: 'video', topic: 'Fresh coffee', prompt: 'A Cambodian barista prepares fresh coffee for a customer in a bright cafe.', voiceOverText: 'សូមមកសាកកាហ្វេស្រស់របស់យើងនៅថ្ងៃនេះ។', voiceGender: 'Female' }] }));
   const res = responseRecorder();
-  await handler({ method: 'POST', headers: {}, body: { action: 'socialAgent', message: 'Create a content plan for my cafe', language: 'en' } }, res);
+  await handler({ method: 'POST', headers: {}, body: { action: 'socialAgent', message: 'Create a video content plan for my cafe', language: 'en', businessContext: { businessName: 'My Cafe', businessDescription: 'Fresh coffee' } } }, res);
   expect(res.statusCode).toBe(200);
   expect(res.body.text).toContain('Facebook: Try our fresh coffee today.');
   expect(res.body.agentPlan).toBe(true);
-  expect(res.body.planItems).toBeUndefined();
+  expect(res.body.planItems).toMatchObject([{ type: 'video', topic: 'Fresh coffee' }]);
   expect(res.body.automation).toBeNull();
-  expect(mocks.text).toHaveBeenCalledTimes(1);
+  expect(mocks.text).toHaveBeenCalledTimes(2);
+  expect(mocks.text.mock.calls[1][0].prompt).toContain('My Cafe');
 });
 
 it.each([
   ['voiceAutomationCheck', 'Create a 7 day content plan in Excel'],
-  ['socialAgent', 'Create a 7 day content plan'],
+  ['socialAgent', 'Create a 7 day content plan in Excel'],
 ])('returns an Excel document for a Live Voice plan through %s', async (action, message) => {
   mocks.text.mockImplementation(async ({ prompt }) => {
     const dates = prompt.match(/in this order: ([\d,\s-]+)/)?.[1].match(/\d{4}-\d{2}-\d{2}/g) || [];
