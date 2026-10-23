@@ -151,7 +151,34 @@ it('does not publish an audio-only fallback from an unattended scheduled video',
   expect(mocks.video).toHaveBeenCalledTimes(1);
 });
 
-it('does not silently discard an uploaded image rejected by the provider', async () => {
+it('keeps a rejected uploaded image as the first frame with an alternate video provider', async () => {
+  mocks.speech.mockResolvedValue({ audioUrl: 'audio-data', duration: 3.4 });
+  mocks.video
+    .mockRejectedValueOnce(Object.assign(new Error('image rejected'), {
+      statusCode: 400,
+      providerCode: 'InputImageSensitiveContentDetected.PrivacyInformation',
+    }))
+    .mockResolvedValueOnce({ jobId: 'photo-video-job' });
+  const result = await startKhmerVideoJob(
+    {}, { script: 'សួស្តី', prompt: 'Presenter' }, uploadStub(),
+    { duration: 4, images: [{ mimeType: 'image/png', base64: 'AAAA' }] },
+  );
+  expect(mocks.video).toHaveBeenCalledTimes(2);
+  expect(mocks.video.mock.calls[1][0]).toMatchObject({
+    model: 'google/veo-3.1-lite',
+    khmerSpeech: true,
+    images: [{ mimeType: 'image/png', base64: 'AAAA' }],
+    generateAudio: false,
+    duration: 4,
+  });
+  expect(mocks.video.mock.calls[1][0].referenceUrls).toBeUndefined();
+  expect(mocks.video.mock.calls[1][0].audioReferenceUrls).toBeUndefined();
+  expect(result.job.jobId).toBe('photo-video-job');
+  expect(result.narrationAudio.mediaUrl).toBe('https://audio');
+  expect(result.imageFallbackReason).toContain('original image');
+});
+
+it('explains when both providers reject the original uploaded image', async () => {
   mocks.speech.mockResolvedValue({ audioUrl: 'audio-data', duration: 3.4 });
   mocks.video.mockRejectedValue(Object.assign(new Error('image rejected'), {
     statusCode: 400,
@@ -160,8 +187,8 @@ it('does not silently discard an uploaded image rejected by the provider', async
   await expect(startKhmerVideoJob(
     {}, { script: 'សួស្តី', prompt: 'Presenter' }, uploadStub(),
     { duration: 4, images: [{ mimeType: 'image/png', base64: 'AAAA' }] },
-  )).rejects.toThrow('Remove or replace that image');
-  expect(mocks.video).toHaveBeenCalledTimes(1);
+  )).rejects.toThrow('Both video providers rejected');
+  expect(mocks.video).toHaveBeenCalledTimes(2);
 });
 
 it('does not resubmit a video for unrelated provider failures', async () => {
@@ -430,16 +457,26 @@ it('drops the product photo and retries once before touching the presenter handl
   expect(result.imageFallbackReason).toContain('product photo');
 });
 
-it('falls through to the existing presenter-image error when the product-dropped retry is also rejected', async () => {
+it('tries the original photo with Veo after the product and presenter references are rejected', async () => {
   mocks.speech.mockResolvedValue({ audioUrl: 'audio-data', duration: 3.4, provider: 'gemini' });
-  mocks.video.mockRejectedValue(Object.assign(new Error('image rejected'), {
+  const imageError = Object.assign(new Error('image rejected'), {
     statusCode: 400,
     providerCode: 'InputImageSensitiveContentDetected.PrivacyInformation',
-  }));
+  });
+  mocks.video.mockRejectedValueOnce(imageError)
+    .mockRejectedValueOnce(imageError)
+    .mockResolvedValueOnce({ jobId: 'original-photo-job' });
   const upload = uploadStub();
-  await expect(startKhmerVideoJob(
+  const result = await startKhmerVideoJob(
     {}, { script: 'សួស្តី', prompt: 'Presenter' }, upload,
     { duration: 4, images: [{ mimeType: 'image/png', base64: 'AAAA' }], productImageUrl: 'https://product.jpg' },
-  )).rejects.toThrow('Remove or replace that image');
-  expect(mocks.video).toHaveBeenCalledTimes(2);
+  );
+  expect(mocks.video).toHaveBeenCalledTimes(3);
+  expect(mocks.video.mock.calls[2][0]).toMatchObject({
+    model: 'google/veo-3.1-lite',
+    images: [{ mimeType: 'image/png', base64: 'AAAA' }],
+    generateAudio: false,
+  });
+  expect(result.job.jobId).toBe('original-photo-job');
+  expect(result.imageFallbackReason).toContain('original image');
 });

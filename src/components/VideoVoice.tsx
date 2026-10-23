@@ -118,9 +118,16 @@ interface PendingVideoJob {
   createdAt: number;
 }
 
-const presenterImageFallbackNotice = (language: 'km' | 'en') => language === 'km'
-  ? 'សេវាបានបដិសេធរូប presenter ដែលបង្កើតស្វ័យប្រវត្តិ។ វីដេអូបានបង្កើតពីការពិពណ៌នាឈុត ហើយបញ្ចូលសំឡេងខ្មែរក្រោយមក។ សូមពិនិត្យចលនាមាត់មុនផ្សព្វផ្សាយ។'
-  : 'The provider rejected the generated presenter image. The clip was made from the scene description, then Khmer audio was added. Review lip sync before publishing.';
+const presenterImageFallbackNotice = (language: 'km' | 'en', reason = '') => {
+  if (/original image was animated with Veo/i.test(reason)) {
+    return language === 'km'
+      ? 'រូបដើមបានបង្កើតជាវីដេអូដោយម៉ូដែលបម្រុង ហើយសំឡេងខ្មែរត្រូវបានបន្ថែមក្រោយមក។ សូមពិនិត្យវីដេអូ និងចលនាមាត់មុនផ្សព្វផ្សាយ។'
+      : 'The original image was animated by an alternate model and Khmer audio was added afterward. Review the video and lip sync before publishing.';
+  }
+  return language === 'km'
+    ? 'សេវាបានបដិសេធរូប presenter ដែលបង្កើតស្វ័យប្រវត្តិ។ វីដេអូបានបង្កើតពីការពិពណ៌នាឈុត ហើយបញ្ចូលសំឡេងខ្មែរក្រោយមក។ សូមពិនិត្យចលនាមាត់មុនផ្សព្វផ្សាយ។'
+    : 'The provider rejected the generated presenter image. The clip was made from the scene description, then Khmer audio was added. Review lip sync before publishing.';
+};
 
 interface PendingVideoStart {
   fingerprint: string;
@@ -1012,6 +1019,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   const [audioLoading, setAudioLoading] = useState(false);
   const [needsApiKey, setNeedsApiKey] = useState(false);
   const [videoImages, setVideoImages] = useState<{ base64: string; mimeType: string }[]>([]);
+  const [startingImageRejected, setStartingImageRejected] = useState(false);
   const [businessProductImages, setBusinessProductImages] = useState<BusinessProductImage[]>([]);
   const [selectedProductImageId, setSelectedProductImageId] = useState<string | null>(null);
   const [videoDuration, setVideoDuration] = useState<number>(8);
@@ -1067,6 +1075,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     setVideoNeedsReview(false);
     setPerformanceNeedsReview(false);
     setVideoVoiceQualityNotice(null);
+    setStartingImageRejected(false);
     setLipSyncSourceVideo(typeof payload.lipSyncSourceVideo === 'string' && /^https:\/\//.test(payload.lipSyncSourceVideo)
       ? payload.lipSyncSourceVideo : null);
     setLipSyncOffsetMs(typeof payload.lipSyncOffsetMs === 'number' && Math.abs(payload.lipSyncOffsetMs) <= 1000
@@ -1536,7 +1545,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
           : 'The video completed, but its speech needs manual review before publishing.');
       }
       if (currentJob.imageFallbackReason) {
-        setVideoVoiceQualityNotice((current) => [current, presenterImageFallbackNotice(language)].filter(Boolean).join(' '));
+        setVideoVoiceQualityNotice((current) => [current, presenterImageFallbackNotice(language, currentJob.imageFallbackReason)].filter(Boolean).join(' '));
       }
       try {
         const narrationText = currentJob.expectedScript || currentJob.resumeNarration?.text || '';
@@ -1625,9 +1634,10 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     setRetainedClips([]);
     setVideoVoiceQualityNotice(null);
     setSegmentProgress(null);
+    setStartingImageRejected(false);
     setMergingSegments(false);
     let usedKhmerVoiceFallback = false;
-    let usedImageFallback = false;
+    let imageFallbackReason = '';
     let lastGeneratedClip: string | null = null;
     const completedJobFingerprints: string[] = [];
     try {
@@ -1769,7 +1779,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         // The saved job can still be resumed without starting another render.
         lastGeneratedClip = clip;
         if (generatedClip.narrationFallbackReason) usedKhmerVoiceFallback = true;
-        if (generatedClip.imageFallbackReason) usedImageFallback = true;
+        if (generatedClip.imageFallbackReason) imageFallbackReason = generatedClip.imageFallbackReason;
         if (generatedClip.imageFallbackReason && generatedClip.expectedScript) {
           try {
             clip = (await trimVideoAfterSpeech(clip)).videoDataUrl;
@@ -1898,8 +1908,8 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         : (language === 'km'
           ? 'បានប្រើសំឡេងខ្មែរបែបធម្មជាតិ និងផ្ទៀងផ្ទាត់ពាក្យដោយស្វ័យប្រវត្តិ។ សូមមើល និងស្តាប់ ដើម្បីបញ្ជាក់អារម្មណ៍ ល្បឿន ចលនាមាត់ និងកាយវិការមុនផ្សព្វផ្សាយ។'
           : 'Expressive Khmer reference audio is attached and the words were checked automatically. Review emotion, pace, lip sync and gestures before publishing.'));
-      if (usedImageFallback) {
-        setVideoVoiceQualityNotice((current) => [current, presenterImageFallbackNotice(language)].filter(Boolean).join(' '));
+      if (imageFallbackReason) {
+        setVideoVoiceQualityNotice((current) => [current, presenterImageFallbackNotice(language, imageFallbackReason)].filter(Boolean).join(' '));
       }
       return;
     } catch (error: any) {
@@ -1917,6 +1927,9 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
           : typeof error === 'string' && error.trim()
             ? error
             : 'Video generation failed for an unknown reason. Please try again.';
+      if (/(?:both video providers|video provider) rejected the uploaded starting image/i.test(errorMessage)) {
+        setStartingImageRejected(true);
+      }
       if (/OPEN_ROUTER_API_KEY|api key/i.test(errorMessage)) setNeedsApiKey(true);
       if (typeof promptOverride === 'string') {
         setAutomationNoticeKind('error');
@@ -2361,6 +2374,13 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">{t('startingImageLabel')}</label>
+                  {videoImages.length > 0 && voiceOverEnabled && videoLanguage === 'Khmer' && !startingImageRejected && (
+                    <p className="text-xs text-amber-800 dark:text-amber-200">
+                      {language === 'km'
+                        ? 'បើរូបនេះមានមុខមនុស្ស សេវាទីមួយអាចបដិសេធ ហើយកម្មវិធីនឹងសាកល្បងសេវាទីពីរដោយប្រើរូបដើម។ សំឡេងខ្មែរនឹងបញ្ចូលក្រោយបង្កើតវីដេអូ។'
+                        : 'If this image has a real person’s face, the app may use an alternate video model with the original photo and add Khmer narration afterward.'}
+                    </p>
+                  )}
                   <div className="flex flex-wrap gap-3">
                     {videoImages.map((image, index) => (
                       <div key={index} className="relative h-24 w-24 shrink-0">
@@ -2371,7 +2391,11 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                         />
                         <button
                           type="button"
-                          onClick={() => setVideoImages((current) => current.filter((_, i) => i !== index))}
+                          onClick={() => {
+                            setVideoImages((current) => current.filter((_, i) => i !== index));
+                            setStartingImageRejected(false);
+                          }}
+                          aria-label={language === 'km' ? 'ដករូបភាពចាប់ផ្តើម' : 'Remove starting image'}
                           className="absolute -top-2 -right-2 flex h-6 w-6 items-center justify-center rounded-full bg-slate-900/80 text-white text-xs font-bold hover:bg-red-500 transition-colors"
                         >
                           ×
@@ -2389,6 +2413,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                           onChange={(e) => {
                             const files = Array.from(e.target.files || []);
                             e.target.value = '';
+                            setStartingImageRejected(false);
                             readImagesIntoState(files, MAX_VIDEO_IMAGES, videoImages.length, setVideoImages, {
                               maxDimension: 1280,
                               outputType: 'image/webp',
@@ -2399,6 +2424,23 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                       </label>
                     )}
                   </div>
+                  {startingImageRejected && videoImages.length > 0 && (
+                    <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-100">
+                      <p>{language === 'km'
+                        ? 'សេវាវីដេអូទាំងពីរបដិសេធរូបនេះ ព្រោះវាអាចមានមុខមនុស្សពិត។ ប្រើរូបផលិតផល ឬទេសភាពដែលគ្មានមុខមនុស្ស ហើយបង្កើតម្ដងទៀត។ ការបង្កើតម្ដងទៀតអាចគិតថ្លៃបន្ថែម។'
+                        : 'Both video providers rejected this image because it may contain a real person’s face. Use a product or scene photo without visible faces, then generate again. A new attempt may incur another charge.'}</p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setVideoImages([]);
+                          setStartingImageRejected(false);
+                        }}
+                        className="mt-2 rounded-lg border border-amber-500 px-3 py-1.5 font-semibold hover:bg-amber-100 dark:hover:bg-amber-900/50"
+                      >
+                        {language === 'km' ? 'ដករូបដែលជាប់បញ្ហា' : 'Remove rejected image'}
+                      </button>
+                    </div>
+                  )}
                 </div>
                 {businessProductImages.length > 0 && (
                   <div className="space-y-2">

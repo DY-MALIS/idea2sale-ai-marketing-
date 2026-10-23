@@ -314,17 +314,39 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
 
     if (!job) {
       if (images.length) {
-        throw Object.assign(new Error('The video provider rejected the uploaded starting image because it may show an identifiable person. Remove or replace that image, then generate again.'), { statusCode: 400 });
+        // Seedance 2.x does not accept direct uploads of real human faces.
+        // Veo's image-to-video path can use the user's original photo as the
+        // actual first frame. Keep the supplied Khmer narration for browser
+        // muxing, but do not claim lip sync from this alternate model.
+        try {
+          job = await submitVideo({
+            model: STANDARD_VIDEO_MODEL,
+            khmerSpeech: true,
+            prompt: `${visualPrompt(speech.prompt)}\nAnimate the supplied first-frame photo as a natural short camera shot. Preserve its people, products, setting and composition. Do not create dialogue, speech, subtitles or conspicuous talking-mouth motion; the original Khmer narration is added after rendering.`,
+            images: images.slice(0, 1),
+            duration: fittedDuration,
+            aspectRatio,
+            generateAudio: false,
+          });
+          imageFallbackReason = 'Seedance rejected the uploaded photo, so the original image was animated with Veo and the Khmer narration was added afterward. Review the result and lip sync before publishing.';
+        } catch (alternateError) {
+          if (alternateError?.statusCode === 400
+            && /InputImageSensitiveContentDetected/i.test(`${alternateError?.providerCode || ''} ${alternateError?.message || ''}`)) {
+            throw Object.assign(new Error('Both video providers rejected the uploaded starting image because it may show an identifiable person. Use a product or scene photo without visible faces.'), { statusCode: 400 });
+          }
+          throw alternateError;
+        }
       }
-      if (!allowImageFallback) {
+      if (!job && !allowImageFallback) {
         throw Object.assign(new Error('The video provider rejected the automatically generated presenter image. Change the scene or presenter description before creating this scheduled video.'), { statusCode: 400 });
       }
-      // Seedance rejects an audio reference as the only reference input. Make
-      // an actual text-to-video request instead; the browser will mux the
-      // original Khmer narration after generation. Warn that lip sync needs
-      // review because this fallback could not use audio-driven animation.
-      imageFallbackReason = 'The video provider rejected the generated presenter image. The clip was created from the scene and the original Khmer narration was added afterward. Review lip sync before publishing.';
-      job = await submitVideo(textOnlyPresenterRequest({ speech, duration: fittedDuration, aspectRatio }));
+      if (!job) {
+        // Seedance rejects an audio reference as the only reference input. Make
+        // an actual text-to-video request instead; the browser will mux the
+        // original Khmer narration after generation.
+        imageFallbackReason = 'The video provider rejected the generated presenter image. The clip was created from the scene and the original Khmer narration was added afterward. Review lip sync before publishing.';
+        job = await submitVideo(textOnlyPresenterRequest({ speech, duration: fittedDuration, aspectRatio }));
+      }
     }
   }
   return {
