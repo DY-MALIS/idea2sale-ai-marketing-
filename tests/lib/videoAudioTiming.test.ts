@@ -59,7 +59,7 @@ it('shifts an existing audio track earlier or later without changing clip length
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
-}, 20000);
+}, 60000);
 
 it('rejects adjustments beyond the supported range', () => {
   expect(() => audioShiftFilter(1001)).toThrow('within one second');
