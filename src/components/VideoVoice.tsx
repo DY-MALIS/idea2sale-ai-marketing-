@@ -559,13 +559,16 @@ const shiftVideoAudio = async (videoUrl: string, offsetMs: number): Promise<stri
   const { fetchFile } = await import('@ffmpeg/util');
   const ffmpeg = await getFFmpeg();
   try {
-    await ffmpeg.writeFile('sync_input.mp4', await fetchFile(getOriginalImageKitUrl(videoUrl)));
+    const videoBytes = await fetchFile(getOriginalImageKitUrl(videoUrl));
+    const videoDuration = mp4DurationSeconds(videoBytes);
+    await ffmpeg.writeFile('sync_input.mp4', videoBytes);
     const code = await ffmpeg.exec([
       '-y', '-i', 'sync_input.mp4',
       '-map', '0:v:0', '-map', '0:a:0',
       '-c:v', 'copy', '-filter:a', audioShiftFilter(offsetMs),
       '-c:a', 'aac', '-b:a', '160k', '-ar', '48000',
-      '-shortest', '-movflags', '+faststart', 'sync_output.mp4',
+      ...(videoDuration && videoDuration > 0 ? ['-t', videoDuration.toFixed(3)] : ['-shortest']),
+      '-movflags', '+faststart', 'sync_output.mp4',
     ]);
     if (code !== 0) throw new Error('Could not adjust the video audio timing.');
     const data = await ffmpeg.readFile('sync_output.mp4');

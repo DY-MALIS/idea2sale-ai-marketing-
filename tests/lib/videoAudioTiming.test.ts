@@ -25,7 +25,7 @@ it('shifts an existing audio track earlier or later without changing clip length
     await run(ffmpeg, ['-v', 'error', '-y',
       '-f', 'lavfi', '-i', 'color=c=blue:s=64x64:r=25:d=5',
       '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=24000:duration=0.5',
-      '-filter:a', 'adelay=400:all=1,apad', '-t', '5', '-c:v', 'libx264', '-c:a', 'aac', source],
+      '-filter:a', 'adelay=400:all=1,apad', '-t', '5', '-c:v', 'libx264', '-preset', 'ultrafast', '-threads', '1', '-c:a', 'aac', source],
     { windowsHide: true });
     const { stdout: sourcePcm } = await run(ffmpeg, ['-v', 'error', '-i', source,
       '-ac', '1', '-ar', String(sampleRate), '-f', 's16le', 'pipe:1'],
@@ -49,7 +49,8 @@ it('shifts an existing audio track earlier or later without changing clip length
       await run(ffmpeg, ['-v', 'error', '-y', '-i', source,
         '-map', '0:v:0', '-map', '0:a:0', '-c:v', 'copy',
         '-filter:a', audioShiftFilter(offset), '-c:a', 'aac', '-ar', '48000',
-        '-shortest', '-movflags', '+faststart', output], { windowsHide: true });
+        '-t', '5', '-movflags', '+faststart', output], { windowsHide: true });
+      expect(mp4DurationSeconds(await readFile(output))).toBeCloseTo(5, 1);
       const { stdout } = await run(ffmpeg, ['-v', 'error', '-i', output,
         '-t', '2', '-ac', '1', '-ar', String(sampleRate), '-f', 's16le', 'pipe:1'],
       { encoding: 'buffer', windowsHide: true, maxBuffer: 1024 * 1024 });
