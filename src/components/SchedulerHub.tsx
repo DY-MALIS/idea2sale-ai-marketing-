@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Calendar, Bot, Zap, Plus, Sparkles, Clock, X, Send, Share2, Loader2, AlertCircle, Upload, Youtube, Facebook, RefreshCw } from 'lucide-react';
+import { Calendar, Bot, Zap, Plus, Sparkles, Clock, X, Send, Share2, Loader2, AlertCircle, Upload, Youtube, Facebook, RefreshCw, Copy, Download, ExternalLink } from 'lucide-react';
 import { formatImageKitUploadError } from '../../shared/imageKitError.js';
 import AITrainer from './AITrainer';
 import Suggestions from './Suggestions';
@@ -248,6 +248,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   const [facebookSetupReady, setFacebookSetupReady] = useState<boolean | null>(null);
   const [facebookConnectionLoading, setFacebookConnectionLoading] = useState(false);
   const [facebookConnectionError, setFacebookConnectionError] = useState('');
+  const [facebookHandoffMessage, setFacebookHandoffMessage] = useState('');
   const [telegramDestination, setTelegramDestination] = useState<{ ready: boolean; label: string } | null>(null);
   const [profileTikTokHandle, setProfileTikTokHandle] = useState('');
 
@@ -313,6 +314,33 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     } finally {
       setFacebookConnectionLoading(false);
     }
+  };
+
+  const copyFacebookCaption = async () => {
+    try {
+      await navigator.clipboard.writeText(captionFor('FACEBOOK'));
+      setFacebookHandoffMessage(language === 'km' ? 'បានចម្លងអត្ថបទ Facebook រួច។' : 'Facebook caption copied.');
+    } catch {
+      setFacebookHandoffMessage(language === 'km' ? 'មិនអាចចម្លងដោយស្វ័យប្រវត្តិបានទេ។ សូមចម្លងពីប្រអប់អត្ថបទខាងលើ។' : 'Could not copy automatically. Copy the text from the draft above.');
+    }
+  };
+
+  const downloadFacebookMedia = () => {
+    const file = imageFile || videoFile;
+    if (!file && hostedVideo?.url) {
+      window.open(hostedVideo.url, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = file.name || 'facebook-media';
+    link.rel = 'noopener noreferrer';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   useEffect(() => {
@@ -1413,9 +1441,13 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                   )}
                   {platforms.includes('FACEBOOK') && (
                     <div className="space-y-3 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-300">
-                      <p>{imageFile
-                        ? 'Facebook Page photo: this image publishes automatically to the selected Page.'
-                        : 'Facebook Page Reel: portrait 9:16 video, 4–60 seconds. Publishes automatically to the selected Page.'}</p>
+                      <p>{facebookConnected
+                        ? (imageFile
+                          ? 'Facebook Page photo: this image publishes automatically to the selected Page.'
+                          : 'Facebook Page Reel: portrait 9:16 video, 4–60 seconds. Publishes automatically to the selected Page.')
+                        : (language === 'km'
+                          ? 'ការផុសស្វ័យប្រវត្តិត្រូវការភ្ជាប់ Facebook Page។ អ្នកអាចប្រើវិធីផុសតាម Meta Business Suite ខាងក្រោម។'
+                          : 'Automatic publishing requires a connected Facebook Page. You can use the Meta Business Suite option below.')}</p>
                       {facebookConnectionLoading && <p role="status">Checking Facebook Page connection…</p>}
                       {facebookConnectionError && <p role="alert" className="font-semibold text-red-700 dark:text-red-300">{facebookConnectionError}</p>}
                       {!facebookConnectionLoading && !facebookConnected && facebookSetupReady === false && (
@@ -1455,6 +1487,30 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                           </select>
                         </label>
                       )}
+                      <div className="rounded-lg border border-blue-200 bg-white p-3 text-blue-900 dark:border-blue-800 dark:bg-slate-800 dark:text-blue-200">
+                        <p className="font-semibold">{language === 'km' ? 'ផុសតាម Meta Business Suite' : 'Publish through Meta Business Suite'}</p>
+                        <p className="mt-1 font-normal">
+                          {language === 'km'
+                            ? 'ចម្លងអត្ថបទ និងយករូប/វីដេអូទៅដាក់ក្នុង Meta Business Suite។ ម្ចាស់ Page ត្រូវផ្ដល់សិទ្ធិ Content ឲ្យគណនីអ្នកជាមុន។ ការបើក Suite មិនបានកំណត់ពេលផុសក្នុងអេបនេះទេ។'
+                            : 'Copy the caption and add the image or video in Meta Business Suite. The Page owner must first grant this account Content access. Opening Suite does not schedule a post in this app.'}
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button type="button" onClick={() => void copyFacebookCaption()} disabled={!captionFor('FACEBOOK')} className="inline-flex items-center gap-1 rounded-lg border border-blue-200 px-2.5 py-1.5 font-semibold disabled:opacity-50 dark:border-blue-700">
+                            <Copy size={13} />{language === 'km' ? 'ចម្លងអត្ថបទ' : 'Copy caption'}
+                          </button>
+                          {(imageFile || videoFile || hostedVideo) && (
+                            <button type="button" onClick={downloadFacebookMedia} className="inline-flex items-center gap-1 rounded-lg border border-blue-200 px-2.5 py-1.5 font-semibold dark:border-blue-700">
+                              <Download size={13} />{hostedVideo && !imageFile && !videoFile
+                                ? (language === 'km' ? 'បើកមេឌៀ' : 'Open media')
+                                : (language === 'km' ? 'ទាញយកមេឌៀ' : 'Download media')}
+                            </button>
+                          )}
+                          <a href="https://business.facebook.com/latest/home" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1.5 font-semibold text-white">
+                            <ExternalLink size={13} />Meta Business Suite
+                          </a>
+                        </div>
+                        {facebookHandoffMessage && <p role="status" className="mt-2 font-semibold">{facebookHandoffMessage}</p>}
+                      </div>
                       {renderCaptionOverride('FACEBOOK', 'Facebook')}
                     </div>
                   )}
