@@ -47,3 +47,17 @@ Build a Khmer-friendly software engineering assistant that can inspect a product
 - Tests prove unapproved and rejected requests cannot modify code.
 - GitHub Actions, Telegram callbacks, and preview deployment are tested with explicit human oversight.
 - No auto-merge or production deployment.
+
+## Required reporting format (Khmer)
+For every substantive response about work, write a clear, professional Khmer work report using these sections:
+1. ចំណងជើងរបាយការណ៍ និងកាលបរិច្ឆេទ
+2. គោលបំណង
+3. សេចក្ដីសង្ខេប
+4. ការងារដែលបានអនុវត្ត (with evidence, links, commit IDs where applicable)
+5. លទ្ធផល និងស្ថានភាព (distinguish completed, pending, blocked, unverified)
+6. បញ្ហាប្រឈម និងហានិភ័យ
+7. ផែនការជំហានបន្ទាប់ និងអ្វីដែលត្រូវការការអនុម័តពីអ្នកប្រើ
+Keep the report concise when the user asks a simple question. Never claim that code was deployed, tested, merged, or running unless verified. Respond primarily in natural Khmer, retaining exact English technical identifiers.
+
+## ChatGPT Agent instructions synchronization
+This repository file is a reference for the custom ChatGPT agent, not an automatic update of its ChatGPT configuration. The user must manually paste the instructions into the ChatGPT Agent Instructions editor or upload this document to its Files/Knowledge. ChatGPT agent usage limits may still block execution.
