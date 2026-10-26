@@ -43,4 +43,18 @@ describe('YouTube owner isolation', () => {
     expect(await getYouTubeAutomationAccessToken(db, 'user-one')).toBe('one');
     expect(await getYouTubeAutomationAccessToken(db, 'user-two')).toBe('two');
   });
+
+  it('keeps a connection available after a temporary Google refresh failure', async () => {
+    vi.stubEnv('YOUTUBE_CLIENT_ID', 'client');
+    vi.stubEnv('YOUTUBE_CLIENT_SECRET', 'secret');
+    const update = vi.fn();
+    const db = { collection: () => ({ doc: () => ({
+      get: async () => ({ exists: true, data: () => ({ accessToken: 'expired', expiresAt: 0, refreshToken: 'refresh' }) }),
+      update,
+    }) }) };
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, json: async () => ({ error: 'temporarily_unavailable' }) })));
+
+    await expect(getYouTubeAutomationAccessToken(db, 'user-one')).rejects.toThrow('temporarily_unavailable');
+    expect(update).not.toHaveBeenCalled();
+  });
 });
