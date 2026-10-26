@@ -1,0 +1,66 @@
+name: Coding Agent Telegram Feedback
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, closed]
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Telegram feedback
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          SERVER_URL: ${{ github.server_url }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_ACTION: ${{ github.event.action }}
+          PR_MERGED: ${{ github.event.pull_request.merged }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          RUN_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          RUN_EVENT: ${{ github.event.workflow_run.event }}
+        run: |
+          python3 - <<'PY'
+          import os, json, urllib.request
+          token = os.getenv("BOT_TOKEN", "")
+          chat = os.getenv("CHAT_ID", "")
+          if not token or not chat:
+              raise SystemExit("Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID")
+          event = os.getenv("EVENT_NAME")
+          repo = os.getenv("REPO")
+          if event == "pull_request":
+              action = os.getenv("PR_ACTION")
+              if action == "closed":
+                  status = "Merged" if os.getenv("PR_MERGED") == "true" else "Closed"
+              else:
+                  status = {"opened": "Opened", "reopened": "Reopened", "synchronize": "Updated"}.get(action, action)
+              message = f"Agent PR {status}\nRepository: {repo}\nPR #{os.getenv('PR_NUMBER')}: {os.getenv('PR_TITLE')}\n{os.getenv('PR_URL')}"
+          elif event == "workflow_run":
+              # Avoid notifying on unrelated workflow types.
+              if os.getenv("RUN_EVENT") not in ("push", "pull_request"):
+                  raise SystemExit(0)
+              message = f"CI finished: {os.getenv('RUN_CONCLUSION')}\nRepository: {repo}\nBranch: {os.getenv('RUN_HEAD_BRANCH')}\n{os.getenv('RUN_URL')}"
+          else:
+              message = f"Telegram notification test successful.\nRepository: {repo}"
+          payload = json.dumps({"chat_id": chat, "text": message}).encode()
+          request = urllib.request.Request(
+              f"https://api.telegram.org/bot{token}/sendMessage",
+              data=payload,
+              headers={"Content-Type": "application/json"},
+              method="POST",
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              print("Telegram notification sent" if response.status == 200 else "Unexpected status")
+          PY
