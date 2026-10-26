@@ -787,6 +787,40 @@ describe('POST /api/tiktok/publish?action=deliver (QStash callback)', () => {
     expect(update).toHaveBeenCalledWith(expect.objectContaining({ status: 'PUBLISHED', youtubeVideoId: 'youtube-1' }));
   });
 
+  it('publishes two companies’ scheduled videos with their separate YouTube tokens', async () => {
+    mockVerify.mockResolvedValue(true);
+    mockFindRecentDuplicate.mockResolvedValue(null);
+    const posts = new Map([
+      ['post-a', { userId: 'company-a', platform: 'YOUTUBE', videoUrl: 'https://cdn.example.com/video.mp4', content: 'Company A video' }],
+      ['post-b', { userId: 'company-b', platform: 'YOUTUBE', videoUrl: 'https://cdn.example.com/video.mp4', content: 'Company B video' }],
+    ]);
+    const updates = new Map([...posts.keys()].map((id) => [id, vi.fn()]));
+    mockInitFirebaseAdmin.mockReturnValue({ collection: () => ({ doc: (id) => ({
+      id,
+      get: async () => ({ exists: true, data: () => posts.get(id) }),
+      update: updates.get(id),
+    }) }) });
+    mockClaimPendingPost.mockImplementation(async (_db, ref) => ({ post: posts.get(ref.id) }));
+    mockGetYouTubeToken.mockImplementation(async (_db, ownerId) => `${ownerId}-token`);
+    mockPublishYouTube.mockImplementation(async (token) => ({ videoId: `${token}-video` }));
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      headers: { get: (name) => name === 'content-type' ? 'video/mp4' : null },
+      arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+    })));
+
+    for (const id of posts.keys()) {
+      const res = response();
+      await handler({ ...req({ postId: id }), query: { action: 'youtubeDeliver' } }, res);
+      expect(res.body).toEqual({ ok: true, videoId: `${posts.get(id).userId}-token-video` });
+      expect(updates.get(id)).toHaveBeenCalledWith(expect.objectContaining({
+        status: 'PUBLISHED', youtubeVideoId: `${posts.get(id).userId}-token-video`,
+      }));
+    }
+    expect(mockGetYouTubeToken.mock.calls.map(([, ownerId]) => ownerId)).toEqual(['company-a', 'company-b']);
+    expect(mockPublishYouTube.mock.calls.map(([token]) => token)).toEqual(['company-a-token', 'company-b-token']);
+  });
+
   it('queues another Facebook Reel status check while processing, then marks it published', async () => {
     mockVerify.mockResolvedValue(true);
     mockGetFacebookPages.mockResolvedValue({ pages: [{ id: 'page-1', accessToken: 'page-token' }] });
