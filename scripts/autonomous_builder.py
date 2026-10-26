@@ -41,6 +41,9 @@ def comment(number, text):
     gh("issue", "comment", str(number), "--repo", REPO, "--body", text[:60000])
 
 def main():
+    # Fail closed: no authenticated, durable approval workflow is implemented yet.
+    # Do not remove this guard until request-bound approval verification and tests exist.
+    raise RuntimeError('Agent execution disabled pending verified Telegram approval gate')
     tasks = json.loads(gh("issue", "list", "--repo", REPO, "--state", "open",
                           "--label", "agent-task", "--limit", "100",
                           "--json", "number,title,body,createdAt,labels"))
