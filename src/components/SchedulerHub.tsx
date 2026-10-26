@@ -237,7 +237,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   // attached yet, so submitting during this window would silently post with no
   // media attached even though the user sees the generated content on screen.
   const [isAttachingHandoffMedia, setIsAttachingHandoffMedia] = useState(false);
-  const [youtubeJustConnected, setYoutubeJustConnected] = useState(false);
+  const [youtubeConnectionVersion, setYoutubeConnectionVersion] = useState(0);
   const [youtubeConnection, setYoutubeConnection] = useState<{ connected: boolean; channelId: string | null; channelTitle: string | null } | null>(null);
   const [isConnectingYouTube, setIsConnectingYouTube] = useState(false);
   const [isConnectingTikTok, setIsConnectingTikTok] = useState(false);
@@ -356,7 +356,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
-      if (event.data?.type === 'YOUTUBE_AUTH_SUCCESS') setYoutubeJustConnected(true);
+      if (event.data?.type === 'YOUTUBE_AUTH_SUCCESS') setYoutubeConnectionVersion((version) => version + 1);
       if (event.data?.type === 'TIKTOK_AUTH_SUCCESS') setTiktokJustConnected(true);
       if (event.data?.type === 'FACEBOOK_AUTH_SUCCESS') loadFacebookPages().catch(error => setFacebookConnectionError(error.message));
     };
@@ -364,7 +364,10 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     return () => window.removeEventListener('message', onMessage);
   }, [user]);
 
-  useEffect(() => { setTiktokJustConnected(false); setYoutubeJustConnected(false); }, [user?.uid]);
+  useEffect(() => {
+    setTiktokJustConnected(false);
+    setYoutubeConnection(null);
+  }, [user?.uid]);
 
   useEffect(() => {
     if (!user || !isModalOpen || !platforms.includes('YOUTUBE')) return;
@@ -377,7 +380,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
       if (active) setYoutubeConnection({ connected: data.connected === true, channelId: data.channelId || null, channelTitle: data.channelTitle || null });
     }).catch(() => { if (active) setYoutubeConnection(null); });
     return () => { active = false; };
-  }, [user?.uid, isModalOpen, platforms.includes('YOUTUBE'), youtubeJustConnected]);
+  }, [user?.uid, isModalOpen, platforms.includes('YOUTUBE'), youtubeConnectionVersion]);
 
   const connectYouTube = async () => {
     if (!user) {
