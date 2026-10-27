@@ -7,7 +7,7 @@ type LegalPageProps = {
 const legalContent = {
   terms: {
     title: 'Terms of Service',
-    updated: 'Last updated: September 1, 2026',
+    updated: 'Last updated: October 26, 2026',
     intro: 'These Terms of Service ("Terms") govern your access to and use of aime.angkorgate, an AI-assisted marketing, content creation, scheduling, analytics, and publishing service. By creating an account or using the service, you agree to these Terms. If you do not agree, do not use the service.',
     sections: [
       {
@@ -40,7 +40,7 @@ const legalContent = {
       },
       {
         title: 'Third-Party Services',
-        body: 'The service may connect with platforms such as Google, Firebase, TikTok, and other providers. Your use of those services is also governed by their own terms and policies.',
+        body: 'The service may connect with platforms such as Google, Firebase, TikTok, and other providers. By using the YouTube connection and publishing features, you also agree to be bound by the YouTube Terms of Service. Your use of other connected services is governed by their own terms and policies.',
       },
       {
         title: 'Acceptable Use',
@@ -74,7 +74,7 @@ const legalContent = {
   },
   privacy: {
     title: 'Privacy Policy',
-    updated: 'Last updated: September 1, 2026',
+    updated: 'Last updated: October 26, 2026',
     intro: 'This Privacy Policy explains how aime.angkorgate collects, uses, shares, retains, and protects personal information when you visit our website or use our AI-assisted marketing, analytics, scheduling, and publishing tools. It also explains your privacy choices and rights.',
     sections: [
       {
@@ -88,6 +88,10 @@ const legalContent = {
       {
         title: 'TikTok and Other Connected-Platform Data',
         body: 'When you choose to connect TikTok, we may receive and process your TikTok user identifier, display name, avatar, authorization scopes, access and refresh tokens, token-expiry information, public profile or statistics made available under approved permissions, and details needed to upload, publish, or track content you request. We process equivalent identifiers, tokens, content, and activity data for other platforms you voluntarily connect. We do not sell connected-platform data.',
+      },
+      {
+        title: 'YouTube Connection and Google API Data',
+        body: 'This app uses YouTube API Services. If you choose Connect YouTube, Google asks you to grant the youtube.upload permission. We receive an access token, a refresh token for scheduled uploads, and the connected channel ID and title when available. We store the connection under your signed-in account and use it only to upload the video and title or description you select to that channel at the time you schedule. We store the upload result so you can see its status in the app. We do not use Google API data to train AI models, sell it, or allow another customer to publish through your connection. You can revoke access in your Google Account permissions. To request deletion of the stored YouTube connection and related account data, email dymalis88@gmail.com from your account email. Revoking access prevents further authorized uploads but does not by itself delete records already stored in this service. Our use and transfer of information received from Google APIs adheres to the Google API Services User Data Policy, including its Limited Use requirements.',
       },
       {
         title: 'How We Use Information',
@@ -173,6 +177,15 @@ const LegalPage = ({ type }: LegalPageProps) => {
               <section key={section.title}>
                 <h2 className="text-xl font-bold text-brand-700 dark:text-brand-400">{section.title}</h2>
                 <p className="mt-3 leading-7 text-slate-600 dark:text-slate-300">{section.body}</p>
+                {section.title === 'Third-Party Services' && type === 'terms' && (
+                  <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener noreferrer" className="mt-2 inline-block font-semibold text-brand-700 underline dark:text-brand-400">YouTube Terms of Service</a>
+                )}
+                {section.title === 'YouTube Connection and Google API Data' && type === 'privacy' && (
+                  <div className="mt-2 flex flex-wrap gap-x-5 gap-y-2">
+                    <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer" className="font-semibold text-brand-700 underline dark:text-brand-400">Google Privacy Policy</a>
+                    <a href="https://security.google.com/settings/security/permissions" target="_blank" rel="noopener noreferrer" className="font-semibold text-brand-700 underline dark:text-brand-400">Manage Google Account access</a>
+                  </div>
+                )}
               </section>
             ))}
           </div>

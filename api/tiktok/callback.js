@@ -31,6 +31,9 @@ async function handleYouTubeCallback(req, res, code) {
   if (!ownerId) return res.status(400).send('YouTube connection is not linked to a signed-in profile. Please connect again.');
   try {
     const data = await exchangeYouTubeCode(req, String(code));
+    if (!data.refresh_token) {
+      return res.status(502).send('Google did not grant ongoing YouTube access. Please reconnect and approve access again.');
+    }
     let channelId = null;
     let channelTitle = null;
     try {

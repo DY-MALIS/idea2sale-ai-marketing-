@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { claimPendingPost, findRecentDuplicateTelegramPost } from '../../api/_telegramClaim.js';
+import { claimPendingPost, findRecentDuplicateTelegramPost, findRecentDuplicateYouTubePost } from '../../api/_telegramClaim.js';
 
 // Minimal fake of the Admin SDK surface claimPendingPost/findRecentDuplicateTelegramPost
 // actually touch -- just enough to exercise the claim/dedup logic without a real Firestore.
@@ -66,37 +66,46 @@ describe('findRecentDuplicateTelegramPost', () => {
 
   it('returns null when the post has no mediaUrl', async () => {
     const db = makeFakeDb({ collectionDocs: [] });
-    const result = await findRecentDuplicateTelegramPost(db, { id: 'a', mediaUrl: '' });
+    const result = await findRecentDuplicateTelegramPost(db, { id: 'a', userId: 'owner-one', mediaUrl: '' });
     expect(result).toBeNull();
   });
 
   it('finds another recently-published post with the same media', async () => {
     const db = makeFakeDb({
       collectionDocs: [
-        { id: 'other', data: { platform: 'TELEGRAM', mediaUrl, status: 'PUBLISHED', publishedAt: recentTs } },
+        { id: 'other', data: { platform: 'TELEGRAM', userId: 'owner-one', mediaUrl, status: 'PUBLISHED', publishedAt: recentTs } },
       ],
     });
-    const result = await findRecentDuplicateTelegramPost(db, { id: 'this', mediaUrl });
+    const result = await findRecentDuplicateTelegramPost(db, { id: 'this', userId: 'owner-one', mediaUrl });
     expect(result).toBe('other');
   });
 
   it('does not match itself', async () => {
     const db = makeFakeDb({
       collectionDocs: [
-        { id: 'this', data: { platform: 'TELEGRAM', mediaUrl, status: 'PUBLISHED', publishedAt: recentTs } },
+        { id: 'this', data: { platform: 'TELEGRAM', userId: 'owner-one', mediaUrl, status: 'PUBLISHED', publishedAt: recentTs } },
       ],
     });
-    const result = await findRecentDuplicateTelegramPost(db, { id: 'this', mediaUrl });
+    const result = await findRecentDuplicateTelegramPost(db, { id: 'this', userId: 'owner-one', mediaUrl });
     expect(result).toBeNull();
   });
 
   it('ignores a match published outside the dedup window', async () => {
     const db = makeFakeDb({
       collectionDocs: [
-        { id: 'other', data: { platform: 'TELEGRAM', mediaUrl, status: 'PUBLISHED', publishedAt: staleTs } },
+        { id: 'other', data: { platform: 'TELEGRAM', userId: 'owner-one', mediaUrl, status: 'PUBLISHED', publishedAt: staleTs } },
       ],
     });
-    const result = await findRecentDuplicateTelegramPost(db, { id: 'this', mediaUrl });
+    const result = await findRecentDuplicateTelegramPost(db, { id: 'this', userId: 'owner-one', mediaUrl });
     expect(result).toBeNull();
+  });
+
+  it('does not reuse another company’s published YouTube video', async () => {
+    const videoUrl = 'https://ik.imagekit.io/demo/shared-video.mp4';
+    const db = makeFakeDb({ collectionDocs: [
+      { id: 'company-a-post', data: { platform: 'YOUTUBE', userId: 'company-a', videoUrl, status: 'PUBLISHED', publishedAt: recentTs } },
+    ] });
+    expect(await findRecentDuplicateYouTubePost(db, { id: 'company-b-post', userId: 'company-b', videoUrl })).toBeNull();
+    expect(await findRecentDuplicateYouTubePost(db, { id: 'company-a-retry', userId: 'company-a', videoUrl })).toBe('company-a-post');
   });
 });

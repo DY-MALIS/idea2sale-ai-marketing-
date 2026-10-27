@@ -28,7 +28,7 @@ export async function claimPendingPost(db, ref) {
 const DUPLICATE_WINDOW_MS = 15 * 60 * 1000;
 
 export async function findRecentDuplicateTelegramPost(db, post) {
-  return findRecentDuplicatePost(db, 'TELEGRAM', post.id, 'mediaUrl', post?.mediaUrl);
+  return findRecentDuplicatePost(db, 'TELEGRAM', post, 'mediaUrl');
 }
 
 // Same cross-document safety net, for TikTok's scheduled_posts docs (see
@@ -38,30 +38,34 @@ export async function findRecentDuplicateTelegramPost(db, post) {
 // each independently publishing it. TikTok posts store the video under
 // `videoUrl` (see SchedulerHub.tsx), not `mediaUrl`.
 export async function findRecentDuplicateTikTokPost(db, post) {
-  return findRecentDuplicatePost(db, 'TIKTOK', post.id, 'videoUrl', post?.videoUrl);
+  return findRecentDuplicatePost(db, 'TIKTOK', post, 'videoUrl');
 }
 
 // Same cross-document safety net, for YouTube's scheduled_posts docs (see
 // runYouTubeCron in api/tiktok/publish.js).
 export async function findRecentDuplicateYouTubePost(db, post) {
-  return findRecentDuplicatePost(db, 'YOUTUBE', post.id, 'videoUrl', post?.videoUrl);
+  return findRecentDuplicatePost(db, 'YOUTUBE', post, 'videoUrl');
 }
 
-async function findRecentDuplicatePost(db, platform, postId, urlField, url) {
-  url = String(url || '').trim();
-  if (!url) return null;
+async function findRecentDuplicatePost(db, platform, post, urlField) {
+  const url = String(post?.[urlField] || '').trim();
+  // A media URL can be reused by different customers. Never treat another
+  // customer's upload as this owner's completed post.
+  const ownerId = String(post?.userId || '').trim();
+  if (!url || !ownerId) return null;
 
   const snapshot = await db
     .collection('scheduled_posts')
     .where('platform', '==', platform)
     .where(urlField, '==', url)
-    .where('status', '==', 'PUBLISHED')
     .get();
 
   const cutoff = Date.now() - DUPLICATE_WINDOW_MS;
   const match = snapshot.docs.find((docSnap) => {
-    if (docSnap.id === postId) return false;
-    const publishedAtMs = docSnap.data()?.publishedAt?.toMillis?.();
+    if (docSnap.id === post.id) return false;
+    const data = docSnap.data();
+    if (data?.userId !== ownerId || data?.status !== 'PUBLISHED') return false;
+    const publishedAtMs = data.publishedAt?.toMillis?.();
     return typeof publishedAtMs === 'number' && publishedAtMs >= cutoff;
   });
 

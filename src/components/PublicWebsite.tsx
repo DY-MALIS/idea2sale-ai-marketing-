@@ -83,7 +83,7 @@ const PublicWebsite = () => (
       <section className="grid gap-8 py-16 lg:grid-cols-2">
         <article className="rounded-[2rem] border border-white/70 bg-white/85 p-8 shadow-sm dark:border-slate-700 dark:bg-slate-900/80">
           <h2 className="text-2xl font-black text-slate-950 dark:text-white">Connected platforms and your data</h2>
-          <p className="mt-4 leading-7 text-slate-600 dark:text-slate-300">Connections such as TikTok are optional and permission-based. We request only the access needed for features you choose. You can disconnect a platform and request deletion of associated data at any time.</p>
+          <p className="mt-4 leading-7 text-slate-600 dark:text-slate-300">Connections such as YouTube and TikTok are optional and permission-based. We request only the access needed for features you choose. You can revoke platform access in your account settings and request deletion of associated data.</p>
           <a href="/privacy-policy" className="mt-6 inline-flex items-center gap-2 font-bold text-brand-700 dark:text-brand-400">Read our Privacy Policy <ArrowRight size={17} /></a>
         </article>
         <article className="rounded-[2rem] border border-white/70 bg-white/85 p-8 shadow-sm dark:border-slate-700 dark:bg-slate-900/80">

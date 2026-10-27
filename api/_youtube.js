@@ -168,10 +168,11 @@ export async function getYouTubeAutomationAccessToken(db, ownerId) {
   });
   const refreshed = await response.json().catch(() => ({}));
   if (!response.ok || !refreshed.access_token) {
-    // Google stops honoring a refresh_token if the user revokes access from
-    // their Google Account settings -- surface that as "not connected" the
-    // same way a TikTok revocation does, instead of retrying forever.
-    await ref.update({ revoked: true, revokedAt: FieldValue.serverTimestamp() });
+    // Only an invalid grant means this connection needs new consent. A
+    // temporary Google/network failure must not permanently disconnect it.
+    if (refreshed?.error === 'invalid_grant') {
+      await ref.update({ revoked: true, revokedAt: FieldValue.serverTimestamp() });
+    }
     throw new Error(refreshed?.error_description || refreshed?.error || 'YouTube token refresh failed.');
   }
 
