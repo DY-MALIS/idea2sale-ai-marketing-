@@ -25,7 +25,7 @@ export default async function handler(req, res) {
 
   let upstream;
   try {
-    upstream = await fetch(url, { signal: AbortSignal.timeout(60000) });
+    upstream = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(60000) });
   } catch {
     return res.status(502).json({ error: 'Could not fetch this media.' });
   }

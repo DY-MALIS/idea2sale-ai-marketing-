@@ -22,8 +22,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../hooks/useToast';
 import { formatImageKitUploadError } from '../../shared/imageKitError.js';
 import {
-  applyImageKitMuteTransform,
   getOriginalImageKitUrl,
+  getUntransformedImageKitVideoUrl,
   normalizeImageKitVideoUrl,
 } from '../../shared/imageKitUrl.js';
 import { BusinessProductImage, CreativeAutomationRequest, ScheduleHandoffRequest } from '../types';
@@ -32,6 +32,7 @@ import { ffprobeDurationSeconds, mp4DurationSeconds } from '../lib/mediaDuration
 import { audioShiftFilter, lastAudibleSpeechSecond, speechTailCutSecond } from '../lib/videoAudioTiming';
 import { deleteGenerationHistory, GenerationHistoryEntry, saveGenerationHistory, useGenerationHistory } from '../lib/generationHistory';
 import HistoryPanel from './HistoryPanel';
+import StartingImageCrop from './StartingImageCrop';
 import { estimateVideoGenerationCostUsd, KHMER_VIDEO_MODEL, MAX_VIDEO_DURATION_SECONDS, MAX_VIDEO_GENERATION_COST_USD } from '../../shared/videoCost.js';
 import { videoOptionsFromRecoveredStart } from '../lib/videoRecoveryState';
 import { videoRequestFingerprint } from '../lib/videoRequestFingerprint';
@@ -53,7 +54,7 @@ type TikTokCreatorInfo = {
 
 // Keep platform formats explicit: social short video is portrait while a
 // standard YouTube post is landscape. Unsupported legacy values stay portrait.
-const normalizeVideoAspectRatio = (value: unknown): VideoAspectRatio => value === '16:9' ? '16:9' : '9:16';
+const normalizeVideoAspectRatio = (value: unknown): '9:16' | '16:9' => value === '16:9' ? '16:9' : '9:16';
 
 // None of the five /api/ai calls in this file had a timeout of their own --
 // if the connection itself stalls, the fetch just hangs forever with no
@@ -221,6 +222,17 @@ const uploadMediaDirectly = async (mediaDataUrl: string, idToken: string, fileNa
   if (!signatureResponse.ok || !signature.ok) throw new Error(signature.error || 'Could not prepare the final video upload.');
   const blob = await fetch(mediaDataUrl).then((response) => response.blob());
   if (blob.size > Number(signature.maxBytes || 48 * 1024 * 1024)) throw new Error('The generated media is too large to upload.');
+  if (signature.provider === 'r2') {
+    const signedResponse = await fetch('/api/telegram/run-scheduled?action=sign-upload', {
+      method: 'POST', headers: { Authorization: `Bearer ${idToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileName, contentType: blob.type || (fileName.endsWith('.mp3') ? 'audio/mpeg' : 'video/mp4') }),
+    });
+    const signed = await signedResponse.json();
+    if (!signedResponse.ok || !signed.ok) throw new Error(signed.error || 'Could not prepare R2 upload.');
+    const response = await fetch(signed.uploadUrl, { method: 'PUT', headers: { 'Content-Type': signed.contentType }, body: blob });
+    if (!response.ok) throw new Error(`R2 upload failed (HTTP ${response.status}).`);
+    return String(signed.url);
+  }
   const form = new FormData();
   form.set('file', new File([blob], fileName, { type: blob.type || (fileName.endsWith('.mp3') ? 'audio/mpeg' : fileName.endsWith('.wav') ? 'audio/wav' : 'video/mp4') }));
   form.set('fileName', fileName);
@@ -334,7 +346,10 @@ const cleanupFfmpegFiles = async (ffmpeg: any, names: string[]) => {
 };
 
 const GeneratedVideoPlayer: React.FC<{ src: string; language: 'km' | 'en'; aspectRatio: VideoAspectRatio; onDuration?: (seconds: number) => void }> = ({ src, language, aspectRatio, onDuration }) => {
-  const normalizedSrc = normalizeImageKitVideoUrl(src);
+  // Playback of the stored original does not consume a video transformation.
+  // A transformed ImageKit URL can fail when its video allowance is exhausted
+  // even though the uploaded MP4 is still present and downloadable.
+  const normalizedSrc = getUntransformedImageKitVideoUrl(normalizeImageKitVideoUrl(src));
   const [playbackSrc, setPlaybackSrc] = useState(normalizedSrc);
   const [recovering, setRecovering] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -353,14 +368,14 @@ const GeneratedVideoPlayer: React.FC<{ src: string; language: 'km' | 'en'; aspec
 
   React.useEffect(() => {
     clearStallTimer();
-    setPlaybackSrc(normalizeImageKitVideoUrl(src));
+    setPlaybackSrc(getUntransformedImageKitVideoUrl(normalizeImageKitVideoUrl(src)));
     setRecovering(false);
     setFailed(false);
   }, [src]);
 
   const handlePlaybackError = () => {
     clearStallTimer();
-    const originalSrc = getOriginalImageKitUrl(normalizedSrc);
+    const originalSrc = getUntransformedImageKitVideoUrl(normalizedSrc);
     if (playbackSrc !== originalSrc) {
       // A transformation can be unavailable while ImageKit is preparing it, or
       // an old persisted URL may contain a transform that no longer works. The
@@ -410,7 +425,7 @@ const GeneratedVideoPlayer: React.FC<{ src: string; language: 'km' | 'en'; aspec
       )}
       {stalled && !failed && (
         <a
-          href={getOriginalImageKitUrl(normalizedSrc)}
+          href={getUntransformedImageKitVideoUrl(normalizedSrc)}
           target="_blank"
           rel="noreferrer"
           className="absolute right-3 top-3 rounded-lg bg-black/80 px-3 py-2 text-xs font-bold text-white underline"
@@ -427,7 +442,7 @@ const GeneratedVideoPlayer: React.FC<{ src: string; language: 'km' | 'en'; aspec
               : 'This video could not be opened in the player.'}
           </p>
           <a
-            href={getOriginalImageKitUrl(normalizedSrc)}
+            href={getUntransformedImageKitVideoUrl(normalizedSrc)}
             target="_blank"
             rel="noreferrer"
             className="rounded-xl bg-white px-4 py-2 text-sm font-bold text-brand-700 hover:bg-brand-50"
@@ -477,11 +492,26 @@ const applyVoiceOver = async (
   knownDurations?: { video: number; audio: number },
 ): Promise<string> => {
   const { fetchFile } = await import('@ffmpeg/util');
+  const fetchMuxInput = async (source: string, name: string) => {
+    if (source.startsWith('data:')) return fetchFile(source);
+    const response = await fetch(source);
+    const contentType = response.headers.get('content-type') || '';
+    if (!response.ok || /^(?:text\/html|application\/json)/i.test(contentType)) {
+      throw new Error(`${name} is unavailable (HTTP ${response.status}). The saved video job can be resumed after media delivery is restored.`);
+    }
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (!bytes.length) throw new Error(`${name} is empty. Resume the saved video job.`);
+    return bytes;
+  };
   let videoBytes: Uint8Array;
   let audioBytes: Uint8Array;
   try {
-    [videoBytes, audioBytes] = await Promise.all([fetchFile(videoDataUrl), fetchFile(audioDataUrl)]);
-  } catch {
+    [videoBytes, audioBytes] = await Promise.all([
+      fetchMuxInput(videoDataUrl, 'Generated video'),
+      fetchMuxInput(audioDataUrl, 'Narration audio'),
+    ]);
+  } catch (error) {
+    if (error instanceof Error && /unavailable|is empty/.test(error.message)) throw error;
     throw new Error('The video is ready, but the browser could not download the clip or narration. Resume the saved job instead of generating a new video.');
   }
   // Use the server's measured durations when available. For older saved jobs,
@@ -523,12 +553,13 @@ const applyVoiceOver = async (
     // asking the model to "talk fast" did. atempo only accepts 0.5-2.0 per instance, which
     // covers every speed this app requests.
     const safeSpeed = Number.isFinite(speed) ? Math.min(2, Math.max(0.5, speed)) : 1;
-    const muxCode = await ffmpeg.exec([
-      '-i', 'vo_input.mp4',
+    const muxInputs = [
+      '-y', '-i', 'vo_input.mp4',
       '-i', `vo_audio.${audioExt}`,
       '-map', '0:v:0',
       '-map', '1:a:0',
-      '-c:v', 'copy',
+    ];
+    const muxOutput = [
       '-filter:a', `atempo=${safeSpeed},apad`,
       '-c:a', 'aac',
       '-b:a', '160k',
@@ -537,7 +568,17 @@ const applyVoiceOver = async (
       '-shortest',
       '-movflags', '+faststart',
       'vo_output.mp4',
-    ]);
+    ];
+    let muxCode = await ffmpeg.exec([...muxInputs, '-c:v', 'copy', ...muxOutput]);
+    if (muxCode !== 0) {
+      // Generated clips can contain a video codec that MP4 cannot stream-copy.
+      // Re-encode only on this compatibility path, keeping the ordinary path fast.
+      await cleanupFfmpegFiles(ffmpeg, ['vo_output.mp4']);
+      muxCode = await ffmpeg.exec([
+        ...muxInputs, '-c:v', 'libx264', '-preset', 'ultrafast',
+        '-crf', '23', '-pix_fmt', 'yuv420p', ...muxOutput,
+      ]);
+    }
     if (muxCode !== 0) throw new Error('Could not merge narration into the video.');
     const data = await ffmpeg.readFile('vo_output.mp4');
     const blob = new Blob([data.buffer], { type: 'video/mp4' });
@@ -549,6 +590,7 @@ const applyVoiceOver = async (
     });
   } catch (error) {
     if (!muxStarted && error instanceof Error) throw error;
+    console.error('Voice-over mux failed:', error);
     throw new Error('Could not merge narration into the video. Please resume the saved job.');
   } finally {
     await cleanupFfmpegFiles(ffmpeg, ['vo_input.mp4', `vo_audio.${audioExt}`, 'vo_output.mp4', 'vo_video_duration.txt', 'vo_audio_duration.txt']);
@@ -559,7 +601,7 @@ const shiftVideoAudio = async (videoUrl: string, offsetMs: number): Promise<stri
   const { fetchFile } = await import('@ffmpeg/util');
   const ffmpeg = await getFFmpeg();
   try {
-    const videoBytes = await fetchFile(getOriginalImageKitUrl(videoUrl));
+    const videoBytes = await fetchFile(getUntransformedImageKitVideoUrl(videoUrl));
     const videoDuration = mp4DurationSeconds(videoBytes);
     await ffmpeg.writeFile('sync_input.mp4', videoBytes);
     const code = await ffmpeg.exec([
@@ -586,7 +628,7 @@ const shiftVideoAudio = async (videoUrl: string, offsetMs: number): Promise<stri
 
 const trimVideoAfterSpeech = async (videoUrl: string): Promise<{ videoDataUrl: string; duration: number }> => {
   const { fetchFile } = await import('@ffmpeg/util');
-  const videoBytes = await fetchFile(getOriginalImageKitUrl(videoUrl));
+  const videoBytes = await fetchFile(getUntransformedImageKitVideoUrl(videoUrl));
   const ffmpeg = await getFFmpeg();
   try {
     let videoDuration = mp4DurationSeconds(videoBytes);
@@ -793,7 +835,7 @@ const pollPendingVideoJob = async (pending: PendingVideoJob, idToken: string) =>
         // transformations. Strip those parameters so already-paid resumable
         // jobs can still fetch and mux their original MP3.
         return await applyVoiceOver(
-          getOriginalImageKitUrl(playableVideoUrl),
+          getUntransformedImageKitVideoUrl(playableVideoUrl),
           getOriginalImageKitUrl(pending.narrationAudioUrl),
           1,
           pending.outputDuration && pending.narrationDuration
@@ -804,7 +846,7 @@ const pollPendingVideoJob = async (pending: PendingVideoJob, idToken: string) =>
         // Preserve a preview of the already-paid clip without presenting it as
         // the finished narrated result. The saved job remains resumable.
         if (error instanceof Error) {
-          (error as Error & { previewVideoUrl?: string }).previewVideoUrl = getOriginalImageKitUrl(playableVideoUrl);
+          (error as Error & { previewVideoUrl?: string }).previewVideoUrl = getUntransformedImageKitVideoUrl(playableVideoUrl);
         }
         throw error;
       }
@@ -1023,6 +1065,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   const [needsApiKey, setNeedsApiKey] = useState(false);
   const [videoImages, setVideoImages] = useState<{ base64: string; mimeType: string }[]>([]);
   const [startingImageRejected, setStartingImageRejected] = useState(false);
+  const [cropStartingImage, setCropStartingImage] = useState(false);
   const [businessProductImages, setBusinessProductImages] = useState<BusinessProductImage[]>([]);
   const [selectedProductImageId, setSelectedProductImageId] = useState<string | null>(null);
   const [videoDuration, setVideoDuration] = useState<number>(8);
@@ -1532,8 +1575,8 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
           setWatermarking(false);
         }
       }
+      if (currentJob.silentRequested) video = await removeVideoAudio(video);
       video = await uploadVideoDirectly(video, idToken);
-      if (currentJob.silentRequested) video = applyImageKitMuteTransform(video);
       const resumedAspectRatio = normalizeVideoAspectRatio(currentJob.aspectRatio);
       setGeneratedVideoAspectRatio(resumedAspectRatio);
       setVideoAspectRatio(resumedAspectRatio);
@@ -1870,8 +1913,8 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       // Browser-side ffmpeg steps produce a large data URL. Upload it directly
       // to ImageKit with a short-lived signed form instead of routing it back
       // through Vercel's 4.5 MB function request limit.
+      if (silentRequested) video = await removeVideoAudio(video);
       video = await uploadVideoDirectly(video, idToken);
-      if (silentRequested) video = applyImageKitMuteTransform(video);
       completedJobFingerprints.forEach((fingerprint) => removePendingVideoJob(user.uid, fingerprint));
       setGeneratedVideo(video);
       if (typeof promptOverride === 'string') {
@@ -1930,7 +1973,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
           : typeof error === 'string' && error.trim()
             ? error
             : 'Video generation failed for an unknown reason. Please try again.';
-      if (/(?:both video providers|video provider) rejected the uploaded starting image/i.test(errorMessage)) {
+      if (videoImages.length > 0 && /video providers? rejected .*image/i.test(errorMessage)) {
         setStartingImageRejected(true);
       }
       if (/OPEN_ROUTER_API_KEY|api key/i.test(errorMessage)) setNeedsApiKey(true);
@@ -2397,6 +2440,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                           onClick={() => {
                             setVideoImages((current) => current.filter((_, i) => i !== index));
                             setStartingImageRejected(false);
+                            setCropStartingImage(false);
                           }}
                           aria-label={language === 'km' ? 'ដករូបភាពចាប់ផ្តើម' : 'Remove starting image'}
                           className="absolute -top-2 -right-2 flex h-6 w-6 items-center justify-center rounded-full bg-slate-900/80 text-white text-xs font-bold hover:bg-red-500 transition-colors"
@@ -2417,6 +2461,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                             const files = Array.from(e.target.files || []);
                             e.target.value = '';
                             setStartingImageRejected(false);
+                            setCropStartingImage(false);
                             readImagesIntoState(files, MAX_VIDEO_IMAGES, videoImages.length, setVideoImages, {
                               maxDimension: 1280,
                               outputType: 'image/webp',
@@ -2427,6 +2472,12 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                       </label>
                     )}
                   </div>
+                  {videoImages.length > 0 && !startingImageRejected && !cropStartingImage && (
+                    <button type="button" onClick={() => setCropStartingImage(true)} disabled={loading}
+                      className="rounded-lg border border-brand-300 px-3 py-1.5 text-xs font-semibold disabled:opacity-50">
+                      {language === 'km' ? 'កាត់រូបចាប់ផ្តើម' : 'Crop starting image'}
+                    </button>
+                  )}
                   {startingImageRejected && videoImages.length > 0 && (
                     <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-100">
                       <p>{language === 'km'
@@ -2437,12 +2488,28 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                         onClick={() => {
                           setVideoImages([]);
                           setStartingImageRejected(false);
+                          setCropStartingImage(false);
                         }}
                         className="mt-2 rounded-lg border border-amber-500 px-3 py-1.5 font-semibold hover:bg-amber-100 dark:hover:bg-amber-900/50"
                       >
                         {language === 'km' ? 'ដករូបដែលជាប់បញ្ហា' : 'Remove rejected image'}
                       </button>
+                      {!cropStartingImage && (
+                        <button type="button" onClick={() => setCropStartingImage(true)}
+                          className="ml-2 mt-2 rounded-lg border border-amber-500 px-3 py-1.5 font-semibold hover:bg-amber-100 dark:hover:bg-amber-900/50">
+                          {language === 'km' ? 'កាត់យកតែផលិតផល' : 'Crop to product'}
+                        </button>
+                      )}
                     </div>
+                  )}
+                  {cropStartingImage && videoImages[0] && (
+                    <StartingImageCrop image={videoImages[0]} aspectRatio={normalizeVideoAspectRatio(videoAspectRatio)} language={language}
+                      onApply={(image) => {
+                        setVideoImages([image]);
+                        setStartingImageRejected(false);
+                        setCropStartingImage(false);
+                      }}
+                      onCancel={() => setCropStartingImage(false)} />
                   )}
                 </div>
                 {businessProductImages.length > 0 && (
@@ -3048,7 +3115,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                       : 'The generated clip is saved, but narration or upload did not finish. Use Resume processing video to complete the same job.'}
                   </div>
                   <GeneratedVideoPlayer src={recoverableVideoUrl} language={language} aspectRatio={generatedVideoAspectRatio} />
-                  <a href={recoverableVideoUrl} download="original-video-preview.mp4" className="inline-block text-sm font-semibold text-brand-700 underline dark:text-brand-300">
+                  <a href={getUntransformedImageKitVideoUrl(recoverableVideoUrl)} download="original-video-preview.mp4" className="inline-block text-sm font-semibold text-brand-700 underline dark:text-brand-300">
                     {language === 'km' ? 'ទាញយកវីដេអូដើមសម្រាប់ពិនិត្យ' : 'Download original clip for review'}
                   </a>
                 </div>

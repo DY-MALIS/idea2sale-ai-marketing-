@@ -19,7 +19,7 @@ for access details.
   `/api/tiktok/publish-photo` and `/api/telegram/run-scheduled` avoid this by having `server.ts` import and mount
   the same handler used in production, so those two can't drift.
 - Firebase (Auth + Firestore) for data and auth
-- ImageKit for media hosting (Telegram-scheduled media, TikTok photo posts)
+- ImageKit for legacy media; Cloudflare R2 for new media when enabled
 - Upstash QStash for precise-time scheduled delivery
 - Gemini / OpenRouter for AI generation (copy, images, video, TTS)
 - TikTok Content Posting API for publishing
@@ -96,15 +96,27 @@ npm run dev
 1. Set `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET`, and `YOUTUBE_REDIRECT_URI` for the Google OAuth app. The redirect URI must end with `/api/tiktok/callback?provider=youtube`.
 2. Each signed-in user connects their own YouTube channel from Smart Scheduler. YouTube tokens are stored by Firebase UID. Connections created before this owner-scoped change used a shared `default` token and must reconnect.
 3. YouTube schedules use QStash for precise delivery, the GitHub Action poller every 10 minutes as a fallback, and the daily Vercel cron as a further fallback. Configure `QSTASH_TOKEN`, both QStash signing keys, and `CRON_SECRET` for those paths.
+4. For connections that last beyond seven days, set the Google Auth Platform audience to **External / In production** in the same Google Cloud project as `YOUTUBE_CLIENT_ID`. An External app in **Testing** receives refresh tokens that expire after seven days when requesting `youtube.upload`. Keep YouTube Data API v3 enabled, add the exact production redirect URI, and declare `https://www.googleapis.com/auth/youtube.upload` in Data Access. After switching to production, existing test connections should reconnect to receive a new refresh token.
+5. For customers outside your team, complete Google's OAuth verification for the requested scope. Prepare the public app homepage, privacy policy, authorized domain, support contact, scope explanation, and an end-to-end demo of connecting a channel and scheduling an upload. Google may show an unverified-app warning and impose a user cap until approval. OAuth verification and any YouTube API compliance audit are separate processes. A production refresh token can still be revoked by its owner or expire after prolonged non-use; reconnect when that happens.
 
 ## Facebook Page Reel Setup
 
 1. In a Meta developer app with Facebook Login, request `pages_show_list`, `pages_read_engagement`, and `pages_manage_posts`. Configure the valid OAuth redirect URI as `https://aime.angkorgate.ai/api/tiktok/callback?provider=facebook` (or the equivalent `APP_URL` for another deployment).
 2. Create a Facebook Login for Business configuration with a user access token and the three Page permissions, then set `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET`, and `FACEBOOK_CONFIG_ID` as server-only environment variables in Vercel Production. Keep `APP_URL` set to the same deployed domain. Do not put the app secret or a Page token in a `VITE_` variable.
 3. Deploy the app and Firestore rules. In Smart Scheduler, sign in, connect Facebook, and choose a Page you can create content on. Upload one portrait 9:16 video lasting 4–60 seconds, then select Facebook with any other destinations and schedule once.
-4. Page credentials are stored by Firebase UID in `facebook_automation_tokens`, which browser clients cannot read. QStash triggers delivery at the scheduled time; the GitHub Action and Vercel cron retry due posts. The Scheduler shows `SUBMITTED` while Meta processes the Reel, then `PUBLISHED` or `FAILED` after confirmation. Meta permissions and app review must be enabled for accounts outside the app's test roles.
+4. Page credentials are stored by Firebase UID in `facebook_automation_tokens`, which browser clients cannot read. QStash triggers delivery at the scheduled time; the GitHub Action and Vercel cron retry due posts. The Scheduler shows `SUBMITTED` while Meta processes the Reel, then `PUBLISHED` or `FAILED` after confirmation.
+5. To let customers outside the Meta app's roles connect their own Pages, a person with full control of the Meta Business Account must complete Business Verification. Confirm the exact legal record with that person before selecting it in Meta. Complete the separate Tech Provider Access Verification when Meta enables it after Business Verification. In App Review, request Advanced Access for `pages_show_list`, `pages_read_engagement`, and `pages_manage_posts`; provide the required descriptions, end-to-end screen recordings, and API test calls. The legal entity and its data-handling owner must answer Meta's data-handling questionnaire and compliance declarations. Meta also requires a 1024 x 1024 app icon before submission; `public/app-icon.png` has that size. A published Meta app alone does not grant these permissions to people outside its roles.
+6. After approval, test with a Facebook account that has no role on the Meta app and has content access to its own Page. Connect it in Smart Scheduler, select its Page, schedule a photo or Reel, and confirm that the post appears on that Page and in Content Timeline. Saving a Page URL in Business Profile does not authorize publishing. The current scheduler supports Page photos and Reels, not text-only posts or personal profiles.
 
-## ImageKit Setup
+## Cloudflare R2 media storage
+
+1. Create an R2 bucket in Cloudflare and attach a public custom domain. Set bucket CORS to permit `PUT` from `https://aime.angkorgate.ai` with `Content-Type`, and `GET`/`HEAD` for playback. Keep access and secret keys server-side. Cloudflare's [presigned PUT guide](https://developers.cloudflare.com/r2/examples/aws/aws-sdk-js-v3/) shows the required CORS policy.
+   Example CORS policy: `[{"AllowedOrigins":["https://aime.angkorgate.ai"],"AllowedMethods":["GET","HEAD","PUT"],"AllowedHeaders":["Content-Type"],"ExposeHeaders":["ETag","Content-Length"],"MaxAgeSeconds":3600}]`.
+2. Add `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, and `R2_PUBLIC_URL` (the HTTPS custom domain, without trailing slash) to Vercel Production and local `.env`. Set `MEDIA_STORAGE_PROVIDER=r2` only after a direct upload and playback test.
+3. New generated media and scheduled uploads then use R2. Existing ImageKit URLs continue to work. Private business-profile documents still use ImageKit's private-file verification, so retain its keys until those files have a separate migration.
+4. R2 is billed beyond its free allowance; configure a budget alert and lifecycle policy for old media. The storage switch does not automatically copy or delete any existing ImageKit files.
+
+## ImageKit Setup (legacy private files)
 
 1. Create an ImageKit account and open Developer options in the ImageKit dashboard.
 2. Copy the public key, private key, and URL endpoint into `IMAGEKIT_PUBLIC_KEY`, `IMAGEKIT_PRIVATE_KEY`, and

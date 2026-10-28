@@ -14,6 +14,7 @@ vi.mock('../../api/_tiktok.js', () => ({
 vi.mock('../../api/_youtube.js', () => ({
   getYouTubeAuthUrl: () => 'https://accounts.google.com/o/oauth2/v2/auth',
   getYouTubeRedirectUri: () => 'https://app.example/callback',
+  youtubeStateCookieHeader: () => 'youtube_state=state',
   youtubeOwnerCookieHeader: () => { throw new Error('YOUTUBE_CLIENT_SECRET is not configured.'); },
 }));
 

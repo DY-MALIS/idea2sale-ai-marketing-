@@ -1,6 +1,6 @@
 import admin, { initFirebaseAdmin } from '../_firebaseAdmin.js';
 import { createOAuthState, getRedirectUri, getTikTokAuthUrl, oauthStateCookieHeader, oauthOwnerCookieHeader } from '../_tiktok.js';
-import { getYouTubeAuthUrl, getYouTubeRedirectUri, youtubeOwnerCookieHeader } from '../_youtube.js';
+import { getYouTubeAuthUrl, getYouTubeRedirectUri, youtubeOwnerCookieHeader, youtubeStateCookieHeader } from '../_youtube.js';
 import { facebookAuthUrl, facebookRedirectUri, facebookAuthCookies } from '../_facebook.js';
 
 export default async function handler(req, res) {
@@ -13,7 +13,7 @@ export default async function handler(req, res) {
     const owner = await admin.auth().verifyIdToken(idToken, true);
     const state = createOAuthState();
     res.setHeader('Set-Cookie', isFacebook ? facebookAuthCookies(owner.uid, state, req) : [
-      oauthStateCookieHeader(state, req),
+      isYouTube ? youtubeStateCookieHeader(state, req) : oauthStateCookieHeader(state, req),
       isYouTube ? youtubeOwnerCookieHeader(owner.uid, state, req) : oauthOwnerCookieHeader(owner.uid, state, req),
     ]);
     res.status(200).json({

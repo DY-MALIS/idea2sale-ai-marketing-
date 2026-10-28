@@ -22,9 +22,9 @@ describe('ImageKit URL transformations', () => {
     expect(twice).toBe(once);
   });
 
-  it('uses a numeric quality supported by ImageKit for video delivery', () => {
+  it('delivers uploaded video bytes without consuming video processing units', () => {
     const result = applyImageKitDeliveryTransform('https://ik.imagekit.io/acme/video.mp4', 'video');
-    expect(new URL(result).searchParams.get('tr')).toBe('w-1280,q-85,f-mp4');
+    expect(new URL(result).searchParams.get('tr')).toBe('orig-true');
   });
 
   it('does not apply image transformations to narration audio', () => {

@@ -2,6 +2,8 @@ import { createKhmerNarration, isUnreliableKhmerTranscript } from './_khmerNarra
 import { normalizeForKhmerSpeech, transcribeAudioWithOpenRouter } from './_openrouter.js';
 import { compareKhmerTranscript, extractVideoDialogue, isKhmerOnlyNarration, nativeSpeechPrompt, visualOnlyVideoPrompt, wantsSilentVideo } from '../shared/videoSpeech.js';
 import { applyImageKitAudioExtractionTransform, isImageKitMediaUrl } from './_imagekitUpload.js';
+import { isR2MediaUrl } from './_r2Storage.js';
+import { extractR2Audio } from './_r2Audio.js';
 
 const wait = (milliseconds) => new Promise(resolve => setTimeout(resolve, milliseconds));
 
@@ -70,6 +72,12 @@ export async function preparePlanVideoSpeech(item) {
 export async function verifyUploadedVideoSpeech(videoUrl, expected, { waitForRetry = wait } = {}) {
   if (!expected) throw new Error('Missing reference dialogue. Review this video before sending.');
   if (!isImageKitMediaUrl(videoUrl)) throw new Error('Invalid uploaded video URL.');
+  if (isR2MediaUrl(videoUrl)) {
+    let bytes;
+    try { bytes = await extractR2Audio(videoUrl); }
+    catch (cause) { throw verificationUnavailableError({ expected, cause, method: 'r2-audio-extraction-unavailable' }); }
+    return verifyExtractedSpeech(bytes, expected);
+  }
   const audioUrl = applyImageKitAudioExtractionTransform(videoUrl);
   let audio;
   let fetchCause;
@@ -107,6 +115,11 @@ export async function verifyUploadedVideoSpeech(videoUrl, expected, { waitForRet
       response: audio,
     });
   }
+  return verifyExtractedSpeech(bytes, expected);
+}
+
+async function verifyExtractedSpeech(bytes, expected) {
+  if (!bytes.length || bytes.length > 6000000) throw verificationUnavailableError({ expected, method: 'audio-extraction-invalid' });
   // The narration audio itself is already the trusted Khmer TTS track (edge-seedance
   // videos mux the exact reference audio back in before this check ever runs); a
   // failed comparison here usually means the Chirp 3 STT model hallucinated the

@@ -4,6 +4,8 @@ import {
   readYouTubeOAuthOwner,
   saveYouTubeAutomationTokens,
   youtubeOwnerCookieHeader,
+  youtubeStateCookieHeader,
+  verifyAndClearYouTubeOAuthState,
   publishVideoToYouTube,
 } from '../../api/_youtube.js';
 
@@ -22,9 +24,20 @@ it('uploads the shared video with its actual media type', async () => {
 
 
 describe('YouTube owner isolation', () => {
+  it('keeps a YouTube OAuth attempt valid for thirty minutes and clears its one-time state', () => {
+    const req = { headers: { host: 'localhost:3000', cookie: 'youtube_oauth_state=state-one' }, query: { state: 'state-one' } };
+    const stateCookie = youtubeStateCookieHeader('state-one', req);
+    expect(stateCookie).toContain('Max-Age=1800');
+    const res = { getHeader: () => undefined, setHeader: vi.fn() };
+    expect(verifyAndClearYouTubeOAuthState(req, res)).toBe(true);
+    expect(res.setHeader).toHaveBeenCalledWith('Set-Cookie', expect.arrayContaining([expect.stringContaining('youtube_oauth_state=;')]));
+    expect(verifyAndClearYouTubeOAuthState({ ...req, query: { state: 'different' } }, res)).toBe(false);
+  });
+
   it('binds the OAuth callback to the signed-in owner and rejects a changed state', () => {
     vi.stubEnv('YOUTUBE_CLIENT_SECRET', 'test-secret');
     const issued = youtubeOwnerCookieHeader('user-one', 'state-one', { headers: { host: 'localhost:3000' } });
+    expect(issued).toContain('Max-Age=1800');
     const cookie = issued.split(';')[0];
     const res = { getHeader: () => [], setHeader: vi.fn() };
     expect(readYouTubeOAuthOwner({ headers: { host: 'localhost:3000', cookie }, query: { state: 'state-one' } }, res)).toBe('user-one');

@@ -38,6 +38,7 @@ import { generateAgentDocument, requestedAgentDocumentFormat } from './_agentDoc
 import { isContentPlanEditFollowup, isContentPlanEditPronounFollowup, isContentPlanEditRequest } from '../shared/contentPlanEditIntent.js';
 import { isContentPlanCreationRequest, isStandaloneAudioRequest, shouldClassifyCreativeMedia } from '../shared/agentIntent.js';
 import { createHash } from 'crypto';
+import replaceContentPlan from './_contentPlanReplace.js';
 
 const agentContentPlanText = (body, limit = 14) => (Array.isArray(body?.contentPlan) ? body.contentPlan : [])
   .slice(0, limit)
@@ -1085,6 +1086,7 @@ export default async function handler(req, res) {
   }
 
   const action = String(req.body?.action || '');
+  if (action === 'replaceContentPlan') return replaceContentPlan(req, res);
   const languageCode = String(req.body?.language || 'en');
   const language = languageCode === 'km' ? 'Khmer' : 'English';
   let verifiedVideoUser = null;
@@ -1340,6 +1342,12 @@ export default async function handler(req, res) {
             ...item,
             userId: owner.uid,
             businessName: String(req.body?.businessName || '').slice(0, 200),
+            autoPublishDestinations: items.some((entry) => entry?.autoPublishDestinations === true),
+            ...(item.type === 'video' && items.some((entry) => entry?.tiktokDirectPostConsent === true)
+              ? { tiktokDirectPostConsent: true,
+                  tiktokCommercialDisclosure: items.some((entry) => entry?.tiktokCommercialDisclosure === true),
+                  tiktokOwnBrand: items.some((entry) => entry?.tiktokOwnBrand === true) }
+              : {}),
             status: 'PENDING',
             createdAt: new Date(),
           },
@@ -3372,7 +3380,7 @@ Return ONLY a single valid JSON object with this exact structure:
       error: keyError
         ? 'OpenRouter API key is missing or invalid. Update OPEN_ROUTER_API_KEY in Vercel.'
         : imageRejected
-          ? 'The video provider rejected a presenter image because it may show an identifiable person. Try a different starting image or scene for a new video.'
+          ? 'The video provider rejected the starting image because it may show an identifiable person. Crop to the product or use a different starting image, then generate a new video.'
           : message || 'AI generation failed.',
     });
   }

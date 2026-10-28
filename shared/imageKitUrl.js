@@ -82,8 +82,11 @@ export const applyImageKitDeliveryTransform = (mediaUrl, mediaType, urlEndpoint 
   // assets. Adding them made narration URLs return a transformation error,
   // leaving audio-reference video jobs without a usable speech track.
   if (mediaType === 'audio') return mediaUrl;
-  const transform = mediaType === 'video' ? 'w-1280,q-85,f-mp4' : 'w-1280,q-auto,f-auto';
-  return addImageKitTransform(mediaUrl, transform, urlEndpoint);
+  // Video processing units are limited separately from stored bytes. Request
+  // the original MP4 explicitly: without orig-true, account-level automatic
+  // video optimization can still run even when the URL has no tr parameter.
+  if (mediaType === 'video') return getUntransformedImageKitVideoUrl(mediaUrl, urlEndpoint);
+  return addImageKitTransform(mediaUrl, 'w-1280,q-auto,f-auto', urlEndpoint);
 };
 
 export const applyImageKitMuteTransform = (mediaUrl, urlEndpoint = '') =>

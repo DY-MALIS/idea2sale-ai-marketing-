@@ -425,9 +425,9 @@ describe('applyImageKitDeliveryTransform', () => {
     expect(new URL(result).searchParams.get('tr')).toBe('w-1280,q-auto,f-auto');
   });
 
-  it('inserts a resize transform for a video URL', () => {
+  it('uses the original video rather than requesting a paid delivery transform', () => {
     const result = applyImageKitDeliveryTransform(videoUrl, 'video');
-    expect(new URL(result).searchParams.get('tr')).toBe('w-1280,q-85,f-mp4');
+    expect(new URL(result).searchParams.get('tr')).toBe('orig-true');
   });
 
   it('is idempotent -- calling it twice does not double up the transform', () => {

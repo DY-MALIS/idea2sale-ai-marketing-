@@ -13,9 +13,22 @@ export async function claimPendingPost(db, ref) {
     if (!snap.exists) return { skipped: 'not_found' };
     const data = { id: snap.id, ...snap.data() };
     if (data.status !== 'PENDING') return { skipped: data.status };
+    if (data.sourcePlanItemId) {
+      const source = await tx.get(db.collection('content_plan_items').doc(data.sourcePlanItemId));
+      if (!source.exists || source.data()?.userId !== data.userId || source.data()?.supersededBy || source.data()?.status === 'CANCELLED') {
+        tx.update(ref, { status: 'CANCELLED', cancelledReason: 'Content Plan was replaced.' });
+        return { skipped: 'plan_replaced' };
+      }
+    }
     tx.update(ref, { status: 'PROCESSING', processingAt: FieldValue.serverTimestamp() });
     return { post: data };
   });
+}
+
+export async function isSourcePlanActive(db, post) {
+  if (!post?.sourcePlanItemId) return true;
+  const source = await db.collection('content_plan_items').doc(post.sourcePlanItemId).get();
+  return source.exists && source.data()?.userId === post.userId && !source.data()?.supersededBy && source.data()?.status !== 'CANCELLED';
 }
 
 // Second, cross-document safety net: the atomic claim above only stops the

@@ -52,6 +52,7 @@ vi.mock('../../../api/_telegramClaim.js', () => ({
   claimPendingPost: mockClaimPendingPost,
   findRecentDuplicateTikTokPost: mockFindRecentDuplicate,
   findRecentDuplicateYouTubePost: mockFindRecentDuplicate,
+  isSourcePlanActive: vi.fn().mockResolvedValue(true),
 }));
 vi.mock('../../../api/_alert.js', () => ({ notifyAdmins: mockNotifyAdmins }));
 vi.mock('../../../api/_youtube.js', () => ({
@@ -767,7 +768,8 @@ describe('POST /api/tiktok/publish?action=deliver (QStash callback)', () => {
 
   it('delivers a signed YouTube job using its owner connection', async () => {
     mockVerify.mockResolvedValue(true);
-    mockClaimPendingPost.mockResolvedValue({ post: { videoUrl: 'https://cdn.example.com/video.mp4', content: 'A video', userId: 'user-one' } });
+    vi.stubEnv('YOUTUBE_PRIVACY_STATUS', 'public');
+    mockClaimPendingPost.mockResolvedValue({ post: { videoUrl: 'https://cdn.example.com/video.mp4', content: 'A video', userId: 'user-one', youtubeRequestedPrivacyStatus: 'private' } });
     mockFindRecentDuplicate.mockResolvedValue(null);
     mockGetYouTubeToken.mockResolvedValue('owner-token');
     mockPublishYouTube.mockResolvedValue({ videoId: 'youtube-1' });
@@ -784,6 +786,7 @@ describe('POST /api/tiktok/publish?action=deliver (QStash callback)', () => {
     await handler({ ...req({ postId: 'post-1' }), query: { action: 'youtubeDeliver' } }, res);
     expect(res.body).toEqual({ ok: true, videoId: 'youtube-1' });
     expect(mockGetYouTubeToken).toHaveBeenCalledWith(expect.anything(), 'user-one');
+    expect(mockPublishYouTube).toHaveBeenCalledWith('owner-token', expect.objectContaining({ privacyStatus: 'private' }));
     expect(update).toHaveBeenCalledWith(expect.objectContaining({ status: 'PUBLISHED', youtubeVideoId: 'youtube-1' }));
   });
 

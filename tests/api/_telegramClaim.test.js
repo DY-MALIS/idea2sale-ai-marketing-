@@ -19,6 +19,7 @@ const makeFakeDb = ({ docs = {}, collectionDocs = [] } = {}) => ({
   collection() {
     const filters = [];
     const builder = {
+      doc(id) { return { id }; },
       where(field, _op, value) {
         filters.push([field, value]);
         return builder;
@@ -56,6 +57,13 @@ describe('claimPendingPost', () => {
     expect(result).toEqual({ skipped: 'PROCESSING' });
     // must not have been touched further
     expect(docs.post1.status).toBe('PROCESSING');
+  });
+
+  it('cancels a queued post whose source plan was deleted', async () => {
+    const docs = { post1: { status: 'PENDING', sourcePlanItemId: 'deleted-plan-item' } };
+    const result = await claimPendingPost(makeFakeDb({ docs }), { id: 'post1' });
+    expect(result).toEqual({ skipped: 'plan_replaced' });
+    expect(docs.post1.status).toBe('CANCELLED');
   });
 });
 

@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Bot, CalendarClock, Check, ChevronDown, Copy, History, Image as ImageIcon, ImagePlus, Loader2, Mic, MicOff, RefreshCw, Send, Sparkles, Trash2, UserRound, Video, X, Zap } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { AnimatePresence, motion } from 'motion/react';
-import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, setDoc, serverTimestamp, updateDoc, where } from 'firebase/firestore';
+import { collection, doc, getDoc, onSnapshot, query, setDoc, serverTimestamp, where } from 'firebase/firestore';
 import readXlsxFile from 'read-excel-file/browser';
 import { db } from '../lib/firebase';
 import { readImagesIntoState } from '../lib/imageUpload';
@@ -103,6 +103,12 @@ interface SavedPlanItem {
   errorMessage?: string;
   resultMediaUrl?: string;
   speechVerification?: { passed: boolean; similarity?: number; transcript?: string; expected?: string; unavailable?: boolean; method?: string };
+  publishDestinationsQueued?: string[];
+  publishDestinationsSkipped?: string[];
+  autoPublishDestinations?: boolean;
+  tiktokDirectPostConsent?: boolean;
+  tiktokCommercialDisclosure?: boolean;
+  tiktokOwnBrand?: boolean;
 }
 
 interface AIAgentProps {
@@ -342,7 +348,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           return;
         }
         const detectedLanguage = detectMessageLanguage(transcript);
-        const response = await fetch('/api/ai', {
+      const response = await fetch('/api/ai', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -605,7 +611,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       // The draft remains available in memory when browser storage is full.
     }
   }, [planItems, user?.uid]);
-  const [replaceOldPlan, setReplaceOldPlan] = useState(true);
+  const [planTikTokConsent, setPlanTikTokConsent] = useState(false);
   const [planSaving, setPlanSaving] = useState(false);
   const [planError, setPlanError] = useState<string | null>(null);
   const [planEditNotice, setPlanEditNotice] = useState<string | null>(null);
@@ -663,6 +669,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       q,
       (snapshot) => {
         const rows = snapshot.docs
+          .filter((docSnap) => !docSnap.data().supersededBy)
           .map((docSnap) => {
             const data = docSnap.data();
             return {
@@ -683,6 +690,12 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
               errorMessage: data.errorMessage || undefined,
               resultMediaUrl: data.resultMediaUrl || undefined,
               speechVerification: data.speechVerification || undefined,
+              publishDestinationsQueued: Array.isArray(data.publishDestinationsQueued) ? data.publishDestinationsQueued : undefined,
+              publishDestinationsSkipped: Array.isArray(data.publishDestinationsSkipped) ? data.publishDestinationsSkipped : undefined,
+              autoPublishDestinations: data.autoPublishDestinations === true,
+              tiktokDirectPostConsent: data.tiktokDirectPostConsent === true,
+              tiktokCommercialDisclosure: data.tiktokCommercialDisclosure === true,
+              tiktokOwnBrand: data.tiktokOwnBrand === true,
             } as SavedPlanItem;
           })
           .sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate));
@@ -1139,6 +1152,12 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     if (!user || isDemoMode) return;
     const selectedItems = planItems.filter((item) => item.selected);
     if (!selectedItems.length) return;
+    if (selectedItems.some((item) => item.type === 'video') && !planTikTokConsent) {
+      setPlanError(language === 'km'
+        ? 'សូមយល់ព្រមលក្ខខណ្ឌ TikTok Direct Post មុនរក្សាទុកវីដេអូក្នុងផែនការ។'
+        : 'Agree to TikTok Direct Post before saving videos in the plan.');
+      return;
+    }
     if (selectedItems.some((item) => item.type === 'video' && !/[\u1780-\u17ff]/u.test(item.voiceOverText || ''))) {
       setPlanError(language === 'km' ? 'សូមដាក់អត្ថបទនិយាយជាភាសាខ្មែរសម្រាប់វីដេអូ ៨ វិនាទី។' : 'Add Khmer narration for each 8-second video before saving.');
       return;
@@ -1146,65 +1165,44 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     setPlanSaving(true);
     setPlanError(null);
     setPlanEditNotice(null);
-    if (replaceOldPlan) {
-      // Only PENDING items are cleared -- DONE items are already-published
-      // history and PROCESSING items are mid-generation (a video job may
-      // already be running), neither should be touched by uploading a new plan.
-      try {
-        const oldSnapshot = await getDocs(
-          query(collection(db, 'content_plan_items'), where('userId', '==', user.uid), where('status', '==', 'PENDING')),
-        );
-        await Promise.all(oldSnapshot.docs.map((docSnap) => deleteDoc(docSnap.ref)));
-      } catch (error) {
-        console.error('Failed to clear old content plan items:', error);
-        setPlanError(language === 'km' ? 'មិនអាចលុបផែនការចាស់បានទេ។' : 'Could not clear the old plan.');
-        setPlanSaving(false);
-        return;
-      }
-    }
-    // Each item is saved independently (not aborted on the first failure) and
-    // only the ones that actually succeeded are removed from the list --
-    // otherwise a failure partway through (e.g. item 4 of 10) would leave
-    // items 1-3 already persisted in Firestore while the UI still shows all
-    // 10 as unsaved, and pressing Save again would create duplicate
-    // content_plan_items docs (and later, duplicate generated posts) for
-    // the ones that already went through.
-    const failedIndexes = new Set<number>();
-    let savedCount = 0;
-    for (let i = 0; i < selectedItems.length; i++) {
-      const item = selectedItems[i];
-      try {
-        await addDoc(collection(db, 'content_plan_items'), {
-          userId: user.uid,
-          scheduledDate: item.date,
-          type: item.type,
-          topic: item.topic,
-          prompt: item.prompt,
-          businessName: businessContext?.businessName || '',
-          ...(item.type === 'image'
-            ? { headline: item.headline || '', cta: item.cta || '', aspectRatio: item.aspectRatio || '1:1' }
-            : { voiceGender: item.voiceGender || 'Female', voiceOverText: item.voiceOverText || '', scriptEditedByUser: item.scriptEditedByUser === true, duration: 8, performanceStyle: item.performanceStyle || '', aspectRatio: item.aspectRatio || '9:16', voiceOverWanted: true, voiceOverMode: 'edge-seedance', productImageUrl: item.productImageUrl || '' }),
-          status: 'PENDING',
-          createdAt: serverTimestamp(),
-        });
-        savedCount += 1;
-      } catch (error) {
-        console.error('Failed to save content plan item:', error);
-        failedIndexes.add(i);
-      }
-    }
-
-    if (failedIndexes.size > 0) {
-      setPlanItems(selectedItems.filter((_, i) => failedIndexes.has(i)));
-      setPlanError(language === 'km'
-        ? `រក្សាទុកបានជោគជ័យ ${savedCount} ចំណុច ប៉ុន្តែ ${failedIndexes.size} ចំណុចបរាជ័យ (នៅសល់ខាងក្រោម សូមព្យាយាមម្តងទៀត)។`
-        : `Saved ${savedCount} item(s), but ${failedIndexes.size} failed (left below -- try again).`);
-    } else {
+    try {
+        const response = await fetch('/api/ai', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await user.getIdToken()}` },
+          body: JSON.stringify({
+            action: 'replaceContentPlan',
+            businessName: businessContext?.businessName || '',
+            items: selectedItems.map((item) => ({
+              scheduledDate: item.date,
+              type: item.type,
+              topic: item.topic,
+              prompt: item.prompt,
+              headline: item.headline,
+              cta: item.cta,
+              aspectRatio: item.aspectRatio,
+              voiceGender: item.voiceGender,
+              voiceOverText: item.voiceOverText,
+              scriptEditedByUser: item.scriptEditedByUser,
+              performanceStyle: item.performanceStyle,
+              productImageUrl: item.productImageUrl,
+              tiktokDirectPostConsent: item.type === 'video' && planTikTokConsent,
+              tiktokCommercialDisclosure: item.type === 'video',
+              tiktokOwnBrand: item.type === 'video',
+            })),
+          }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not replace the old plan.');
       setPlanItems([]);
       setPlanLink('');
+      setPlanSavedCount(data.savedCount);
+      setPlanTikTokConsent(false);
+    } catch (error) {
+      console.error('Failed to replace content plan:', error);
+      setPlanError(error instanceof Error ? error.message : 'Could not replace the old plan.');
+    } finally {
+      setPlanSaving(false);
     }
-    setPlanSavedCount(savedCount > 0 ? savedCount : null);
-    setPlanSaving(false);
   };
 
   const editContentPlan = async (message: string, signal?: AbortSignal, priorMessages: AgentMessage[] = messagesRef.current): Promise<string> => {
@@ -1783,17 +1781,15 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                         </div>
                       ))}
                     </div>
-                    <label className="flex cursor-pointer items-center gap-2 text-xs font-bold text-brand-600 dark:text-brand-300">
-                      <input
-                        type="checkbox"
-                        checked={replaceOldPlan}
-                        onChange={(event) => setReplaceOldPlan(event.target.checked)}
-                        className="h-4 w-4 accent-brand-600"
-                      />
-                      {language === 'km'
-                        ? 'ជំនួសផែនការចាស់ (លុប item ដែលនៅរង់ចាំចាស់ៗចោល)'
-                        : 'Replace old plan (delete previous not-yet-generated items)'}
-                    </label>
+                    {planItems.some((item) => item.selected && item.type === 'video') && (
+                      <label className="flex cursor-pointer items-start gap-2 text-xs font-bold text-brand-600 dark:text-brand-300">
+                        <input type="checkbox" checked={planTikTokConsent} onChange={(event) => setPlanTikTokConsent(event.target.checked)} className="mt-0.5 h-4 w-4 accent-brand-600" />
+                        <span>{language === 'km'
+                          ? 'ខ្ញុំយល់ព្រមឱ្យវីដេអូក្នុងផែនការនេះផុសដោយស្វ័យប្រវត្តិទៅ TikTok (Public) ហើយបញ្ជាក់សិទ្ធិតន្ត្រី និងថាជាការផ្សព្វផ្សាយម៉ាករបស់ក្រុមហ៊ុនខ្ញុំ។'
+                          : 'I agree to automatic TikTok Direct Posts (Public) for this plan, confirm music usage, and disclose promotion of my own brand.'}</span>
+                      </label>
+                    )}
+                    <p className="text-xs text-amber-700 dark:text-amber-300">{language === 'km' ? 'ពេលរក្សាទុកផែនការថ្មី ធាតុផែនការចាស់ទាំងអស់នឹងត្រូវលុប ហើយការងារចាស់ដែលនៅរង់ចាំនឹងឈប់។' : 'Saving a new plan deletes all previous plan items and stops pending old work.'}</p>
                     <button
                       type="button"
                       onClick={handleSavePlan}
@@ -1855,6 +1851,8 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                                 </span>
                               </div>
                               <p className="mt-1 truncate text-sm font-bold text-brand-700 dark:text-brand-300">{item.topic}</p>
+                              {Boolean(item.publishDestinationsQueued?.length) && <p className="mt-1 text-xs text-sky-700 dark:text-sky-300">{language === 'km' ? 'បានដាក់ជួរផុស៖ ' : 'Queued for publishing: '}{item.publishDestinationsQueued?.join(', ')}</p>}
+                              {Boolean(item.publishDestinationsSkipped?.length) && <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">{language === 'km' ? 'មិនទាន់ដាក់ជួរ៖ ' : 'Not queued: '}{item.publishDestinationsSkipped?.join(', ')}</p>}
                               <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                                 {language === 'km' ? 'សមាមាត្រ' : 'Aspect ratio'}: {item.aspectRatio || (item.type === 'video' ? '9:16' : '1:1')}
                                 {item.type === 'video' && ` · ${language === 'km' ? 'សំឡេង' : 'Voice'}: ${item.voiceGender || 'Female'}`}

@@ -46,7 +46,8 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'POST' && action === 'auth') {
-      const auth = createImageKitUploadAuth();
+      // Private profile documents retain ImageKit's authenticated-download flow.
+      const auth = createImageKitUploadAuth({ forceImageKit: true });
       return res.status(200).json({ ...auth, folder: folderFor(user.uid), maxBytes: MAX_BYTES });
     }
 

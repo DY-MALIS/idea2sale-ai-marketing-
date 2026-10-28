@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest';
 
-const { saveTokens, readOwner, exchangeCode } = vi.hoisted(() => ({ saveTokens: vi.fn(), readOwner: vi.fn(), exchangeCode: vi.fn() }));
+const { saveTokens, readOwner, exchangeCode, verifyState } = vi.hoisted(() => ({ saveTokens: vi.fn(), readOwner: vi.fn(), exchangeCode: vi.fn(), verifyState: vi.fn(() => true) }));
 vi.mock('../../api/_tiktok.js', () => ({
   verifyAndClearOAuthState: () => true,
   readOAuthOwner: vi.fn(),
@@ -11,6 +11,7 @@ vi.mock('../../api/_youtube.js', () => ({
   exchangeYouTubeCode: exchangeCode,
   saveYouTubeAutomationTokens: saveTokens,
   readYouTubeOAuthOwner: readOwner,
+  verifyAndClearYouTubeOAuthState: verifyState,
 }));
 vi.mock('../../api/_firebaseAdmin.js', () => ({ initFirebaseAdmin: () => ({}) }));
 

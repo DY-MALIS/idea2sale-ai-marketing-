@@ -99,6 +99,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   // so the two existing cron runners (api/tiktok/publish.js,
   // api/telegram/run-scheduled.js) need no changes at all.
   const [platforms, setPlatforms] = useState<Platform[]>(['TIKTOK']);
+  const [youtubePrivacy, setYouTubePrivacy] = useState<'private' | 'unlisted' | 'public'>('public');
   const [completedPlatforms, setCompletedPlatforms] = useState<Platform[]>([]);
   // Smart Schedule always uses Direct Post. Inbox drafts require the owner
   // to finish publishing inside TikTok.
@@ -581,8 +582,9 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
       signatureResponse = await withUploadTimeout(fetch('/api/telegram/run-scheduled?action=sign-upload', {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${idToken}`
-        }
+          Authorization: `Bearer ${idToken}`, 'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ fileName: file.name, contentType: file.type || 'application/octet-stream' })
       }), UPLOAD_TIMEOUT_MESSAGE);
     } catch {
       throw new Error('Could not reach the app server to prepare the upload. Check your internet connection and try again.');
@@ -603,6 +605,9 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     // drop, which surfaces as a bare "Failed to fetch" with no useful detail —
     // one retry plus a clearer message covers the common transient case.
     const doUpload = async () => {
+      if (signatureData.provider === 'r2') return withUploadTimeout(fetch(signatureData.uploadUrl, {
+        method: 'PUT', headers: { 'Content-Type': signatureData.contentType }, body: file,
+      }), UPLOAD_TIMEOUT_MESSAGE);
       const form = new FormData();
       form.set('file', file);
       form.set('fileName', file.name || `scheduled-media-${Date.now()}`);
@@ -628,6 +633,10 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
         if (retryError instanceof Error && /taking too long/i.test(retryError.message)) throw retryError;
         throw new Error('The media upload was interrupted (network connection dropped). Check your internet connection and try again.');
       }
+    }
+    if (signatureData.provider === 'r2') {
+      if (!uploadResponse.ok) throw new Error(`R2 upload failed (HTTP ${uploadResponse.status}).`);
+      return { mediaUrl: String(signatureData.url), mediaType: file.type.startsWith('video/') ? 'video' : 'photo' };
     }
     const uploadData = await uploadResponse.json().catch(() => ({}));
     if (!uploadResponse.ok || !uploadData.url) {
@@ -657,6 +666,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     setTikTokCommercial(false);
     setTikTokOwnBrand(false);
     setTikTokBrandedContent(false);
+    setYouTubePrivacy('public');
 
     const nextHour = new Date();
     nextHour.setHours(nextHour.getHours() + 1);
@@ -707,6 +717,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
       mediaName: mediaFile?.name || null,
       mediaType: mediaFile ? (mediaFile.type.startsWith('video/') ? 'video' : 'photo') : null,
       publishMode,
+      ...(platform === 'YOUTUBE' ? { youtubeRequestedPrivacyStatus: youtubePrivacy } : {}),
       localOnly: true,
       createdAt: new Date().toISOString()
     };
@@ -976,6 +987,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
               : platform === 'YOUTUBE'
                 ? 'YOUTUBE_AUTO_POST'
                 : platform === 'FACEBOOK' ? (imageFile ? 'FACEBOOK_PHOTO_AUTO_POST' : 'FACEBOOK_REEL_AUTO_POST') : 'PLANNED_ONLY',
+            ...(platform === 'YOUTUBE' ? { youtubeRequestedPrivacyStatus: youtubePrivacy } : {}),
             ...(platform === 'TIKTOK' ? { directPostOptions: {
               privacyLevel: tiktokPrivacy,
               durationSeconds: tiktokVideoSeconds,
@@ -1083,7 +1095,15 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
-            onClick={() => { setScheduleNotice(null); setIsModalOpen(true); }}
+            onClick={() => {
+              setScheduleNotice(null);
+              if (new Date(scheduledTime).getTime() < Date.now()) {
+                const nextHour = new Date();
+                nextHour.setHours(nextHour.getHours() + 1, 0, 0, 0);
+                setScheduledTime(getLocalISOString(nextHour));
+              }
+              setIsModalOpen(true);
+            }}
             className="px-6 py-3 bg-brand-700 hover:bg-brand-800 text-white rounded-2xl font-bold text-sm shadow-xl shadow-brand-700/20 flex items-center gap-2 transition-transform"
           >
             <Plus size={18} />
@@ -1439,6 +1459,23 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                           {isConnectingYouTube ? 'Connecting…' : youtubeConnection?.connected ? 'Change channel' : 'Connect YouTube'}
                         </button>
                       </div>
+                      <label htmlFor="youtube-visibility" className="mt-3 block text-xs font-bold text-sky-800 dark:text-sky-300">
+                        {language === 'km' ? 'អ្នកដែលអាចមើលវីដេអូ YouTube' : 'YouTube video visibility'}
+                      </label>
+                      <select
+                        id="youtube-visibility"
+                        value={youtubePrivacy}
+                        onChange={(event) => setYouTubePrivacy(event.target.value as 'private' | 'unlisted' | 'public')}
+                        disabled={isSubmitting}
+                        className="mt-1 w-full rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900 dark:border-sky-800 dark:bg-slate-800 dark:text-sky-200"
+                      >
+                        <option value="private">Private — only you</option>
+                        <option value="unlisted">Unlisted — anyone with the link</option>
+                        <option value="public">Public — everyone</option>
+                      </select>
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                        {language === 'km' ? 'សម្រាប់សាកល្បង សូមជ្រើស Private មុនចុច Schedule។' : 'Choose Private for a test upload.'}
+                      </p>
                       {renderCaptionOverride('YOUTUBE', 'YouTube')}
                     </div>
                   )}

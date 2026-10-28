@@ -1,5 +1,5 @@
 import { getRedirectUri, sessionCookieAttributes, verifyAndClearOAuthState, readOAuthOwner, saveAutomationTokens } from '../_tiktok.js';
-import { getYouTubeRedirectUri, exchangeYouTubeCode, saveYouTubeAutomationTokens, readYouTubeOAuthOwner } from '../_youtube.js';
+import { getYouTubeRedirectUri, exchangeYouTubeCode, saveYouTubeAutomationTokens, readYouTubeOAuthOwner, verifyAndClearYouTubeOAuthState } from '../_youtube.js';
 import { initFirebaseAdmin } from '../_firebaseAdmin.js';
 import { readFacebookOAuthOwner, exchangeFacebookCode, saveFacebookPages, facebookRedirectUri } from '../_facebook.js';
 
@@ -24,7 +24,7 @@ async function handleFacebookCallback(req, res, code) {
 // instead of a new api/youtube/callback.js for the same Vercel Hobby
 // 12-function-cap reason documented in api/tiktok/publish.js.
 async function handleYouTubeCallback(req, res, code) {
-  if (!verifyAndClearOAuthState(req, res)) {
+  if (!verifyAndClearYouTubeOAuthState(req, res)) {
     return res.status(400).send('Invalid or expired YouTube login attempt. Please try connecting again.');
   }
   const ownerId = readYouTubeOAuthOwner(req, res);

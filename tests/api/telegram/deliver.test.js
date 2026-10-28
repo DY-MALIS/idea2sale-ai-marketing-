@@ -210,7 +210,7 @@ describe('processContentPlanVideo', () => {
     expect(result.ok).toBe(false);
     expect(global.fetch).not.toHaveBeenCalled();
     expect(updates).toContainEqual({ speechVerification: { passed: false, similarity: 0.4 } });
-    expect(updates.at(-1)).toMatchObject({ status: 'FAILED' });
+    expect(updates.at(-1)).toMatchObject({ status: 'REVIEW' });
   });
   it('keeps a generated video for review when transcription infrastructure is unavailable', async () => {
     mockPollOpenRouterVideo.mockResolvedValue({ videoUrl: 'native-video' });

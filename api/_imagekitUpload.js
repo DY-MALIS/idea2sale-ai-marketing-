@@ -1,4 +1,5 @@
 import { createHmac, randomUUID } from 'crypto';
+import { createR2UploadAuth, isR2MediaUrl, r2Enabled, uploadR2DataUrl, uploadR2RemoteUrl } from './_r2Storage.js';
 import { formatImageKitUploadError } from '../shared/imageKitError.js';
 import {
   applyImageKitAudioExtractionTransform as applyAudioExtractionTransform,
@@ -28,7 +29,8 @@ export const getImageKitConfig = () => {
   return { publicKey, privateKey, urlEndpoint, endpoint };
 };
 
-export const createImageKitUploadAuth = () => {
+export const createImageKitUploadAuth = (options) => {
+  if (r2Enabled() && options?.forceImageKit !== true) return createR2UploadAuth(options);
   const { publicKey, privateKey } = getImageKitConfig();
   const token = randomUUID();
   const expire = Math.floor(Date.now() / 1000) + 3600;
@@ -54,6 +56,7 @@ export const applyImageKitLogoOverlay = (videoUrl, logoFilePath) =>
   applyLogoOverlay(videoUrl, logoFilePath, configuredEndpoint());
 
 export const isImageKitMediaUrl = (mediaUrl) => {
+  if (isR2MediaUrl(mediaUrl)) return true;
   try {
     const { endpoint } = getImageKitConfig();
     const candidate = new URL(mediaUrl);
@@ -76,6 +79,7 @@ const fileExtensionFor = (contentType, mediaType) => {
 
 export const uploadMediaDataUrl = async ({ mediaDataUrl, mediaType, folder = '/generation-history', fileName }) => {
   if (!mediaDataUrl) return { mediaUrl: '', mediaType: null };
+  if (r2Enabled()) return uploadR2DataUrl({ mediaDataUrl, mediaType, folder, fileName });
   const match = String(mediaDataUrl).match(/^data:([^;,]+);base64,(.+)$/);
   if (!match) throw new Error('Invalid media file data.');
 
@@ -119,6 +123,7 @@ export const uploadMediaDataUrl = async ({ mediaDataUrl, mediaType, folder = '/g
 // one for completed videos, so ImageKit can copy the clip without our function
 // first downloading it and sending its base64 representation back out.
 export const uploadMediaRemoteUrl = async ({ mediaUrl, folder = '/generation-history', fileName }) => {
+  if (r2Enabled()) return uploadR2RemoteUrl({ mediaUrl, folder, fileName });
   let parsed;
   try {
     parsed = new URL(mediaUrl);

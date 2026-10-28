@@ -232,6 +232,14 @@ export default async function handler(req, res) {
       hasPrivateKey: !!process.env.IMAGEKIT_PRIVATE_KEY,
       hasUrlEndpoint: !!process.env.IMAGEKIT_URL_ENDPOINT,
     },
+    r2: {
+      enabled: process.env.MEDIA_STORAGE_PROVIDER === 'r2',
+      hasAccountId: !!process.env.R2_ACCOUNT_ID,
+      hasAccessKeyId: !!process.env.R2_ACCESS_KEY_ID,
+      hasSecretAccessKey: !!process.env.R2_SECRET_ACCESS_KEY,
+      hasBucket: !!process.env.R2_BUCKET,
+      hasPublicUrl: !!process.env.R2_PUBLIC_URL,
+    },
     alerts: {
       hasTelegramAdminChat: !!process.env.TELEGRAM_ADMIN_CHAT_ID,
     },

@@ -17,6 +17,7 @@ import { generateKhmerSpeech } from '../_khmerNarration.js';
 import { applyPosterTextOverlay } from '../_posterOverlay.js';
 import { getUntransformedImageKitVideoUrl } from '../../shared/imageKitUrl.js';
 import { telegramDestinationFromProfile } from '../../shared/telegramDestination.js';
+import { queueContentPlanDestinations } from '../_contentPlanFanout.js';
 import reviewVideoHandler from './_review-video.js';
 import {
   applyImageKitDeliveryTransform,
@@ -29,6 +30,15 @@ import {
 export { applyImageKitDeliveryTransform, applyImageKitLogoOverlay, initFirebaseAdmin };
 
 export const GENERATED_VIDEO_STATUSES = Object.freeze(['DONE', 'PROCESSING', 'REVIEW', 'READY']);
+
+// A replacement can cancel an item while a paid provider call is in flight.
+// Do not turn that cancelled item back into PROCESSING/FAILED afterwards.
+const updateActivePlanItem = (db, ref, fields) => db.runTransaction(async (tx) => {
+  const fresh = await tx.get(ref);
+  if (!fresh.exists || fresh.data()?.status !== 'PROCESSING' || fresh.data()?.supersededBy) return false;
+  tx.update(ref, fields);
+  return true;
+});
 
 export const isStalledContentPlanVideoStart = (item, nowMs = Date.now()) => {
   const startedAtMs = item?.processingAt?.toMillis?.();
@@ -157,8 +167,8 @@ const createGuestToken = async (req, res, db) => {
 
 const createSignedUpload = async (req, res) => {
   const decoded = await verifyUser(req);
-  const auth = createImageKitUploadAuth();
   const folder = `/telegram-media/${decoded.uid}`;
+  const auth = await createImageKitUploadAuth({ folder, fileName: req.body?.fileName || 'media.mp4', contentType: req.body?.contentType || 'video/mp4' });
 
   return res.status(200).json({
     ok: true,
@@ -700,7 +710,7 @@ export default async function handler(req, res) {
         item.businessName = String(item.businessName || profileSnap?.data()?.businessName || '').trim();
         const speech = await preparePlanVideoSpeech(item);
         const { job, avatarImage, narrationAudio: generatedNarrationAudio, imageFallbackReason } = await startPlanVideoJob(item, speech);
-        await planRef.update({
+        const stillActive = await updateActivePlanItem(db, planRef, {
           status: 'PROCESSING', videoJobId: job.jobId,
           voiceOverText: generatedNarrationAudio?.spokenText || speech.script, voiceOverMode: speech.mode,
           generationPrompt: speech.prompt, performanceStyle: speech.performanceStyle || '',
@@ -709,6 +719,7 @@ export default async function handler(req, res) {
           imageFallbackReason: imageFallbackReason || null,
           pollAttempts: 0, processingAt: FieldValue.serverTimestamp(),
         });
+        if (!stillActive) return res.status(200).json({ ok: true, id: requestedPlanVideoId, skipped: 'superseded' });
         let pollingDeferred = false;
         try {
           await scheduleContentPlanPoll(req, requestedPlanVideoId);
@@ -722,7 +733,9 @@ export default async function handler(req, res) {
         return res.status(200).json({ ok: true, id: requestedPlanVideoId, videoStarted: true, jobId: job.jobId, pollingDeferred });
       } catch (error) {
         const message = error?.message || 'Could not start video generation.';
-        await planRef.update({ status: 'FAILED', errorMessage: message, failedAt: FieldValue.serverTimestamp() });
+        if (!(await updateActivePlanItem(db, planRef, { status: 'FAILED', errorMessage: message, failedAt: FieldValue.serverTimestamp() }))) {
+          return res.status(200).json({ ok: true, id: requestedPlanVideoId, skipped: 'superseded' });
+        }
         await notifyAdmins(`Content plan video item ${requestedPlanVideoId} failed to start manually: ${message}`);
         return res.status(500).json({ ok: false, id: requestedPlanVideoId, error: message });
       }
@@ -984,11 +997,29 @@ export default async function handler(req, res) {
         // the Telegram send that follows can fail -- otherwise a transient delivery
         // failure (rate limit, timeout, missing bot config) hits the catch below and
         // discards an already-generated image, forcing a costly full regeneration on retry.
-        await planDoc.ref.update({ resultMediaUrl: uploaded.mediaUrl });
+        if (!(await updateActivePlanItem(db, planDoc.ref, { resultMediaUrl: uploaded.mediaUrl }))) {
+          results.push({ id: planDoc.id, ok: true, contentPlan: true, skipped: 'superseded' });
+          continue;
+        }
+
+        const fanout = await queueContentPlanDestinations(db, planDoc.id, uploaded.mediaUrl, req);
+        if (fanout.skipped === 'inactive') {
+          results.push({ id: planDoc.id, ok: true, contentPlan: true, skipped: 'superseded' });
+          continue;
+        }
+        if (Array.isArray(fanout.skipped) && (fanout.queued.length || fanout.skipped.length)) {
+          await updateActivePlanItem(db, planDoc.ref, { publishDestinationsQueued: fanout.queued, publishDestinationsSkipped: fanout.skipped });
+        }
 
         const { token, chatId } = await resolveTelegramDestination(db, item.userId);
         if (!token || !chatId) {
           throw new Error('No Telegram bot/channel is connected to deliver this to. Connect one in Business Profile.');
+        }
+
+        const beforeSend = await planDoc.ref.get();
+        if (beforeSend.data()?.status !== 'PROCESSING' || beforeSend.data()?.supersededBy) {
+          results.push({ id: planDoc.id, ok: true, contentPlan: true, skipped: 'superseded' });
+          continue;
         }
 
         const caption = telegramTextFor(item.topic || '', TELEGRAM_CAPTION_LIMIT);
@@ -1007,7 +1038,7 @@ export default async function handler(req, res) {
           throw new Error(telegramData?.description || 'Telegram could not deliver this image.');
         }
 
-        await planDoc.ref.update({
+        await updateActivePlanItem(db, planDoc.ref, {
           status: 'DONE',
           resultMediaUrl: uploaded.mediaUrl,
           deliveredChatId: chatId,
@@ -1017,7 +1048,10 @@ export default async function handler(req, res) {
         results.push({ id: planDoc.id, ok: true, contentPlan: true });
       } catch (error) {
         const message = error?.message || 'Content plan generation failed.';
-        await planDoc.ref.update({ status: 'FAILED', errorMessage: message, failedAt: FieldValue.serverTimestamp() });
+        if (!(await updateActivePlanItem(db, planDoc.ref, { status: 'FAILED', errorMessage: message, failedAt: FieldValue.serverTimestamp() }))) {
+          results.push({ id: planDoc.id, ok: true, contentPlan: true, skipped: 'superseded' });
+          continue;
+        }
         results.push({ id: planDoc.id, ok: false, contentPlan: true, error: message });
         await notifyAdmins(`Content plan item ${planDoc.id} failed (cron): ${message}`);
       }
@@ -1061,7 +1095,7 @@ export default async function handler(req, res) {
         item.businessName = String(item.businessName || profileSnap?.data()?.businessName || '').trim();
         const speech = await preparePlanVideoSpeech(item);
         const { job, avatarImage, narrationAudio: generatedNarrationAudio, imageFallbackReason } = await startPlanVideoJob(item, speech);
-        await planDoc.ref.update({
+        const stillActive = await updateActivePlanItem(db, planDoc.ref, {
           status: 'PROCESSING',
           videoJobId: job.jobId,
           voiceOverText: generatedNarrationAudio?.spokenText || speech.script,
@@ -1074,6 +1108,10 @@ export default async function handler(req, res) {
           pollAttempts: 0,
           processingAt: FieldValue.serverTimestamp(),
         });
+        if (!stillActive) {
+          results.push({ id: planDoc.id, ok: true, contentPlan: true, skipped: 'superseded' });
+          continue;
+        }
         let pollingDeferred = false;
         try {
           await scheduleContentPlanPoll(req, planDoc.id);
@@ -1087,7 +1125,10 @@ export default async function handler(req, res) {
         results.push({ id: planDoc.id, ok: true, contentPlan: true, videoStarted: true, pollingDeferred });
       } catch (error) {
         const message = error?.message || 'Could not start video generation.';
-        await planDoc.ref.update({ status: 'FAILED', errorMessage: message, failedAt: FieldValue.serverTimestamp() });
+        if (!(await updateActivePlanItem(db, planDoc.ref, { status: 'FAILED', errorMessage: message, failedAt: FieldValue.serverTimestamp() }))) {
+          results.push({ id: planDoc.id, ok: true, contentPlan: true, skipped: 'superseded' });
+          continue;
+        }
         results.push({ id: planDoc.id, ok: false, contentPlan: true, error: message });
         await notifyAdmins(`Content plan video item ${planDoc.id} failed to start (cron): ${message}`);
       }

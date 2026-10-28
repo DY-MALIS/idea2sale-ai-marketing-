@@ -17,8 +17,11 @@ import { notifyAdmins } from '../_alert.js';
 import { createKhmerNarration, generateKhmerSpeech } from '../_khmerNarration.js';
 import { verifyUploadedVideoSpeech } from '../_videoSpeech.js';
 import { applyImageKitMuteTransform, uploadMediaRemoteUrl } from '../_imagekitUpload.js';
+import { isR2MediaUrl } from '../_r2Storage.js';
+import { transformR2Video } from '../_r2VideoTransforms.js';
 import { wantsSilentVideo } from '../../shared/videoSpeech.js';
 import { replaceVideoNarration } from '../_videoNarrationMux.js';
+import { queueContentPlanDestinations } from '../_contentPlanFanout.js';
 
 // A stuck/broken video job should not poll forever: 40 attempts at the
 // default ~20s spacing is roughly 13 minutes, comfortably past how long a
@@ -43,7 +46,7 @@ const DELIVERY_CLAIM_STALE_MS = 2 * 60 * 1000;
 const claimDelivery = async (db, ref) => db.runTransaction(async (tx) => {
   const freshSnap = await tx.get(ref);
   const freshItem = freshSnap.data();
-  if (freshItem?.status !== 'PROCESSING') return false;
+  if (freshItem?.status !== 'PROCESSING' || freshItem?.supersededBy) return false;
   const claimedAtMs = freshItem?.deliveryClaimedAt?.toMillis?.();
   if (typeof claimedAtMs === 'number' && Date.now() - claimedAtMs < DELIVERY_CLAIM_STALE_MS) return false;
   tx.update(ref, { deliveryClaimedAt: FieldValue.serverTimestamp() });
@@ -58,7 +61,7 @@ export const processContentPlanVideo = async (db, itemId, req) => {
 
   // Idempotency: a duplicate/late QStash delivery re-invoking this after the
   // item already finished (or was deleted/reset) must not double-process it.
-  if (item.status !== 'PROCESSING' || !item.videoJobId) {
+  if (item.status !== 'PROCESSING' || item.supersededBy || !item.videoJobId) {
     return { ok: true, skipped: 'not-processing' };
   }
 
@@ -110,7 +113,7 @@ export const processContentPlanVideo = async (db, itemId, req) => {
       uploaded = { mediaUrl: sourceMediaUrl };
       const silentVideo = item.voiceOverMode === 'silent' || item.voiceOverWanted === false
         || (item.voiceOverWanted !== true && wantsSilentVideo(item.prompt || ''));
-      if (silentVideo) {
+      if (silentVideo && !isR2MediaUrl(uploaded.mediaUrl)) {
         uploaded.mediaUrl = applyImageKitMuteTransform(uploaded.mediaUrl);
       }
       const wantsNarration = ['edge-seedance', 'gemini', 'separate'].includes(item.voiceOverMode)
@@ -147,7 +150,9 @@ export const processContentPlanVideo = async (db, itemId, req) => {
       // Apply the saved logo before persisting the finished media URL.
       const profileSnap = await db.collection('business_profiles').doc(item.userId).get().catch(() => null);
       const logoDataUrl = String(profileSnap?.data()?.logoDataUrl || '');
-      if (logoDataUrl) {
+      if (isR2MediaUrl(uploaded.mediaUrl)) {
+        uploaded.mediaUrl = await transformR2Video(uploaded.mediaUrl, { mute: silentVideo, logoDataUrl });
+      } else if (logoDataUrl) {
         const uploadedLogo = await uploadMediaDataUrl({ mediaDataUrl: logoDataUrl, mediaType: 'photo' });
         uploaded.mediaUrl = applyImageKitLogoOverlay(uploaded.mediaUrl, uploadedLogo.filePath);
       }
@@ -158,6 +163,11 @@ export const processContentPlanVideo = async (db, itemId, req) => {
       try {
         const speechVerification = await verifyUploadedVideoSpeech(uploaded.mediaUrl, item.voiceOverText);
         await ref.update({ speechVerification });
+        if (speechVerification?.passed !== true) {
+          const error = new Error('Video audio could not be verified. Keep the video for review; do not publish it.');
+          error.speechVerification = speechVerification || { passed: false };
+          throw error;
+        }
       } catch (verifyError) {
         const speechVerification = verifyError?.speechVerification || { passed: false };
         await ref.update({ speechVerification });
@@ -171,6 +181,14 @@ export const processContentPlanVideo = async (db, itemId, req) => {
         reviewRequestedAt: FieldValue.serverTimestamp(),
       });
       return { ok: true, reviewRequired: true, videoReady: true };
+    }
+    const fanout = await queueContentPlanDestinations(db, itemId, uploaded.mediaUrl, req);
+    if (fanout.skipped === 'inactive') return { ok: true, skipped: 'superseded' };
+    if (['speech_not_verified', 'visual_review_required'].includes(fanout.skipped)) {
+      throw new Error('Video quality verification did not pass; review it before publishing.');
+    }
+    if (Array.isArray(fanout.skipped) && (fanout.queued.length || fanout.skipped.length)) {
+      await ref.update({ publishDestinationsQueued: fanout.queued, publishDestinationsSkipped: fanout.skipped });
     }
     // Speech verification is the automated quality gate. Once it passes, send
     // the video immediately instead of pausing in REVIEW for a manual approval.
@@ -229,7 +247,7 @@ export const processContentPlanVideo = async (db, itemId, req) => {
     return { ok: true };
   } catch (error) {
     const message = error?.message || 'Video generation failed.';
-    if (error?.verificationUnavailable && error?.speechVerification) {
+    if (error?.speechVerification) {
       await ref.update({
         status: 'REVIEW',
         errorMessage: message,

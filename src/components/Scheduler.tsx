@@ -240,6 +240,18 @@ const Scheduler: React.FC = () => {
       : new File([storedBlob], post.mediaName || `telegram-${post.id}`, {
           type: storedBlob.type || (post.mediaType === 'video' ? 'video/mp4' : 'image/jpeg')
         });
+    if (signatureData.provider === 'r2') {
+      const signed = await fetch('/api/telegram/run-scheduled?action=sign-upload', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${idToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileName: file.name, contentType: file.type }),
+      });
+      const upload = await signed.json();
+      if (!signed.ok || !upload.ok) throw new Error(upload.error || 'Could not prepare R2 upload.');
+      const response = await withUploadTimeout(fetch(upload.uploadUrl, { method: 'PUT', headers: { 'Content-Type': upload.contentType }, body: file }));
+      if (!response.ok) throw new Error(`R2 upload failed (HTTP ${response.status}).`);
+      return String(upload.url);
+    }
     const form = new FormData();
     form.set('file', file);
     form.set('fileName', file.name || `telegram-${post.id}`);

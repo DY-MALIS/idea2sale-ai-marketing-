@@ -6,6 +6,7 @@ export function isTrustedVideoUrl(value, imageKitEndpoint = process.env.IMAGEKIT
     if (url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443')) return false;
     if (['firebasestorage.googleapis.com', 'storage.googleapis.com'].includes(url.hostname)) return true;
     if (url.hostname === 'ik.imagekit.io' || url.hostname.endsWith('.imagekit.io')) return true;
+    if (isR2MediaUrl(value)) return true;
     const endpoint = new URL(imageKitEndpoint);
     const endpointPath = endpoint.pathname.replace(/\/$/, '');
     return endpoint.protocol === 'https:' && url.hostname === endpoint.hostname
@@ -74,3 +75,4 @@ export async function downloadTrustedVideo(value, { timeoutMs = 60000 } = {}) {
   }
   return { mimeType: contentType.startsWith('video/') ? contentType : 'video/mp4', buffer: chunks.length === 1 ? chunks[0] : Buffer.concat(chunks, total) };
 }
+import { isR2MediaUrl } from './_r2Storage.js';

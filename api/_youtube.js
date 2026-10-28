@@ -13,13 +13,30 @@ const AUTOMATION_TOKEN_DOC = (ownerId) => {
   return ownerId;
 };
 const OAUTH_OWNER_COOKIE = 'youtube_oauth_owner';
+const OAUTH_STATE_COOKIE = 'youtube_oauth_state';
+const OAUTH_COOKIE_LIFETIME_SECONDS = 30 * 60;
 const YOUTUBE_UPLOAD_SCOPE = 'https://www.googleapis.com/auth/youtube.upload';
+
+export function youtubeStateCookieHeader(state, req) {
+  return `${OAUTH_STATE_COOKIE}=${state}; ${sessionCookieAttributes(req)}; Max-Age=${OAUTH_COOKIE_LIFETIME_SECONDS}`;
+}
+
+export function verifyAndClearYouTubeOAuthState(req, res) {
+  const cookieState = getCookie(req, OAUTH_STATE_COOKIE);
+  const existing = res.getHeader('Set-Cookie');
+  res.setHeader('Set-Cookie', [].concat(existing || [], `${OAUTH_STATE_COOKIE}=; ${sessionCookieAttributes(req)}; Max-Age=0`));
+  const queryState = String(req.query?.state || '');
+  if (!cookieState || !queryState) return false;
+  const supplied = Buffer.from(cookieState);
+  const actual = Buffer.from(queryState);
+  return supplied.length === actual.length && crypto.timingSafeEqual(supplied, actual);
+}
 
 export function youtubeOwnerCookieHeader(ownerId, state, req) {
   const secret = (process.env.YOUTUBE_CLIENT_SECRET || '').trim();
   if (!secret) throw new Error('YOUTUBE_CLIENT_SECRET is not configured.');
   const signature = crypto.createHmac('sha256', secret).update(`${state}:${ownerId}`).digest('hex');
-  return `${OAUTH_OWNER_COOKIE}=${encodeURIComponent(`${AUTOMATION_TOKEN_DOC(ownerId)}.${signature}`)}; ${sessionCookieAttributes(req)}; Max-Age=600`;
+  return `${OAUTH_OWNER_COOKIE}=${encodeURIComponent(`${AUTOMATION_TOKEN_DOC(ownerId)}.${signature}`)}; ${sessionCookieAttributes(req)}; Max-Age=${OAUTH_COOKIE_LIFETIME_SECONDS}`;
 }
 
 export function readYouTubeOAuthOwner(req, res) {
