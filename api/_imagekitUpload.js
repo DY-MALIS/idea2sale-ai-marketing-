@@ -1,6 +1,7 @@
 import { createHmac, randomUUID } from 'crypto';
 import { createR2UploadAuth, isR2MediaUrl, r2Enabled, uploadR2DataUrl, uploadR2RemoteUrl } from './_r2Storage.js';
 import { formatImageKitUploadError } from '../shared/imageKitError.js';
+import { cloudinaryFallbackEnabled, isCloudinaryMediaUrl, isImageKitQuotaError, uploadCloudinaryFile } from './_cloudinaryStorage.js';
 import {
   applyImageKitAudioExtractionTransform as applyAudioExtractionTransform,
   applyImageKitDeliveryTransform as applyDeliveryTransform,
@@ -57,6 +58,7 @@ export const applyImageKitLogoOverlay = (videoUrl, logoFilePath) =>
 
 export const isImageKitMediaUrl = (mediaUrl) => {
   if (isR2MediaUrl(mediaUrl)) return true;
+  if (isCloudinaryMediaUrl(mediaUrl)) return true;
   try {
     const { endpoint } = getImageKitConfig();
     const candidate = new URL(mediaUrl);
@@ -107,6 +109,9 @@ export const uploadMediaDataUrl = async ({ mediaDataUrl, mediaType, folder = '/g
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok || !data?.url) {
+    if (cloudinaryFallbackEnabled() && isImageKitQuotaError(response.status, data?.message || data?.error?.message)) {
+      return uploadCloudinaryFile({ file: mediaDataUrl, mediaType: resolvedType, folder });
+    }
     throw new Error(formatImageKitUploadError(data?.message || data?.error?.message, [publicKey, privateKey]));
   }
 
@@ -148,6 +153,9 @@ export const uploadMediaRemoteUrl = async ({ mediaUrl, folder = '/generation-his
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok || !data?.url) {
+    if (cloudinaryFallbackEnabled() && isImageKitQuotaError(response.status, data?.message || data?.error?.message)) {
+      return uploadCloudinaryFile({ file: parsed.toString(), mediaType: 'video', folder });
+    }
     throw new Error(formatImageKitUploadError(data?.message || data?.error?.message, [publicKey, privateKey]));
   }
   return {

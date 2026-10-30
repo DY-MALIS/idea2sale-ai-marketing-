@@ -21,6 +21,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../hooks/useToast';
 import { formatImageKitUploadError } from '../../shared/imageKitError.js';
+import { uploadCloudinaryFallback } from '../lib/cloudinaryFallback';
 import {
   getOriginalImageKitUrl,
   getUntransformedImageKitVideoUrl,
@@ -244,6 +245,12 @@ const uploadMediaDirectly = async (mediaDataUrl: string, idToken: string, fileNa
   const uploadResponse = await fetch(signature.uploadUrl, { method: 'POST', body: form });
   const uploaded = await uploadResponse.json().catch(() => ({}));
   if (!uploadResponse.ok || !uploaded.url) {
+    const fallback = await uploadCloudinaryFallback(
+      new File([blob], fileName, { type: blob.type || 'video/mp4' }),
+      idToken, uploadResponse.status,
+      String(uploaded?.message || uploaded?.error?.message || ''),
+    );
+    if (fallback) return fallback;
     throw new Error(formatImageKitUploadError(uploaded?.message || uploaded?.error?.message || 'Could not upload the final video.', [signature.publicKey]));
   }
   return String(uploaded.url);

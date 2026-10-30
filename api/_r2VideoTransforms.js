@@ -5,13 +5,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import ffmpegPath from 'ffmpeg-static';
 import { isR2MediaUrl, uploadR2Bytes } from './_r2Storage.js';
+import { isCloudinaryMediaUrl, uploadCloudinaryFile } from './_cloudinaryStorage.js';
 
 const run = promisify(execFile);
 const MAX_BYTES = 48 * 1024 * 1024;
 
 export async function transformR2Video(videoUrl, { mute = false, logoDataUrl = '' } = {}) {
   if (!mute && !logoDataUrl) return videoUrl;
-  if (!isR2MediaUrl(videoUrl) || !ffmpegPath) throw new Error('R2 video processing is unavailable.');
+  if ((!isR2MediaUrl(videoUrl) && !isCloudinaryMediaUrl(videoUrl)) || !ffmpegPath) throw new Error('Stored video processing is unavailable.');
   const response = await fetch(videoUrl, { redirect: 'error', signal: AbortSignal.timeout(30000) });
   if (!response.ok || Number(response.headers.get('content-length')) > MAX_BYTES) throw new Error('Could not read the R2 video for processing.');
   const bytes = Buffer.from(await response.arrayBuffer());
@@ -33,6 +34,10 @@ export async function transformR2Video(videoUrl, { mute = false, logoDataUrl = '
     args.push('-c:v', logoDataUrl ? 'libx264' : 'copy', ...(logoDataUrl ? ['-preset', 'ultrafast', '-crf', '23', '-pix_fmt', 'yuv420p'] : []),
       ...(mute ? ['-an'] : ['-c:a', 'copy']), '-movflags', '+faststart', '-fs', String(MAX_BYTES), output);
     await run(ffmpegPath, args, { timeout: 120000, windowsHide: true });
-    return (await uploadR2Bytes({ bytes: await readFile(output), contentType: 'video/mp4', mediaType: 'video', folder: '/generation-history', fileName: 'processed-video.mp4' })).mediaUrl;
+    const outputBytes = await readFile(output);
+    if (isCloudinaryMediaUrl(videoUrl)) {
+      return (await uploadCloudinaryFile({ file: `data:video/mp4;base64,${outputBytes.toString('base64')}`, mediaType: 'video', folder: '/generation-history' })).mediaUrl;
+    }
+    return (await uploadR2Bytes({ bytes: outputBytes, contentType: 'video/mp4', mediaType: 'video', folder: '/generation-history', fileName: 'processed-video.mp4' })).mediaUrl;
   } finally { await rm(directory, { recursive: true, force: true }); }
 }

@@ -19,6 +19,7 @@ import { getUntransformedImageKitVideoUrl } from '../../shared/imageKitUrl.js';
 import { telegramDestinationFromProfile } from '../../shared/telegramDestination.js';
 import { queueContentPlanDestinations } from '../_contentPlanFanout.js';
 import reviewVideoHandler from './_review-video.js';
+import { createCloudinaryUploadAuth } from '../_cloudinaryStorage.js';
 import {
   applyImageKitDeliveryTransform,
   applyImageKitLogoOverlay,
@@ -168,7 +169,9 @@ const createGuestToken = async (req, res, db) => {
 const createSignedUpload = async (req, res) => {
   const decoded = await verifyUser(req);
   const folder = `/telegram-media/${decoded.uid}`;
-  const auth = await createImageKitUploadAuth({ folder, fileName: req.body?.fileName || 'media.mp4', contentType: req.body?.contentType || 'video/mp4' });
+  const auth = req.body?.provider === 'cloudinary'
+    ? createCloudinaryUploadAuth({ folder })
+    : await createImageKitUploadAuth({ folder, fileName: req.body?.fileName || 'media.mp4', contentType: req.body?.contentType || 'video/mp4' });
 
   return res.status(200).json({
     ok: true,

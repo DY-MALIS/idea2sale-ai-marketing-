@@ -2,6 +2,7 @@ import { createKhmerNarration, isUnreliableKhmerTranscript } from './_khmerNarra
 import { normalizeForKhmerSpeech, transcribeAudioWithOpenRouter } from './_openrouter.js';
 import { compareKhmerTranscript, extractVideoDialogue, isKhmerOnlyNarration, nativeSpeechPrompt, visualOnlyVideoPrompt, wantsSilentVideo } from '../shared/videoSpeech.js';
 import { applyImageKitAudioExtractionTransform, isImageKitMediaUrl } from './_imagekitUpload.js';
+import { isCloudinaryMediaUrl } from './_cloudinaryStorage.js';
 import { isR2MediaUrl } from './_r2Storage.js';
 import { extractR2Audio } from './_r2Audio.js';
 
@@ -72,7 +73,7 @@ export async function preparePlanVideoSpeech(item) {
 export async function verifyUploadedVideoSpeech(videoUrl, expected, { waitForRetry = wait } = {}) {
   if (!expected) throw new Error('Missing reference dialogue. Review this video before sending.');
   if (!isImageKitMediaUrl(videoUrl)) throw new Error('Invalid uploaded video URL.');
-  if (isR2MediaUrl(videoUrl)) {
+  if (isR2MediaUrl(videoUrl) || isCloudinaryMediaUrl(videoUrl)) {
     let bytes;
     try { bytes = await extractR2Audio(videoUrl); }
     catch (cause) { throw verificationUnavailableError({ expected, cause, method: 'r2-audio-extraction-unavailable' }); }

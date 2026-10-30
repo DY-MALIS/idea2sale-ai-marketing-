@@ -232,6 +232,12 @@ export default async function handler(req, res) {
       hasPrivateKey: !!process.env.IMAGEKIT_PRIVATE_KEY,
       hasUrlEndpoint: !!process.env.IMAGEKIT_URL_ENDPOINT,
     },
+    cloudinary: {
+      fallbackEnabled: process.env.CLOUDINARY_FALLBACK_ENABLED === 'true',
+      hasCloudName: !!process.env.CLOUDINARY_CLOUD_NAME,
+      hasApiKey: !!process.env.CLOUDINARY_API_KEY,
+      hasApiSecret: !!process.env.CLOUDINARY_API_SECRET,
+    },
     r2: {
       enabled: process.env.MEDIA_STORAGE_PROVIDER === 'r2',
       hasAccountId: !!process.env.R2_ACCOUNT_ID,

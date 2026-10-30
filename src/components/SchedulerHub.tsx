@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Calendar, Bot, Zap, Plus, Sparkles, Clock, X, Send, Share2, Loader2, AlertCircle, Upload, Youtube, Facebook, RefreshCw, Copy, Download, ExternalLink } from 'lucide-react';
 import { formatImageKitUploadError } from '../../shared/imageKitError.js';
+import { uploadCloudinaryFallback } from '../lib/cloudinaryFallback';
 import AITrainer from './AITrainer';
 import Suggestions from './Suggestions';
 import Scheduler from './Scheduler';
@@ -640,6 +641,11 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     }
     const uploadData = await uploadResponse.json().catch(() => ({}));
     if (!uploadResponse.ok || !uploadData.url) {
+      const fallback = await uploadCloudinaryFallback(
+        file, idToken, uploadResponse.status,
+        String(uploadData?.message || uploadData?.error?.message || ''),
+      );
+      if (fallback) return { mediaUrl: fallback, mediaType: file.type.startsWith('video/') ? 'video' : 'photo' };
       throw new Error(formatImageKitUploadError(uploadData?.message || uploadData?.error?.message || 'Media upload failed.', [signatureData.publicKey]));
     }
 

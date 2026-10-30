@@ -18,6 +18,7 @@ import { createKhmerNarration, generateKhmerSpeech } from '../_khmerNarration.js
 import { verifyUploadedVideoSpeech } from '../_videoSpeech.js';
 import { applyImageKitMuteTransform, uploadMediaRemoteUrl } from '../_imagekitUpload.js';
 import { isR2MediaUrl } from '../_r2Storage.js';
+import { isCloudinaryMediaUrl } from '../_cloudinaryStorage.js';
 import { transformR2Video } from '../_r2VideoTransforms.js';
 import { wantsSilentVideo } from '../../shared/videoSpeech.js';
 import { replaceVideoNarration } from '../_videoNarrationMux.js';
@@ -113,7 +114,7 @@ export const processContentPlanVideo = async (db, itemId, req) => {
       uploaded = { mediaUrl: sourceMediaUrl };
       const silentVideo = item.voiceOverMode === 'silent' || item.voiceOverWanted === false
         || (item.voiceOverWanted !== true && wantsSilentVideo(item.prompt || ''));
-      if (silentVideo && !isR2MediaUrl(uploaded.mediaUrl)) {
+      if (silentVideo && !isR2MediaUrl(uploaded.mediaUrl) && !isCloudinaryMediaUrl(uploaded.mediaUrl)) {
         uploaded.mediaUrl = applyImageKitMuteTransform(uploaded.mediaUrl);
       }
       const wantsNarration = ['edge-seedance', 'gemini', 'separate'].includes(item.voiceOverMode)
@@ -150,7 +151,7 @@ export const processContentPlanVideo = async (db, itemId, req) => {
       // Apply the saved logo before persisting the finished media URL.
       const profileSnap = await db.collection('business_profiles').doc(item.userId).get().catch(() => null);
       const logoDataUrl = String(profileSnap?.data()?.logoDataUrl || '');
-      if (isR2MediaUrl(uploaded.mediaUrl)) {
+      if (isR2MediaUrl(uploaded.mediaUrl) || isCloudinaryMediaUrl(uploaded.mediaUrl)) {
         uploaded.mediaUrl = await transformR2Video(uploaded.mediaUrl, { mute: silentVideo, logoDataUrl });
       } else if (logoDataUrl) {
         const uploadedLogo = await uploadMediaDataUrl({ mediaDataUrl: logoDataUrl, mediaType: 'photo' });

@@ -116,7 +116,13 @@ npm run dev
 3. New generated media and scheduled uploads then use R2. Existing ImageKit URLs continue to work. Private business-profile documents still use ImageKit's private-file verification, so retain its keys until those files have a separate migration.
 4. R2 is billed beyond its free allowance; configure a budget alert and lifecycle policy for old media. The storage switch does not automatically copy or delete any existing ImageKit files.
 
-## ImageKit Setup (legacy private files)
+## ImageKit Setup (primary media and private files)
+
+### Optional Cloudinary fallback for exhausted ImageKit uploads
+
+1. Create a Cloudinary Free product environment. Add `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` as **server-only** Vercel Production variables. Do not use a `VITE_` prefix or share the API secret in chat.
+2. After a signed upload and playback test, set `CLOUDINARY_FALLBACK_ENABLED=true` and redeploy. ImageKit stays primary. Only a quota-related ImageKit upload rejection sends the same new file to Cloudinary. Other upload errors remain visible.
+3. Existing ImageKit media is not copied. If ImageKit delivery bandwidth or Cloudinary Free credits run out, older URLs may also become unavailable. Monitor both providers; this fallback does not provide unlimited free storage or delivery.
 
 1. Create an ImageKit account and open Developer options in the ImageKit dashboard.
 2. Copy the public key, private key, and URL endpoint into `IMAGEKIT_PUBLIC_KEY`, `IMAGEKIT_PRIVATE_KEY`, and

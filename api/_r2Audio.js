@@ -5,10 +5,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import ffmpegPath from 'ffmpeg-static';
 import { isR2MediaUrl } from './_r2Storage.js';
+import { isCloudinaryMediaUrl } from './_cloudinaryStorage.js';
 
 const run = promisify(execFile);
 export async function extractR2Audio(videoUrl) {
-  if (!isR2MediaUrl(videoUrl)) throw new Error('Invalid R2 video URL.');
+  if (!isR2MediaUrl(videoUrl) && !isCloudinaryMediaUrl(videoUrl)) throw new Error('Invalid stored video URL.');
   if (!ffmpegPath) throw new Error('Audio extraction is unavailable.');
   const response = await fetch(videoUrl, { redirect: 'error', signal: AbortSignal.timeout(30000) });
   if (!response.ok || Number(response.headers.get('content-length')) > 48 * 1024 * 1024) throw new Error('R2 video is unavailable for speech verification.');

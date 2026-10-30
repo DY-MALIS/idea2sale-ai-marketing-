@@ -1,6 +1,6 @@
 # Google OAuth data access review — YouTube upload
 
-Google Cloud project shown in the owner's screenshots: **Default Gemini Project**. The YouTube OAuth Client ID displayed there matches the locally configured client ID. Audience is **External / In production**. Branding is verified. Data access for `https://www.googleapis.com/auth/youtube.upload` is **not verified**.
+Google Cloud project shown in the owner's screenshots: **Default Gemini Project**. The YouTube OAuth Client ID displayed there matches the locally configured client ID. Audience is **External / In production**. Branding is verified. Google approved OAuth verification for `https://www.googleapis.com/auth/youtube.upload` on October 28, 2026, for project number `644964899756` (project ID `gen-lang-client-0798968662`).
 
 ## Scope justification — paste into Google Cloud
 
@@ -34,6 +34,6 @@ The local file `artifacts/youtube-oauth-review-with-real-schedule-2026-10-27.mp4
 
 On October 27, 2026, commit `740e2e9bb2e88ebda2bf08d0031178b5ccd4b50f` deployed to Vercel production and was aliased to `aime.angkorgate.ai`. The live privacy policy was checked in a browser and explicitly describes YouTube API Services, `youtube.upload`, stored tokens, scheduled uploads, revocation, deletion requests, and Google API Services User Data Policy Limited Use. The Google form contained the scope justification, the Unlisted demo link, and reviewer instructions. Its four app-use questions were answered **No**. After the owner's explicit authorization, the two acknowledgements were checked and **Submit for verification** was clicked.
 
-Google Verification Center now says **“Your app's data access is under review.”** Its progress panel says the Trust and Safety team received the form and will contact `dymalis88@gmail.com` if needed. It estimates the first email in 3–5 days and the review in up to 4–6 weeks. This is submission, not Google approval; the app may still show an unverified warning during review. Watch the contact inbox and answer any reviewer requests.
+Google Verification Center initially showed **“Your app's data access is under review.”** On October 28, 2026, the Third Party Data Safety Team emailed `dymalis88@gmail.com` with the subject **“[Action Needed] OAuth Verification Request Acknowledgement”** and explicitly approved the OAuth App Verification request for project `644964899756` / `gen-lang-client-0798968662` and scope `.../auth/youtube.upload`. This is approval for that scope in that project. Google says new scopes or changes to the OAuth consent screen configuration require a new verification request. Keep the project owner/editor contacts current.
 
 Official references: [OAuth verification](https://support.google.com/cloud/answer/13461325?hl=en), [demo video](https://support.google.com/cloud/answer/13804565?hl=en), [domain verification](https://support.google.com/cloud/answer/13804266?hl=en).

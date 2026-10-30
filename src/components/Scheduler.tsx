@@ -12,6 +12,7 @@ import { deleteLocalMedia, getLocalMediaBlob, getLocalMediaDataUrl } from '../li
 import { getDemoBusinessName, getDemoScheduledPosts, getStoredScheduledPosts, mergeStoredScheduleHistory } from '../lib/scheduledPosts';
 import { recordAuditEvent } from '../lib/auditClient';
 import { withUploadTimeout } from '../lib/withUploadTimeout';
+import { uploadCloudinaryFallback } from '../lib/cloudinaryFallback';
 import { requireTikTokAutomationConnection, requireYouTubeAutomationConnection } from '../lib/tiktokConnection';
 
 const DEMO_DEFAULT_POST_IDS = ['1', '2'];
@@ -273,6 +274,11 @@ const Scheduler: React.FC = () => {
       throw new Error(`Media upload returned HTTP ${uploadResponse.status} instead of JSON.`);
     }
     if (!uploadResponse.ok || !uploadData.url) {
+      const fallback = await uploadCloudinaryFallback(
+        file, idToken, uploadResponse.status,
+        String(uploadData?.message || uploadData?.error?.message || ''),
+      );
+      if (fallback) return fallback;
       throw new Error(formatImageKitUploadError(uploadData?.message || uploadData?.error?.message || 'Media upload failed.', [signatureData.publicKey]));
     }
 
