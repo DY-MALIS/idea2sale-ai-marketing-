@@ -42,6 +42,7 @@ describe('ImageKit configuration and signed browser uploads', () => {
     expect(auth.token).toBeTruthy();
     expect(auth.signature).toMatch(/^[a-f0-9]{40}$/);
     expect(auth.expire).toBeGreaterThan(Math.floor(Date.now() / 1000));
+    expect(auth.expire).toBeLessThanOrEqual(Math.floor(Date.now() / 1000) + 15 * 60);
     expect(auth).not.toHaveProperty('privateKey');
   });
 });

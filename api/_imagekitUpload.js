@@ -34,7 +34,9 @@ export const createImageKitUploadAuth = (options) => {
   if (r2Enabled() && options?.forceImageKit !== true) return createR2UploadAuth(options);
   const { publicKey, privateKey } = getImageKitConfig();
   const token = randomUUID();
-  const expire = Math.floor(Date.now() / 1000) + 3600;
+  // ImageKit requires an expiry strictly less than one hour away. Leave room
+  // for clock skew between Vercel and ImageKit before the browser uploads.
+  const expire = Math.floor(Date.now() / 1000) + 15 * 60;
   const signature = createHmac('sha1', privateKey).update(`${token}${expire}`).digest('hex');
   return { publicKey, token, expire, signature, uploadUrl: IMAGEKIT_UPLOAD_URL, maxBytes: MAX_UPLOAD_BYTES };
 };
