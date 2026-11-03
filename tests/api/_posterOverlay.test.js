@@ -39,7 +39,7 @@ describe('applyPosterTextOverlay', () => {
     expect(b).toBeLessThan(60);
   }, 15_000); // Sharp font rendering can exceed Vitest's 5s default under full-suite load.
 
-  it('adds a substantial dark graphic-design panel when a headline is present', async () => {
+  it('fades the lower photo without a hard panel edge', async () => {
     const base = await solidImageDataUrl(400, 400, { r: 200, g: 200, b: 200 });
     const result = await applyPosterTextOverlay(base, 'A short headline about the product', '');
     const raw = await decode(result);
@@ -47,8 +47,10 @@ describe('applyPosterTextOverlay', () => {
     expect(topAlpha).toBe(255);
     const topPixel = pixelAt(raw, 5, 5);
     const bottomPixel = pixelAt(raw, 5, 395);
-    // The bottom poster panel is dark; the hero image above remains untouched.
     expect(bottomPixel[0]).toBeLessThan(topPixel[0]);
+    const justAbove = pixelAt(raw, 5, 271);
+    const justBelow = pixelAt(raw, 5, 272);
+    expect(Math.abs(justAbove[0] - justBelow[0])).toBeLessThan(10);
   });
 
   it('produces a same-size, decodable PNG for a non-square image', async () => {

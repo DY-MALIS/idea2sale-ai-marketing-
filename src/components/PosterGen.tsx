@@ -17,8 +17,8 @@ import { getLatestBusinessBranding } from '../lib/businessBranding';
 import { deleteGenerationHistory, GenerationHistoryEntry, saveGenerationHistory, useGenerationHistory } from '../lib/generationHistory';
 import HistoryPanel from './HistoryPanel';
 
-const LOGO_MARGIN_RATIO = 0.04;
-const LOGO_WIDTH_RATIO = 0.16;
+const LOGO_MARGIN_RATIO = 0.045;
+const LOGO_WIDTH_RATIO = 0.12;
 
 // Vercel gives api/ai.js up to 180s for slower image providers. Keep the browser
 // deadline slightly longer so the function can return its real result/error,
@@ -59,13 +59,22 @@ const applyLogoWatermark = (baseDataUrl: string, logoDataUrl: string): Promise<s
           }
           ctx.drawImage(base, 0, 0);
           const margin = Math.round(base.width * LOGO_MARGIN_RATIO);
-          const logoWidth = Math.round(base.width * LOGO_WIDTH_RATIO);
-          const logoHeight = Math.round(logoWidth * (logo.height / logo.width));
-          // Top-left, not bottom-left: overlayPosterText (headline/CTA) owns the
-          // full-width bottom band of the poster now -- a bottom-anchored logo
-          // would sit right under that gradient/CTA pill and get covered or
-          // visually clash with it. The top corner is never touched by that text.
-          ctx.drawImage(logo, margin, margin, logoWidth, logoHeight);
+          const badgeSize = Math.round(base.width * (LOGO_WIDTH_RATIO + 0.025));
+          const logoMaxSize = Math.round(base.width * LOGO_WIDTH_RATIO);
+          const scale = Math.min(logoMaxSize / logo.width, logoMaxSize / logo.height);
+          const logoWidth = logo.width * scale;
+          const logoHeight = logo.height * scale;
+          const badgeX = base.width - margin - badgeSize;
+          const radius = Math.round(badgeSize * 0.18);
+          ctx.save();
+          ctx.shadowColor = 'rgba(5, 15, 30, 0.25)';
+          ctx.shadowBlur = Math.round(base.width * 0.018);
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.96)';
+          ctx.beginPath();
+          ctx.roundRect(badgeX, margin, badgeSize, badgeSize, radius);
+          ctx.fill();
+          ctx.restore();
+          ctx.drawImage(logo, badgeX + (badgeSize - logoWidth) / 2, margin + (badgeSize - logoHeight) / 2, logoWidth, logoHeight);
           resolve(canvas.toDataURL('image/png'));
         } catch (error) {
           console.error('Logo watermark failed, using the unwatermarked image:', error);
@@ -87,7 +96,7 @@ const applyLogoWatermark = (baseDataUrl: string, logoDataUrl: string): Promise<s
 // and draw it ourselves afterward with an actual Khmer font -- "Kantumruy
 // Pro" is already loaded app-wide (src/index.css) for the UI itself.
 const POSTER_TEXT_FONT_FAMILY = '"Kantumruy Pro", sans-serif';
-const HEADLINE_FONT_SIZE_RATIO = 0.052;
+const HEADLINE_FONT_SIZE_RATIO = 0.056;
 const CTA_FONT_SIZE_RATIO = 0.03;
 const TEXT_MARGIN_RATIO = 0.06;
 const LINE_HEIGHT_RATIO = 1.28;
@@ -167,24 +176,19 @@ const overlayPosterText = async (baseDataUrl: string, headline: string, cta: str
 
         const gapBetween = headlineLines.length && ctaText ? Math.round(margin * 0.6) : 0;
         const contentHeight = headlineLines.length * headlineLineHeight + gapBetween + ctaPillHeight;
-        const blockHeight = Math.max(base.height * 0.32, contentHeight + margin * 2.2);
+        const blockHeight = Math.max(base.height * 0.32, contentHeight + margin * 2);
         const panelTop = base.height - blockHeight;
 
-        // A substantial, slightly angled brand panel makes the output read as a
-        // designed advertising poster—not a normal photo with a caption floating
-        // over its bottom edge. The AI supplies the hero visual; Canvas owns the
-        // crisp, predictable graphic-design layer and all readable text.
-        ctx.fillStyle = 'rgba(10, 24, 43, 0.95)';
-        ctx.beginPath();
-        ctx.moveTo(0, panelTop + margin * 0.55);
-        ctx.lineTo(base.width * 0.34, panelTop);
-        ctx.lineTo(base.width, panelTop + margin * 0.35);
-        ctx.lineTo(base.width, base.height);
-        ctx.lineTo(0, base.height);
-        ctx.closePath();
-        ctx.fill();
+        // Fade the photo under the copy without a hard edge across the subject.
+        const gradientTop = Math.max(0, panelTop - blockHeight * 0.48);
+        const gradient = ctx.createLinearGradient(0, gradientTop, 0, base.height);
+        gradient.addColorStop(0, 'rgba(8, 20, 37, 0)');
+        gradient.addColorStop(0.42, 'rgba(8, 20, 37, 0.64)');
+        gradient.addColorStop(1, 'rgba(8, 20, 37, 0.96)');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, gradientTop, base.width, base.height - gradientTop);
         ctx.fillStyle = CTA_ACCENT_COLOR;
-        ctx.fillRect(margin, panelTop + margin * 0.72, Math.max(42, base.width * 0.1), Math.max(5, base.width * 0.008));
+        ctx.fillRect(margin, panelTop + margin * 0.72, Math.max(42, base.width * 0.085), Math.max(4, base.width * 0.006));
 
         let y = panelTop + margin * 1.45 + headlineFontSize;
         if (headlineLines.length) {

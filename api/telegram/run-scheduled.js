@@ -48,11 +48,11 @@ export const isStalledContentPlanVideoStart = (item, nowMs = Date.now()) => {
 };
 
 // Server-side equivalent of PosterGen.tsx's applyLogoWatermark (that one uses
-// the browser Canvas API, unavailable here) -- same top-left placement/ratios,
+// the browser Canvas API, unavailable here) -- same compact logo badge,
 // so a Content Plan image gets the business's actual logo instead of shipping
 // as a generic AI image with no real branding on it.
-const LOGO_MARGIN_RATIO = 0.04;
-const LOGO_WIDTH_RATIO = 0.16;
+const LOGO_MARGIN_RATIO = 0.045;
+const LOGO_WIDTH_RATIO = 0.12;
 export const applyLogoWatermarkServer = async (imageDataUrl, logoDataUrl) => {
   if (!logoDataUrl) return imageDataUrl;
   try {
@@ -65,10 +65,18 @@ export const applyLogoWatermarkServer = async (imageDataUrl, logoDataUrl) => {
     const { width } = await baseImage.metadata();
     if (!width) return imageDataUrl;
     const margin = Math.round(width * LOGO_MARGIN_RATIO);
-    const logoWidth = Math.round(width * LOGO_WIDTH_RATIO);
-    const resizedLogo = await sharp(logoBuffer).resize({ width: logoWidth }).toBuffer();
+    const badgeSize = Math.round(width * (LOGO_WIDTH_RATIO + 0.025));
+    const logoMaxSize = Math.round(width * LOGO_WIDTH_RATIO);
+    const resizedLogo = await sharp(logoBuffer).resize({ width: logoMaxSize, height: logoMaxSize, fit: 'inside' }).png().toBuffer();
+    const { width: logoWidth, height: logoHeight } = await sharp(resizedLogo).metadata();
+    if (!logoWidth || !logoHeight) return imageDataUrl;
+    const badgeX = width - margin - badgeSize;
+    const badge = Buffer.from(`<svg width="${badgeSize}" height="${badgeSize}" xmlns="http://www.w3.org/2000/svg"><rect x="0" y="0" width="${badgeSize}" height="${badgeSize}" rx="${Math.round(badgeSize * 0.18)}" fill="#ffffff" fill-opacity="0.96"/></svg>`);
     const composited = await baseImage
-      .composite([{ input: resizedLogo, top: margin, left: margin }])
+      .composite([
+        { input: badge, top: margin, left: badgeX },
+        { input: resizedLogo, top: margin + Math.round((badgeSize - logoHeight) / 2), left: badgeX + Math.round((badgeSize - logoWidth) / 2) },
+      ])
       .png()
       .toBuffer();
     return `data:image/png;base64,${composited.toString('base64')}`;

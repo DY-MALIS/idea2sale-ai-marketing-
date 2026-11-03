@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 const FONT_PATH = fileURLToPath(new URL('../assets/fonts/Inter-Bold.ttf', import.meta.url));
 const FONT_FAMILY = 'Inter';
 
-const HEADLINE_FONT_SIZE_RATIO = 0.052;
+const HEADLINE_FONT_SIZE_RATIO = 0.056;
 const CTA_FONT_SIZE_RATIO = 0.03;
 const TEXT_MARGIN_RATIO = 0.06;
 const CTA_ACCENT_COLOR = '#f97316';
@@ -71,8 +71,9 @@ export async function applyPosterTextOverlay(imageDataUrl, headline = '', cta = 
     const headlineHeight = headline_ ? headline_.info.height : 0;
     const gapBetween = headline_ && cta_ ? Math.round(margin * 0.6) : 0;
     const contentHeight = headlineHeight + gapBetween + ctaPillHeight;
-    const blockHeight = Math.round(Math.max(height * 0.32, contentHeight + margin * 2.2));
+    const blockHeight = Math.round(Math.max(height * 0.32, contentHeight + margin * 2));
     const panelTop = Math.max(0, height - blockHeight);
+    const gradientTop = Math.max(0, Math.round(panelTop - blockHeight * 0.48));
 
     const pillX = margin;
     const pillY = Math.round(height - margin - ctaPillHeight);
@@ -80,8 +81,9 @@ export async function applyPosterTextOverlay(imageDataUrl, headline = '', cta = 
 
     const shapesSvg = `
       <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-        <path d="M 0 ${panelTop + margin * 0.55} L ${width * 0.34} ${panelTop} L ${width} ${panelTop + margin * 0.35} L ${width} ${height} L 0 ${height} Z" fill="#0a182b" fill-opacity="0.95" />
-        <rect x="${margin}" y="${panelTop + margin * 0.72}" width="${Math.max(42, width * 0.1)}" height="${Math.max(5, width * 0.008)}" fill="${CTA_ACCENT_COLOR}" />
+        <defs><linearGradient id="poster-shade" x1="0" y1="${gradientTop}" x2="0" y2="${height}" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#081425" stop-opacity="0"/><stop offset="0.42" stop-color="#081425" stop-opacity="0.64"/><stop offset="1" stop-color="#081425" stop-opacity="0.96"/></linearGradient></defs>
+        <rect x="0" y="${gradientTop}" width="${width}" height="${height - gradientTop}" fill="url(#poster-shade)" />
+        <rect x="${margin}" y="${panelTop + margin * 0.72}" width="${Math.max(42, width * 0.085)}" height="${Math.max(4, width * 0.006)}" fill="${CTA_ACCENT_COLOR}" />
         ${cta_ ? `<rect x="${pillX}" y="${pillY}" width="${ctaPillWidth}" height="${ctaPillHeight}" rx="${radius}" fill="${CTA_ACCENT_COLOR}" />` : ''}
       </svg>
     `;
