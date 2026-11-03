@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import { Receiver } from '@upstash/qstash';
 import admin, { initFirebaseAdmin } from '../_firebaseAdmin.js';
 import { logAudit } from '../_audit.js';
-import { getCookie, getAutomationAccessToken, recordTikTokPostSync, scheduleTikTokQStashDelivery, markAutomationTokenRevoked } from '../_tiktok.js';
+import { getAutomationAccessToken, recordTikTokPostSync, scheduleTikTokQStashDelivery, markAutomationTokenRevoked } from '../_tiktok.js';
 import { claimPendingPost, findRecentDuplicateTikTokPost, findRecentDuplicateYouTubePost, isSourcePlanActive } from '../_telegramClaim.js';
 
 import { getYouTubeAutomationAccessToken, publishVideoToYouTube, scheduleYouTubeQStashDelivery } from '../_youtube.js';
@@ -262,13 +262,14 @@ async function handleCreatorInfoRequest(req, res) {
 
 async function handleStatusRequest(req, res) {
   const actorUid = await resolveActorUid(req);
-  const token = actorUid && getCookie(req, 'tiktok_owner') === actorUid ? getCookie(req, 'tiktok_token') : '';
-  if (!token) return res.status(401).json({ error: { message: 'Reconnect your TikTok account.', code: 'not_authenticated' } });
+  if (!actorUid) return res.status(401).json({ error: { message: 'Sign in to check TikTok post status.', code: 'not_authenticated' } });
   const publishId = String(req.query?.publishId || '');
   if (!/^[\x21-\x7e]{1,64}$/.test(publishId)) {
     return res.status(400).json({ error: { message: 'Invalid TikTok publish ID.', code: 'invalid_publish_id' } });
   }
   try {
+    const token = await getAutomationAccessToken(initFirebaseAdmin(), actorUid);
+    if (!token) return res.status(401).json({ error: { message: 'Connect your TikTok account.', code: 'not_authenticated' } });
     const response = await tiktokJson(POST_STATUS_URL, token, { publish_id: publishId });
     const data = response?.data || {};
     if (!['PROCESSING_UPLOAD', 'PROCESSING_DOWNLOAD', 'SEND_TO_USER_INBOX', 'PUBLISH_COMPLETE', 'FAILED'].includes(data.status)) {
@@ -286,17 +287,11 @@ async function handleStatusRequest(req, res) {
 
 async function handlePublishRequest(req, res) {
   const actorUid = await resolveActorUid(req);
-  const token = actorUid && getCookie(req, 'tiktok_owner') === actorUid ? getCookie(req, 'tiktok_token') : '';
-  if (!token) {
-    return res.status(401).json({
-      error: {
-        message: 'Please reconnect TikTok after adding video.upload/video.publish to TIKTOK_SCOPES.',
-        code: 'not_authenticated',
-      },
-    });
-  }
+  if (!actorUid) return res.status(401).json({ error: { message: 'Sign in to publish to TikTok.', code: 'not_authenticated' } });
 
   try {
+    const token = await getAutomationAccessToken(initFirebaseAdmin(), actorUid);
+    if (!token) return res.status(401).json({ error: { message: 'Connect your TikTok account.', code: 'not_authenticated' } });
     const videoUrl = String(req.body?.videoUrl || '');
     const { publishId, directPost, title } = await publishVideoToTikTok(token, {
       videoUrl,

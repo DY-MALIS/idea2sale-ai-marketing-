@@ -81,6 +81,7 @@ const response = () => ({
 beforeEach(() => {
   mockGetCookie.mockImplementation((_req, name) => name === 'tiktok_owner' ? 'owner-1' : 'cookie-token');
   mockVerifyIdToken.mockResolvedValue({ uid: 'owner-1' });
+  mockGetAutomationAccessToken.mockImplementation(async (_db, uid) => uid === 'owner-1' ? 'stored-owner-token' : null);
   mockInitFirebaseAdmin.mockReturnValue({});
   vi.stubEnv('IMAGEKIT_URL_ENDPOINT', 'https://cdn.example.com');
 });
@@ -137,6 +138,7 @@ it('loads current TikTok creator settings for the signed-in owner', async () => 
 });
 
 it('checks the real TikTok status for the connected owner', async () => {
+  mockGetCookie.mockReturnValue('');
   const fetchMock = vi.fn(async (url, options) => {
     expect(String(url)).toContain('/publish/status/fetch/');
     expect(JSON.parse(options.body)).toEqual({ publish_id: 'v_pub_file~123' });
@@ -147,6 +149,7 @@ it('checks the real TikTok status for the connected owner', async () => {
   await handler({ method: 'GET', query: { action: 'status', publishId: 'v_pub_file~123' }, headers: { authorization: 'Bearer id-token' } }, res);
   expect(res.statusCode).toBe(200);
   expect(res.body).toEqual({ publishId: 'v_pub_file~123', status: 'PUBLISH_COMPLETE', failReason: null });
+  expect(mockGetCookie).not.toHaveBeenCalled();
 });
 
 
@@ -329,6 +332,7 @@ describe('POST /api/tiktok/publish', () => {
   });
 
   it('downloads an https:// video and uploads it via FILE_UPLOAD instead of PULL_FROM_URL', async () => {
+    mockGetCookie.mockReturnValue('');
     // TikTok's PULL_FROM_URL requires the video_url's domain to be pre-verified
     // in the Developer Portal (DNS TXT record) -- something impossible for our
     // shared ik.imagekit.io hosting domain. Scheduled/cron videos are always an
@@ -370,6 +374,7 @@ describe('POST /api/tiktok/publish', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.body).toMatchObject({ success: true, publishId: 'pub-1', mode: 'inbox' });
+    expect(mockGetCookie).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('PULL_FROM_URL'))).toBe(false);
   });

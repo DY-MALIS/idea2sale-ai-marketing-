@@ -1,10 +1,9 @@
 import admin, { initFirebaseAdmin } from '../_firebaseAdmin.js';
 import { logAudit } from '../_audit.js';
-import { getCookie, recordTikTokPostSync } from '../_tiktok.js';
+import { getAutomationAccessToken, recordTikTokPostSync } from '../_tiktok.js';
 import { uploadMediaDataUrl } from '../_imagekitUpload.js';
 
-// A TikTok cookie can remain in a shared browser after the Firebase account
-// changes. Require the matching signed-in owner for every publish request.
+// Use the signed-in Firebase owner for every publish request, never a browser cookie.
 async function resolveActorUid(req) {
   const authHeader = req.headers.authorization || '';
   const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
@@ -58,17 +57,11 @@ export default async function handler(req, res) {
   }
 
   const actorUid = await resolveActorUid(req);
-  const token = actorUid && getCookie(req, 'tiktok_owner') === actorUid ? getCookie(req, 'tiktok_token') : '';
-  if (!token) {
-    return res.status(401).json({
-      error: {
-        message: 'Please reconnect TikTok after adding video.upload/video.publish to TIKTOK_SCOPES.',
-        code: 'not_authenticated',
-      },
-    });
-  }
+  if (!actorUid) return res.status(401).json({ error: { message: 'Sign in to publish to TikTok.', code: 'not_authenticated' } });
 
   try {
+    const token = await getAutomationAccessToken(initFirebaseAdmin(), actorUid);
+    if (!token) return res.status(401).json({ error: { message: 'Connect your TikTok account.', code: 'not_authenticated' } });
     const imageDataUrl = String(req.body?.imageDataUrl || '');
     const imageUrl = String(req.body?.imageUrl || '');
     const title = String(req.body?.title || 'AI Generated Poster').slice(0, 90);

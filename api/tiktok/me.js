@@ -1,15 +1,11 @@
 import admin, { initFirebaseAdmin } from '../_firebaseAdmin.js';
-import { getAutomationAccessToken, getCookie, sessionCookieAttributes } from '../_tiktok.js';
+import { getAutomationAccessToken, sessionCookieAttributes } from '../_tiktok.js';
 import { getYouTubeAutomationAccessToken } from '../_youtube.js';
 import { getFacebookPages } from '../_facebook.js';
 import tiktokStatsHandler from '../_tiktokStats.js';
 
-// Clears this owner's TikTok connection so a fresh "Connect TikTok" can pick a
-// different account -- TikTok's own login page otherwise reuses whatever
-// TikTok session is already active in the browser, same as Google did before
-// prompt=select_account, so simply clicking "reconnect" without this can land
-// back on the same old account. The stored token must be deleted before this
-// endpoint reports success, since cron can still publish with it.
+// Clears only the signed-in owner's TikTok connection. A browser cookie may have
+// expired, so it cannot be a prerequisite for an explicit disconnect.
 async function disconnectTikTok(req, res) {
   // Delete only this user's automation connection after verifying Firebase auth.
   const authHeader = req.headers.authorization || '';
@@ -23,7 +19,6 @@ async function disconnectTikTok(req, res) {
     return res.status(401).json({ error: 'Sign in again.' });
   }
 
-  if (getCookie(req, 'tiktok_owner') !== owner.uid) return res.status(403).json({ error: 'This TikTok connection belongs to another profile.' });
   try {
     const db = initFirebaseAdmin();
     await db.collection('tiktok_automation_tokens').doc(owner.uid).delete();

@@ -101,13 +101,14 @@ describe('POST /api/tiktok/me?action=disconnect', () => {
     expect(res.headers['Set-Cookie'][0]).toContain('tiktok_token=;');
   });
 
-  it('cannot disconnect another profile connection on the same browser', async () => {
+  it('disconnects only the signed-in owner even when an old browser cookie belongs to another profile', async () => {
     mockVerifyIdToken.mockResolvedValue({ uid: 'user-2' });
     mockGetCookie.mockReturnValue('user-1');
     const res = response();
     await handler({ method: 'POST', query: { action: 'disconnect' }, headers: { authorization: 'Bearer good-token' } }, res);
-    expect(res.statusCode).toBe(403);
-    expect(mockDelete).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(200);
+    expect(mockDoc).toHaveBeenCalledWith('user-2');
+    expect(mockDelete).toHaveBeenCalledOnce();
   });
 });
 

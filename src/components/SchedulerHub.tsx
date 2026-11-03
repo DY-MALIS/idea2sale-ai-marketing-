@@ -241,6 +241,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   const [isAttachingHandoffMedia, setIsAttachingHandoffMedia] = useState(false);
   const [youtubeConnectionVersion, setYoutubeConnectionVersion] = useState(0);
   const [youtubeConnection, setYoutubeConnection] = useState<{ connected: boolean; channelId: string | null; channelTitle: string | null } | null>(null);
+  const [youtubeConnectionError, setYoutubeConnectionError] = useState('');
   const [isConnectingYouTube, setIsConnectingYouTube] = useState(false);
   const [isConnectingTikTok, setIsConnectingTikTok] = useState(false);
   const [isConnectingFacebook, setIsConnectingFacebook] = useState(false);
@@ -308,9 +309,6 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
       setFacebookSetupReady(data.setupReady !== false);
       return { ...data, pages, selectedPageId: data.selectedPageId || pages[0]?.id || '' };
     } catch (error) {
-      setFacebookPages([]);
-      setFacebookPageId('');
-      setFacebookConnected(false);
       setFacebookConnectionError(error instanceof Error ? error.message : 'Could not check Facebook Pages.');
       throw error;
     } finally {
@@ -369,18 +367,24 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   useEffect(() => {
     setTiktokJustConnected(false);
     setYoutubeConnection(null);
+    setYoutubeConnectionError('');
+    setFacebookPages([]);
+    setFacebookPageId('');
+    setFacebookConnected(false);
+    setFacebookConnectionError('');
   }, [user?.uid]);
 
   useEffect(() => {
     if (!user || !isModalOpen || !platforms.includes('YOUTUBE')) return;
     let active = true;
+    setYoutubeConnectionError('');
     user.getIdToken().then((idToken) => fetch('/api/tiktok/me?action=youtubeAutomation', {
       headers: { Authorization: `Bearer ${idToken}` },
     })).then(async (response) => {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'Could not check your YouTube channel.');
       if (active) setYoutubeConnection({ connected: data.connected === true, channelId: data.channelId || null, channelTitle: data.channelTitle || null });
-    }).catch(() => { if (active) setYoutubeConnection(null); });
+    }).catch((error) => { if (active) setYoutubeConnectionError(error instanceof Error ? error.message : 'Could not check your YouTube channel.'); });
     return () => { active = false; };
   }, [user?.uid, isModalOpen, platforms.includes('YOUTUBE'), youtubeConnectionVersion]);
 
@@ -1449,7 +1453,8 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                         <div className="flex items-start gap-2">
                           <Youtube size={14} className="mt-0.5 shrink-0" />
                           <div className="space-y-1">
-                            <p>{youtubeConnection?.connected ? 'Connected YouTube channel' : 'Connect your YouTube channel before scheduling.'}</p>
+                            <p>{youtubeConnection?.connected ? 'Connected YouTube channel' : youtubeConnectionError ? 'YouTube connection status is temporarily unavailable.' : 'Connect your YouTube channel before scheduling.'}</p>
+                            {youtubeConnectionError && <p role="alert" className="font-semibold text-red-700">Connection check failed: {youtubeConnectionError}</p>}
                             {youtubeConnection?.channelTitle && <p className="font-bold">{youtubeConnection.channelTitle}</p>}
                             {youtubeConnection?.channelId && <a className="font-semibold underline" href={`https://www.youtube.com/channel/${encodeURIComponent(youtubeConnection.channelId)}`} target="_blank" rel="noopener noreferrer">View connected channel</a>}
                             {youtubeConnection?.connected && !youtubeConnection.channelId && <p>The connected Google account can upload. Use Change channel to choose another account.</p>}
@@ -1496,10 +1501,10 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                           : 'Automatic publishing requires a connected Facebook Page. You can use the Meta Business Suite option below.')}</p>
                       {facebookConnectionLoading && <p role="status">Checking Facebook Page connection…</p>}
                       {facebookConnectionError && <p role="alert" className="font-semibold text-red-700 dark:text-red-300">{facebookConnectionError}</p>}
-                      {!facebookConnectionLoading && !facebookConnected && facebookSetupReady === false && (
+                      {!facebookConnectionLoading && !facebookConnected && !facebookConnectionError && facebookSetupReady === false && (
                         <p role="alert" className="font-semibold">Facebook scheduling is not configured on this server. The site owner must set FACEBOOK_APP_ID, FACEBOOK_APP_SECRET, FACEBOOK_CONFIG_ID, and APP_URL in Vercel.</p>
                       )}
-                      {!facebookConnectionLoading && !facebookConnected && facebookSetupReady !== false && (
+                      {!facebookConnectionLoading && !facebookConnected && !facebookConnectionError && facebookSetupReady !== false && (
                         <div role="status" className="space-y-2 font-semibold">
                           <p>{language === 'km' ? 'គណនីនេះមិនទាន់ភ្ជាប់ Facebook Page ទេ។ សូមភ្ជាប់ Page ដែលអ្នកមានសិទ្ធិបង្កើតផុស។' : 'No Facebook Page is connected to this account. Connect a Page with permission to create content before scheduling.'}</p>
                           <p className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-amber-900">
