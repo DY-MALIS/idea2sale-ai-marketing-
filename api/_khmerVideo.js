@@ -9,6 +9,7 @@ import {
 } from '../shared/videoCost.js';
 import { getOriginalImageKitUrl } from '../shared/imageKitUrl.js';
 import { assertVideoCreditAvailable } from './_videoCredit.js';
+import { ensureVideoImageDataUrl, prepareVideoProductImageUrl } from './_videoReferenceImage.js';
 
 const MIN_KHMER_CLIP_DURATION = 4;
 const MAX_KHMER_CLIP_DURATION = 8;
@@ -99,6 +100,11 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
   // rewrites) narration work below should block it from starting. Awaited
   // just before it's actually needed, right after the narration pipeline
   // finishes and fittedDuration is known.
+  // Validate and enlarge a saved product reference before any paid video
+  // request. Stored thumbnails can be smaller than the provider's 300px floor.
+  const normalizedProductImageUrl = productImageUrl
+    ? await prepareVideoProductImageUrl(productImageUrl, uploadMediaDataUrl)
+    : '';
   const imagePromise = (images.length
     ? Promise.resolve({ imageUrl: `data:${images[0].mimeType};base64,${images[0].base64}` })
     : generateOpenRouterImage({ prompt: visualPrompt(speech.avatarPrompt), aspectRatio, model: BUDGET_AVATAR_IMAGE_MODEL, timeoutMs: 55_000 }))
@@ -207,7 +213,8 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
   const image = imageResult.image;
   let avatarImage;
   try {
-    avatarImage = await uploadMediaDataUrl({ mediaDataUrl: image.imageUrl, mediaType: 'photo' });
+    const avatarDataUrl = await ensureVideoImageDataUrl(image.imageUrl);
+    avatarImage = await uploadMediaDataUrl({ mediaDataUrl: avatarDataUrl, mediaType: 'photo' });
   } catch (error) {
     if (!allowImageFallback || images.length) throw error;
     return {
@@ -237,17 +244,25 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
     }
     throw new Error('Could not prepare the presenter image for this video (upload returned no usable URL). Please try generating again.');
   }
-  const normalizedProductImageUrl = productImageUrl
-    ? getOriginalImageKitUrl(productImageUrl, process.env.IMAGEKIT_URL_ENDPOINT || '')
-    : '';
   // Image generation (generateOpenRouterImage above) is text-to-image only --
   // there is no way to pre-compose "presenter holding this exact product"
   // into one avatar image. Instead, send the product photo as a second
   // reference image straight to the video model and describe both in the
   // prompt; the video model already supports more than one input_references
   // entry (see startOpenRouterVideo's Seedance branch).
+  const extraReferenceUrls = [];
+  for (const image of images.slice(1)) {
+    const dataUrl = await ensureVideoImageDataUrl(`data:${image.mimeType};base64,${image.base64}`);
+    const uploaded = await uploadMediaDataUrl({ mediaDataUrl: dataUrl, mediaType: 'photo', folder: '/video-references' });
+    const url = getOriginalImageKitUrl(uploaded?.mediaUrl, process.env.IMAGEKIT_URL_ENDPOINT || '');
+    if (!/^https:\/\//.test(url)) throw new Error('Could not prepare an additional video image. Please try again.');
+    extraReferenceUrls.push(url);
+  }
+  const userReferenceBlock = extraReferenceUrls.length
+    ? ` USER IMAGE REFERENCES: Reference image 1 is the starting presenter. Reference images 2 through ${extraReferenceUrls.length + 1} are additional user-selected photos. Include the distinct subjects from every selected photo naturally in this single continuous shot, preserving recognizable products, colors and setting details. Do not ignore any selected photo.`
+    : '';
   const productReferenceBlock = normalizedProductImageUrl
-    ? ` PRODUCT REFERENCE: Reference image 1 shows the presenter's exact identity -- face, body and clothing must match it precisely. Reference image 2 shows a real product photo: reproduce this exact product's packaging, label text, logo, color and shape unchanged and legible, held naturally in the presenter's hand or set on a nearby surface as part of a natural showcase gesture. Work it into the existing hand gestures -- lift it into view, turn it to show the label, or gesture toward it at least once during the narration. Never invent a different product or redesign its packaging. The background and setting must suit this specific product naturally (a fitting clean surface or environment for it, e.g. a vanity/counter for skincare or a cafe table for a drink) rather than a generic or unrelated backdrop.`
+    ? ` PRODUCT REFERENCE: Reference image 1 shows the presenter's exact identity -- face, body and clothing must match it precisely. Reference image ${extraReferenceUrls.length + 2} shows a real product photo: reproduce this exact product's packaging, label text, logo, color and shape unchanged and legible, held naturally in the presenter's hand or set on a nearby surface as part of a natural showcase gesture. Work it into the existing hand gestures -- lift it into view, turn it to show the label, or gesture toward it at least once during the narration. Never invent a different product or redesign its packaging. The background and setting must suit this specific product naturally (a fitting clean surface or environment for it, e.g. a vanity/counter for skincare or a cafe table for a drink) rather than a generic or unrelated backdrop.`
     : '';
   const exactKhmerTranscript = String(narrationAudio.spokenText || spokenScript || '').trim();
   const videoRequest = {
@@ -255,14 +270,14 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
     // Khmer presenter video (including avatar + narration reserve) under $0.80.
     model: KHMER_VIDEO_MODEL,
     khmerSpeech: true,
-    prompt: `${visualPrompt(speech.prompt)}\n${speech.motionPrompt}${productReferenceBlock}\nLANGUAGE LOCK: The English wording in these production directions describes visuals only. Never infer, invent, speak, or visibly articulate any English word. The only speech and mouth movement is Cambodian Khmer from the supplied audio waveform. KHMER PHONEME TRANSCRIPT (exact, never translate or paraphrase): ${JSON.stringify(exactKhmerTranscript)}. AUDIO MASTER CLOCK: ${narrationAudio.duration.toFixed(2)} seconds inside a ${fittedDuration}-second clip. The supplied waveform is authoritative: start the matching visible mouth shape on every Khmer phoneme and stop precisely on the last phoneme. ZERO-LATENCY LIP SYNC: each mouth shape must open or close on the exact same frame as its matching phoneme's sound, never one or more frames after it. A mouth that is still closed, still opening, or still mid-transition after its phoneme is already audible is a failure. Do not let the lips lag, trail, drift behind, catch up to, or echo the audio at any point in the clip -- re-anchor to the waveform every phoneme rather than letting a small delay accumulate over the clip. Speech, lips, jaw, tongue and cheeks remain synchronized frame by frame at natural 1x. Do not use generic talking-mouth animation. Keep the lips closed before the first phoneme. HARD MOUTH STOP: by ${narrationAudio.duration.toFixed(2)} seconds the speaker finishes the final phoneme, closes their mouth, and stays silent for the rest of the clip. Keep the head mostly forward and stable. Body and hand reactions move continuously at crisp natural real-world energy without motion blur, flowing from one gesture into the next with no held pose or freeze. After speech, keep moving with natural task action at a normal pace until the full clip ends. Never freeze, stretch, ease or slow any movement.`,
+    prompt: `${visualPrompt(speech.prompt)}\n${speech.motionPrompt}${userReferenceBlock}${productReferenceBlock}\nLANGUAGE LOCK: The English wording in these production directions describes visuals only. Never infer, invent, speak, or visibly articulate any English word. The only speech and mouth movement is Cambodian Khmer from the supplied audio waveform. KHMER PHONEME TRANSCRIPT (exact, never translate or paraphrase): ${JSON.stringify(exactKhmerTranscript)}. AUDIO MASTER CLOCK: ${narrationAudio.duration.toFixed(2)} seconds inside a ${fittedDuration}-second clip. The supplied waveform is authoritative: start the matching visible mouth shape on every Khmer phoneme and stop precisely on the last phoneme. ZERO-LATENCY LIP SYNC: each mouth shape must open or close on the exact same frame as its matching phoneme's sound, never one or more frames after it. A mouth that is still closed, still opening, or still mid-transition after its phoneme is already audible is a failure. Do not let the lips lag, trail, drift behind, catch up to, or echo the audio at any point in the clip -- re-anchor to the waveform every phoneme rather than letting a small delay accumulate over the clip. Speech, lips, jaw, tongue and cheeks remain synchronized frame by frame at natural 1x. Do not use generic talking-mouth animation. Keep the lips closed before the first phoneme. HARD MOUTH STOP: by ${narrationAudio.duration.toFixed(2)} seconds the speaker finishes the final phoneme, closes their mouth, and stays silent for the rest of the clip. Keep the head mostly forward and stable. Body and hand reactions move continuously at crisp natural real-world energy without motion blur, flowing from one gesture into the next with no held pose or freeze. After speech, keep moving with natural task action at a normal pace until the full clip ends. Never freeze, stretch, ease or slow any movement.`,
     duration: fittedDuration,
     aspectRatio,
-    referenceUrls: normalizedProductImageUrl ? [avatarReferenceUrl, normalizedProductImageUrl] : [avatarReferenceUrl],
+    referenceUrls: [avatarReferenceUrl, ...extraReferenceUrls, ...(normalizedProductImageUrl ? [normalizedProductImageUrl] : [])],
     audioReferenceUrls: [narrationAudio.mediaUrl],
     generateAudio,
   };
-  return { videoRequest, avatarImage, narrationAudio, audio, fittedDuration, avatarReferenceUrl, normalizedProductImageUrl, productReferenceBlock, spokenScript };
+  return { videoRequest, avatarImage, narrationAudio, audio, fittedDuration, avatarReferenceUrl, normalizedProductImageUrl, productReferenceBlock, userReferenceBlock, extraReferenceUrls, spokenScript };
   };
   let prepared;
   try {
@@ -273,7 +288,7 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
     if (error && typeof error === 'object') error.videoStartNotSubmitted = true;
     throw error;
   }
-  const { videoRequest, avatarImage, narrationAudio, audio, fittedDuration, avatarReferenceUrl, normalizedProductImageUrl, productReferenceBlock, spokenScript } = prepared;
+  const { videoRequest, avatarImage, narrationAudio, audio, fittedDuration, avatarReferenceUrl, normalizedProductImageUrl, productReferenceBlock, userReferenceBlock, extraReferenceUrls, spokenScript } = prepared;
   const submitVideo = (request) => {
     const timeoutMs = Math.min(VIDEO_SUBMISSION_RESERVE_MS, deadlineAt - Date.now() - 5_000);
     if (timeoutMs < 15_000) throw preparationTimeoutError();
@@ -294,14 +309,14 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
     // existing presenter-image handling below. This also sidesteps needing to
     // parse provider error text for which reference index was flagged, which
     // isn't reliably available.
-    if (normalizedProductImageUrl) {
+    if (normalizedProductImageUrl || extraReferenceUrls.length) {
       try {
         job = await submitVideo({
           ...videoRequest,
-          prompt: videoRequest.prompt.replace(productReferenceBlock, ''),
+          prompt: videoRequest.prompt.replace(productReferenceBlock, '').replace(userReferenceBlock, ''),
           referenceUrls: [avatarReferenceUrl],
         });
-        imageFallbackReason = 'The video provider rejected the selected product photo. The clip was created showing your presenter only, without that exact product.';
+        imageFallbackReason = 'The video provider rejected one or more selected reference photos. The clip was created showing the presenter only.';
       } catch (retryError) {
         const stillRejected = retryError?.statusCode === 400
           && /InputImageSensitiveContentDetected/i.test(`${retryError?.providerCode || ''} ${retryError?.message || ''}`);

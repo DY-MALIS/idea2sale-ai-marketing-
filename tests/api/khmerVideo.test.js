@@ -4,6 +4,10 @@ vi.mock('../../api/_openrouter.js', () => ({ generateOpenRouterImage: mocks.imag
 const credit = vi.hoisted(() => ({ check: vi.fn() }));
 vi.mock('../../api/_videoCredit.js', () => ({ assertVideoCreditAvailable: credit.check }));
 vi.mock('../../api/_khmerNarration.js', () => ({ generateKhmerSpeech: mocks.speech, shortenGeneratedKhmerNarration: mocks.shorten, expandGeneratedKhmerNarration: mocks.expand }));
+vi.mock('../../api/_videoReferenceImage.js', () => ({
+  ensureVideoImageDataUrl: async (source) => source,
+  prepareVideoProductImageUrl: async (source) => source.replace(/\?tr=.*/, ''),
+}));
 import { fitKhmerClipDurationToNarration, startKhmerVideoJob } from '../../api/_khmerVideo.js';
 afterEach(() => { vi.useRealTimers(); vi.resetAllMocks(); vi.unstubAllEnvs(); });
 const uploadStub = ({ audioDuration = 3.4, audioUrl = 'https://audio', imageUrl = 'https://image' } = {}) => vi.fn(async ({ mediaType }) => (
@@ -424,6 +428,28 @@ it('sends the presenter and a saved product photo as two reference images with a
   expect(result.job.jobId).toBe('job');
 });
 
+it('includes every selected photo and the saved product in one Khmer video', async () => {
+  mocks.speech.mockResolvedValue({ audioUrl: 'audio-data', duration: 3.4, provider: 'gemini' });
+  mocks.video.mockResolvedValue({ jobId: 'multi-image-job' });
+  const upload = vi.fn(async ({ mediaType }) => ({
+    mediaUrl: mediaType === 'audio' ? 'https://audio' : `https://ik.imagekit.io/test/ref-${upload.mock.calls.filter(([call]) => call.mediaType === 'photo').length}.png`,
+    ...(mediaType === 'audio' ? { duration: 3.4 } : {}),
+  }));
+  await startKhmerVideoJob(
+    {}, { script: 'Hello', prompt: 'Presenter', motionPrompt: 'Natural motion' }, upload,
+    { duration: 4, images: [1, 2, 3].map(() => ({ mimeType: 'image/png', base64: 'AAAA' })), productImageUrl: 'https://product.jpg' },
+  );
+  const request = mocks.video.mock.calls[0][0];
+  expect(request.referenceUrls).toEqual([
+    'https://ik.imagekit.io/test/ref-1.png',
+    'https://ik.imagekit.io/test/ref-2.png',
+    'https://ik.imagekit.io/test/ref-3.png',
+    'https://product.jpg',
+  ]);
+  expect(request.prompt).toContain('Reference images 2 through 3');
+  expect(request.prompt).toContain('Reference image 4 shows a real product photo');
+});
+
 it('omits the product reference entirely when none is supplied (regression guard)', async () => {
   mocks.speech.mockResolvedValue({ audioUrl: 'audio-data', duration: 3.4, provider: 'gemini' });
   mocks.video.mockResolvedValue({ jobId: 'job' });
@@ -454,7 +480,7 @@ it('drops the product photo and retries once before touching the presenter handl
   expect(mocks.video.mock.calls[1][0].referenceUrls).toEqual(['https://image']);
   expect(mocks.video.mock.calls[1][0].prompt).not.toContain('PRODUCT REFERENCE');
   expect(result.job.jobId).toBe('presenter-only-job');
-  expect(result.imageFallbackReason).toContain('product photo');
+  expect(result.imageFallbackReason).toContain('reference photos');
 });
 
 it('tries the original photo with Veo after the product and presenter references are rejected', async () => {

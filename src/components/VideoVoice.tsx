@@ -274,10 +274,10 @@ const measureNarrationDuration = async (audioUrl: string): Promise<number> => {
   }
 };
 
-// Both the budget Veo path and the Khmer presenter path use one opening image.
-// Resize it before JSON/base64 transport so the request stays below Vercel's
-// function payload ceiling even when the source is a modern phone photo.
-const MAX_VIDEO_IMAGES = 1;
+// The first image starts the scene; Seedance can use the others as references.
+// Compress before JSON/base64 transport to stay under Vercel's request limit.
+const MAX_VIDEO_IMAGES = 4;
+const MAX_VIDEO_IMAGE_BASE64_CHARS = 3_000_000;
 // A single user action is capped at eight seconds so its estimated total
 // OpenRouter spend cannot exceed $0.80.
 const VIDEO_LENGTH_OPTIONS = [8] as const;
@@ -1659,6 +1659,12 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         : voiceOverEnabled;
     let voiceOverContent = (typeof voiceOverTextOverride === 'string' ? voiceOverTextOverride : (narrationRequested ? voiceOverText : '')).trim();
     if (!promptText && !videoImages.length) return;
+    if (videoImages.reduce((total, image) => total + image.base64.length, 0) > MAX_VIDEO_IMAGE_BASE64_CHARS) {
+      notify(language === 'km'
+        ? 'រូបទាំងអស់ធំពេកសម្រាប់ការបង្កើតវីដេអូមួយ។ សូមជ្រើសរូបតូចជាងនេះ ឬប្រើរូបតិចជាងមុន។'
+        : 'These images are too large for one video request. Choose smaller images or use fewer photos.', 'error');
+      return;
+    }
 
     setLoading(true);
     setGeneratedVideo(null);
@@ -2446,9 +2452,9 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                             setStartingImageRejected(false);
                             setCropStartingImage(false);
                             readImagesIntoState(files, MAX_VIDEO_IMAGES, videoImages.length, setVideoImages, {
-                              maxDimension: 1280,
+                              maxDimension: 960,
                               outputType: 'image/webp',
-                              quality: 0.82,
+                              quality: 0.74,
                             });
                           }}
                         />

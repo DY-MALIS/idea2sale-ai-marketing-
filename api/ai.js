@@ -39,6 +39,7 @@ import { isContentPlanEditFollowup, isContentPlanEditPronounFollowup, isContentP
 import { isContentPlanCreationRequest, isStandaloneAudioRequest, shouldClassifyCreativeMedia } from '../shared/agentIntent.js';
 import { createHash } from 'crypto';
 import replaceContentPlan from './_contentPlanReplace.js';
+import { ensureVideoImageDataUrl } from './_videoReferenceImage.js';
 
 const agentContentPlanText = (body, limit = 14) => (Array.isArray(body?.contentPlan) ? body.contentPlan : [])
   .slice(0, limit)
@@ -403,8 +404,9 @@ const GEMINI_VOICE_BY_OPENAI_VOICE = {
 };
 
 const MAX_AGENT_IMAGES = 4;
-const MAX_VIDEO_REFERENCE_IMAGES = 1;
+const MAX_VIDEO_REFERENCE_IMAGES = 4;
 const MAX_VIDEO_REFERENCE_BASE64_CHARS = 2_500_000;
+const MAX_VIDEO_TOTAL_BASE64_CHARS = 3_000_000;
 // New videos use a full eight-second clip within the $0.80 cost ceiling.
 const VIDEO_DURATION_OPTIONS = [8];
 const TOTAL_VIDEO_DURATION_OPTIONS = [8];
@@ -3094,6 +3096,10 @@ Return ONLY a single valid JSON object with this exact structure:
       // Reject every other stale/unsupported ratio instead of passing it through.
       const aspectRatio = resolveVideoAspectRatio(req.body?.aspectRatio);
       if (!prompt) return res.status(400).json({ error: 'Video prompt is required.' });
+      if (Array.isArray(req.body?.images) && (req.body.images.length > MAX_VIDEO_REFERENCE_IMAGES
+        || req.body.images.reduce((total, image) => total + String(image?.base64 || '').length, 0) > MAX_VIDEO_TOTAL_BASE64_CHARS)) {
+        return res.status(400).json({ error: 'Choose up to four images totaling under 3 MB for one video.' });
+      }
       // A real product photo from the caller's own saved profile gallery (see
       // BusinessProfile.tsx's "Product Images" section) -- re-verify it's
       // actually in that profile rather than trusting any same-endpoint
@@ -3154,7 +3160,7 @@ Return ONLY a single valid JSON object with this exact structure:
       // The shared Khmer entry point performs the same check for cron jobs.
       await assertVideoCreditAvailable();
       const normalizedPrompt = await normalizeMediaPrompt(prompt, 'video');
-      const images = Array.isArray(req.body?.images)
+      const submittedImages = Array.isArray(req.body?.images)
         ? req.body.images
             .filter((image) => (
               typeof image?.base64 === 'string'
@@ -3163,6 +3169,13 @@ Return ONLY a single valid JSON object with this exact structure:
             ))
             .slice(0, MAX_VIDEO_REFERENCE_IMAGES)
         : [];
+      // Both Veo first frames and Seedance presenter references require a
+      // sufficiently large image. Upscale tiny uploads before a paid request.
+      const images = await Promise.all(submittedImages.map(async (image) => {
+        const dataUrl = await ensureVideoImageDataUrl(`data:${image.mimeType};base64,${image.base64}`);
+        const [, mimeType, base64] = /^data:([^;]+);base64,(.+)$/.exec(dataUrl) || [];
+        return { mimeType, base64 };
+      }));
       const requestedDuration = Number(req.body?.duration);
       const duration = VIDEO_DURATION_OPTIONS.includes(requestedDuration)
         ? requestedDuration
@@ -3243,7 +3256,10 @@ Return ONLY a single valid JSON object with this exact structure:
       }
       videoSubmissionAttempted = true;
       const video = await startOpenRouterVideo({
-        prompt: photorealVideoPrompt(normalizedPrompt, images.length > 0),
+        prompt: photorealVideoPrompt(normalizedPrompt, images.length === 1)
+          + (images.length > 1
+            ? `\nMULTIPLE USER PHOTOS: Incorporate the distinct subject or product from each of the ${images.length} selected reference images into one coherent continuous scene. Keep their recognizable shapes and colors. Do not omit a selected photo.`
+            : ''),
         images,
         duration,
         aspectRatio,

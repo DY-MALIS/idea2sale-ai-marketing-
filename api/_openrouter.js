@@ -1,6 +1,7 @@
 import {
   assertVideoGenerationWithinBudget,
   isBudgetVideoModel,
+  KHMER_VIDEO_MODEL,
   STANDARD_VIDEO_MODEL,
   VIDEO_RESOLUTION,
 } from '../shared/videoCost.js';
@@ -769,7 +770,11 @@ export async function generateOpenRouterSpeech({
 }
 
 export async function startOpenRouterVideo({ prompt, images, referenceUrls, audioReferenceUrls, model, duration, aspectRatio = '9:16', voiceId, motionPrompt, expressiveness, khmerSpeech = false, generateAudio, timeoutMs }) {
-  const configuredModel = model || process.env.OPEN_ROUTER_VIDEO_MODEL || STANDARD_VIDEO_MODEL;
+  const imageList = Array.isArray(images)
+    ? images.filter((image) => image?.base64 && image?.mimeType)
+    : [];
+  // Veo accepts a starting frame; Seedance accepts multiple image references.
+  const configuredModel = model || (imageList.length > 1 ? KHMER_VIDEO_MODEL : process.env.OPEN_ROUTER_VIDEO_MODEL || STANDARD_VIDEO_MODEL);
   // Never allow an old/expensive environment override to bypass the per-video
   // budget. Unknown models fall back to the approved low-cost default before
   // the paid request is submitted.
@@ -805,12 +810,15 @@ export async function startOpenRouterVideo({ prompt, images, referenceUrls, audi
 
   if (selectedModel.startsWith('bytedance/seedance-2.0')) {
     const refs = [];
-    const imageUrls = (Array.isArray(referenceUrls) ? referenceUrls : []).filter(url => /^https:\/\//.test(url));
+    const imageUrls = [
+      ...(Array.isArray(referenceUrls) ? referenceUrls : []).filter(url => /^https:\/\//.test(url)),
+      ...imageList.map((image) => fileToDataUrl(image.base64, image.mimeType)),
+    ];
     const audioUrls = (Array.isArray(audioReferenceUrls) ? audioReferenceUrls : []).filter(url => /^https:\/\//.test(url));
     if (audioUrls.length && !imageUrls.length) {
       throw new Error('Seedance requires a presenter image together with narration audio.');
     }
-    if (imageUrls.length && audioUrls.length) {
+    if (imageUrls.length > 1 || (imageUrls.length && audioUrls.length)) {
       // OpenRouter treats frame_images and input_references as different modes;
       // frame_images wins when both are present. A talking-avatar request must
       // therefore keep the portrait and narration together in input_references,
@@ -839,10 +847,6 @@ export async function startOpenRouterVideo({ prompt, images, referenceUrls, audi
       ? generateAudio
       : refs.some((reference) => reference.type === 'audio_url');
   }
-
-  const imageList = Array.isArray(images)
-    ? images.filter((image) => image?.base64 && image?.mimeType)
-    : [];
 
   if (imageList.length && selectedModel !== 'heygen/avatar-iv' && !selectedModel.startsWith('bytedance/seedance-2.0')) {
     // The first uploaded image is the actual opening frame, not merely a loose

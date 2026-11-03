@@ -340,6 +340,29 @@ describe('OpenRouter video audio', () => {
     ]);
   });
 
+  it('routes multiple uploaded photos through Seedance in one video request', async () => {
+    process.env.OPEN_ROUTER_API_KEY = 'test-key';
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 'multi-image-job', status: 'pending' }),
+    });
+    global.fetch = fetchMock;
+
+    await startOpenRouterVideo({
+      prompt: 'Show all selected products',
+      duration: 8,
+      images: [1, 2, 3].map((index) => ({ mimeType: 'image/png', base64: `image${index}` })),
+    });
+
+    const requestBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(requestBody.model).toBe('bytedance/seedance-2.0-mini');
+    expect(requestBody.frame_images).toBeUndefined();
+    expect(requestBody.generate_audio).toBe(false);
+    expect(requestBody.input_references).toEqual([1, 2, 3].map((index) => ({
+      type: 'image_url', image_url: { url: `data:image/png;base64,image${index}` },
+    })));
+  });
+
   it('keeps Seedance output silent when there is no narration reference', async () => {
     process.env.OPEN_ROUTER_API_KEY = 'test-key';
     const fetchMock = vi.fn().mockResolvedValue({
