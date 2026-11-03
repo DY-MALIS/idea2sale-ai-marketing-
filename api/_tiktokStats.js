@@ -1,4 +1,4 @@
-import { getCookie } from './_tiktok.js';
+import { getAutomationAccessToken } from './_tiktok.js';
 import admin from 'firebase-admin';
 import { initFirebaseAdmin } from './_firebaseAdmin.js';
 
@@ -21,7 +21,7 @@ function cleanHandle(value = '') {
   return handle;
 }
 
-function fallbackStats(req, message = 'TikTok official statistics are not available yet.') {
+function fallbackStats(req, message = 'TikTok official statistics are not available yet.', connected = false) {
   const handle = cleanHandle(req.query?.handle);
   return {
     handle,
@@ -36,7 +36,8 @@ function fallbackStats(req, message = 'TikTok official statistics are not availa
     videoCount: null,
     canReadStats: false,
     updatedAt: new Date().toISOString(),
-    source: 'not_connected',
+    source: connected ? 'connected_stats_unavailable' : 'not_connected',
+    connected,
     message,
   };
 }
@@ -49,7 +50,13 @@ async function handleVideoList(req, res) {
   const user = await requireSignedInUser(req);
   if (!user) return res.status(401).json({ error: 'Sign in to view TikTok videos.', code: 'auth_required' });
 
-  const token = getCookie(req, 'tiktok_owner') === user.uid ? getCookie(req, 'tiktok_token') : '';
+  let token;
+  try {
+    token = await getAutomationAccessToken(initFirebaseAdmin(), user.uid);
+  } catch (error) {
+    console.error('Could not refresh TikTok connection for videos:', error?.message || error);
+    return res.status(503).json({ error: 'Could not verify your TikTok connection. Please try again.', code: 'connection_check_failed' });
+  }
   if (!token) return res.status(200).json({ videos: [], canReadVideos: false, message: 'Connect TikTok to read your recent videos.' });
 
   const fields = 'id,cover_image_url,title,share_url,view_count,create_time';
@@ -86,7 +93,13 @@ export default async function handler(req, res) {
   const user = await requireSignedInUser(req);
   if (!user) return res.status(401).json({ error: 'Sign in to view TikTok statistics.', code: 'auth_required' });
 
-  const token = getCookie(req, 'tiktok_owner') === user.uid ? getCookie(req, 'tiktok_token') : '';
+  let token;
+  try {
+    token = await getAutomationAccessToken(initFirebaseAdmin(), user.uid);
+  } catch (error) {
+    console.error('Could not refresh TikTok connection for statistics:', error?.message || error);
+    return res.status(503).json({ error: 'Could not verify your TikTok connection. Please try again.', code: 'connection_check_failed' });
+  }
   if (!token) return res.status(200).json(fallbackStats(req, 'Connect TikTok to read official account statistics.'));
   const fields = 'open_id,avatar_url,display_name,username,follower_count,following_count,likes_count,video_count,bio_description,is_verified,profile_deep_link';
   try {
@@ -95,7 +108,7 @@ export default async function handler(req, res) {
     if (!response.ok || payload?.error?.code !== 'ok') {
       const code = payload?.error?.code || 'tiktok_error';
       const needsStats = /scope|permission|access/i.test(`${code} ${payload?.error?.message || ''}`);
-      if (needsStats) return res.status(200).json(fallbackStats(req, 'TikTok must approve user.info.stats and user.info.profile, then reconnect the account.'));
+      if (needsStats) return res.status(200).json(fallbackStats(req, 'TikTok must approve user.info.stats and user.info.profile, then reconnect the account.', true));
       return res.status(response.status || 400).json({ error: payload?.error?.message || 'TikTok could not return account statistics.', code });
     }
     const user = payload.data?.user || {};
@@ -103,7 +116,7 @@ export default async function handler(req, res) {
       handle: user.username || user.display_name || '', displayName: user.display_name || '', avatarUrl: user.avatar_url || '',
       bio: user.bio_description || '', isVerified: !!user.is_verified, profileDeepLink: user.profile_deep_link || '',
       followers: user.follower_count ?? null, following: user.following_count ?? null, likes: user.likes_count ?? null,
-      videoCount: user.video_count ?? null, canReadStats: true, updatedAt: new Date().toISOString(), source: 'tiktok_official_api',
+      videoCount: user.video_count ?? null, canReadStats: true, connected: true, updatedAt: new Date().toISOString(), source: 'tiktok_official_api',
     });
   } catch (error) {
     return res.status(500).json({ error: error?.message || 'Failed to fetch TikTok statistics.' });

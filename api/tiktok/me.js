@@ -127,7 +127,13 @@ export default async function handler(req, res) {
   } catch {
     return res.status(401).json({ error: 'Sign in again.' });
   }
-  const token = getCookie(req, 'tiktok_owner') === owner.uid ? getCookie(req, 'tiktok_token') : '';
+  let token;
+  try {
+    token = await getAutomationAccessToken(initFirebaseAdmin(), owner.uid);
+  } catch (error) {
+    console.error('Could not refresh TikTok connection:', error?.message || error);
+    return res.status(503).json({ error: 'Could not verify your TikTok connection. Please try again.' });
+  }
   if (!token) return res.status(401).json({ error: 'Not connected to TikTok', code: 'not_connected' });
 
   try {

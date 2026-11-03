@@ -336,10 +336,10 @@ const TikTokAnalytics: React.FC = () => {
           </h2>
           <div className="flex items-center gap-2 mt-2">
             <div className="flex items-center gap-2 px-3 py-1 bg-brand-50 dark:bg-slate-800 rounded-full border border-brand-100 dark:border-slate-700 relative group">
-              {handle ? <>
+              {publicStats?.connected && handle ? <>
                 <div className="w-5 h-5 bg-brand-500 rounded-full flex items-center justify-center text-[10px] text-white font-bold">@</div>
                 <span className="text-sm font-bold text-brand-600">{handle}</span>
-              </> : <span className="text-sm font-bold text-brand-600">TikTok not connected</span>}
+              </> : <span className="text-sm font-bold text-brand-600">{publicStats?.connected ? 'TikTok connected' : 'TikTok not connected'}</span>}
               
               {user && <button
                 onClick={() => {
@@ -424,7 +424,7 @@ const TikTokAnalytics: React.FC = () => {
           >
             <RefreshCw size={20} className={cn(syncing && "animate-spin")} />
           </button>
-          {user && publicStats?.source === 'tiktok_official_api' && <button
+          {user && publicStats?.connected && <button
             onClick={disconnectTikTok}
             disabled={disconnecting}
             className="px-4 py-3 bg-brand-50 dark:bg-slate-800 text-brand-600 dark:text-brand-400 rounded-2xl font-bold hover:bg-brand-100 dark:hover:bg-slate-700 transition-all disabled:opacity-50"

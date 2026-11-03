@@ -12,6 +12,9 @@ vi.mock('../../../api/_firebaseAdmin.js', () => ({
   default: { auth: () => ({ verifyIdToken: mockVerifyIdToken }) },
   initFirebaseAdmin: mockInitFirebaseAdmin,
 }));
+vi.mock('firebase-admin', () => ({
+  default: { auth: () => ({ verifyIdToken: mockVerifyIdToken }) },
+}));
 vi.mock('../../../api/_tiktok.js', () => ({
   getAutomationAccessToken: mockGetAutomationAccessToken,
   getCookie: mockGetCookie,
@@ -38,6 +41,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.resetAllMocks();
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
 });
 
 describe('GET /api/tiktok/me?action=facebookAutomation', () => {
@@ -126,6 +130,21 @@ describe('GET /api/tiktok/me?action=automation', () => {
   });
 });
 
+describe('GET /api/tiktok/me', () => {
+  it('returns the connected account from the saved token without a browser cookie', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'company-a' });
+    mockGetAutomationAccessToken.mockResolvedValue('refreshed-token');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ error: { code: 'ok' }, data: { user: { username: 'dgacademy' } } }),
+    }));
+    const res = response();
+    await handler({ method: 'GET', query: {}, headers: { authorization: 'Bearer firebase-token' } }, res);
+    expect(res.body.username).toBe('dgacademy');
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/v2/user/info/'), { headers: { Authorization: 'Bearer refreshed-token' } });
+  });
+});
+
 describe('TikTok statistics route shared with /api/tiktok/me', () => {
   it('requires the signed-in owner for the existing stats URL', async () => {
     const res = response();
@@ -139,5 +158,41 @@ describe('TikTok statistics route shared with /api/tiktok/me', () => {
     await handler({ method: 'GET', query: { route: 'stats', action: 'videos' }, headers: {} }, res);
     expect(res.statusCode).toBe(401);
     expect(res.body.error).toBe('Sign in to view TikTok videos.');
+  });
+
+  it('uses the saved owner token after the browser cookie expires', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'company-a' });
+    mockGetAutomationAccessToken.mockResolvedValue('refreshed-token');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ error: { code: 'ok' }, data: { user: { username: 'dgacademy', follower_count: 12 } } }),
+    }));
+    const res = response();
+    await handler({ method: 'GET', query: { route: 'stats' }, headers: { authorization: 'Bearer firebase-token' } }, res);
+    expect(mockGetAutomationAccessToken).toHaveBeenCalledWith(expect.anything(), 'company-a');
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/v2/user/info/'), { headers: { Authorization: 'Bearer refreshed-token' } });
+    expect(res.body).toMatchObject({ connected: true, handle: 'dgacademy', followers: 12 });
+  });
+
+  it('does not report a connected account as disconnected when stats scope is unavailable', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'company-a' });
+    mockGetAutomationAccessToken.mockResolvedValue('saved-token');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+      json: async () => ({ error: { code: 'scope_not_authorized', message: 'Scope not approved' } }),
+    }));
+    const res = response();
+    await handler({ method: 'GET', query: { route: 'stats' }, headers: { authorization: 'Bearer firebase-token' } }, res);
+    expect(res.body).toMatchObject({ connected: true, source: 'connected_stats_unavailable', canReadStats: false });
+  });
+
+  it('shows a retryable error when the saved token cannot be refreshed', async () => {
+    mockVerifyIdToken.mockResolvedValue({ uid: 'company-a' });
+    mockGetAutomationAccessToken.mockRejectedValue(new Error('temporary TikTok failure'));
+    const res = response();
+    await handler({ method: 'GET', query: { route: 'stats' }, headers: { authorization: 'Bearer firebase-token' } }, res);
+    expect(res.statusCode).toBe(503);
+    expect(res.body.code).toBe('connection_check_failed');
   });
 });
