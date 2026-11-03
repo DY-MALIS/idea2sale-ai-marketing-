@@ -130,6 +130,8 @@ describe('classifyScanMode', () => {
     expect(classifyScanMode('who are the customers of my competitor')).toBe('competitor_activity');
     expect(classifyScanMode('គូប្រកួត skincare Cambodia')).toBe('competitor_activity');
     expect(classifyScanMode('what did my competitor post this week')).toBe('competitor_activity');
+    expect(classifyScanMode('Finding the compititer in Phnom Penh')).toBe('competitor_activity');
+    expect(classifyScanMode('រកដៃគូប្រគូដប្រជែងរបស់ DGACADEMY')).toBe('competitor_activity');
     expect(resolveFacebookScanMode('competitor_customers')).toBe('competitor_activity');
   });
 

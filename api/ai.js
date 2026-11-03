@@ -165,7 +165,7 @@ const SCAN_MODE_CLASSIFIER_RULES = [
   // Competitor discovery, aggregate audience analysis, and verified seven-day
   // activity are one unified result. Do not route "competitor customers" into
   // a second search that makes the person choose between the same competitors.
-  ['competitor_activity', /(?:អតិថិជន(?:របស់)?គូប្រកួត|អតិថិជនគូប្រជែង|គូប្រកួត|ប្រកួតប្រជែង|ប្រកូដប្រជែង|customer[s]?\s+of\s+(?:a\s+|my\s+)?competitor|competitor['’]?s\s+customer|competitor\s+audience|\bcompetitor(?:s)?\b|\brival(?:s)?\b)/i],
+  ['competitor_activity', /(?:អតិថិជន(?:របស់)?គូប្រកួត|អតិថិជនគូប្រជែង|គូប្រកួត|ប្រកួតប្រជែង|ប្រកូដប្រជែង|ប្រគូដប្រជែង|customer[s]?\s+of\s+(?:a\s+|my\s+)?competitor|competitor['’]?s\s+customer|competitor\s+audience|\bcompetitor(?:s)?\b|\bcompititer(?:s)?\b|\brival(?:s)?\b)/i],
   ['market_trends', /(?:រលកទីផ្សារ|ត្រេន|ពេញនិយមកំពុង|កំពុងកើនឡើង|\btrend(?:s|ing)?\b|\bviral\b|market\s+wave)/i],
   ['ai_interest', /(?:ចាប់អារម្មណ៍\s*AI|\bAI\b|automation|digital\s+transformation|\bchatbot\b)/i],
   ['high_value', /(?:សក្តានុពលចំណាយ|\bpremium\b|\bluxury\b|high[\s-]?value|high[\s-]?end|\bresort\b)/i],
