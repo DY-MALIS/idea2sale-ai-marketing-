@@ -25,9 +25,10 @@ OpenRouter to image-to-video mode and can prevent the audio from driving lips.
 
 For presenter videos, the generated narration is trimmed only at its silent
 beginning and end before it is uploaded as the video model's audio reference.
-The identical trimmed file is muxed into the delivered video. Clip length is
-then fitted to that measured narration, with a small safety margin, to reduce
-mouth motion before speech and after it ends. The Edge presenter rate is +12%
+The identical trimmed file is muxed into the delivered video. New generated
+clips retain the full eight seconds even when the spoken line ends earlier.
+The presenter prompt directs the mouth to stop when the narration ends while
+natural scene movement continues. The Edge presenter rate is +12%
 by default (+6% for standalone speech); an overlong read may be retried faster.
 Missing reference audio or audio longer than eight seconds fails instead of
 generating a different track. These controls reduce timing drift but cannot

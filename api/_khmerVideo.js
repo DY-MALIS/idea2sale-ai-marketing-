@@ -50,15 +50,13 @@ const textOnlyPresenterRequest = ({ speech, duration, aspectRatio }) => ({
 
 export const fitKhmerClipDurationToNarration = (narrationDuration, requestedDuration) => {
   const requested = [4, 6, 8].includes(Number(requestedDuration)) ? Number(requestedDuration) : 8;
-  // The provider can animate a talking mouth throughout a requested 8-second
-  // clip even when the supplied narration ends after only a few seconds.
-  // Bound the speaking shot to the measured waveform instead of leaving a
-  // long silent tail with continuing mouth motion. A longer narration can
-  // still expand a shorter requested clip within the eight-second cost cap.
+  // Keep the requested shot length. A short narration must not turn an
+  // eight-second video into a four-second (or shorter) delivered clip.
+  // Still allow a legacy shorter request to expand when its speech needs it.
   const measured = Number(narrationDuration);
   if (!Number.isFinite(measured) || measured <= 0) return requested;
   const fitted = Math.max(MIN_KHMER_CLIP_DURATION, Math.ceil(measured + 0.05));
-  return Math.min(MAX_KHMER_CLIP_DURATION, fitted);
+  return Math.min(MAX_KHMER_CLIP_DURATION, Math.max(requested, fitted));
 };
 
 export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
@@ -137,7 +135,7 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
   // well before an 8-second clip, try one fuller script before paying for the
   // video. Never rewrite manually supplied narration or replace a usable read
   // with a second take that is too long or no fuller than the first.
-  if (allowScriptShortening && duration === 8 && measuredDuration > 0 && measuredDuration < 6
+  if (allowScriptShortening && duration === 8 && measuredDuration > 0 && measuredDuration < 7
     && Date.now() - preparationStartedAt < 90_000) {
     try {
       const expandedScript = await expandGeneratedKhmerNarration(spokenScript, item.businessName, measuredDuration);

@@ -14,13 +14,13 @@ it('keeps YouTube and landscape format when Agent hands a video to the creator',
   expect(request).toMatchObject({ kind: 'video', platform: 'YouTube', aspectRatio: '16:9', duration: 8, voiceOverWanted: false });
 });
 
-it('preserves spoken Khmer narration and supported video duration', () => {
+it('preserves spoken Khmer narration and normalizes new video duration to eight seconds', () => {
   const request = buildCreativeAutomationRequest({
     ...readyVideo,
     platform: 'TikTok', aspectRatio: '9:16', duration: 6,
     voiceOverWanted: true, voiceOverText: 'សាកកាហ្វេស្រស់នៅហាងយើង។',
   }, 'km', 'request-2');
-  expect(request).toMatchObject({ platform: 'TikTok', aspectRatio: '9:16', duration: 6, voiceOverWanted: true, voiceOverText: 'សាកកាហ្វេស្រស់នៅហាងយើង។' });
+  expect(request).toMatchObject({ platform: 'TikTok', aspectRatio: '9:16', duration: 8, voiceOverWanted: true, voiceOverText: 'សាកកាហ្វេស្រស់នៅហាងយើង។' });
 });
 
 it.each([

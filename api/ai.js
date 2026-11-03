@@ -405,11 +405,9 @@ const GEMINI_VOICE_BY_OPENAI_VOICE = {
 const MAX_AGENT_IMAGES = 4;
 const MAX_VIDEO_REFERENCE_IMAGES = 1;
 const MAX_VIDEO_REFERENCE_BASE64_CHARS = 2_500_000;
-// Google Veo 3.1 Fast (the underlying video model) only accepts these exact
-// per-clip durations — anything else risks a rejected or misbehaving generation.
-const VIDEO_DURATION_OPTIONS = [4, 6, 8];
-// Longer multi-clip generations can exceed the $0.80 per-video ceiling.
-const TOTAL_VIDEO_DURATION_OPTIONS = [4, 6, 8];
+// New videos use a full eight-second clip within the $0.80 cost ceiling.
+const VIDEO_DURATION_OPTIONS = [8];
+const TOTAL_VIDEO_DURATION_OPTIONS = [8];
 
 const jsonFromText = (text, fallback) => {
   try {
@@ -845,7 +843,7 @@ Do not put the business name (or any other wording) as on-screen text, signage, 
 For video requests, the underlying video model's own speech/dialogue generation is unreliable in Khmer and other non-English languages, so this app generates narration separately (Khmer-tuned voice) and merges it into the finished video. Do not silently default to a silent video: set "voiceOverWanted" to true or false based on the conversation, never guess it as false just because the user didn't mention it. Before asking anything, re-read the user's ORIGINAL request (not just the most recent message) for any wording that already answers this — phrases like "speaking Khmer/English", "និយាយជាភាសាខ្មែរ", "with a voice-over", "narrated in...", "no talking", "silent", "no sound/voice" all already settle voiceOverWanted (and often the language) without needing to ask; asking again after the user already said this is a real failure, not a safe default. Only if the conversation truly contains no such signal at all should you set ready=false once and ask ONE clarifying question offering narration as a choice (e.g. whether they want a voice-over, and if so whether it should speak Khmer, English, or mixed) — do not ask this same question twice. If "voiceOverWanted" is true, do not write that speech into the visual "prompt" field and do not rely on the video model to say it — instead put the exact words to be spoken into "voiceOverText", matching the language they asked for, and ready can only be true once "voiceOverText" is actually filled in (ask for the script as the missing detail if it isn't yet — still only one question total). Set "voiceOverWanted" to false, and leave "voiceOverText" empty, only when the user has explicitly said they don't want narration/voice-over (e.g. "no voice", "silent", "no narration").
 CRITICAL — resolving the narration question after you've already asked it once: if you already asked the narration question in an earlier turn and the user's reply doesn't directly say yes/no to narration but is instead a generic go-ahead ("yes", "create it", "go ahead", "ចាស", "បង្កើតមក" and similar) — do NOT ask the narration question again, and do NOT leave the request stuck unresolved or claim you are unable to proceed. Treat the generic go-ahead itself as approval for narration in whatever language the conversation already established, set voiceOverWanted=true, and write a short, natural voiceOverText yourself (1-3 sentences, in that language) directly from the scene/product/action already described in the conversation — you already have enough context to write reasonable narration without asking a third time. This must result in ready=true in that same turn; never respond by saying you cannot trigger generation yourself or by only offering to draft a script instead of completing the brief.
 The prompt must be a detailed English production prompt suitable for an image or video generation model, describing only the visuals (never write dialogue/spoken words into it, and never ask for specific on-screen text/lettering/signage wording — describe signs and surfaces as blank or generic instead, per the no-on-screen-text rule above).
-For video requests, the app only supports these exact durations in seconds: 4, 6, 8. This limit keeps each generated video within the $0.80 cost ceiling. Read the conversation for any stated or implied length and set "duration" to the closest allowed value — if nothing is stated, default to 8. If "voiceOverWanted" is true, the "voiceOverText" script's natural spoken length (at a normal, unhurried pace, roughly 2-3 spoken words per second) must fit within the chosen "duration" with a little room to spare — write a shorter script for a short duration and do not write a script that would still be talking after the video ends.`,
+For video requests, set "duration" to 8 seconds. This keeps each generated video within the $0.80 cost ceiling. If "voiceOverWanted" is true, write a natural spoken line that fills most of the eight seconds without running past the end.`,
       model: resolveOpenRouterTextModel(model),
       temperature: 0.2,
       // Keep the classifier short so the media handoff is not gated by a
@@ -869,7 +867,7 @@ Return exactly this JSON shape:
   "headline": "short poster headline in the user's language, or empty for visual/video",
   "cta": "2-4 word poster CTA in the user's language, or empty for visual/video",
   "posterStyle": "Modern, Minimal, Bold, Elegant, Playful, or Professional",
-  "duration": 4, 6, or 8 (only relevant when kind="video"; default 8 if not stated),
+  "duration": 8 (only relevant when kind="video"),
   "voiceOverWanted": true, false, or null (only relevant when kind="video"; null means not yet settled),
   "voiceOverText": "exact narration/dialogue script to be spoken in the video (any language, usually Khmer). When Khmer, ${KHMER_SCRIPT_ONLY_INSTRUCTION} Empty string if no voice-over was requested.",
   "voiceGender": "Male" or "Female" (only relevant when kind="video" and voiceOverWanted=true; pick whichever suits the speaker described or defaults to Female if unstated),

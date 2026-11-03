@@ -27,8 +27,7 @@ const verificationUnavailableError = ({ expected, cause, method, response }) => 
 
 export async function preparePlanVideoSpeech(item) {
   const prompt = String(item.prompt || '');
-  const requestedDuration = Number(item.duration);
-  const duration = [4, 6, 8].includes(requestedDuration) ? requestedDuration : 8;
+  const duration = 8;
   if (item.voiceOverWanted === false || (item.voiceOverWanted !== true && wantsSilentVideo(prompt))) {
     return { prompt: nativeSpeechPrompt(prompt, ''), script: '', mode: 'silent' };
   }

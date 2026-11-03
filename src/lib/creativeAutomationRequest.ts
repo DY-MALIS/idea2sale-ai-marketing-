@@ -35,7 +35,7 @@ export function buildCreativeAutomationRequest(
     headline: kind === 'image' ? String(automation.headline || '').trim() : undefined,
     cta: kind === 'image' ? String(automation.cta || '').trim() : undefined,
     posterStyle: kind === 'image' ? String(automation.posterStyle || 'Modern').trim() : undefined,
-    duration: kind === 'video' && [4, 6, 8].includes(Number(automation.duration)) ? Number(automation.duration) : kind === 'video' ? 8 : undefined,
+    duration: kind === 'video' ? 8 : undefined,
     voiceGender: kind === 'video' && ['Male', 'Female'].includes(String(automation.voiceGender))
       ? automation.voiceGender as 'Male' | 'Female' : undefined,
     performanceStyle: kind === 'video' ? String(automation.performanceStyle || '').trim() || undefined : undefined,

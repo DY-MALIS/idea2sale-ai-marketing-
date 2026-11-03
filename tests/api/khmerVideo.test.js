@@ -328,7 +328,7 @@ it('keeps the original content-plan narration when the expanded read exceeds eig
     { duration: 8, images: [{ mimeType: 'image/png', base64: 'AAAA' }], allowScriptShortening: true },
   );
 
-  expect(mocks.video).toHaveBeenCalledWith(expect.objectContaining({ duration: 4, audioReferenceUrls: ['https://short-audio'] }));
+  expect(mocks.video).toHaveBeenCalledWith(expect.objectContaining({ duration: 8, audioReferenceUrls: ['https://short-audio'] }));
   expect(result.narrationAudio.duration).toBe(3.2);
 });
 
@@ -355,11 +355,11 @@ it('retries an overlong expressive read at a measured Edge rate without changing
   expect(result.narrationAudio.duration).toBe(7.7);
 });
 
-it('bounds the speaking shot to narration and expands only when narration requires it', async () => {
-  expect(fitKhmerClipDurationToNarration(2.5, 8)).toBe(4);
-  expect(fitKhmerClipDurationToNarration(4.8, 8)).toBe(5);
-  expect(fitKhmerClipDurationToNarration(6.8, 8)).toBe(7);
-  expect(fitKhmerClipDurationToNarration(5.928, 8)).toBe(6);
+it('keeps an eight-second shot even when narration ends early', async () => {
+  expect(fitKhmerClipDurationToNarration(2.5, 8)).toBe(8);
+  expect(fitKhmerClipDurationToNarration(4.8, 8)).toBe(8);
+  expect(fitKhmerClipDurationToNarration(6.8, 8)).toBe(8);
+  expect(fitKhmerClipDurationToNarration(5.928, 8)).toBe(8);
   expect(fitKhmerClipDurationToNarration(4.8, 4)).toBe(5);
   expect(fitKhmerClipDurationToNarration(6.8, 6)).toBe(7);
 
@@ -374,11 +374,11 @@ it('bounds the speaking shot to narration and expands only when narration requir
     { duration: 8, images: [{ mimeType: 'image/png', base64: 'AAAA' }] },
   );
 
-  expect(mocks.video).toHaveBeenCalledWith(expect.objectContaining({ duration: 4 }));
-  expect(mocks.video.mock.calls[0][0].prompt).toContain('4-second clip');
+  expect(mocks.video).toHaveBeenCalledWith(expect.objectContaining({ duration: 8 }));
+  expect(mocks.video.mock.calls[0][0].prompt).toContain('8-second clip');
   expect(mocks.video.mock.calls[0][0].prompt).toContain('HARD MOUTH STOP: by 2.50 seconds');
   expect(mocks.video.mock.calls[0][0].prompt).toContain('until the full clip ends');
-  expect(result.job.outputDuration).toBe(4);
+  expect(result.job.outputDuration).toBe(8);
 });
 
 it('fails loudly instead of submitting an audio-only request when the avatar upload returns no usable URL', async () => {

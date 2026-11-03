@@ -280,20 +280,11 @@ const measureNarrationDuration = async (audioUrl: string): Promise<number> => {
 const MAX_VIDEO_IMAGES = 1;
 // A single user action is capped at eight seconds so its estimated total
 // OpenRouter spend cannot exceed $0.80.
-const VIDEO_LENGTH_OPTIONS = [4, 6, 8] as const;
+const VIDEO_LENGTH_OPTIONS = [8] as const;
 
 // Kept as a helper for the generation pipeline; the $0.80 ceiling currently
 // limits every supported duration to one clip of at most eight seconds.
-const getVideoSegments = (totalSeconds: number): number[] => {
-  if (totalSeconds <= 8) return [totalSeconds];
-  const segments: number[] = [];
-  let remaining = totalSeconds;
-  while (remaining > 0) {
-    segments.push(Math.min(8, remaining));
-    remaining -= 8;
-  }
-  return segments;
-};
+const getVideoSegments = (): number[] => [8];
 
 const FFMPEG_CORE_BASE_URL = 'https://unpkg.com/@ffmpeg/core@0.12.9/dist/esm';
 let ffmpegLoadPromise: Promise<any> | null = null;
@@ -1116,7 +1107,9 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
     if (typeof payload.voiceOverText === 'string') setVoiceOverText(payload.voiceOverText);
     if (payload.voiceGender === 'Male' || payload.voiceGender === 'Female') setVoiceGender(payload.voiceGender);
     if (payload.voicePersona === 'sreymom' || payload.voicePersona === 'piseth') setVoicePersona(payload.voicePersona);
-    if (typeof payload.videoDuration === 'number') setVideoDuration(payload.videoDuration);
+    // Restoring an older four/six-second result must not change the length
+    // selected for the next generation.
+    setVideoDuration(8);
     const restoredRatio = normalizeVideoAspectRatio(payload.videoAspectRatio);
     setVideoAspectRatio(restoredRatio);
     setGeneratedVideoAspectRatio(restoredRatio);
@@ -1556,13 +1549,6 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
             ? { audio: narration.duration, video: currentJob.outputDuration }
             : undefined);
       }
-      if (currentJob.imageFallbackReason && currentJob.expectedScript) {
-        try {
-          video = (await trimVideoAfterSpeech(video)).videoDataUrl;
-        } catch (trimError) {
-          console.warn('Could not trim the fallback video after Khmer speech:', trimError);
-        }
-      }
       let speechNeedsReview = false;
       if (currentJob.expectedScript) {
         try {
@@ -1715,7 +1701,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       }
       if (narrationRequested && !voiceOverContent
         && (narrationWantedOverride === true || !wantsSilentVideo(promptText))) {
-        const response = await fetchAiWithTimeout({ action: 'videoNarration', prompt: promptText || 'Product introduction', duration: durationOverride || videoDuration, language: generationLanguage, businessContext });
+        const response = await fetchAiWithTimeout({ action: 'videoNarration', prompt: promptText || 'Product introduction', duration: 8, language: generationLanguage, businessContext });
         const data = await response.json();
         if (!response.ok || !data.text) throw new Error(data.error || 'Could not prepare video narration.');
         voiceOverContent = data.text;
@@ -1740,10 +1726,8 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       const audioDirection = nativeKhmerSpeech ? 'Khmer/Cambodian context. '
         : (voiceOverContent ? 'Visual footage only. No speech or dialogue; narration is added separately. ' : '');
       const prompt = `${audioDirection}${promptText || 'Create a realistic short marketing video from the uploaded reference image.'}${businessContext.businessName ? `\nThis marketing asset represents ${businessContext.businessName}. Do not render its name as AI-generated text; the app applies the saved logo afterward.` : ''}`;
-      const segments = getVideoSegments(
-        VIDEO_LENGTH_OPTIONS.includes(durationOverride as typeof VIDEO_LENGTH_OPTIONS[number]) ? (durationOverride as number) : videoDuration,
-      );
-      // Every currently supported user action is one clip (4/6/8 seconds).
+      const segments = getVideoSegments();
+      // Every new user action is one eight-second clip.
       // Preserve the exact Khmer script and let the server measure its real TTS
       // duration; a code-point budget falsely rejects short-looking Khmer text
       // because vowel/diacritic signs each increase String.length. Keep the
@@ -1833,14 +1817,6 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         lastGeneratedClip = clip;
         if (generatedClip.narrationFallbackReason) usedKhmerVoiceFallback = true;
         if (generatedClip.imageFallbackReason) imageFallbackReason = generatedClip.imageFallbackReason;
-        if (generatedClip.imageFallbackReason && generatedClip.expectedScript) {
-          try {
-            clip = (await trimVideoAfterSpeech(clip)).videoDataUrl;
-            lastGeneratedClip = clip;
-          } catch (trimError) {
-            console.warn('Could not trim the fallback video after Khmer speech:', trimError);
-          }
-        }
         // A fully silent result can be muted reliably by ImageKit after the
         // final upload. Only mixed spoken/silent segment videos still need a
         // per-segment browser edit before concatenation.
@@ -1945,7 +1921,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
               voiceOverText: voiceOverContent,
               voiceGender: generationVoiceGender,
               voicePersona: generationVoicePersona,
-              videoDuration: durationOverride || videoDuration,
+              videoDuration: 8,
               videoAspectRatio: generationAspectRatio,
             },
           });
@@ -2323,7 +2299,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   // the bounded range rather than a precise-looking price for the wrong model.
   const estimatedVideoCost = estimatedKhmerSpeech
     ? `$${estimateVideoGenerationCostUsd({ duration: MAX_VIDEO_DURATION_SECONDS, khmerSpeech: true }).toFixed(2)}`
-    : `$${estimateVideoGenerationCostUsd({ duration: videoDuration }).toFixed(2)}–$${estimateVideoGenerationCostUsd({ duration: videoDuration, model: KHMER_VIDEO_MODEL }).toFixed(2)}`;
+    : `$${estimateVideoGenerationCostUsd({ duration: 8 }).toFixed(2)}–$${estimateVideoGenerationCostUsd({ duration: 8, model: KHMER_VIDEO_MODEL }).toFixed(2)}`;
 
   return (
     <div className="max-w-6xl mx-auto space-y-10">

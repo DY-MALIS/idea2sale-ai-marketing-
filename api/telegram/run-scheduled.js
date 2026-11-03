@@ -249,8 +249,7 @@ export const uploadTelegramMediaUrl = async ({ token, chatId, mediaUrl, mediaTyp
 };
 
 const startPlanVideoJob = async (item, speech) => {
-  const requestedDuration = Number(item.duration);
-  const duration = [4, 6, 8].includes(requestedDuration) ? requestedDuration : 8;
+  const duration = 8;
   // content_plan_items is a client-writable collection (scoped to the owning
   // userId, same as every other field on it) -- a crafted/buggy write could set
   // productImageUrl to an arbitrary URL bypassing the picker UI, which would
@@ -714,7 +713,7 @@ export default async function handler(req, res) {
         const speech = await preparePlanVideoSpeech(item);
         const { job, avatarImage, narrationAudio: generatedNarrationAudio, imageFallbackReason } = await startPlanVideoJob(item, speech);
         const stillActive = await updateActivePlanItem(db, planRef, {
-          status: 'PROCESSING', videoJobId: job.jobId,
+          status: 'PROCESSING', videoJobId: job.jobId, duration: job.outputDuration,
           voiceOverText: generatedNarrationAudio?.spokenText || speech.script, voiceOverMode: speech.mode,
           generationPrompt: speech.prompt, performanceStyle: speech.performanceStyle || '',
           ...(avatarImage ? { avatarImage } : {}),
@@ -1101,6 +1100,7 @@ export default async function handler(req, res) {
         const stillActive = await updateActivePlanItem(db, planDoc.ref, {
           status: 'PROCESSING',
           videoJobId: job.jobId,
+          duration: job.outputDuration,
           voiceOverText: generatedNarrationAudio?.spokenText || speech.script,
           voiceOverMode: speech.mode,
           generationPrompt: speech.prompt,

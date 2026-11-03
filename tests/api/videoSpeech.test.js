@@ -128,7 +128,7 @@ describe('native Khmer video speech', () => {
   it('fills legacy plans with missing dialogue but respects silent requests', async () => {
     mocks.narration.mockResolvedValue('សួស្តី');
     expect((await preparePlanVideoSpeech({prompt:'Office', duration: 4})).script).toBe('សួស្តី');
-    expect(mocks.narration).toHaveBeenCalledWith('Office', 4, undefined);
+    expect(mocks.narration).toHaveBeenCalledWith('Office', 8, undefined);
     mocks.narration.mockClear();
     expect((await preparePlanVideoSpeech({prompt:'Office',voiceOverWanted:false})).mode).toBe('silent');
     expect(mocks.narration).not.toHaveBeenCalled();
