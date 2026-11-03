@@ -661,6 +661,17 @@ const Scheduler: React.FC = () => {
                           {post.mediaType === 'video' ? 'Video' : 'Image'}: {post.mediaName}
                         </p>
                       )}
+                      {post.platform === 'TELEGRAM' && post.status === 'PENDING' && !post.localOnly && (
+                        <p className="mt-2 text-xs text-sky-700 dark:text-sky-300">
+                          {language === 'km'
+                            ? (new Date(post.scheduledTime).getTime() + 2 * 60 * 1000 > nowTick
+                              ? 'បានកំណត់ផុសស្វ័យប្រវត្តិតាមម៉ោងខាងលើ។ មិនចាំបាច់ចុចផ្ញើទេ។'
+                              : 'ហួសម៉ោងកំណត់ហើយ ប៉ុន្តែនៅរង់ចាំផុស។ អាចចុចផ្ញើខាងស្តាំជាជម្រើសបម្រុង។')
+                            : (new Date(post.scheduledTime).getTime() + 2 * 60 * 1000 > nowTick
+                              ? 'Automatic publishing is scheduled for the time above. No button press is needed.'
+                              : 'Delivery is still pending after the scheduled time. The send button is a manual backup.')}
+                        </p>
+                      )}
                       {post.platform === 'FACEBOOK' && post.mediaType === 'photo' && post.mediaName && (
                         <p className="mt-2 inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-blue-700 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
                           Photo: {post.mediaName}
@@ -728,13 +739,14 @@ const Scheduler: React.FC = () => {
                           <CheckCircle2 size={18} />
                         </motion.button>
                       )}
-                      {post.platform === 'TELEGRAM' && post.status === 'PENDING' && (
+                      {post.platform === 'TELEGRAM' && post.status === 'PENDING' &&
+                        (post.localOnly || new Date(post.scheduledTime).getTime() + 2 * 60 * 1000 <= nowTick) && (
                         <motion.button
                           whileHover={{ scale: 1.1 }}
                           whileTap={{ scale: 0.9 }}
                           onClick={() => sendTelegramPost(post)}
                           className="p-2 text-sky-500 hover:text-sky-600 hover:bg-sky-50 dark:hover:bg-sky-900/30 rounded-md transition-colors"
-                          title="Send to Telegram now"
+                          title="Send to Telegram now (manual backup)"
                         >
                           <Send size={18} />
                         </motion.button>
