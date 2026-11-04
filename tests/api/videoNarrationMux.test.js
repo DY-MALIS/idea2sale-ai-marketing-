@@ -29,7 +29,9 @@ it('replaces generated audio while preserving the full video length', async () =
     global.fetch = vi.fn(async url => new Response(url.endsWith('video.mp4') ? videoBytes : audioBytes));
     const result = await replaceVideoNarration('https://ik.imagekit.io/test/video.mp4', 'https://ik.imagekit.io/test/audio.wav');
     await writeFile(output, Buffer.from(result.split(',')[1], 'base64'));
-    const { stdout } = await run(ffmpeg, ['-v', 'error', '-i', output, '-map', '0:a:0', '-f', 's16le', '-ac', '1', '-ar', '8000', 'pipe:1'], { encoding: 'buffer', windowsHide: true });
+    // Bound the decode even if a broken output contains an unbounded padded
+    // audio stream; the duration assertions below still reject anything >2.1s.
+    const { stdout } = await run(ffmpeg, ['-v', 'error', '-nostdin', '-i', output, '-map', '0:a:0', '-t', '2.2', '-f', 's16le', '-ac', '1', '-ar', '8000', 'pipe:1'], { encoding: 'buffer', windowsHide: true, timeout: 15000 });
     expect(stdout.length / 16000).toBeGreaterThanOrEqual(1.95);
     expect(stdout.length / 16000).toBeLessThan(2.1);
     // Count positive zero crossings over 0.5 seconds: reference is 880 Hz,
