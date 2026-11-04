@@ -1338,6 +1338,11 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       setIsAuthenticating(false);
       return;
     }
+    const popup = window.open('about:blank', 'tiktokAuth', 'width=600,height=700');
+    if (!popup) {
+      notify(t('allowPopups'), 'error');
+      return;
+    }
     
     setIsAuthenticating(true);
     const timeout = setTimeout(() => setIsAuthenticating(false), 10000);
@@ -1347,25 +1352,15 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       const res = await fetch('/api/auth/tiktok', { headers: { Authorization: `Bearer ${await user.getIdToken()}` } });
       const data = await res.json();
       if (data.url) {
-        const width = 600, height = 700;
-        const left = (window.screen.width - width) / 2;
-        const top = (window.screen.height - height) / 2;
-        const popup = window.open(
-          data.url, 
-          'tiktokAuth', 
-          `width=${width},height=${height},top=${top},left=${left}`
-        );
-        if (!popup) {
-          notify(t('allowPopups'), 'error');
-          clearTimeout(timeout);
-          setIsAuthenticating(false);
-        }
+        popup.location.href = data.url;
       } else {
+        popup.close();
         notify("Failed to get auth URL", 'error');
         clearTimeout(timeout);
         setIsAuthenticating(false);
       }
     } catch (err) {
+      popup.close();
       console.error("Auth error", err);
       notify(t('authError'), 'error');
       clearTimeout(timeout);

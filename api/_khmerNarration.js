@@ -1,6 +1,7 @@
 import { generateOpenRouterText, generateTranslateSpeech, normalizeForKhmerSpeech, transcribeAudioWithOpenRouter } from './_openrouter.js';
 import { synthesizeKhmerSpeechViaEdge } from './_edgeSpeech.js';
 import { generateGeminiSpeech } from './_geminiSpeech.js';
+import { parseBuffer } from 'music-metadata';
 import { compareKhmerTranscript, isKhmerOnlyNarration, KHMER_SCRIPT_ONLY_INSTRUCTION } from '../shared/videoSpeech.js';
 
 const edgeKhmerVoice = (voice) => {
@@ -11,6 +12,7 @@ const edgeKhmerVoice = (voice) => {
 };
 
 const WAV_PREFIX = 'data:audio/wav;base64,';
+const MP3_PREFIX = 'data:audio/mpeg;base64,';
 
 // Chirp occasionally returns a fabricated list of numbers for clearly spoken
 // Khmer (observed in production as "song 2 100 400 200 200 100 200"). That is
@@ -28,14 +30,17 @@ export const isUnreliableKhmerTranscript = (transcript) => {
 // Khmer transcription can vary between passes on the same correct waveform.
 // Confirm a mismatch once before discarding paid TTS audio.
 const matchesKhmerScript = async (audio, expectedScript) => {
-  if (!audio.audioUrl?.startsWith(WAV_PREFIX)) throw new Error('Expressive voice returned unsupported audio.');
+  const format = audio.audioUrl?.startsWith(WAV_PREFIX) ? 'wav'
+    : audio.audioUrl?.startsWith(MP3_PREFIX) ? 'mp3' : null;
+  if (!format) throw new Error('Khmer voice returned unsupported audio.');
+  const prefix = format === 'wav' ? WAV_PREFIX : MP3_PREFIX;
   let gotTranscript = false;
   let bestMismatch = null;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const transcript = await transcribeAudioWithOpenRouter({
-        audioBase64: audio.audioUrl.slice(WAV_PREFIX.length),
-        format: 'wav',
+        audioBase64: audio.audioUrl.slice(prefix.length),
+        format,
         languageHint: 'Khmer',
         timeoutMs: 18_000,
       });
@@ -71,6 +76,27 @@ const matchesKhmerScript = async (audio, expectedScript) => {
   // prefers the Khmer neural voice, retaining this Gemini take only if that
   // voice also fails. A coherent mismatching transcript still rejects it.
   return gotTranscript ? 'mismatch' : 'unavailable';
+};
+
+// This existing TTS provider is a last resort for scheduled video only. Never
+// submit a paid render with its audio unless Khmer transcription matches the
+// requested words; the conversation path has a different quality threshold.
+const generateVerifiedTranslateTake = async (spokenInput) => {
+  try {
+    const generated = await generateTranslateSpeech({ input: spokenInput });
+    if (!generated?.audioUrl?.startsWith(MP3_PREFIX)) return null;
+    if (await matchesKhmerScript(generated, spokenInput) !== 'match') return null;
+    const duration = Number(generated.duration) || Number((await parseBuffer(
+      Buffer.from(generated.audioUrl.slice(MP3_PREFIX.length), 'base64'),
+      { mimeType: 'audio/mpeg' }, { duration: true },
+    )).format.duration);
+    if (!Number.isFinite(duration) || duration <= 0) return null;
+    return { ...generated, duration, spokenText: spokenInput,
+      fallbackReason: 'Primary Khmer voices were unavailable; a verified backup voice was used. Listen before publishing.' };
+  } catch (error) {
+    console.warn('Last-resort Khmer speech failed:', error?.message || error);
+    return null;
+  }
 };
 
 // Generates one Gemini take and, for a duration-bound video narration
@@ -205,6 +231,10 @@ export async function generateKhmerSpeech({
     }
     const generated = await generateVerifiedGeminiTake({ spokenInput, voice, performanceStyle: clearKhmerStyle, context, voiceOverride, targetSeconds });
     if (!generated) {
+      if (Number.isFinite(targetSeconds) && targetSeconds >= 4 && targetSeconds <= 8) {
+        const lastResort = await generateVerifiedTranslateTake(spokenInput);
+        if (lastResort) return lastResort;
+      }
       // Both providers are now exhausted. edgeError's own message is a raw,
       // unofficial-API WebSocket error code ("Unexpected server response:
       // 403") that means nothing to the person who typed the request and

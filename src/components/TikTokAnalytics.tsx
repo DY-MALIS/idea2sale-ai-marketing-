@@ -45,7 +45,17 @@ const TikTokAnalytics: React.FC = () => {
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [statsError, setStatsError] = useState<string | null>(null);
   const [statsErrorCode, setStatsErrorCode] = useState<string | null>(null);
-  const isTikTokNotConnected = statsErrorCode === 'not_connected' || publicStats?.source === 'not_connected';
+  const [connectionChecked, setConnectionChecked] = useState(false);
+  const isTikTokNotConnected = connectionChecked && (statsErrorCode === 'not_connected' || publicStats?.source === 'not_connected');
+  const connectionLabel = statsError
+    ? 'TikTok connection check failed'
+    : !connectionChecked
+      ? 'Checking TikTok connection...'
+      : publicStats?.connected
+        ? (handle ? `@${handle}` : 'TikTok connected')
+        : isTikTokNotConnected
+          ? 'TikTok not connected'
+          : 'Checking TikTok connection...';
   const [videos, setVideos] = useState<any[]>([]);
   const [videosLoading, setVideosLoading] = useState(true);
   const [videosMessage, setVideosMessage] = useState<string | null>(null);
@@ -107,6 +117,7 @@ const TikTokAnalytics: React.FC = () => {
         throw new Error(data.error || `Server returned ${response.status}`);
       }
       setPublicStats(data);
+      setConnectionChecked(true);
       if (data.handle) {
         setHandle(data.handle);
         localStorage.setItem(handleKey, data.handle);
@@ -135,6 +146,7 @@ const TikTokAnalytics: React.FC = () => {
       if (!res.ok) throw new Error(`Server returned ${res.status}`);
       localStorage.removeItem(cacheKey('tiktok_stats'));
       setPublicStats(null);
+      setConnectionChecked(true);
       setStatsError(null);
       setStatsErrorCode('not_connected');
       notify(t('tiktokDisconnected'), 'success');
@@ -186,6 +198,7 @@ const TikTokAnalytics: React.FC = () => {
         accountRequestIdRef.current += 1;
         localStorage.removeItem(cacheKey('tiktok_stats'));
         setPublicStats(null);
+        setConnectionChecked(false);
         setLastUpdated(null);
       }
       currentHandle = nextHandle;
@@ -208,6 +221,7 @@ const TikTokAnalytics: React.FC = () => {
     }
     const saved = isDemoMode ? null : localStorage.getItem(cacheKey('tiktok_stats'));
     try { setPublicStats(saved ? JSON.parse(saved) : null); } catch { setPublicStats(null); }
+    setConnectionChecked(false);
     setVideos([]);
     setPosts([]);
     setTelegramPosts([]);
@@ -221,13 +235,22 @@ const TikTokAnalytics: React.FC = () => {
   }, [user?.uid, isDemoMode]);
 
   const connectTikTok = async () => {
+    if (!user) {
+      notify('Sign in before connecting TikTok.', 'error');
+      return;
+    }
+    const popup = window.open('about:blank', 'tiktokAuth', 'width=600,height=700');
+    if (!popup) {
+      notify('Allow popups to connect TikTok.', 'error');
+      return;
+    }
     try {
-      if (!user) throw new Error('Sign in before connecting TikTok.');
       const response = await fetch('/api/auth/tiktok', { headers: { Authorization: `Bearer ${await user.getIdToken()}` } });
       const data = await response.json();
       if (!response.ok || !data.url) throw new Error(data.error || 'Could not connect TikTok.');
-      window.open(data.url, '_blank');
+      popup.location.href = data.url;
     } catch (error: any) {
+      popup.close();
       notify(error.message || 'Could not connect TikTok.', 'error');
     }
   };
@@ -240,6 +263,7 @@ const TikTokAnalytics: React.FC = () => {
     const intervalId = setInterval(fetchPublicStats, 60000);
 
     const handleAuthSuccess = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
       if (event.data?.type === 'TIKTOK_AUTH_SUCCESS') {
         fetchPublicStats();
         fetchVideos();
@@ -336,10 +360,10 @@ const TikTokAnalytics: React.FC = () => {
           </h2>
           <div className="flex items-center gap-2 mt-2">
             <div className="flex items-center gap-2 px-3 py-1 bg-brand-50 dark:bg-slate-800 rounded-full border border-brand-100 dark:border-slate-700 relative group">
-              {publicStats?.connected && handle ? <>
+              {connectionChecked && publicStats?.connected && handle ? <>
                 <div className="w-5 h-5 bg-brand-500 rounded-full flex items-center justify-center text-[10px] text-white font-bold">@</div>
                 <span className="text-sm font-bold text-brand-600">{handle}</span>
-              </> : <span className="text-sm font-bold text-brand-600">{publicStats?.connected ? 'TikTok connected' : 'TikTok not connected'}</span>}
+              </> : <span className="text-sm font-bold text-brand-600">{connectionLabel}</span>}
               
               {user && <button
                 onClick={() => {
@@ -424,7 +448,7 @@ const TikTokAnalytics: React.FC = () => {
           >
             <RefreshCw size={20} className={cn(syncing && "animate-spin")} />
           </button>
-          {user && publicStats?.connected && <button
+          {user && connectionChecked && publicStats?.connected && <button
             onClick={disconnectTikTok}
             disabled={disconnecting}
             className="px-4 py-3 bg-brand-50 dark:bg-slate-800 text-brand-600 dark:text-brand-400 rounded-2xl font-bold hover:bg-brand-100 dark:hover:bg-slate-700 transition-all disabled:opacity-50"
@@ -436,7 +460,7 @@ const TikTokAnalytics: React.FC = () => {
             className="px-6 py-3 bg-black text-white rounded-2xl font-bold flex items-center gap-2 hover:bg-neutral-800 transition-all shadow-lg"
           >
             <RefreshCw size={18} />
-            {t('reconnectAccount')}
+            {isTikTokNotConnected ? t('connectTiktok') : t('reconnectAccount')}
           </button>}
         </div>
       </header>
@@ -494,10 +518,12 @@ const TikTokAnalytics: React.FC = () => {
           <AlertCircle size={18} className="mt-0.5 shrink-0" />
           <div>
             <p className="font-bold">
-              {isTikTokNotConnected ? 'TikTok account is not connected yet' : publicStats?.source === 'configured_public_fallback' ? 'Showing public fallback stats for now.' : publicStats?.canReadStats === false ? 'TikTok account connected. Statistics are waiting for approval.' : 'TikTok statistics are not available yet'}
+              {statsError ? 'Could not check the TikTok connection right now' : isTikTokNotConnected ? 'TikTok account is not connected yet' : publicStats?.source === 'configured_public_fallback' ? 'Showing public fallback stats for now.' : publicStats?.canReadStats === false ? 'TikTok account connected. Statistics are waiting for approval.' : 'TikTok statistics are not available yet'}
             </p>
             {(statsError || publicStats?.message) && <p>{statsError || publicStats?.message}</p>}
-            {isTikTokNotConnected ? (
+            {statsError ? (
+              <p className="mt-1">Use the refresh button to check again. A failed check does not disconnect your account.</p>
+            ) : isTikTokNotConnected ? (
               <p className="mt-1">Click <strong>Reconnect Account</strong> and authorize the TikTok account you want to connect.</p>
             ) : (
               <p className="mt-1">To show Followers, Likes, Following, and Video Posts, TikTok must approve <code>user.info.stats</code>. Login can still work with <code>user.info.basic</code>.</p>

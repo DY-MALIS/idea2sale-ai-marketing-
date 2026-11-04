@@ -191,6 +191,23 @@ describe('Khmer narration', () => {
     expect(mocks.transcribe).toHaveBeenCalledTimes(1);
     expect(mocks.gemini).toHaveBeenCalledTimes(1);
   });
+  it('uses the existing backup speech provider for video only after its Khmer words are verified', async () => {
+    mocks.gemini.mockRejectedValue(new Error('provider unavailable'));
+    mocks.edge.mockRejectedValue(new Error('voice unavailable'));
+    mocks.translate.mockResolvedValue({ audioUrl: 'data:audio/mpeg;base64,YXVkaW8=', duration: 6, provider: 'translate' });
+    mocks.transcribe.mockResolvedValue('សួស្តី');
+    const result = await generateKhmerSpeech({ input: 'សួស្តី', targetDuration: 8 });
+    expect(result).toMatchObject({ provider: 'translate', duration: 6, spokenText: 'សួស្តី' });
+    expect(mocks.transcribe).toHaveBeenCalledWith(expect.objectContaining({ format: 'mp3', languageHint: 'Khmer' }));
+  });
+  it('rejects backup audio when the Khmer words cannot be verified', async () => {
+    mocks.gemini.mockRejectedValue(new Error('provider unavailable'));
+    mocks.edge.mockRejectedValue(new Error('voice unavailable'));
+    mocks.translate.mockResolvedValue({ audioUrl: 'data:audio/mpeg;base64,YXVkaW8=', duration: 6 });
+    mocks.transcribe.mockResolvedValue('ខុសទាំងស្រុង');
+    await expect(generateKhmerSpeech({ input: 'សួស្តី', targetDuration: 8 }))
+      .rejects.toThrow('both the primary and backup Khmer voices failed');
+  });
   it('does not deliver a last-resort Gemini take whose transcript never matches the script, and logs the mismatch for diagnosis', async () => {
     vi.stubEnv('KHMER_TTS_PROVIDER', 'edge');
     mocks.edge.mockRejectedValue(new Error('Unexpected server response: 403'));
