@@ -8,6 +8,9 @@ import ffmpeg from 'ffmpeg-static';
 import { replaceVideoNarration } from '../../api/_videoNarrationMux.js';
 
 const run = promisify(execFile);
+// CI runners can take longer than 20s for the fixture encodes, duration probes,
+// mux, and audio decode. The mux itself has a 60s process timeout.
+const MUX_TEST_TIMEOUT_MS = 90000;
 it('replaces generated audio while preserving the full video length', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'mux-test-'));
   const originalFetch = global.fetch;
@@ -45,7 +48,7 @@ it('replaces generated audio while preserving the full video length', async () =
     vi.unstubAllEnvs();
     await rm(dir, { recursive: true, force: true });
   }
-}, 20000);
+}, MUX_TEST_TIMEOUT_MS);
 
 it('rejects narration longer than the video instead of silently truncating it via -shortest', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'mux-overrun-test-'));
@@ -71,4 +74,4 @@ it('rejects narration longer than the video instead of silently truncating it vi
     vi.unstubAllEnvs();
     await rm(dir, { recursive: true, force: true });
   }
-}, 20000);
+}, MUX_TEST_TIMEOUT_MS);
