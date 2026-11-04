@@ -9,13 +9,9 @@ import { getOriginalImageKitUrl } from '../shared/imageKitUrl.js';
 
 const run = promisify(execFile);
 const MAX_BYTES = 48 * 1024 * 1024;
-// The mux command below uses -shortest, which SILENTLY truncates the narration
-// to the video's length instead of failing -- if some upstream caller's own
-// duration check is ever wrong, stale, or skipped, that would ship a video
-// with cut-off speech instead of surfacing a clear error. Probe both files
-// with ffmpeg itself (no separate ffprobe binary needed -- Duration is in the
-// same header ffmpeg prints while opening any input) so this file enforces
-// the invariant on its own, regardless of what any caller already checked.
+// Probe both files with ffmpeg itself (no separate ffprobe binary needed --
+// Duration is in the same header ffmpeg prints while opening any input) so
+// narration never gets silently cut off by the video duration.
 const DURATION_GUARD_TOLERANCE_SECONDS = 0.1;
 
 const parseFfmpegDurationSeconds = (output) => {
@@ -71,7 +67,10 @@ export async function replaceVideoNarration(videoUrl, audioUrl) {
       probeDurationSeconds(videoPath),
       probeDurationSeconds(audioPath),
     ]);
-    if (videoDuration != null && audioDuration != null && audioDuration > videoDuration + DURATION_GUARD_TOLERANCE_SECONDS) {
+    if (!Number.isFinite(videoDuration) || !Number.isFinite(audioDuration) || videoDuration <= 0 || audioDuration <= 0) {
+      throw new Error('Could not verify video and narration durations before assembly.');
+    }
+    if (audioDuration > videoDuration + DURATION_GUARD_TOLERANCE_SECONDS) {
       throw new Error(`Khmer narration (${audioDuration.toFixed(2)}s) is longer than the generated video (${videoDuration.toFixed(2)}s). Regenerate the video instead of shipping cut-off speech.`);
     }
     await run(ffmpegPath, [
@@ -79,9 +78,10 @@ export async function replaceVideoNarration(videoUrl, audioUrl) {
       '-protocol_whitelist', 'file,pipe', '-i', videoPath,
       '-protocol_whitelist', 'file,pipe', '-i', audioPath,
       '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy',
-      '-c:a', 'aac', '-b:a', '192k', '-af', 'apad', '-shortest',
+      '-c:a', 'aac', '-b:a', '192k', '-af', `apad=whole_dur=${videoDuration}`,
+      '-t', String(videoDuration),
       '-movflags', '+faststart', '-fs', String(MAX_BYTES), outputPath,
-    ], { timeout: 60000, windowsHide: true, maxBuffer: 1024 * 1024 });
+    ], { timeout: 60000, killSignal: 'SIGKILL', windowsHide: true, maxBuffer: 1024 * 1024 });
     const output = await readFile(outputPath);
     if (!output.length || output.length >= MAX_BYTES) throw new Error('Assembled narration video exceeds the upload limit.');
     return `data:video/mp4;base64,${output.toString('base64')}`;

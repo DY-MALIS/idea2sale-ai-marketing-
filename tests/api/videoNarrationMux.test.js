@@ -23,19 +23,15 @@ it('replaces generated audio while preserving the full video length', async () =
     const output = join(dir, 'output.mp4');
     await run(ffmpeg, ['-v', 'error', '-f', 'lavfi', '-i', 'color=c=blue:s=64x64:r=25:d=2',
       '-f', 'lavfi', '-i', 'sine=frequency=220:duration=2', '-c:v', 'libx264', '-c:a', 'aac', '-shortest', video], { windowsHide: true, timeout: 15000 });
-    console.log('mux test: video fixture created');
     await run(ffmpeg, ['-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=880:duration=1.4', audio], { windowsHide: true, timeout: 15000 });
-    console.log('mux test: audio fixture created');
     const videoBytes = await readFile(video);
     const audioBytes = await readFile(audio);
     global.fetch = vi.fn(async url => new Response(url.endsWith('video.mp4') ? videoBytes : audioBytes));
     const result = await replaceVideoNarration('https://ik.imagekit.io/test/video.mp4', 'https://ik.imagekit.io/test/audio.wav');
-    console.log('mux test: narration replaced');
     await writeFile(output, Buffer.from(result.split(',')[1], 'base64'));
     // Bound the decode even if a broken output contains an unbounded padded
     // audio stream; the duration assertions below still reject anything >2.1s.
     const { stdout } = await run(ffmpeg, ['-v', 'error', '-nostdin', '-i', output, '-map', '0:a:0', '-t', '2.2', '-f', 's16le', '-ac', '1', '-ar', '8000', 'pipe:1'], { encoding: 'buffer', windowsHide: true, timeout: 15000 });
-    console.log('mux test: audio decoded');
     expect(stdout.length / 16000).toBeGreaterThanOrEqual(1.95);
     expect(stdout.length / 16000).toBeLessThan(2.1);
     // Count positive zero crossings over 0.5 seconds: reference is 880 Hz,
