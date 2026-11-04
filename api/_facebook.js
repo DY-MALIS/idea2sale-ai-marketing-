@@ -112,14 +112,21 @@ export async function readConnectedFacebookPage(db, ownerId) {
     if (!response.ok || body.error) throw new Error(body.error?.message || `Facebook returned HTTP ${response.status}`);
     return body;
   };
-  const [details, posts] = await Promise.allSettled([
+  const [details, postsWithEngagement] = await Promise.allSettled([
     read('', { fields: 'id,name,about,description,website,phone,link' }),
-    read('/posts', { fields: 'message,created_time,permalink_url', limit: '20' }),
+    read('/posts', { fields: 'message,created_time,permalink_url,reactions.limit(0).summary(true),comments.limit(0).summary(true),shares', limit: '20' }),
   ]);
+  // A Page may grant post reading without engagement access. Keep its posts
+  // available in that case and mark the counts unavailable rather than zero.
+  const posts = postsWithEngagement.status === 'fulfilled'
+    ? postsWithEngagement
+    : (await Promise.allSettled([read('/posts', { fields: 'message,created_time,permalink_url', limit: '20' })]))[0];
   if (details.status === 'rejected' && posts.status === 'rejected') {
     throw Object.assign(new Error('Facebook did not allow this Page data to be read. Reconnect the Page and check Page read permissions.'), { status: 502 });
   }
   const info = details.status === 'fulfilled' ? details.value : {};
+  const engagementReadable = postsWithEngagement.status === 'fulfilled';
+  const count = (value) => Number.isSafeInteger(value) && value >= 0 ? value : null;
   return {
     pageId: String(page.id),
     pageName: String(info.name || page.name || '').slice(0, 180),
@@ -131,8 +138,14 @@ export async function readConnectedFacebookPage(db, ownerId) {
       text: String(post.message || '').slice(0, 1500),
       publishedAt: String(post.created_time || ''),
       url: String(post.permalink_url || '').slice(0, 300),
+      engagement: engagementReadable ? {
+        reactions: count(post.reactions?.summary?.total_count),
+        comments: count(post.comments?.summary?.total_count),
+        shares: count(post.shares?.count),
+      } : null,
     })) : [],
     postsReadable: posts.status === 'fulfilled',
+    engagementReadable,
     source: 'Connected Facebook Page (Graph API)',
   };
 }

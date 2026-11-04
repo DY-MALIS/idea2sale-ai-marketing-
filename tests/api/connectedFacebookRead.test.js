@@ -25,6 +25,43 @@ it('reads only the signed-in owner selected Facebook Page and returns no token',
   vi.unstubAllGlobals();
 });
 
+it('returns available post interaction counts without exposing people', async () => {
+  const db = { collection: () => ({ doc: () => ({ get: async () => ({ exists: true, data: () => ({
+    selectedPageId: '222', pages: [{ id: '222', name: 'Own Page', accessToken: 'owner-secret' }],
+  }) }) }) }) };
+  vi.stubGlobal('fetch', vi.fn(async (url) => ({
+    ok: true,
+    json: async () => String(url).includes('/posts?')
+      ? { data: [{ message: 'New product', reactions: { summary: { total_count: 12 } }, comments: { summary: { total_count: 3 } }, shares: { count: 2 } }] }
+      : { name: 'Own Page' },
+  })));
+  const result = await readConnectedFacebookPage(db, 'company_b');
+  expect(result.engagementReadable).toBe(true);
+  expect(result.posts[0].engagement).toEqual({ reactions: 12, comments: 3, shares: 2 });
+  expect(JSON.stringify(result)).not.toContain('owner-secret');
+  vi.unstubAllGlobals();
+});
+
+it('keeps readable posts when Facebook denies engagement fields', async () => {
+  const db = { collection: () => ({ doc: () => ({ get: async () => ({ exists: true, data: () => ({
+    selectedPageId: '222', pages: [{ id: '222', name: 'Own Page', accessToken: 'owner-secret' }],
+  }) }) }) }) };
+  vi.stubGlobal('fetch', vi.fn(async (url) => {
+    const isPosts = String(url).includes('/posts?');
+    const asksForReactions = String(url).includes('reactions.');
+    return {
+      ok: !asksForReactions,
+      json: async () => asksForReactions ? { error: { message: 'Missing engagement permission' } }
+        : isPosts ? { data: [{ message: 'New product' }] } : { name: 'Own Page' },
+    };
+  }));
+  const result = await readConnectedFacebookPage(db, 'company_b');
+  expect(result.postsReadable).toBe(true);
+  expect(result.engagementReadable).toBe(false);
+  expect(result.posts[0]).toMatchObject({ text: 'New product', engagement: null });
+  vi.unstubAllGlobals();
+});
+
 it('requires a connected Page', async () => {
   const db = { collection: () => ({ doc: () => ({ get: async () => ({ exists: false }) }) }) };
   await expect(readConnectedFacebookPage(db, 'company_b')).rejects.toThrow(/Connect your Facebook Page/);
