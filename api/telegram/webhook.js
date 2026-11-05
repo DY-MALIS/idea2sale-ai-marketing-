@@ -2,6 +2,8 @@ import { generateOpenRouterText, redactSecrets } from '../_openrouter.js';
 import admin, { initFirebaseAdmin } from '../_firebaseAdmin.js';
 import { FieldValue } from 'firebase-admin/firestore';
 import { logAudit } from '../_audit.js';
+import { botCall, decideApproval } from '../_telegramApproval.js';
+import { handleApprovalBotLogin } from '../_telegramBotAuth.js';
 
 const TELEGRAM_LIMIT = 3900;
 
@@ -746,7 +748,7 @@ const activateOwnBot = async (req, res) => {
         ? { url: '' }
         : {
             url: webhookUrl,
-            allowed_updates: ['message', 'edited_message'],
+            allowed_updates: ['message', 'edited_message', 'callback_query'],
             drop_pending_updates: false,
             ...(secret ? { secret_token: secret } : {}),
           }),
@@ -822,12 +824,14 @@ export default async function handler(req, res) {
     console.error('Firebase Admin not configured for Telegram CRM/rules:', error?.message || error);
   }
 
-  const token = ownerId ? await resolveOwnerBotToken(db, ownerId) : (process.env.TELEGRAM_BOT_TOKEN || '').trim();
+  const ownerProfile = ownerId && db ? (await db.collection('business_profiles').doc(ownerId).get()).data() || {} : {};
+  const approvalBotRequest = Boolean(ownerId && ownerProfile.telegramBotActive === true);
+  const token = ownerId ? String(ownerProfile.telegramBotToken || '').trim() : (process.env.TELEGRAM_BOT_TOKEN || '').trim();
   if (!token) {
-    return res.status(503).json({ error: 'TELEGRAM_BOT_TOKEN is not configured in Vercel.' });
+    return res.status(503).json({ error: ownerId ? 'Owner Telegram bot is not configured.' : 'TELEGRAM_BOT_TOKEN is not configured in Vercel.' });
   }
 
-  const secret = (process.env.TELEGRAM_WEBHOOK_SECRET || '').trim();
+  const secret = String(process.env.TELEGRAM_WEBHOOK_SECRET || '').trim();
   if (!secret) {
     return res.status(503).json({ error: 'TELEGRAM_WEBHOOK_SECRET is not configured.' });
   }
@@ -836,6 +840,42 @@ export default async function handler(req, res) {
   }
 
   const update = req.body || {};
+
+  // Owner bots handle account credentials and approval decisions before the
+  // CRM can record a message or the AI can echo it back.
+  if (approvalBotRequest && db && update.callback_query) {
+    const callback = update.callback_query;
+    const result = await decideApproval(db, callback, ownerId).catch(() => ({ ok: false, text: 'Could not process this decision. Try again.' }));
+    await botCall('answerCallbackQuery', { callback_query_id: callback.id, text: result.text, show_alert: !result.ok }, token).catch(() => {});
+    if (result.ok) {
+      await botCall('editMessageReplyMarkup', { chat_id: callback.message.chat.id, message_id: callback.message.message_id, reply_markup: { inline_keyboard: [] } }, token).catch(() => {});
+      if (result.approved) {
+        try {
+          const now = new Date(Math.max(Date.now(), new Date(result.scheduledTime).getTime() || 0));
+          if (result.platform === 'TELEGRAM') {
+            const { scheduleQStashDelivery } = await import('./run-scheduled.js');
+            await scheduleQStashDelivery(req, result.postId, now);
+          } else if (result.platform === 'FACEBOOK') {
+            const { scheduleFacebookQStashDelivery } = await import('../_facebook.js');
+            await scheduleFacebookQStashDelivery(result.postId, now);
+          } else if (result.platform === 'YOUTUBE') {
+            const { scheduleYouTubeQStashDelivery } = await import('../_youtube.js');
+            await scheduleYouTubeQStashDelivery(req, result.postId, now);
+          } else if (result.platform === 'TIKTOK') {
+            const { scheduleTikTokQStashDelivery } = await import('../_tiktok.js');
+            await scheduleTikTokQStashDelivery(req, result.postId, now);
+          }
+        } catch (error) {
+          console.error('Approved post delivery deferred to cron:', error?.message || error);
+        }
+      }
+    }
+    return res.status(200).json({ ok: result.ok });
+  }
+  if (approvalBotRequest && db && update.message?.chat?.type === 'private') {
+    const allowStart = String(ownerProfile.telegramBotUsername || '').toLowerCase() === 'dgacademy_official_bot';
+    if (await handleApprovalBotLogin(db, update.message, ownerId, token, allowStart)) return res.status(200).json({ ok: true, approvalLogin: true });
+  }
 
   if (update.message_reaction || update.message_reaction_count) {
     try {

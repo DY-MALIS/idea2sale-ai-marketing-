@@ -7,6 +7,7 @@ import { Client as QStashClient } from '@upstash/qstash';
 import sharp from 'sharp';
 import { logAudit } from '../_audit.js';
 import { claimPendingPost, findRecentDuplicateTelegramPost } from '../_telegramClaim.js';
+import { ensureApprovalRequest } from '../_telegramApproval.js';
 import { getScheduledCallbackBaseUrl } from '../_callbackUrl.js';
 import { notifyAdmins } from '../_alert.js';
 import { runUsageChecks } from '../_usageMonitor.js';
@@ -299,7 +300,7 @@ const startPlanVideoJob = async (item, speech) => {
 // (confirmed live: a 6.5MB PNG triggered exactly this). ImageKit can resize/
 // recompress on the fly by inserting a transformation segment into the delivery URL,
 // with no need to re-upload — cap dimensions and let it auto-pick quality/format.
-const scheduleQStashDelivery = async (req, postId, scheduledDate) => {
+export const scheduleQStashDelivery = async (req, postId, scheduledDate) => {
   const token = (process.env.QSTASH_TOKEN || '').trim();
   if (!token) return false;
 
@@ -405,6 +406,8 @@ const createScheduledTelegramPost = async (req, res) => {
     platform: 'TELEGRAM',
     scheduledTime: scheduledDate.toISOString(),
     status: 'PENDING',
+    approvalRequired: true,
+    approvalStatus: 'AWAITING_DUE',
     userId: decoded.uid,
     ...(groupId ? { groupId } : {}),
     aiSuggested: false,
@@ -444,6 +447,14 @@ export const postTelegramMessage = async (req, res) => {
     return res.status(401).json({ error: 'Sign in to send to your Telegram channel.' });
   }
   const db = initFirebaseAdmin();
+  const scheduledPostId = String(req.body?.postId || '').trim();
+  if (scheduledPostId) {
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(scheduledPostId)) return res.status(400).json({ error: 'Invalid scheduled post ID.' });
+    const scheduledSnap = await db.collection('scheduled_posts').doc(scheduledPostId).get();
+    const scheduled = scheduledSnap.data();
+    if (!scheduled || scheduled.userId !== decoded.uid || scheduled.platform !== 'TELEGRAM') return res.status(404).json({ error: 'Scheduled post not found.' });
+    if (scheduled.approvalRequired === true && scheduled.approvalStatus !== 'APPROVED') return res.status(409).json({ error: 'Waiting for approval in Telegram.' });
+  }
   const { token, chatId } = await resolveTelegramDestination(db, decoded.uid);
 
   if (!token || !chatId) {
@@ -697,6 +708,19 @@ export default async function handler(req, res) {
   try {
     const db = initFirebaseAdmin();
     const nowIso = new Date().toISOString();
+    // Pending bot requests have their own status so an unanswered request
+    // cannot occupy every slot in the platform delivery queues.
+    for (const approvalStatus of (req.query?.planVideoId ? [] : ['SEND_FAILED', 'REQUESTING'])) {
+      const waiting = await db.collection('scheduled_posts').where('approvalStatus', '==', approvalStatus).get();
+      const retryable = waiting.docs
+        .filter((doc) => doc.data()?.status === 'AWAITING_APPROVAL'
+          && (approvalStatus === 'SEND_FAILED'
+            ? Number(doc.data()?.nextApprovalRetryAt || 0) <= Date.now()
+            : Date.now() - (doc.data()?.approvalRequestStartedAt?.toMillis?.() || 0) >= 5 * 60_000))
+        .sort((a, b) => Number(a.data()?.nextApprovalRetryAt || 0) - Number(b.data()?.nextApprovalRetryAt || 0))
+        .slice(0, 10);
+      for (const waitingPost of retryable) await ensureApprovalRequest(db, waitingPost.ref, waitingPost.data());
+    }
 
     // Authenticated one-item trigger for an explicitly approved plan video.
     // It returns before the normal cron loops, so no other due content runs.
@@ -877,7 +901,7 @@ export default async function handler(req, res) {
       await db.runTransaction(async (tx) => {
         const freshSnap = await tx.get(reviewDoc.ref);
         const item = freshSnap.data();
-        if (item?.status !== 'REVIEW' || item?.type !== 'video' || item?.speechVerification?.passed !== true || !item?.resultMediaUrl || item?.imageFallbackReason) return;
+        if (item?.status !== 'REVIEW' || item?.type !== 'video' || item?.approvalRequired === true || item?.speechVerification?.passed !== true || !item?.resultMediaUrl || item?.imageFallbackReason) return;
 
         const outboxRef = db.collection('scheduled_posts').doc(`review-${reviewDoc.id}`);
         tx.set(outboxRef, {
@@ -1019,6 +1043,15 @@ export default async function handler(req, res) {
         }
         if (Array.isArray(fanout.skipped) && (fanout.queued.length || fanout.skipped.length)) {
           await updateActivePlanItem(db, planDoc.ref, { publishDestinationsQueued: fanout.queued, publishDestinationsSkipped: fanout.skipped });
+        }
+
+        if (item.approvalRequired === true) {
+          await updateActivePlanItem(db, planDoc.ref, {
+            status: 'DONE', resultMediaUrl: uploaded.mediaUrl,
+            completedAt: FieldValue.serverTimestamp(), errorMessage: null,
+          });
+          results.push({ id: planDoc.id, ok: true, contentPlan: true, awaitingApproval: true });
+          continue;
         }
 
         const { token, chatId } = await resolveTelegramDestination(db, item.userId);

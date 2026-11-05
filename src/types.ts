@@ -193,7 +193,9 @@ export interface SchedulePost {
   content: string;
   platform: 'TIKTOK' | 'YOUTUBE' | 'INSTAGRAM' | 'TWITTER' | 'TELEGRAM' | 'FACEBOOK';
   scheduledTime: string;
-  status: 'PENDING' | 'PROCESSING' | 'SUBMITTED' | 'PUBLISHED' | 'UPLOADED' | 'FAILED';
+  status: 'PENDING' | 'AWAITING_APPROVAL' | 'PROCESSING' | 'SUBMITTED' | 'PUBLISHED' | 'UPLOADED' | 'FAILED' | 'CANCELLED';
+  approvalRequired?: boolean;
+  approvalStatus?: 'AWAITING_DUE' | 'AWAITING_LINK' | 'REQUESTING' | 'REQUESTED' | 'SEND_FAILED' | 'APPROVED' | 'REJECTED';
   userId: string;
   businessName?: string;
   aiSuggested: boolean;

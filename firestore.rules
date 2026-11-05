@@ -93,6 +93,8 @@ service cloud.firestore {
         && incoming().content is string
         && incoming().content.size() <= 2000
         && incoming().platform in ['TIKTOK', 'YOUTUBE', 'INSTAGRAM', 'TWITTER', 'TELEGRAM', 'FACEBOOK']
+        && (!(incoming().platform in ['TIKTOK', 'YOUTUBE', 'FACEBOOK'])
+          || (incoming().approvalRequired == true && incoming().approvalStatus == 'AWAITING_DUE'))
         && incoming().scheduledTime is string
         && incoming().scheduledTime.matches('^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$')
         && (incoming().platform != 'TIKTOK'
@@ -131,6 +133,7 @@ service cloud.firestore {
             && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'scheduledTime']))
           || (existing().platform == 'TELEGRAM'
             && ((existing().status == 'PENDING'
+                && (existing().get('approvalRequired', false) != true || existing().get('approvalStatus', '') == 'APPROVED')
                 && incoming().status == 'PROCESSING'
                 && incoming().processingAt == request.time
                 && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'processingAt']))

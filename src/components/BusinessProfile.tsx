@@ -11,6 +11,7 @@ import { recordAuditEvent } from '../lib/auditClient';
 import { withUploadTimeout } from '../lib/withUploadTimeout';
 import { notifyBusinessProfileUpdated } from '../lib/businessBranding';
 import { channelUsernameFromProfile } from '../../shared/telegramDestination.js';
+import { EmailAuthProvider, linkWithCredential, updatePassword } from 'firebase/auth';
 
 const DEMO_STORAGE_KEY = 'demo_business_profile';
 const LOGO_MAX_DIMENSION = 256;
@@ -99,6 +100,8 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
   const [telegramBotActive, setTelegramBotActive] = useState(false);
   const [activatingBot, setActivatingBot] = useState(false);
   const [botStatusMessage, setBotStatusMessage] = useState<string | null>(null);
+  const [accountPassword, setAccountPassword] = useState('');
+  const [passwordStatus, setPasswordStatus] = useState('');
 
   const [businessName, setBusinessName] = useState('');
   const [savedBusinessName, setSavedBusinessName] = useState('');
@@ -632,6 +635,24 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
     }
   };
 
+  const saveAccountPassword = async () => {
+    if (!user?.email || accountPassword.length < 8) {
+      setPasswordStatus('Use an account with an email and a password of at least 8 characters.');
+      return;
+    }
+    try {
+      if (user.providerData.some((provider) => provider.providerId === 'password')) {
+        await updatePassword(user, accountPassword);
+      } else {
+        await linkWithCredential(user, EmailAuthProvider.credential(user.email, accountPassword));
+      }
+      setAccountPassword('');
+      setPasswordStatus('Password saved. You can now sign in to @dgacademy_official_bot with /login.');
+    } catch (error: any) {
+      setPasswordStatus(error?.code === 'auth/requires-recent-login' ? 'Sign out and sign in with Google again, then retry.' : 'Could not save password. Please try again.');
+    }
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -1055,6 +1076,16 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
                   <p className="text-[11px] text-amber-600 mt-2">{t('saveBotTokenFirst')}</p>
                 )}
                 {botStatusMessage && <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">{botStatusMessage}</p>}
+              </div>
+            )}
+
+            {!isDemoMode && user?.email && (
+              <div className="rounded-2xl border border-slate-200 p-5 dark:border-slate-700">
+                <h3 className="mb-2 font-bold text-slate-900 dark:text-slate-100">Approval bot sign-in</h3>
+                <p className="mb-3 text-xs text-slate-600 dark:text-slate-300">Set a password for {user.email} to link this same account in @dgacademy_official_bot. Send /login to the bot after saving.</p>
+                <input type="password" autoComplete="new-password" minLength={8} value={accountPassword} onChange={(event) => setAccountPassword(event.target.value)} placeholder="New password" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-slate-900" />
+                <button type="button" onClick={saveAccountPassword} className="mt-3 rounded-xl bg-brand-700 px-4 py-2 text-sm font-bold text-white">Save password</button>
+                {passwordStatus && <p className="mt-2 text-xs text-slate-600 dark:text-slate-300">{passwordStatus}</p>}
               </div>
             )}
 

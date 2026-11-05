@@ -29,6 +29,7 @@ export default async function reviewVideoHandler(req, res) {
       const item = snap.data();
       if (!item || item.userId !== user.uid) throw new Error('Video not found.');
       if (item.supersededBy || item.status === 'CANCELLED') throw new Error('This content plan has been replaced.');
+      if (action === 'approve' && item.approvalRequired === true) throw new Error('This video must pass automatic quality checks before bot approval. Retry generation if needed.');
       if (action === 'retry') {
         // A double click or a delayed Firestore snapshot can submit the retry
         // after the first request already moved the item forward. Treat those

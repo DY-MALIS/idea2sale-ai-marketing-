@@ -1,19 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mock = vi.hoisted(() => ({
-  pages: vi.fn(), facebookQueue: vi.fn(), youtubeQueue: vi.fn(), tiktokQueue: vi.fn(),
+  pages: vi.fn(), facebookQueue: vi.fn(), youtubeQueue: vi.fn(), tiktokQueue: vi.fn(), telegramQueue: vi.fn(),
 }));
 vi.mock('../../api/_facebook.js', () => ({ getFacebookPages: mock.pages, scheduleFacebookQStashDelivery: mock.facebookQueue }));
 vi.mock('../../api/_youtube.js', () => ({ scheduleYouTubeQStashDelivery: mock.youtubeQueue }));
 vi.mock('../../api/_tiktok.js', () => ({ scheduleTikTokQStashDelivery: mock.tiktokQueue }));
+vi.mock('../../api/telegram/run-scheduled.js', () => ({ scheduleQStashDelivery: mock.telegramQueue }));
 const { queueContentPlanDestinations } = await import('../../api/_contentPlanFanout.js');
 
-const fakeDb = (item) => {
+const fakeDb = (item, profile = {}) => {
   const posts = new Map();
   const itemRef = { kind: 'item', get: async () => ({ exists: true, data: () => item }) };
   const db = {
     collection: (name) => name === 'content_plan_items'
       ? { doc: () => itemRef }
+      : name === 'business_profiles' ? { doc: () => ({ get: async () => ({ data: () => profile }) }) }
       : { doc: (id) => ({ id }) },
     runTransaction: async (callback) => callback({
       get: async (ref) => ref.kind === 'item'
@@ -31,6 +33,7 @@ describe('Content Plan publishing', () => {
     mock.facebookQueue.mockReset().mockResolvedValue(true);
     mock.youtubeQueue.mockReset().mockResolvedValue(true);
     mock.tiktokQueue.mockReset().mockResolvedValue(true);
+    mock.telegramQueue.mockReset().mockResolvedValue(true);
   });
 
   it('queues an image only for Facebook, leaving Telegram to its existing sender', async () => {
@@ -60,5 +63,17 @@ describe('Content Plan publishing', () => {
     expect(second.queued).toEqual([]);
     expect(posts.size).toBe(3);
     expect(posts.get('plan-video-2-tiktok').directPostOptions).toMatchObject({ consent: true, privacyLevel: 'PUBLIC_TO_EVERYONE', ownBrand: true });
+  });
+
+  it('queues a new plan image separately for Telegram and Facebook, both awaiting approval', async () => {
+    const { db, posts } = fakeDb(
+      { userId: 'owner', type: 'image', status: 'PROCESSING', autoPublishDestinations: true, approvalRequired: true, topic: 'Photo' },
+      { telegramBotToken: 'owner-token', telegramChannelUrl: '@ownerchannel' },
+    );
+    const result = await queueContentPlanDestinations(db, 'image-2', 'https://example.com/photo.jpg', {});
+    expect(result.queued).toEqual(['TELEGRAM', 'FACEBOOK']);
+    expect(posts.get('plan-image-2-telegram')).toMatchObject({ approvalRequired: true, approvalStatus: 'AWAITING_DUE', platform: 'TELEGRAM', mediaUrl: 'https://example.com/photo.jpg' });
+    expect(posts.get('plan-image-2-facebook')).toMatchObject({ approvalRequired: true, approvalStatus: 'AWAITING_DUE' });
+    expect(mock.telegramQueue).toHaveBeenCalledOnce();
   });
 });

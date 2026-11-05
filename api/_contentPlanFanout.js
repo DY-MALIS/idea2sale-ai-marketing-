@@ -1,6 +1,8 @@
 import { getFacebookPages, scheduleFacebookQStashDelivery } from './_facebook.js';
 import { scheduleYouTubeQStashDelivery } from './_youtube.js';
 import { scheduleTikTokQStashDelivery } from './_tiktok.js';
+import { scheduleQStashDelivery } from './telegram/run-scheduled.js';
+import { telegramDestinationFromProfile } from '../shared/telegramDestination.js';
 
 // Queue each destination once. The platform pollers own the actual upload and
 // its final status in Content Timeline. A stale video callback cannot create
@@ -15,13 +17,20 @@ export async function queueContentPlanDestinations(db, itemId, mediaUrl, req) {
   if (item.type === 'video' && item.imageFallbackReason) return { skipped: 'visual_review_required', queued: [] };
 
   const isVideo = item.type === 'video';
-  const targets = isVideo ? ['YOUTUBE', 'FACEBOOK', 'TIKTOK'] : ['FACEBOOK'];
+  const targets = isVideo
+    ? (item.approvalRequired === true ? ['TELEGRAM', 'YOUTUBE', 'FACEBOOK', 'TIKTOK'] : ['YOUTUBE', 'FACEBOOK', 'TIKTOK'])
+    : (item.approvalRequired === true ? ['TELEGRAM', 'FACEBOOK'] : ['FACEBOOK']);
   const connection = await getFacebookPages(db, item.userId).catch(() => null);
   const facebookPageId = connection?.selectedPageId || connection?.pages?.[0]?.id;
+  const profile = item.approvalRequired === true
+    ? (await db.collection('business_profiles').doc(item.userId).get()).data() || {}
+    : {};
+  const telegramDestination = telegramDestinationFromProfile(profile);
   const queued = [];
   const skipped = [];
   for (const platform of targets) {
     if (platform === 'FACEBOOK' && !facebookPageId) { skipped.push('FACEBOOK: no connected Page'); continue; }
+    if (platform === 'TELEGRAM' && (!telegramDestination.token || !telegramDestination.chatId)) { skipped.push('TELEGRAM: no connected channel'); continue; }
     if (platform === 'TIKTOK' && item.tiktokDirectPostConsent !== true) { skipped.push('TIKTOK: consent missing'); continue; }
     const ref = db.collection('scheduled_posts').doc(`plan-${itemId}-${platform.toLowerCase()}`);
     const scheduledTime = new Date().toISOString();
@@ -33,12 +42,13 @@ export async function queueContentPlanDestinations(db, itemId, mediaUrl, req) {
       sourcePlanItemId: itemId,
       scheduledTime,
       status: 'PENDING',
+      ...(item.approvalRequired === true ? { approvalRequired: true, approvalStatus: 'AWAITING_DUE' } : {}),
       aiSuggested: true,
-      videoUrl: isVideo ? mediaUrl : '',
-      mediaUrl: isVideo ? '' : mediaUrl,
+      videoUrl: isVideo && platform !== 'TELEGRAM' ? mediaUrl : '',
+      mediaUrl: platform === 'TELEGRAM' || !isVideo ? mediaUrl : '',
       mediaType: isVideo ? 'video' : 'photo',
       ...(platform === 'FACEBOOK' ? { facebookPageId: String(facebookPageId) } : {}),
-      publishMode: platform === 'FACEBOOK'
+      publishMode: platform === 'TELEGRAM' ? 'TELEGRAM_AUTO_POST' : platform === 'FACEBOOK'
         ? (isVideo ? 'FACEBOOK_REEL_AUTO_POST' : 'FACEBOOK_PHOTO_AUTO_POST')
         : platform === 'YOUTUBE' ? 'YOUTUBE_AUTO_POST' : 'TIKTOK_DIRECT_POST',
       ...(platform === 'YOUTUBE' ? { youtubeRequestedPrivacyStatus: 'public' } : {}),
@@ -66,7 +76,8 @@ export async function queueContentPlanDestinations(db, itemId, mediaUrl, req) {
     if (!created) continue;
     queued.push(platform);
     try {
-      if (platform === 'YOUTUBE') await scheduleYouTubeQStashDelivery(req, ref.id, new Date());
+      if (platform === 'TELEGRAM') await scheduleQStashDelivery(req, ref.id, new Date());
+      else if (platform === 'YOUTUBE') await scheduleYouTubeQStashDelivery(req, ref.id, new Date());
       else if (platform === 'FACEBOOK') await scheduleFacebookQStashDelivery(ref.id, new Date());
       else await scheduleTikTokQStashDelivery(req, ref.id, new Date());
     } catch (error) {

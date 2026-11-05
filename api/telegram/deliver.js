@@ -191,6 +191,10 @@ export const processContentPlanVideo = async (db, itemId, req) => {
     if (Array.isArray(fanout.skipped) && (fanout.queued.length || fanout.skipped.length)) {
       await ref.update({ publishDestinationsQueued: fanout.queued, publishDestinationsSkipped: fanout.skipped });
     }
+    if (item.approvalRequired === true) {
+      await ref.update({ status: 'DONE', resultMediaUrl: uploaded.mediaUrl, completedAt: FieldValue.serverTimestamp(), errorMessage: null });
+      return { ok: true, videoReady: true, awaitingApproval: true };
+    }
     // Speech verification is the automated quality gate. Once it passes, send
     // the video immediately instead of pausing in REVIEW for a manual approval.
     // A failed verification still follows the catch path below and is never

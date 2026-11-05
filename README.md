@@ -133,6 +133,12 @@ npm run dev
 
 ## Telegram Setup
 
+### Content approval bot
+
+`@dgacademy_official_bot` is configured as an owner bot in Business Profile. It uses that owner's saved `telegramBotToken` and existing `/api/telegram/webhook?uid=<owner-uid>` webhook. Its webhook must subscribe to `callback_query` updates as well as messages; activating the bot again in Business Profile registers the updated webhook after deployment. The shared `TELEGRAM_BOT_TOKEN` belongs to a different bot and is not used for approvals. Other owner bots can use `/login` for the same approval flow; the plain `/start` sign-in prompt is specific to `@dgacademy_official_bot` so customer deep links continue to work.
+
+Enable Email/Password in Firebase Authentication. Existing Google users can add a password in Business Profile without changing their UID. They then send `/start` or `/login` to the approval bot in a private chat, followed by email and password for the bot's owner account. The bot attempts to delete both credential messages, but Telegram deletion is not guaranteed. `/logout` disconnects the chat. New scheduled auto-publish posts wait for separate Yes/No decisions per destination; posts already pending before deployment keep their prior behavior. Instagram and Twitter planning-only rows do not request approval.
+
 1. For each company login, create its own bot via [@BotFather](https://t.me/BotFather). Save its token and public
    channel username (`@mychannel` or `https://t.me/mychannel`) in that login's Business Profile, then add that bot as
    an administrator of the channel. A numeric channel/chat ID is supported when no username is saved. If both are

@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 
 import { signInWithGoogle, auth, authPersistenceReady } from '../lib/firebase';
-import { signInWithCustomToken } from 'firebase/auth';
+import { signInWithCustomToken, signInWithEmailAndPassword } from 'firebase/auth';
 import { useLanguage } from '../contexts/LanguageContext';
 
 interface AuthProps {
@@ -21,6 +21,8 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const firebaseApiKey = import.meta.env.VITE_FIREBASE_API_KEY || '';
 
   useEffect(() => {
@@ -128,6 +130,21 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
     }
   };
 
+  const handleEmailLogin = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setLoading(true);
+    setError(null);
+    try {
+      await authPersistenceReady;
+      await signInWithEmailAndPassword(auth, email.trim(), password);
+      setPassword('');
+    } catch {
+      setError('Could not sign in. Check your email and password.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-mesh px-4 py-20 sm:p-6">
       <motion.div
@@ -148,6 +165,12 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
         </div>
 
         <div className="glass p-6 sm:p-8 md:p-10 rounded-[2rem] sm:rounded-[3rem] border border-white/70 shadow-2xl">
+          <form onSubmit={handleEmailLogin} className="mb-6 space-y-3">
+            <label className="block text-sm font-bold text-slate-700 dark:text-slate-200" htmlFor="account-email">Email sign-in</label>
+            <input id="account-email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Email" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-slate-900" />
+            <input type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-slate-900" />
+            <button type="submit" disabled={loading} className="w-full rounded-xl bg-brand-700 px-5 py-3 font-bold text-white disabled:opacity-50">Sign in with email</button>
+          </form>
           <form onSubmit={handleSubmit} className="space-y-6">
             {error && (
               <div className="space-y-4">

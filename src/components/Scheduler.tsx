@@ -324,6 +324,10 @@ const Scheduler: React.FC = () => {
   };
 
   const sendTelegramPost = async (post: SchedulePost) => {
+    if (!post.localOnly && post.approvalRequired === true && post.approvalStatus !== 'APPROVED') {
+      setErrorMsg('Waiting for approval in Telegram. Open @dgacademy_official_bot and sign in with /login.');
+      return;
+    }
     if (!user) {
       setErrorMsg(language === 'km'
         ? 'សូមចូលគណនីមុនផ្ញើទៅ Telegram។ ការផុសនេះនៅរង់ចាំ ហើយអ្នកអាចព្យាយាមម្ដងទៀតបន្ទាប់ពីចូលគណនី។'
@@ -374,6 +378,7 @@ const Scheduler: React.FC = () => {
       // The Telegram endpoint requires a Firebase ID token for every real send,
       // including a locally saved post that is retried after sign-in.
       const requestBody = JSON.stringify({
+        postId: post.id,
         text: post.content,
         mediaUrl,
         mediaDataUrl: localMediaDataUrl,
@@ -643,7 +648,7 @@ const Scheduler: React.FC = () => {
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${
                           post.status === 'PUBLISHED' ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60' : 'bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60'
                         }`}>
-                          {post.platform === 'YOUTUBE' && post.status === 'PUBLISHED' ? 'UPLOADED' : post.status}
+                          {post.approvalStatus === 'REJECTED' ? 'REJECTED' : (post.status === 'AWAITING_APPROVAL' || post.status === 'PENDING' && post.approvalRequired && post.approvalStatus !== 'APPROVED') ? 'AWAITING APPROVAL' : post.platform === 'YOUTUBE' && post.status === 'PUBLISHED' ? 'UPLOADED' : post.status}
                         </span>
                         <span className="text-[10px] text-slate-400 font-mono dark:text-slate-400">{timeStr}</span>
                         {post.aiSuggested && (
@@ -661,7 +666,10 @@ const Scheduler: React.FC = () => {
                           {post.mediaType === 'video' ? 'Video' : 'Image'}: {post.mediaName}
                         </p>
                       )}
-                      {post.platform === 'TELEGRAM' && post.status === 'PENDING' && !post.localOnly && (
+                      {['PENDING', 'AWAITING_APPROVAL'].includes(post.status) && post.approvalRequired && post.approvalStatus !== 'APPROVED' && (
+                        <p className="mt-2 text-xs text-sky-700 dark:text-sky-300">{post.approvalStatus === 'AWAITING_LINK' ? 'Open @dgacademy_official_bot and send /login to receive approval requests.' : post.approvalStatus === 'SEND_FAILED' ? 'The bot could not send this request. Delivery will retry; the post remains on hold.' : 'This destination will publish only after you tap Yes in @dgacademy_official_bot.'}</p>
+                      )}
+                      {post.platform === 'TELEGRAM' && post.status === 'PENDING' && !post.localOnly && !post.approvalRequired && (
                         <p className="mt-2 text-xs text-sky-700 dark:text-sky-300">
                           {language === 'km'
                             ? (new Date(post.scheduledTime).getTime() + 2 * 60 * 1000 > nowTick
@@ -682,7 +690,7 @@ const Scheduler: React.FC = () => {
                           Video attached{post.videoName ? `: ${post.videoName}` : ''}
                         </p>
                       )}
-                      {(['TIKTOK', 'YOUTUBE', 'FACEBOOK'].includes(post.platform)) && post.status === 'PENDING' &&
+                      {(['TIKTOK', 'YOUTUBE', 'FACEBOOK'].includes(post.platform)) && post.status === 'PENDING' && (!post.approvalRequired || post.approvalStatus === 'APPROVED') &&
                         new Date(post.scheduledTime).getTime() + 2 * 60 * 1000 < nowTick && (
                         <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
                           {language === 'km'
@@ -740,6 +748,7 @@ const Scheduler: React.FC = () => {
                         </motion.button>
                       )}
                       {post.platform === 'TELEGRAM' && post.status === 'PENDING' &&
+                        (!post.approvalRequired || post.approvalStatus === 'APPROVED') &&
                         (post.localOnly || new Date(post.scheduledTime).getTime() + 2 * 60 * 1000 <= nowTick) && (
                         <motion.button
                           whileHover={{ scale: 1.1 }}
@@ -763,6 +772,7 @@ const Scheduler: React.FC = () => {
                         </motion.button>
                       )}
                       {(['TIKTOK', 'YOUTUBE', 'FACEBOOK'].includes(post.platform)) && post.status === 'PENDING' &&
+                        (!post.approvalRequired || post.approvalStatus === 'APPROVED') &&
                         !post.localOnly && new Date(post.scheduledTime).getTime() <= nowTick && (
                         <motion.button
                           whileHover={{ scale: 1.05 }}

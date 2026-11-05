@@ -984,6 +984,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
             groupId,
             scheduledTime: scheduledDate.toISOString(),
             status: 'PENDING',
+            ...(['TIKTOK', 'YOUTUBE', 'FACEBOOK'].includes(platform) ? { approvalRequired: true, approvalStatus: 'AWAITING_DUE' } : {}),
             userId: userToUse.uid,
             aiSuggested: false,
             videoUrl: ['TIKTOK', 'YOUTUBE', 'FACEBOOK'].includes(platform) && !imageFile ? videoUrl : '',
@@ -1458,7 +1459,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                             {youtubeConnection?.channelTitle && <p className="font-bold">{youtubeConnection.channelTitle}</p>}
                             {youtubeConnection?.channelId && <a className="font-semibold underline" href={`https://www.youtube.com/channel/${encodeURIComponent(youtubeConnection.channelId)}`} target="_blank" rel="noopener noreferrer">View connected channel</a>}
                             {youtubeConnection?.connected && !youtubeConnection.channelId && <p>The connected Google account can upload. Use Change channel to choose another account.</p>}
-                            <p>Uploads automatically at the scheduled time. New uploads show their destination and visibility in Content Timeline.</p>
+                            <p>At the scheduled time, @dgacademy_official_bot asks for approval. Upload starts after you tap Yes. Track it in Content Timeline.</p>
                           </div>
                         </div>
                         <button

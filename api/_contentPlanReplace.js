@@ -44,6 +44,7 @@ export default async function replaceContentPlan(req, res) {
           prompt: String(item.prompt).trim(),
           businessName: String(req.body?.businessName || '').slice(0, 200),
           autoPublishDestinations: true,
+          approvalRequired: true,
           ...(item.type === 'image' ? {
             headline: String(item.headline || '').slice(0, 80),
             cta: String(item.cta || '').slice(0, 30),

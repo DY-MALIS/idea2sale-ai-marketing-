@@ -1,4 +1,5 @@
 import { FieldValue } from 'firebase-admin/firestore';
+import { ensureApprovalRequest } from './_telegramApproval.js';
 
 // Atomically claims a scheduled post for delivery: reads the doc, and only if
 // it is still PENDING, flips it to PROCESSING in the same transaction. Used by
@@ -8,11 +9,14 @@ import { FieldValue } from 'firebase-admin/firestore';
 // both publish to Telegram. The transaction makes the claim compare-and-swap
 // so only one caller ever wins it.
 export async function claimPendingPost(db, ref) {
-  return db.runTransaction(async (tx) => {
+  const result = await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     if (!snap.exists) return { skipped: 'not_found' };
     const data = { id: snap.id, ...snap.data() };
     if (data.status !== 'PENDING') return { skipped: data.status };
+    if (ref.parent?.id === 'scheduled_posts' && data.approvalRequired === true && data.approvalStatus !== 'APPROVED') {
+      return { skipped: 'awaiting_approval', approvalPost: data };
+    }
     if (data.sourcePlanItemId) {
       const source = await tx.get(db.collection('content_plan_items').doc(data.sourcePlanItemId));
       if (!source.exists || source.data()?.userId !== data.userId || source.data()?.supersededBy || source.data()?.status === 'CANCELLED') {
@@ -23,6 +27,11 @@ export async function claimPendingPost(db, ref) {
     tx.update(ref, { status: 'PROCESSING', processingAt: FieldValue.serverTimestamp() });
     return { post: data };
   });
+  if (result.approvalPost) {
+    await ensureApprovalRequest(db, ref, result.approvalPost);
+    return { skipped: 'awaiting_approval' };
+  }
+  return result;
 }
 
 export async function isSourcePlanActive(db, post) {

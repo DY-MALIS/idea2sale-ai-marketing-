@@ -1342,7 +1342,8 @@ export default async function handler(req, res) {
             ...item,
             userId: owner.uid,
             businessName: String(req.body?.businessName || '').slice(0, 200),
-            autoPublishDestinations: items.some((entry) => entry?.autoPublishDestinations === true),
+            autoPublishDestinations: true,
+            approvalRequired: true,
             ...(item.type === 'video' && items.some((entry) => entry?.tiktokDirectPostConsent === true)
               ? { tiktokDirectPostConsent: true,
                   tiktokCommercialDisclosure: items.some((entry) => entry?.tiktokCommercialDisclosure === true),

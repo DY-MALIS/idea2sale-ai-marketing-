@@ -4,6 +4,7 @@ import admin, { initFirebaseAdmin } from '../_firebaseAdmin.js';
 import { logAudit } from '../_audit.js';
 import { getAutomationAccessToken, recordTikTokPostSync, scheduleTikTokQStashDelivery, markAutomationTokenRevoked } from '../_tiktok.js';
 import { claimPendingPost, findRecentDuplicateTikTokPost, findRecentDuplicateYouTubePost, isSourcePlanActive } from '../_telegramClaim.js';
+import { approvalNeeded } from '../_telegramApproval.js';
 
 import { getYouTubeAutomationAccessToken, publishVideoToYouTube, scheduleYouTubeQStashDelivery } from '../_youtube.js';
 import { getFacebookPages, publishFacebookReel, publishFacebookPhoto, getFacebookReelStatus, scheduleFacebookQStashDelivery } from '../_facebook.js';
@@ -534,6 +535,10 @@ async function runTikTokCron(req, res) {
 
     const results = [];
     for (const doc of dueDocs) {
+      if (await approvalNeeded(db, doc.ref)) {
+        results.push({ id: doc.id, ok: true, skipped: 'awaiting_approval' });
+        continue;
+      }
       const ownerId = doc.data()?.userId;
       let tokenRefreshFailed = false;
       const token = ownerId ? await getAutomationAccessToken(db, ownerId).catch((error) => {
@@ -638,6 +643,7 @@ async function handleDeliverDueRequest(req, res) {
     if (!Number.isFinite(dueAt) || dueAt > Date.now()) {
       return res.status(400).json({ error: 'This post is not due yet.' });
     }
+    if (await approvalNeeded(db, ref)) return res.status(409).json({ error: 'Waiting for approval in Telegram.' });
     if (post.platform === 'FACEBOOK' && post.mediaType === 'photo'
       ? !post.mediaUrl : !post.videoUrl) {
       return res.status(400).json({ error: 'This scheduled post has no attached media.' });
@@ -710,6 +716,7 @@ async function handleDeliverAction(req, res, platform = 'TIKTOK') {
     if (!postSnap.exists || postSnap.data()?.platform !== platform) {
       return res.status(200).json({ ok: true, skipped: 'wrong_platform_or_missing' });
     }
+    if (await approvalNeeded(db, ref)) return res.status(200).json({ ok: true, skipped: 'awaiting_approval' });
     if (platform === 'YOUTUBE') {
       const result = await deliverOneScheduledYouTubePost(db, ref);
       if (!result.ok) await notifyAdmins(`YouTube scheduled post ${postId} failed (QStash): ${result.error}`);
