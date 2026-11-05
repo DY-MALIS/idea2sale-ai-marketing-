@@ -1,0 +1,27 @@
+{
+  "jobId": "gen-vid-1792570590-DGPy3nWveFZQgo5azVv0",
+  "status": "completed",
+  "estimatedCost": 0.4524,
+  "narrationDuration": 1.872,
+  "narrationProvider": "edge-km-KH-SreymomNeural",
+  "narrationFallbackReason": "Expressive Khmer voice was unavailable or unclear; standard Khmer neural voice was used.",
+  "imageFallbackReason": "The video provider rejected the generated presenter image. The clip was created from the scene and the original Khmer narration was added afterward. Review lip sync before publishing.",
+  "narrationUrl": "https://ik.imagekit.io/lclmjpgtf/generation-history/media-1792570532265_Neo6Wu-L8.mp3",
+  "expectedScript": "រៀនប្រើបច្ចេកវិទ្យាជាមួយយើង។",
+  "startedAt": "2026-10-21T08:16:34.210Z",
+  "rawVideoUrl": "https://ik.imagekit.io/lclmjpgtf/generation-history/media-1792570686634_PT8FaPdj7.mp4?tr=w-1280%2Cq-85%2Cf-mp4",
+  "finalVideoUrl": "https://ik.imagekit.io/lclmjpgtf/generation-history/media-1792570691432_ujo_j0VQm.mp4?tr=w-1280%2Cq-85%2Cf-mp4",
+  "bytes": 419207,
+  "usage": {
+    "cost": 0.30555,
+    "is_byok": false
+  },
+  "completedAt": "2026-10-21T08:18:12.788Z",
+  "speechVerification": {
+    "passed": false,
+    "unavailable": true,
+    "expected": "រៀនប្រើបច្ចេកវិទ្យាជាមួយយើង។",
+    "method": "transcription-inconclusive",
+    "naturalnessReviewed": false
+  }
+}

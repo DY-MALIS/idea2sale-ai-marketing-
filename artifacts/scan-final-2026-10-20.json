@@ -1,0 +1,415 @@
+﻿{
+    "success":  true,
+    "query":  "Find competitors for my wheat bread and birthday cake bakery in Siem Reap",
+    "scanMode":  "competitor_activity",
+    "businessPresence":  null,
+    "profileSources":  [
+
+                       ],
+    "researchTarget":  "Find competitors for my wheat bread and birthday cake bakery in Siem Reap",
+    "audienceResearch":  false,
+    "audienceSources":  [
+
+                        ],
+    "activityWindow":  {
+                           "startDate":  "2026-10-14",
+                           "endDate":  "2026-10-20"
+                       },
+    "webBusinessesFound":  0,
+    "webSearchAvailable":  true,
+    "customerInsights":  {
+                             "whatTheyBought":  [
+
+                                                ],
+                             "whatTheyLike":  [
+
+                                              ],
+                             "contentDesires":  [
+
+                                                ],
+                             "targetPersonas":  [
+
+                                                ]
+                         },
+    "competitors":  [
+                        {
+                            "pageName":  "Hari Bakery \u0026 Restaurant",
+                            "matchReason":  "Siem Reap bakery serving fresh bread, cakes, cookies, pastries, and celebration-oriented baked products to customers in the same local market.",
+                            "marketPresence":  "stronger",
+                            "topAngle":  "Organic and fresh baked products combined with a restaurant experience.",
+                            "offerStrategy":  "Bundling everyday bakery items with dine-in restaurant services to increase average order value.",
+                            "weakness":  "Lacks consistent online engagement and recent public promotional activity.",
+                            "counterStrategy":  "Content quality: Post authentic, daily Behind-the-Scenes videos of fresh bread baking to build organic trust.",
+                            "publicActivitySignals":  [
+
+                                                      ],
+                            "recentActivities":  [
+
+                                                 ],
+                            "customerSegments":  [
+                                                     "Health-conscious local residents",
+                                                     "Dine-in bakery customers"
+                                                 ],
+                            "facebookUrl":  "",
+                            "websiteUrl":  "https://www.haribakeryandrestaurant.com/",
+                            "tiktokUrl":  "",
+                            "linkedinUrl":  "",
+                            "sourceUrl":  "https://www.haribakeryandrestaurant.com/"
+                        },
+                        {
+                            "pageName":  "Bayon Pastry School Coffee Shop",
+                            "matchReason":  "Siem Reap coffee shop and pastry bakery selling fresh bread, pastries, and personalized birthday cakes, directly competing for customers seeking bread and celebration cakes.",
+                            "marketPresence":  "similar",
+                            "topAngle":  "Social-impact bakery whose purchases support vocational training for young Cambodian women.",
+                            "offerStrategy":  "Appealing to ethically-minded consumers through storytelling and high-quality French pastries.",
+                            "weakness":  "May focus too heavily on the NGO aspect over rapid customer service or fast local delivery.",
+                            "counterStrategy":  "Speed and Service depth: Emphasize rapid same-day cake delivery and clear transparent pricing in Siem Reap.",
+                            "publicActivitySignals":  [
+                                                          "2026-10-14: Published a Facebook post: 🥐 សកម្មភាពអនុវត្តផ្ទាល់យ៉ាងយកចិត្តទុកដាក់របស់សិស្សយើង! \nនៅពីក្រោយនំក្រូសង់ (Croissant) ដែលមានស្រទាប់ស្រួយឆ្ងាញ់ និងក្លិនឈ្ងុយសាយភាយ គឺកើតចេញពីការខិតខំប្រឹងប្រែង រៀនសូត្រ និងការផ្ចិតផ្ចង់យ៉ាងលម្អិតពីសំណាក់ប្អូនៗសិស្សសាលានំប៉័ងបាយ័ន។  \nរាល់វគ្គសិក្សា មិនត្រឹមតែផ្តល់នូវចំណេះដឹង និងជំនាញធ្វើនំប៉ុណ្ណោះទេ ប៉ុន្តែថែមទាំងបង្កើតនូវទំនុកចិត្ត និងក្តីស្រមៃសម្រាប់អនាគតរបស់ប្អូនៗផងដ"
+                                                      ],
+                            "recentActivities":  [
+                                                     {
+                                                         "date":  "2026-10-14",
+                                                         "activity":  "Published a Facebook post: 🥐 សកម្មភាពអនុវត្តផ្ទាល់យ៉ាងយកចិត្តទុកដាក់របស់សិស្សយើង! \nនៅពីក្រោយនំក្រូសង់ (Croissant) ដែលមានស្រទាប់ស្រួយឆ្ងាញ់ និងក្លិនឈ្ងុយសាយភាយ គឺកើតចេញពីការខិតខំប្រឹងប្រែង រៀនសូត្រ និងការផ្ចិតផ្ចង់យ៉ាងលម្អិតពីសំណាក់ប្អូនៗសិស្សសាលានំប៉័ងបាយ័ន។  \nរាល់វគ្គសិក្សា មិនត្រឹមតែផ្តល់នូវចំណេះដឹង និងជំនាញធ្វើនំប៉ុណ្ណោះទេ ប៉ុន្តែថែមទាំងបង្កើតនូវទំនុកចិត្ត និងក្តីស្រមៃសម្រាប់អនាគតរបស់ប្អូនៗផងដ",
+                                                         "sourceUrl":  "https://www.facebook.com/bayonpastryschool/posts/pfbid0sLVmqWUxGRKoTHUjXWWLXnDkyJVc18WET5NTWTLFkAPDgM6etZ9ACGHCPeiN4pq4l",
+                                                         "publisherPageUrl":  "https://www.facebook.com/bayonpastryschool",
+                                                         "platform":  "Facebook",
+                                                         "contentType":  "Post",
+                                                         "title":  "🥐 សកម្មភាពអនុវត្តផ្ទាល់យ៉ាងយកចិត្តទុកដាក់របស់សិស្សយើង!",
+                                                         "summary":  "🥐 សកម្មភាពអនុវត្តផ្ទាល់យ៉ាងយកចិត្តទុកដាក់របស់សិស្សយើង! \nនៅពីក្រោយនំក្រូសង់ (Croissant) ដែលមានស្រទាប់ស្រួយឆ្ងាញ់ និងក្លិនឈ្ងុយសាយភាយ គឺកើតចេញពីការខិតខំប្រឹងប្រែង រៀនសូត្រ និងការផ្ចិតផ្ចង់យ៉ាងលម្អិតពីសំណាក់ប្អូនៗសិស្សសាលានំប៉័ងបាយ័ន។  \nរាល់វគ្គសិក្សា មិនត្រឹមតែផ្តល់នូវចំណេះដឹង និងជំនាញធ្វើនំប៉ុណ្ណោះទេ ប៉ុន្តែថែមទាំងបង្កើតនូវទំនុកចិត្ត និងក្តីស្រមៃសម្រាប់អនាគតរបស់ប្អូនៗផងដែរ 💛\nសូមអញ្ជើញមកគាំទ្រស្នាដៃ និងការតាំងចិត្តរបស់ប្អូនៗសិស្សនៅ Bayon Pastry School Coffee Shop ទាំងអស់គ្នាណា! ☕️🥐\n#BayonPastrySchool #សកម្មភាពសិស្ស #ជំនាញធ្វើនំ #SiemReap #SupportEducation #FreshlyBaked",
+                                                         "keyDetails":  [
+                                                                            "Reactions: 29",
+                                                                            "Shares: 1"
+                                                                        ]
+                                                     }
+                                                 ],
+                            "customerSegments":  [
+                                                     "Ethical consumers",
+                                                     "Expatriates",
+                                                     "Tourists"
+                                                 ],
+                            "facebookUrl":  "https://www.facebook.com/bayonpastryschool",
+                            "websiteUrl":  "https://bayon-ed.org/coffee-shop/",
+                            "tiktokUrl":  "",
+                            "linkedinUrl":  "",
+                            "sourceUrl":  "https://bayon-ed.org/coffee-shop/"
+                        },
+                        {
+                            "pageName":  "Angkor Cake Studio \u0026 Coffee",
+                            "matchReason":  "Siem Reap cake studio offering custom birthday cakes, children\u0027s cakes, romantic cakes, and event cakes to the same customers purchasing birthday cakes from a bakery.",
+                            "marketPresence":  "similar",
+                            "topAngle":  "Premium custom celebration-cake studio with coffee and dessert service.",
+                            "offerStrategy":  "",
+                            "weakness":  "",
+                            "counterStrategy":  "",
+                            "publicActivitySignals":  [
+
+                                                      ],
+                            "recentActivities":  [
+
+                                                 ],
+                            "customerSegments":  [
+
+                                                 ],
+                            "facebookUrl":  "",
+                            "websiteUrl":  "https://angkorcakestudio.com/index.html",
+                            "tiktokUrl":  "",
+                            "linkedinUrl":  "",
+                            "sourceUrl":  "https://angkorcakestudio.com/index.html"
+                        },
+                        {
+                            "pageName":  "Paris Bakery",
+                            "matchReason":  "A Siem Reap bakery selling bread, pastries, cakes and bakery meals, serving local residents and visitors in the same city; its active Foodpanda listing shows current orders, recent reviews and delivery availability.",
+                            "marketPresence":  "stronger",
+                            "topAngle":  "French-style bakery focusing on savory and sweet daily baked goods.",
+                            "offerStrategy":  "Leveraging food delivery apps like Foodpanda for rapid, low-friction local sales.",
+                            "weakness":  "Content is overly simplistic, focusing only on product names and prices without building brand personality.",
+                            "counterStrategy":  "Trust \u0026 proof: Use live-selling or face-to-camera videos to showcase the real product and seller, beating their static photo approach.",
+                            "publicActivitySignals":  [
+                                                          "2026-10-14: Published a Facebook post: Chicken Mayonnaise Focaccia Bread 2.50$ 🥰🥰🥰",
+                                                          "2026-10-14: Published a Facebook post: Ham Cheese Focaccia Bread 3.00$ 🥰🥰🥰"
+                                                      ],
+                            "recentActivities":  [
+                                                     {
+                                                         "date":  "2026-10-14",
+                                                         "activity":  "Published a Facebook post: Chicken Mayonnaise Focaccia Bread 2.50$ 🥰🥰🥰",
+                                                         "sourceUrl":  "https://www.facebook.com/parisbakerycambodia/posts/pfbid02ddEAnTbxT7hRTxGAMz2QLSVhxWvrdfekR3YaBcYbpr1HSRSkZvT79GXcdnsGTM2ml",
+                                                         "publisherPageUrl":  "https://www.facebook.com/parisbakerycambodia/",
+                                                         "platform":  "Facebook",
+                                                         "contentType":  "Post",
+                                                         "title":  "Chicken Mayonnaise Focaccia Bread 2.50$ 🥰🥰🥰",
+                                                         "summary":  "Chicken Mayonnaise Focaccia Bread 2.50$ 🥰🥰🥰",
+                                                         "keyDetails":  [
+                                                                            "Reactions: 29",
+                                                                            "Shares: 4"
+                                                                        ]
+                                                     },
+                                                     {
+                                                         "date":  "2026-10-14",
+                                                         "activity":  "Published a Facebook post: Ham Cheese Focaccia Bread 3.00$ 🥰🥰🥰",
+                                                         "sourceUrl":  "https://www.facebook.com/parisbakerycambodia/posts/pfbid02kJNtG9n7MifKdkWpnb99YHvo9YyUNsjyUjPZULEnKv3WWKihCRgb2m7cQma1Wq8hl",
+                                                         "publisherPageUrl":  "https://www.facebook.com/parisbakerycambodia/",
+                                                         "platform":  "Facebook",
+                                                         "contentType":  "Post",
+                                                         "title":  "Ham Cheese Focaccia Bread 3.00$ 🥰🥰🥰",
+                                                         "summary":  "Ham Cheese Focaccia Bread 3.00$ 🥰🥰🥰",
+                                                         "keyDetails":  [
+                                                                            "Reactions: 59",
+                                                                            "Comments: 7",
+                                                                            "Shares: 3"
+                                                                        ]
+                                                     }
+                                                 ],
+                            "customerSegments":  [
+                                                     "Convenience seekers",
+                                                     "App-based delivery users"
+                                                 ],
+                            "facebookUrl":  "https://www.facebook.com/parisbakerycambodia/",
+                            "websiteUrl":  "",
+                            "tiktokUrl":  "",
+                            "linkedinUrl":  "",
+                            "sourceUrl":  "https://www.foodpanda.com.kh/en/chain/cr9oy/paris-bakery"
+                        },
+                        {
+                            "pageName":  "HARI Bakery and Restaurant",
+                            "matchReason":  "A Siem Reap bakery selling fresh bread, cakes, cookies, pastries and celebration-oriented baked products; it targets customers seeking everyday bakery items and cakes for occasions in the same city.",
+                            "marketPresence":  "stronger",
+                            "topAngle":  "Organic bakery combined with restaurant and sky-bar services.",
+                            "offerStrategy":  "Targeting premium dine-in and organic-focused consumers.",
+                            "weakness":  "High-end positioning might alienate everyday local bread buyers.",
+                            "counterStrategy":  "Price/value clarity: Highlight affordable, high-quality daily wheat bread for standard local households.",
+                            "publicActivitySignals":  [
+
+                                                      ],
+                            "recentActivities":  [
+
+                                                 ],
+                            "customerSegments":  [
+                                                     "Premium diners",
+                                                     "Organic food seekers"
+                                                 ],
+                            "facebookUrl":  "",
+                            "websiteUrl":  "https://www.haribakeryandrestaurant.com/",
+                            "tiktokUrl":  "",
+                            "linkedinUrl":  "",
+                            "sourceUrl":  "https://www.haribakeryandrestaurant.com/"
+                        },
+                        {
+                            "pageName":  "Angkor Cake Studio \u0026 Coffee",
+                            "matchReason":  "A Siem Reap cake business offering custom birthday cakes, children\u0027s birthday cakes, themed cakes and celebration cakes for local customers, directly overlapping the birthday-cake portion of the target niche.",
+                            "marketPresence":  "similar",
+                            "topAngle":  "Luxury and custom celebration cakes.",
+                            "offerStrategy":  "",
+                            "weakness":  "",
+                            "counterStrategy":  "",
+                            "publicActivitySignals":  [
+
+                                                      ],
+                            "recentActivities":  [
+
+                                                 ],
+                            "customerSegments":  [
+
+                                                 ],
+                            "facebookUrl":  "",
+                            "websiteUrl":  "https://angkorcakestudio.com/",
+                            "tiktokUrl":  "",
+                            "linkedinUrl":  "",
+                            "sourceUrl":  "https://angkorcakestudio.com/index.html"
+                        },
+                        {
+                            "pageName":  "Heng Chamreoun Bakery",
+                            "matchReason":  "A Siem Reap bakery reported as operating for more than 20 years and focusing on birthday cakes and wedding cakes; its birthday-cake offering directly overlaps the target\u0027s celebration-cake customers in Siem Reap.",
+                            "marketPresence":  "weaker",
+                            "topAngle":  "Established traditional bakery with high local brand recognition.",
+                            "offerStrategy":  "Relying on legacy reputation and word-of-mouth for wedding and birthday cakes.",
+                            "weakness":  "Likely has an outdated digital presence and poor modern video content.",
+                            "counterStrategy":  "Content quality: Produce high-production, modern cinematic videos of cake decorating to capture younger digital buyers.",
+                            "publicActivitySignals":  [
+
+                                                      ],
+                            "recentActivities":  [
+
+                                                 ],
+                            "customerSegments":  [
+                                                     "Traditional local families",
+                                                     "Wedding planners"
+                                                 ],
+                            "facebookUrl":  "",
+                            "websiteUrl":  "",
+                            "tiktokUrl":  "",
+                            "linkedinUrl":  "",
+                            "sourceUrl":  "https://yeacambodia.org/cdn/uploads/2023/06/YEAC-Directory-Book-2023.pdf"
+                        },
+                        {
+                            "pageName":  "The Phsar Leu Bakery",
+                            "matchReason":  "A Siem Reap bakery selling bread, baguettes, whole-grain breads and cakes, including custom cakes to order, so customers can substitute it for both wheat-bread and birthday-cake purchases.",
+                            "marketPresence":  "stronger",
+                            "topAngle":  "Fresh, natural bakery products with multiple locations.",
+                            "offerStrategy":  "Mass-market accessibility with multiple Siem Reap locations.",
+                            "weakness":  "Generic mass-market feel lacks personal touch or specific customer service depth.",
+                            "counterStrategy":  "Service depth: Offer personalized ordering and friendly, relationship-based Telegram customer support.",
+                            "publicActivitySignals":  [
+
+                                                      ],
+                            "recentActivities":  [
+
+                                                 ],
+                            "customerSegments":  [
+                                                     "Daily bread consumers",
+                                                     "Market shoppers"
+                                                 ],
+                            "facebookUrl":  "",
+                            "websiteUrl":  "https://www.plbcambodia.com/",
+                            "tiktokUrl":  "",
+                            "linkedinUrl":  "",
+                            "sourceUrl":  "https://yeacambodia.org/cdn/uploads/2023/06/YEAC-Directory-Book-2023.pdf"
+                        },
+                        {
+                            "pageName":  "The Muffin Man",
+                            "matchReason":  "Its Siem Reap ordering presence offers muffins and cakes for local customers, making it a direct substitute for the target\u0027s birthday-cake and baked-dessert purchases.",
+                            "marketPresence":  "stronger",
+                            "topAngle":  "Muffins and cakes baked to Australian standards.",
+                            "offerStrategy":  "Appealing to expats and tourists with Western baking standards.",
+                            "weakness":  "Limited product range heavily focused on muffins rather than versatile celebration cakes.",
+                            "counterStrategy":  "Content quality: Showcase a wider variety of custom birthday cakes through authentic video testimonials.",
+                            "publicActivitySignals":  [
+
+                                                      ],
+                            "recentActivities":  [
+
+                                                 ],
+                            "customerSegments":  [
+                                                     "Expatriates",
+                                                     "Tourists",
+                                                     "Western dessert fans"
+                                                 ],
+                            "facebookUrl":  "",
+                            "websiteUrl":  "https://linktr.ee/muffinmankh",
+                            "tiktokUrl":  "",
+                            "linkedinUrl":  "",
+                            "sourceUrl":  "https://linktr.ee/muffinmankh"
+                        }
+                    ],
+    "marketTrends":  [
+
+                     ],
+    "potentialLeads":  [
+
+                       ],
+    "videoPlan":  [
+                      {
+                          "date":  "2026-10-20",
+                          "day":  "Day 1",
+                          "type":  "video",
+                          "topic":  "Fresh Wheat Bread Daily",
+                          "hook":  "Stop buying stale bread today!",
+                          "targetDesire":  "Wants genuinely fresh, healthy bread daily without high costs.",
+                          "prompt":  "One young Cambodian female baker wearing a clean professional white chef coat stands in a warm, authentic bakery kitchen, carefully slicing a freshly baked, steaming loaf of wheat bread on a wooden cutting board with purposeful movement.",
+                          "voiceGender":  "Female",
+                          "aspectRatio":  "16:9",
+                          "voiceOverText":  "នំប៉័ងស្រូវសាលីដុតថ្មីៗឈ្ងុយឆ្ងាញ់ជារៀងរាល់ថ្ងៃ ដែលជួយដល់សុខភាពលោកអ្នកបានយ៉ាងល្អ។",
+                          "performanceStyle":  "Warm, inviting, and professional tone with a slight pause before the benefit.",
+                          "suggestedPostTime":  "07:30 AM",
+                          "cta":  "ឆាតចូលផេកដើម្បីកុម្ម៉ង់ឥឡូវនេះ",
+                          "selected":  true
+                      },
+                      {
+                          "date":  "2026-10-21",
+                          "day":  "Day 2",
+                          "type":  "video",
+                          "topic":  "Transparent Cake Pricing",
+                          "hook":  "No more hidden cake design fees!",
+                          "targetDesire":  "Wants to know exact prices for custom birthday cakes upfront.",
+                          "prompt":  "One young Cambodian male wearing a modern black branded bakery apron stands in a brightly lit bakery storefront, holding a beautifully decorated chocolate birthday cake while confidently gesturing to an elegant menu board.",
+                          "voiceGender":  "Male",
+                          "aspectRatio":  "16:9",
+                          "voiceOverText":  "នំខេកខួបកំណើតដ៏ស្រស់ស្អាតមានតម្លៃច្បាស់លាស់ ធានាថាមិនមានការគិតប្រាក់បន្ថែមលាក់កំបាំងឡើយ។",
+                          "performanceStyle":  "Confident, honest, and reassuring.",
+                          "suggestedPostTime":  "11:30 AM",
+                          "cta":  "មើលកាតាឡុកតម្លៃរបស់យើងទីនេះ",
+                          "selected":  true
+                      },
+                      {
+                          "date":  "2026-10-22",
+                          "day":  "Day 3",
+                          "type":  "video",
+                          "topic":  "Fast Delivery Guarantee",
+                          "hook":  "Need a cake right now?",
+                          "targetDesire":  "Needs a high-quality birthday cake delivered quickly in Siem Reap.",
+                          "prompt":  "One young Cambodian female bakery assistant in a clean uniform carefully places a secured pink cake box into a specialized delivery cooler bag with swift, purposeful urgency in a busy bakery.",
+                          "voiceGender":  "Female",
+                          "aspectRatio":  "16:9",
+                          "voiceOverText":  "សេវាកម្មដឹកជញ្ជូននំខេកយ៉ាងរហ័សទាន់ចិត្តក្នុងក្រុងសៀមរាប ធានាគុណភាពមិនឱ្យខូចទ្រង់ទ្រាយ។",
+                          "performanceStyle":  "Energetic and reliable.",
+                          "suggestedPostTime":  "14:00 PM",
+                          "cta":  "កុម្ម៉ង់ឥឡូវនេះដើម្បីដឹកភ្លាមៗ",
+                          "selected":  true
+                      },
+                      {
+                          "date":  "2026-10-23",
+                          "day":  "Day 4",
+                          "type":  "video",
+                          "topic":  "High Quality Ingredients",
+                          "hook":  "See what goes into our cakes!",
+                          "targetDesire":  "Desires premium, safe, and delicious ingredients for their family.",
+                          "prompt":  "One young Cambodian male baker in a professional apron stands at a stainless steel prep table, skillfully mixing rich dark chocolate and fresh cream in a large glass bowl with focused precision.",
+                          "voiceGender":  "Male",
+                          "aspectRatio":  "16:9",
+                          "voiceOverText":  "យើងប្រើប្រាស់តែគ្រឿងផ្សំដែលមានគុណភាពខ្ពស់បំផុត ដើម្បីទទួលបានរសជាតិឆ្ងាញ់និងសុវត្ថិភាព។",
+                          "performanceStyle":  "Proud, educational, and steady.",
+                          "suggestedPostTime":  "18:00 PM",
+                          "cta":  "សាកល្បងរសជាតិពិតប្រាកដរបស់យើង",
+                          "selected":  true
+                      },
+                      {
+                          "date":  "2026-10-24",
+                          "day":  "Day 5",
+                          "type":  "video",
+                          "topic":  "Easy Custom Ordering",
+                          "hook":  "Design your dream cake easily!",
+                          "targetDesire":  "Wants a frictionless process to order a personalized celebration cake.",
+                          "prompt":  "One young Cambodian female customer service representative in professional attire stands behind a bakery counter, smiling warmly while tapping on a modern tablet to demonstrate a seamless ordering process.",
+                          "voiceGender":  "Female",
+                          "aspectRatio":  "16:9",
+                          "voiceOverText":  "ការកុម្ម៉ង់នំខេកតាមបំណងគឺមានភាពងាយស្រួលបំផុត គ្រាន់តែប្រាប់យើងពីម៉ូដដែលអ្នកស្រលាញ់។",
+                          "performanceStyle":  "Friendly, helpful, and clear.",
+                          "suggestedPostTime":  "19:45 PM",
+                          "cta":  "ឆាតមកកាន់តេឡេក្រាមយើង",
+                          "selected":  true
+                      },
+                      {
+                          "date":  "2026-10-25",
+                          "day":  "Day 6",
+                          "type":  "video",
+                          "topic":  "Real Customer Reviews",
+                          "hook":  "Why do locals love our bread?",
+                          "targetDesire":  "Needs social proof and assurance of consistent bakery quality.",
+                          "prompt":  "One young Cambodian male baker hands a freshly wrapped artisanal wheat bread loaf to an unseen customer off-camera, smiling with genuine pride in a sunlit, welcoming bakery environment.",
+                          "voiceGender":  "Male",
+                          "aspectRatio":  "16:9",
+                          "voiceOverText":  "អតិថិជនជាច្រើនតែងតែគាំទ្រនំប៉័ងរបស់យើង ព្រោះវាមានរសជាតិឈ្ងុយឆ្ងាញ់និងទន់ល្អជាប់ចិត្ត។",
+                          "performanceStyle":  "Grateful, warm, and authentic.",
+                          "suggestedPostTime":  "10:00 AM",
+                          "cta":  "អានមតិយោបល់របស់អតិថិជន",
+                          "selected":  true
+                      },
+                      {
+                          "date":  "2026-10-26",
+                          "day":  "Day 7",
+                          "type":  "video",
+                          "topic":  "Behind The Scenes Baking",
+                          "hook":  "Watch how we bake fresh daily!",
+                          "targetDesire":  "Appreciates authenticity and knowing the real effort behind the product.",
+                          "prompt":  "Two young Cambodian bakers in matching professional chef coats work seamlessly together in a clean kitchen, one kneading dough while the other carefully decorates a multi-tiered cake.",
+                          "voiceGender":  "Female",
+                          "aspectRatio":  "16:9",
+                          "voiceOverText":  "រាល់នំទាំងអស់ត្រូវបានចម្អិនដោយក្ដីស្រលាញ់និងការយកចិត្តទុកដាក់ខ្ពស់ពីក្រុមការងារយើង។",
+                          "performanceStyle":  "Inspiring, soft, and passionate.",
+                          "suggestedPostTime":  "12:30 PM",
+                          "cta":  "ទាក់ទងមកយើងសម្រាប់កម្មវិធីអ្នក",
+                          "selected":  true
+                      }
+                  ],
+    "summaryReport":  "# 🍞 Siem Reap Bakery \u0026 Cake Market Intelligence Report\n\n## 📊 Market Overview\nThe Siem Reap bakery market is highly competitive, divided between established legacy bakeries, high-end cake studios, and everyday quick-commerce pastry shops. While competitors are active, many suffer from poor digital presentation, hidden pricing structures on custom cakes, and slow response times.\n\n## 🎯 Competitor Weaknesses \u0026 Gaps\n*   **Opaque Pricing:** High-end studios (like Angkor Cake Studio) focus heavily on bespoke designs but fail to provide transparent baseline pricing, causing friction for normal buyers.\n*   **Generic Content:** Delivery-app-focused bakeries (like Paris Bakery) rely on static, uninspiring photos with plain text, missing the opportunity to build a relatable brand persona.\n*   **Slow Customization:** Legacy bakeries rely on outdated ordering methods instead of modern, fast-turnaround digital communication.\n\n## 🚀 How to outperform them\nTo dominate the Siem Reap wheat bread and birthday cake niche, execute these three prioritized strategies:\n1.  **Price/Value Clarity First:** Implement highly transparent pricing for birthday cakes. Offer standard \"quick-buy\" bundles alongside custom options to eliminate ordering friction.\n2.  **Content Quality (Authenticity):** Replace static photos with dynamic, high-quality Behind-the-Scenes (BTS) videos showing the baking process. This directly counters competitors\u0027 generic or overly formal content.\n3.  **Speed \u0026 Trust (Delivery Guarantee):** Heavily market a fast, reliable delivery service within Siem Reap. Show the packaging process in videos to prove that cakes arrive perfectly intact."
+}

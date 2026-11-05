@@ -1,0 +1,16 @@
+{
+  "result": {
+    "ok": true
+  },
+  "status": "DONE",
+  "resultMediaUrl": "https://ik.imagekit.io/lclmjpgtf/telegram-media/media-1791283115087_xCMxrL1VO.mp4?tr=w-1280%2Cq-85%2Cf-mp4%3Al-image%2Ci-telegram-media%40%40media-1791283117356_3E18YcXQ2.jpg%2Cw-bw_mul_0.16%2Clfo-bottom_left%2Clx-20%2Cly-20%2Cl-end",
+  "speechVerification": {
+    "passed": true,
+    "similarity": 1,
+    "transcript": "រៀន ប្រើ បច្ចេកវិទ្យា ជាមួយ យើង",
+    "expected": "រៀនប្រើបច្ចេកវិទ្យាជាមួយយើង។",
+    "method": "transcript-comparison",
+    "naturalnessReviewed": false
+  },
+  "finishedAt": "2026-10-06T10:38:54.825Z"
+}

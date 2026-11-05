@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080">
+  <rect width="1080" height="1080" fill="#f7f4ee"/>
+  <rect x="76" y="76" width="928" height="928" rx="48" fill="#ffffff" stroke="#ddd6c8" stroke-width="3"/>
+  <rect x="126" y="126" width="828" height="22" rx="11" fill="#df6b28"/>
+  <circle cx="540" cy="385" r="128" fill="#fdf0e4"/>
+  <rect x="415" y="345" width="112" height="82" rx="16" fill="#c2571d"/>
+  <rect x="553" y="345" width="112" height="82" rx="16" fill="#ed9d31"/>
+  <path d="M528 385h24" stroke="#7b391c" stroke-width="18" stroke-linecap="round"/>
+  <text x="540" y="610" text-anchor="middle" fill="#29303b" font-family="Arial, sans-serif" font-size="66" font-weight="700">Aime Page Publisher</text>
+  <text x="540" y="684" text-anchor="middle" fill="#5e6670" font-family="Arial, sans-serif" font-size="37">Facebook Page publishing demo</text>
+  <text x="540" y="853" text-anchor="middle" fill="#a24b25" font-family="Arial, sans-serif" font-size="27" letter-spacing="4">APP REVIEW TEST POST</text>
+</svg>

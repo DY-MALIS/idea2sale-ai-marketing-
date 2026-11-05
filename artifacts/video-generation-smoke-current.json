@@ -1,0 +1,10 @@
+{
+  "jobId": "gen-vid-1792569048-HEK2s32qltAP0TMcQwcF",
+  "status": "completed",
+  "bytes": 1378446,
+  "usage": {
+    "cost": 0.12,
+    "is_byok": false
+  },
+  "completedAt": "2026-10-21T07:51:34.517Z"
+}

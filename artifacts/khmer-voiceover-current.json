@@ -1,0 +1,12 @@
+{
+  "jobId": "gen-vid-1792571127-u7VAMC8J93iQdohIzbYD",
+  "estimatedCost": 0.4524,
+  "usage": {
+    "cost": 0.30555,
+    "is_byok": false
+  },
+  "rawVideoUrl": "https://ik.imagekit.io/lclmjpgtf/generation-history/media-1792571239472_ndQRJXoOy.mp4?tr=w-1280%2Cq-85%2Cf-mp4",
+  "narrationUrl": "https://ik.imagekit.io/lclmjpgtf/generation-history/media-1792570532265_Neo6Wu-L8.mp3",
+  "duration": 4,
+  "completedAt": "2026-10-21T08:27:24.617Z"
+}
