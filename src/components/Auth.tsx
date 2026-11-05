@@ -1,14 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import {
-  ChevronRight,
   Sparkles,
-  Loader2,
   AlertCircle
 } from 'lucide-react';
 
 import { signInWithGoogle, auth, authPersistenceReady } from '../lib/firebase';
-import { createUserWithEmailAndPassword, signInWithCustomToken, signInWithEmailAndPassword } from 'firebase/auth';
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
 import { useLanguage } from '../contexts/LanguageContext';
 
 interface AuthProps {
@@ -39,14 +37,14 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
 
     if (code === 'auth/permission-denied' || message.includes('api-key') || message.includes('has-been-suspended')) {
       return language === 'km'
-        ? 'Firebase API key ត្រូវបានផ្អាក។ សូមប្រើ Continue as Guest ឬដាក់ Firebase API key ថ្មី។'
-        : 'The Firebase API key has been suspended. Please use Continue as Guest or add a new Firebase API key.';
+        ? 'Firebase API key ត្រូវបានផ្អាក។ សូមដាក់ Firebase API key ថ្មី។'
+        : 'The Firebase API key has been suspended. Please add a new Firebase API key.';
     }
 
     if (code === 'auth/popup-blocked') {
       return language === 'km'
-        ? 'Browser បានទប់ស្កាត់ Google sign-in popup។ សូមអនុញ្ញាត popups ឬប្រើ Continue as Guest។'
-        : 'Your browser blocked the Google sign-in popup. Please allow popups or use Continue as Guest.';
+        ? 'Browser បានទប់ស្កាត់ Google sign-in popup។ សូមអនុញ្ញាត popups។'
+        : 'Your browser blocked the Google sign-in popup. Please allow popups.';
     }
 
     if (code === 'auth/unauthorized-domain') {
@@ -63,57 +61,6 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
     code === 'auth/operation-not-allowed' ||
     code === 'auth/permission-denied'
   );
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
-    setErrorCode(null);
-    try {
-      await authPersistenceReady;
-      // Without a bound, a hung response here leaves `loading` stuck true forever
-      // (the finally below never runs until this await settles) -- the Continue
-      // as Guest button would stay disabled with a permanent spinner.
-      const guestTokenController = new AbortController();
-      const guestTokenTimeoutId = window.setTimeout(() => guestTokenController.abort(), 15000);
-      let response: Response;
-      try {
-        response = await fetch('/api/telegram/run-scheduled?action=guest-token', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: '{}',
-          signal: guestTokenController.signal
-        });
-      } finally {
-        window.clearTimeout(guestTokenTimeoutId);
-      }
-      const responseText = await response.text();
-      let data: any = {};
-      try {
-        data = responseText ? JSON.parse(responseText) : {};
-      } catch {
-        throw new Error(`Guest sign-in service returned HTTP ${response.status}.`);
-      }
-
-      if (!response.ok || !data.ok || !data.token) {
-        throw new Error(data.error || 'Could not start a guest session.');
-      }
-
-      await signInWithCustomToken(auth, data.token);
-    } catch (err: any) {
-      console.error('Guest sign-in failed:', err);
-      setErrorCode(err?.code || null);
-      setError(
-        language === 'km'
-          ? `មិនអាចចូលជា Guest បានទេ៖ ${err?.message || 'Unknown error'}`
-          : `Could not continue as guest: ${err?.message || 'Unknown error'}`
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleGoogleLogin = async () => {
     setLoading(true);
@@ -212,9 +159,8 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
               </>
             )}
             <button type="submit" disabled={loading} className="w-full rounded-xl bg-brand-700 px-5 py-3 font-bold text-white disabled:opacity-50">{isLogin ? 'Sign in with email' : 'Register with email'}</button>
-            {!isLogin && <p className="text-center text-xs text-slate-600 dark:text-slate-300">Already use Google? Sign in with Google, then add a password in Business Profile to keep the same account.</p>}
           </form>
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="space-y-6">
             {error && (
               <div className="space-y-4">
                 <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-500 text-xs text-center leading-relaxed font-medium flex items-center justify-center gap-2">
@@ -236,27 +182,6 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
                 )}
               </div>
             )}
-
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              disabled={loading}
-              type="submit"
-              className="w-full min-h-16 px-5 py-5 bg-brand-700 text-white rounded-[1.5rem] font-black text-xs sm:text-sm uppercase tracking-[0.14em] sm:tracking-[0.2em] shadow-xl shadow-brand-700/30 hover:bg-brand-800 transition-all flex items-center justify-center gap-3 mt-4 disabled:opacity-50 text-center"
-            >
-              {loading ? <Loader2 className="animate-spin" size={20} /> : (
-                <>
-                  {t('continueAsGuest')}
-                  <ChevronRight size={20} />
-                </>
-              )}
-            </motion.button>
-
-            <p className="text-center text-xs text-slate-600 dark:text-slate-300">
-              {language === 'km'
-                ? 'Guest សម្រាប់សាកល្បងបណ្ដោះអាសន្ន។ ដើម្បីរក្សាទិន្នន័យក្រុមហ៊ុនឱ្យចូលវិញបាន សូមប្រើ Google account ផ្ទាល់ខ្លួន។'
-                : 'Guest is temporary. Use your own Google account to return to your company data later.'}
-            </p>
 
             {onDemoMode && (
               <p className="text-center text-slate-600 dark:text-slate-300 text-[11px] sm:text-xs font-bold uppercase tracking-wide mt-4 leading-relaxed">
@@ -296,9 +221,7 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
               </svg>
               {t('continueWithGoogle')}
             </motion.button>
-          </form>
-
-          {/* Account toggle hidden as only supporting Guest and Google for now */}
+          </div>
         </div>
 
         <p className="text-center text-slate-600 dark:text-slate-300 text-[10px] sm:text-xs mt-8 sm:mt-10 leading-relaxed font-semibold uppercase tracking-[0.14em] sm:tracking-widest">
