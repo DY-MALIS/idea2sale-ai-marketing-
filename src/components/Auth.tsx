@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 
 import { signInWithGoogle, auth, authPersistenceReady } from '../lib/firebase';
-import { signInWithCustomToken, signInWithEmailAndPassword } from 'firebase/auth';
+import { createUserWithEmailAndPassword, signInWithCustomToken, signInWithEmailAndPassword } from 'firebase/auth';
 import { useLanguage } from '../contexts/LanguageContext';
 
 interface AuthProps {
@@ -17,12 +17,13 @@ interface AuthProps {
 
 const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
   const { t, language } = useLanguage();
-  const [isLogin, setIsLogin] = useState(false);
+  const [isLogin, setIsLogin] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const firebaseApiKey = import.meta.env.VITE_FIREBASE_API_KEY || '';
 
   useEffect(() => {
@@ -130,19 +131,47 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
     }
   };
 
-  const handleEmailLogin = async (event: React.FormEvent) => {
+  const handleEmailSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    setLoading(true);
     setError(null);
+    setErrorCode(null);
+    if (!isLogin && password.length < 8) {
+      setError('Use a password of at least 8 characters.');
+      return;
+    }
+    if (!isLogin && password !== confirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
+    setLoading(true);
     try {
       await authPersistenceReady;
-      await signInWithEmailAndPassword(auth, email.trim(), password);
+      if (isLogin) {
+        await signInWithEmailAndPassword(auth, email.trim(), password);
+      } else {
+        await createUserWithEmailAndPassword(auth, email.trim(), password);
+      }
       setPassword('');
-    } catch {
-      setError('Could not sign in. Check your email and password.');
+      setConfirmPassword('');
+    } catch (err: any) {
+      if (err?.code === 'auth/email-already-in-use') {
+        setError('This email already has an account. Sign in with email if you have a password, or sign in with Google and add one in Business Profile.');
+      } else if (err?.code === 'auth/operation-not-allowed') {
+        setError('Email/password accounts are not enabled for this project.');
+      } else {
+        setError(isLogin ? 'Could not sign in. Check your email and password.' : 'Could not create your account. Check your email and password.');
+      }
     } finally {
       setLoading(false);
     }
+  };
+
+  const switchEmailMode = () => {
+    setIsLogin((current) => !current);
+    setPassword('');
+    setConfirmPassword('');
+    setError(null);
+    setErrorCode(null);
   };
 
   return (
@@ -165,11 +194,21 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
         </div>
 
         <div className="glass p-6 sm:p-8 md:p-10 rounded-[2rem] sm:rounded-[3rem] border border-white/70 shadow-2xl">
-          <form onSubmit={handleEmailLogin} className="mb-6 space-y-3">
-            <label className="block text-sm font-bold text-slate-700 dark:text-slate-200" htmlFor="account-email">Email sign-in</label>
-            <input id="account-email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Email" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-slate-900" />
-            <input type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-slate-900" />
-            <button type="submit" disabled={loading} className="w-full rounded-xl bg-brand-700 px-5 py-3 font-bold text-white disabled:opacity-50">Sign in with email</button>
+          <form onSubmit={handleEmailSubmit} className="mb-6 space-y-3">
+            <h2 className="text-sm font-bold text-slate-700 dark:text-slate-200">{isLogin ? 'Email sign-in' : 'Sign up with email'}</h2>
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-200" htmlFor="account-email">Email address</label>
+            <input id="account-email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-slate-900" />
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-200" htmlFor="account-password">Password</label>
+            <input id="account-password" type="password" autoComplete={isLogin ? 'current-password' : 'new-password'} required minLength={isLogin ? undefined : 8} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-slate-900" />
+            {!isLogin && (
+              <>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-200" htmlFor="account-confirm-password">Confirm password</label>
+                <input id="account-confirm-password" type="password" autoComplete="new-password" required minLength={8} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="Confirm password" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-slate-900" />
+              </>
+            )}
+            <button type="submit" disabled={loading} className="w-full rounded-xl bg-brand-700 px-5 py-3 font-bold text-white disabled:opacity-50">{isLogin ? 'Sign in with email' : 'Sign up with email'}</button>
+            <button type="button" disabled={loading} onClick={switchEmailMode} className="w-full py-2 text-sm font-semibold text-brand-700 dark:text-brand-400 hover:underline disabled:opacity-50">{isLogin ? 'New here? Sign up with email' : 'Already have an account? Sign in'}</button>
+            {!isLogin && <p className="text-center text-xs text-slate-600 dark:text-slate-300">Already use Google? Sign in with Google, then add a password in Business Profile to keep the same account.</p>}
           </form>
           <form onSubmit={handleSubmit} className="space-y-6">
             {error && (
