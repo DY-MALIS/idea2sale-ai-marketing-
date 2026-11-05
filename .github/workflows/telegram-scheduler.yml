@@ -17,7 +17,7 @@ jobs:
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          curl -sf -X POST -H "Authorization: Bearer $CRON_SECRET" https://aime.angkorgate.ai/api/telegram/run-scheduled
+          curl --fail-with-body --show-error --silent --connect-timeout 10 --max-time 120 -X POST -H "Authorization: Bearer $CRON_SECRET" https://aime.angkorgate.ai/api/telegram/run-scheduled
 
   tiktok-posts:
     runs-on: ubuntu-latest
@@ -26,7 +26,7 @@ jobs:
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          curl -sf -X POST -H "Authorization: Bearer $CRON_SECRET" "https://aime.angkorgate.ai/api/tiktok/publish?action=cron"
+          curl --fail-with-body --show-error --silent --connect-timeout 10 --max-time 120 -X POST -H "Authorization: Bearer $CRON_SECRET" "https://aime.angkorgate.ai/api/tiktok/publish?action=cron"
 
   youtube-posts:
     runs-on: ubuntu-latest
@@ -35,7 +35,7 @@ jobs:
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          curl -sf -X POST -H "Authorization: Bearer $CRON_SECRET" "https://aime.angkorgate.ai/api/tiktok/publish?action=youtubeCron"
+          curl --fail-with-body --show-error --silent --connect-timeout 10 --max-time 120 -X POST -H "Authorization: Bearer $CRON_SECRET" "https://aime.angkorgate.ai/api/tiktok/publish?action=youtubeCron"
 
   facebook-posts:
     runs-on: ubuntu-latest
@@ -44,7 +44,7 @@ jobs:
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          curl -sf -X POST -H "Authorization: Bearer $CRON_SECRET" "https://aime.angkorgate.ai/api/tiktok/publish?action=facebookCron"
+          curl --fail-with-body --show-error --silent --connect-timeout 10 --max-time 120 -X POST -H "Authorization: Bearer $CRON_SECRET" "https://aime.angkorgate.ai/api/tiktok/publish?action=facebookCron"
 
   usage-check:
     # OpenRouter credit balance and ImageKit's monthly video-transformation
@@ -57,4 +57,4 @@ jobs:
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          curl -sf -X POST -H "Authorization: Bearer $CRON_SECRET" "https://aime.angkorgate.ai/api/telegram/run-scheduled?action=usageCheck"
+          curl --fail-with-body --show-error --silent --connect-timeout 10 --max-time 120 -X POST -H "Authorization: Bearer $CRON_SECRET" "https://aime.angkorgate.ai/api/telegram/run-scheduled?action=usageCheck"
