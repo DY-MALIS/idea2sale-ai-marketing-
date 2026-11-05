@@ -166,8 +166,9 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
     }
   };
 
-  const switchEmailMode = () => {
-    setIsLogin((current) => !current);
+  const selectEmailMode = (login: boolean) => {
+    if (isLogin === login) return;
+    setIsLogin(login);
     setPassword('');
     setConfirmPassword('');
     setError(null);
@@ -194,8 +195,12 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
         </div>
 
         <div className="glass p-6 sm:p-8 md:p-10 rounded-[2rem] sm:rounded-[3rem] border border-white/70 shadow-2xl">
+          <div className="mb-6 grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1 dark:bg-slate-800" aria-label="Account access">
+            <button type="button" disabled={loading} aria-pressed={isLogin} onClick={() => selectEmailMode(true)} className={`rounded-lg px-4 py-3 text-sm font-bold transition-colors disabled:opacity-50 ${isLogin ? 'bg-white text-brand-700 shadow-sm dark:bg-slate-700 dark:text-brand-300' : 'text-slate-600 hover:text-brand-700 dark:text-slate-300'}`}>Sign in</button>
+            <button type="button" disabled={loading} aria-pressed={!isLogin} onClick={() => selectEmailMode(false)} className={`rounded-lg px-4 py-3 text-sm font-bold transition-colors disabled:opacity-50 ${!isLogin ? 'bg-white text-brand-700 shadow-sm dark:bg-slate-700 dark:text-brand-300' : 'text-slate-600 hover:text-brand-700 dark:text-slate-300'}`}>Register</button>
+          </div>
           <form onSubmit={handleEmailSubmit} className="mb-6 space-y-3">
-            <h2 className="text-sm font-bold text-slate-700 dark:text-slate-200">{isLogin ? 'Email sign-in' : 'Sign up with email'}</h2>
+            <h2 className="text-sm font-bold text-slate-700 dark:text-slate-200">{isLogin ? 'Email sign-in' : 'Register with email'}</h2>
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-200" htmlFor="account-email">Email address</label>
             <input id="account-email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-slate-900" />
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-200" htmlFor="account-password">Password</label>
@@ -206,8 +211,7 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
                 <input id="account-confirm-password" type="password" autoComplete="new-password" required minLength={8} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="Confirm password" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-slate-900" />
               </>
             )}
-            <button type="submit" disabled={loading} className="w-full rounded-xl bg-brand-700 px-5 py-3 font-bold text-white disabled:opacity-50">{isLogin ? 'Sign in with email' : 'Sign up with email'}</button>
-            <button type="button" disabled={loading} onClick={switchEmailMode} className="w-full py-2 text-sm font-semibold text-brand-700 dark:text-brand-400 hover:underline disabled:opacity-50">{isLogin ? 'New here? Sign up with email' : 'Already have an account? Sign in'}</button>
+            <button type="submit" disabled={loading} className="w-full rounded-xl bg-brand-700 px-5 py-3 font-bold text-white disabled:opacity-50">{isLogin ? 'Sign in with email' : 'Register with email'}</button>
             {!isLogin && <p className="text-center text-xs text-slate-600 dark:text-slate-300">Already use Google? Sign in with Google, then add a password in Business Profile to keep the same account.</p>}
           </form>
           <form onSubmit={handleSubmit} className="space-y-6">
