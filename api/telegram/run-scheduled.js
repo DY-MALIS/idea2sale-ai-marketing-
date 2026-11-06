@@ -773,6 +773,11 @@ export default async function handler(req, res) {
     const DAILY_IMAGE_CAP = 2;
     const DAILY_VIDEO_CAP = 1;
     const todayStr = new Date().toISOString().slice(0, 10);
+    const planTodayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    const isPlanDue = (doc) => {
+      const item = typeof doc.data === 'function' ? doc.data() : doc.data;
+      return !item?.scheduledAt || String(item.scheduledAt) <= new Date().toISOString();
+    };
     const countGeneratedToday = async (type, statuses) => {
       const snapshot = await db.collection('content_plan_items').where('type', '==', type).where('status', 'in', statuses).get();
       return snapshot.docs.filter((doc) => {
@@ -963,11 +968,11 @@ export default async function handler(req, res) {
       .collection('content_plan_items')
       .where('status', '==', 'PENDING')
       .where('type', '==', 'image')
-      .where('scheduledDate', '<=', todayStr)
+      .where('scheduledDate', '<=', planTodayStr)
       .orderBy('scheduledDate', 'asc')
       .limit(20)
       .get();
-    const duePlanItems = planSnapshot.docs
+    const duePlanItems = planSnapshot.docs.filter(isPlanDue)
       .slice(0, remainingImageCap);
 
     for (const planDoc of duePlanItems) {
@@ -1076,11 +1081,11 @@ export default async function handler(req, res) {
       .collection('content_plan_items')
       .where('status', '==', 'PENDING')
       .where('type', '==', 'video')
-      .where('scheduledDate', '<=', todayStr)
+      .where('scheduledDate', '<=', planTodayStr)
       .orderBy('scheduledDate', 'asc')
       .limit(10)
       .get();
-    const dueVideoPlanItems = videoPlanSnapshot.docs
+    const dueVideoPlanItems = videoPlanSnapshot.docs.filter(isPlanDue)
       .slice(0, remainingVideoCap);
 
     for (const planDoc of dueVideoPlanItems) {

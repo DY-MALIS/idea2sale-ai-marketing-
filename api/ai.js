@@ -651,6 +651,7 @@ export const googleSheetsUrlToCsvExportUrl = (planUrl) => {
 // tuning, so extractContentPlan and competitor research both call this
 // instead of keeping their own drifting copies.
 const contentPlanItemFieldRules = (language, dateInstruction) => `- "date": ${dateInstruction}
+- "time": if the source row specifies a posting time, preserve it as 24-hour HH:mm local time (for example 16:41). Otherwise use an empty string.
 - "type": "video" if the item should be a video/reel/clip, otherwise "image"
 - "topic": a short (max 15 words) plain summary of what the item is about, in ${language}
 - "headline": ONLY if "type" is "image" -- a short, punchy poster headline in ENGLISH (max 8 words). Omit or leave empty for "type": "video".
@@ -678,6 +679,7 @@ const parseContentPlanItems = (text) => {
   .filter((item) => item && /^\d{4}-\d{2}-\d{2}$/.test(item.date) && item.prompt)
   .map((item) => ({
     date: item.date,
+    time: /^([01]\d|2[0-3]):[0-5]\d$/.test(String(item.time || '')) ? String(item.time) : '',
     type: item.type === 'video' ? 'video' : 'image',
     topic: String(item.topic || '').slice(0, 200),
     prompt: String(item.prompt || '').slice(0, 2000),

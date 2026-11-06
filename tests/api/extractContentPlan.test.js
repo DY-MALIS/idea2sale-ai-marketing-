@@ -288,6 +288,19 @@ it('extracts a content plan from an uploaded PDF/Word/text file, not just CSV/Ex
   expect(mocks.text.mock.calls[0][0].prompt).toContain('grand opening');
 });
 
+it('preserves a CSV posting time for timed plan scheduling', async () => {
+  mocks.text.mockResolvedValue(JSON.stringify([
+    { date: '2026-11-06', time: '16:41', type: 'image', topic: 'Afternoon photo', prompt: 'A store manager at work' },
+  ]));
+  const res = responseRecorder();
+  await handler({ method: 'POST', headers: {}, body: {
+    action: 'extractContentPlan', planText: 'Date,Time,Type,Topic\n2026-11-06,16:41,image,Afternoon photo', language: 'en',
+  } }, res);
+  expect(res.statusCode).toBe(200);
+  expect(res.body.items[0].time).toBe('16:41');
+  expect(mocks.text.mock.calls[0][0].prompt).toContain('preserve it as 24-hour HH:mm');
+});
+
 it('retries a truncated extraction reply instead of reporting an empty plan', async () => {
   mocks.text.mockResolvedValueOnce('[{"date":"2026-10-10",').mockResolvedValueOnce(JSON.stringify([
     { date: '2026-10-10', type: 'image', topic: 'Opening', prompt: 'A bright storefront' },

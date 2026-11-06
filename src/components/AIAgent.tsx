@@ -51,6 +51,7 @@ interface AttachedImage {
 
 interface PlanItem {
   date: string;
+  time?: string;
   type: 'image' | 'video';
   topic: string;
   prompt: string;
@@ -71,6 +72,7 @@ interface PlanItem {
 
 const normalizePlanItems = (value: unknown): PlanItem[] => (Array.isArray(value) ? value : []).map((item: any) => ({
   date: String(item.date || ''),
+  time: String(item.time || ''),
   type: item.type === 'video' ? 'video' as const : 'image' as const,
   topic: String(item.topic || ''),
   prompt: String(item.prompt || ''),
@@ -88,6 +90,7 @@ const normalizePlanItems = (value: unknown): PlanItem[] => (Array.isArray(value)
 interface SavedPlanItem {
   id: string;
   scheduledDate: string;
+  scheduledTime?: string;
   type: 'image' | 'video';
   topic: string;
   prompt: string;
@@ -675,6 +678,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
             return {
               id: docSnap.id,
               scheduledDate: String(data.scheduledDate || ''),
+              scheduledTime: String(data.scheduledTime || ''),
               type: data.type === 'video' ? 'video' : 'image',
               topic: String(data.topic || ''),
               prompt: String(data.prompt || ''),
@@ -1116,6 +1120,10 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     setPlanItems((items) => items.map((item, i) => (i === index ? { ...item, selected: !item.selected } : item)));
   };
 
+  const updatePlanTime = (index: number, time: string) => {
+    setPlanItems((items) => items.map((item, i) => (i === index ? { ...item, time } : item)));
+  };
+
   const updatePlanNarration = (index: number, voiceOverText: string) => {
     setPlanItems((items) => items.map((item, i) => (i === index ? { ...item, voiceOverText, scriptEditedByUser: true } : item)));
   };
@@ -1174,6 +1182,8 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
             businessName: businessContext?.businessName || '',
             items: selectedItems.map((item) => ({
               scheduledDate: item.date,
+              scheduledTime: item.time || '',
+              scheduledAt: item.time ? new Date(`${item.date}T${item.time}:00`).toISOString() : undefined,
               type: item.type,
               topic: item.topic,
               prompt: item.prompt,
@@ -1196,6 +1206,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       setPlanItems([]);
       setPlanLink('');
       setPlanSavedCount(data.savedCount);
+      if (data.schedulingWarning) setPlanError(data.schedulingWarning);
       setPlanTikTokConsent(false);
     } catch (error) {
       console.error('Failed to replace content plan:', error);
@@ -1732,11 +1743,16 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-brand-500">
                               <span>{item.date}</span>
+                              {item.time && <span>{item.time}</span>}
                               <span className="rounded-full bg-white px-2 py-0.5 text-[10px] dark:bg-slate-700">
                                 {item.type === 'video' ? (language === 'km' ? 'វីដេអូ' : 'Video') : (language === 'km' ? 'រូបភាព' : 'Image')}
                               </span>
                             </div>
                             <p className="mt-1 truncate text-sm font-bold text-brand-700 dark:text-brand-300">{item.topic}</p>
+                            <label className="mt-2 flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                              {language === 'km' ? 'ម៉ោងបង្ហោះ' : 'Posting time'}
+                              <input type="time" value={item.time || ''} onChange={(event) => updatePlanTime(index, event.target.value)} className="rounded border border-brand-200 bg-white p-1 dark:border-slate-600 dark:bg-slate-900" />
+                            </label>
                             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                               {language === 'km' ? 'សមាមាត្រ' : 'Aspect ratio'}: {item.aspectRatio || (item.type === 'video' ? '9:16' : '1:1')}
                               {item.type === 'video' && ` · ${language === 'km' ? 'សំឡេង' : 'Voice'}: ${item.voiceGender || 'Female'}`}
@@ -1843,6 +1859,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-brand-500">
                                 <span>{item.scheduledDate}</span>
+                                {item.scheduledTime && <span>{item.scheduledTime}</span>}
                                 <span className="rounded-full bg-white px-2 py-0.5 text-[10px] dark:bg-slate-700">
                                   {item.type === 'video' ? (language === 'km' ? 'វីដេអូ' : 'Video') : (language === 'km' ? 'រូបភាព' : 'Image')}
                                 </span>

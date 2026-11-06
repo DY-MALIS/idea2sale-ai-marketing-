@@ -1,4 +1,5 @@
 import { Receiver } from '@upstash/qstash';
+import runScheduled from './run-scheduled.js';
 import { FieldValue } from 'firebase-admin/firestore';
 import {
   TELEGRAM_CAPTION_LIMIT,
@@ -334,6 +335,16 @@ export default async function handler(req, res) {
     payload = rawBody ? JSON.parse(rawBody) : {};
   } catch {
     return res.status(400).json({ error: 'Invalid JSON payload.' });
+  }
+
+  if (payload?.runContentPlan === true) {
+    // The QStash signature has been verified above. Reuse the existing cron
+    // runner so image generation, approval, limits and retries have one path.
+    return runScheduled({
+      method: 'POST',
+      headers: { authorization: `Bearer ${process.env.CRON_SECRET || ''}` },
+      query: {},
+    }, res);
   }
 
   const contentPlanItemId = String(payload?.contentPlanItemId || '').trim();

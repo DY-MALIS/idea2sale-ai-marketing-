@@ -1,8 +1,20 @@
 import { getAuth } from 'firebase-admin/auth';
 import { FieldValue } from 'firebase-admin/firestore';
+import { Client as QStashClient } from '@upstash/qstash';
 import { initFirebaseAdmin } from './_firebaseAdmin.js';
+import { getScheduledCallbackBaseUrl } from './_callbackUrl.js';
 
 const validDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''));
+const validTime = (value) => value == null || value === '' || /^([01]\d|2[0-3]):[0-5]\d$/.test(String(value));
+const scheduledAtFor = (item) => {
+  if (item.scheduledTime) {
+    const timestamp = new Date(item.scheduledAt || '');
+    if (Number.isNaN(timestamp.getTime())) return null;
+    return timestamp.toISOString();
+  }
+  // Legacy date-only plans run at the start of the date in Cambodia.
+  return new Date(`${item.scheduledDate}T00:00:00+07:00`).toISOString();
+};
 
 export default async function replaceContentPlan(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed.' });
@@ -15,7 +27,8 @@ export default async function replaceContentPlan(req, res) {
 
   const items = req.body?.items;
   if (!Array.isArray(items) || !items.length || items.length > 60 || items.some((item) =>
-    !validDate(item?.scheduledDate) || !['image', 'video'].includes(item?.type)
+    !validDate(item?.scheduledDate) || !validTime(item?.scheduledTime)
+    || !scheduledAtFor(item) || !['image', 'video'].includes(item?.type)
     || !String(item?.topic || '').trim() || String(item.topic).length > 200
     || !String(item?.prompt || '').trim() || String(item.prompt).length > 2000
     || (item.type === 'video' && !/[\u1780-\u17ff]/u.test(String(item.voiceOverText || '')))
@@ -39,6 +52,8 @@ export default async function replaceContentPlan(req, res) {
           userId: owner.uid,
           planId: replacementId,
           scheduledDate: item.scheduledDate,
+          scheduledAt: scheduledAtFor(item),
+          scheduledTime: String(item.scheduledTime || ''),
           type: item.type,
           topic: String(item.topic).trim(),
           prompt: String(item.prompt).trim(),
@@ -69,7 +84,25 @@ export default async function replaceContentPlan(req, res) {
         });
       });
     });
-    return res.status(200).json({ ok: true, savedCount: items.length, replacedCount });
+    const scheduleTimes = [...new Set(items.map(scheduledAtFor))];
+    let schedulingWarning = null;
+    try {
+      const token = String(process.env.QSTASH_TOKEN || '').trim();
+      if (!token) throw new Error('QSTASH_TOKEN is not configured.');
+      const client = new QStashClient({ token, baseUrl: process.env.QSTASH_URL });
+      const callbackUrl = `${getScheduledCallbackBaseUrl()}/api/telegram/deliver`;
+      for (const scheduledAt of scheduleTimes) {
+        await client.publishJSON({
+          url: callbackUrl,
+          body: { runContentPlan: true },
+          notBefore: Math.max(Math.floor(Date.now() / 1000) + 1, Math.floor(new Date(scheduledAt).getTime() / 1000)),
+        });
+      }
+    } catch (error) {
+      console.error('Content plan wake-up scheduling failed:', error);
+      schedulingWarning = 'The plan was saved, but its automatic trigger could not be scheduled. Contact support before relying on its posting time.';
+    }
+    return res.status(200).json({ ok: true, savedCount: items.length, replacedCount, schedulingWarning });
   } catch (error) {
     return res.status(error?.statusCode || 500).json({ error: error?.message || 'Could not replace the content plan.' });
   }
