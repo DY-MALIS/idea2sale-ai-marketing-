@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mock = vi.hoisted(() => ({ botCall: vi.fn(), sendDue: vi.fn() }));
 vi.mock('../../api/_telegramApproval.js', () => ({ botCall: mock.botCall, sendDueApprovalsForUser: mock.sendDue }));
-const { handleApprovalBotLogin } = await import('../../api/_telegramBotAuth.js');
+const { handleApprovalBotLogin, issueApprovalLoginCode } = await import('../../api/_telegramBotAuth.js');
 
 const fakeDb = () => {
   const rows = new Map();
@@ -24,6 +24,16 @@ const fakeDb = () => {
         async commit() { operations.forEach((operation) => operation()); },
       };
     },
+    async runTransaction(fn) {
+      const operations = [];
+      const result = await fn({
+        get(target) { return target.get(); },
+        set(target, data) { operations.push(() => rows.set(target.key, data)); },
+        delete(target) { operations.push(() => rows.delete(target.key)); },
+      });
+      operations.forEach((operation) => operation());
+      return result;
+    },
   };
 };
 
@@ -35,6 +45,27 @@ describe('approval bot account linking', () => {
     mock.botCall.mockReset().mockResolvedValue(true);
     mock.sendDue.mockReset().mockResolvedValue(undefined);
     vi.stubEnv('VITE_FIREBASE_API_KEY', 'public-test-key');
+  });
+
+  it('links the signed-in website owner with a one-time code without storing a password', async () => {
+    const db = fakeDb();
+    const code = await issueApprovalLoginCode(db, 'firebase-user');
+    expect(code).toMatch(/^[A-F0-9]{12}$/);
+    expect(JSON.stringify([...db.rows])).not.toContain(code);
+    expect(await login(db, message(`/login ${code}`))).toBe(true);
+    expect(db.rows.get('telegram_approval_chats/firebase-user_100')).toMatchObject({ uid: 'firebase-user', chatId: '200' });
+    expect(db.rows.has('telegram_approval_login_codes/firebase-user')).toBe(false);
+    expect(mock.sendDue).toHaveBeenCalledWith(db, 'firebase-user');
+    expect(await login(db, message(`/login ${code}`, 2))).toBe(true);
+    expect(mock.sendDue).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects an expired login code without linking a chat', async () => {
+    const db = fakeDb();
+    const code = await issueApprovalLoginCode(db, 'firebase-user');
+    db.rows.get('telegram_approval_login_codes/firebase-user').expiresAt = Date.now() - 1;
+    expect(await login(db, message(`/login ${code}`))).toBe(true);
+    expect(db.rows.has('telegram_approval_chats/firebase-user_100')).toBe(false);
   });
 
   it('intercepts credentials, links the verified Firebase UID, and signs out', async () => {

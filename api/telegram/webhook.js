@@ -3,7 +3,7 @@ import admin, { initFirebaseAdmin } from '../_firebaseAdmin.js';
 import { FieldValue } from 'firebase-admin/firestore';
 import { logAudit } from '../_audit.js';
 import { botCall, decideApproval } from '../_telegramApproval.js';
-import { handleApprovalBotLogin } from '../_telegramBotAuth.js';
+import { handleApprovalBotLogin, issueApprovalLoginCode } from '../_telegramBotAuth.js';
 
 const TELEGRAM_LIMIT = 3900;
 
@@ -789,6 +789,24 @@ const activateOwnBot = async (req, res) => {
   }
 };
 
+const createApprovalLoginCode = async (req, res) => {
+  const idToken = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
+  if (!idToken) return res.status(401).json({ error: 'Sign in on the website first.' });
+  try {
+    const db = initFirebaseAdmin();
+    const decoded = await admin.auth().verifyIdToken(idToken, true);
+    const profile = (await db.collection('business_profiles').doc(decoded.uid).get()).data() || {};
+    if (profile.telegramBotActive !== true || !profile.telegramBotToken) {
+      return res.status(409).json({ error: 'Activate your Telegram bot in Business Profile first.' });
+    }
+    const code = await issueApprovalLoginCode(db, decoded.uid);
+    res.setHeader('Cache-Control', 'no-store');
+    return res.status(200).json({ code, expiresInSeconds: 600, botUsername: profile.telegramBotUsername || '' });
+  } catch {
+    return res.status(401).json({ error: 'Could not verify your website session.' });
+  }
+};
+
 export default async function handler(req, res) {
   if (req.query?.action === 'set-webhook') {
     if (!['GET', 'POST'].includes(req.method)) {
@@ -809,6 +827,10 @@ export default async function handler(req, res) {
 
   if (req.query?.action === 'activate-bot') {
     return activateOwnBot(req, res);
+  }
+
+  if (req.query?.action === 'login-code') {
+    return createApprovalLoginCode(req, res);
   }
 
   // Present only for a per-user bot's own webhook URL (see activateOwnBot) --
