@@ -13,11 +13,9 @@ for access details.
 
 - Vite, React 19, TypeScript, Tailwind CSS
 - Express dev server (`server.ts`, used by `npm run dev`)
-- **Production runs on Vercel serverless functions** under `api/*.js` — `server.ts` is local-dev-only and does not
-  fully mirror what's deployed. `/api/tiktok/publish` has a separate, older implementation in `server.ts` and can
-  drift from `api/tiktok/publish.js` (production) — check both if you change TikTok video publishing behavior.
-  `/api/tiktok/publish-photo` and `/api/telegram/run-scheduled` avoid this by having `server.ts` import and mount
-  the same handler used in production, so those two can't drift.
+- **Production runs on Vercel serverless functions** under `api/*.js`. The local Express server (`server.ts`) mounts
+  the same handlers for TikTok publishing, Telegram scheduling, and the other main API routes. Check Vercel's
+  functions when verifying production behavior; the local server still has some compatibility routes.
 - Firebase (Auth + Firestore) for data and auth
 - ImageKit for legacy media; Cloudflare R2 for new media when enabled
 - Upstash QStash for precise-time scheduled delivery
@@ -139,6 +137,8 @@ npm run dev
 
 The bot owner can connect without sending an account password through Telegram: sign in on the website, activate the owner bot, then generate a one-time Telegram login code in Business Profile. Send `/login <code>` to that bot in a private chat within 10 minutes. The code is stored only as a hash in Firestore and is consumed on first use. `/logout` disconnects the chat. The older email/password bot flow remains available; it requires Email/Password in Firebase Authentication, and deletion of credential messages from Telegram is not guaranteed. Existing Google users can add a Firebase password in Business Profile without changing their UID. New scheduled auto-publish posts wait for separate Yes/No decisions per destination; posts already pending before deployment keep their prior behavior. Instagram and Twitter planning-only rows do not request approval.
 
+New Guest sign-in has been retired in both the website and the guest-token API. Existing local demo mode remains available.
+
 1. For each company login, create its own bot via [@BotFather](https://t.me/BotFather). Save its token and public
    channel username (`@mychannel` or `https://t.me/mychannel`) in that login's Business Profile, then add that bot as
    an administrator of the channel. A numeric channel/chat ID is supported when no username is saved. If both are
@@ -176,7 +176,7 @@ The bot owner can connect without sending an account password through Telegram: 
 - Admins can download and merge-restore a versioned JSON application backup in Security Center. Firebase
   point-in-time recovery / managed exports are still a separate production safeguard that must be enabled and
   verified in Firebase.
-- `server.ts` (local dev) and `api/tiktok/publish.js` (production) implement TikTok video publishing separately
-  and can drift — production is the source of truth.
+- The local Express server mounts the production TikTok publish handler. Some older compatibility routes remain in
+  `server.ts` and should not be used as the source of truth for production behavior.
 - Ads Manager Lite generates AI strategy/creative/scaling guidance only; it does not connect to Meta or TikTok Ads
   accounts, so there is no automated bid/budget management.

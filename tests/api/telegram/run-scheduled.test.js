@@ -85,6 +85,14 @@ it('counts videos waiting for human review against the daily generation quota', 
   expect(GENERATED_VIDEO_STATUSES).toEqual(['DONE', 'PROCESSING', 'REVIEW', 'READY']);
 });
 
+it('does not mint new guest tokens after guest sign-in was removed', async () => {
+  const res = createMockRes();
+  await scheduledHandler({ method: 'POST', query: { action: 'guest-token' }, headers: {} }, res);
+  expect(res.statusCode).toBe(410);
+  expect(res.body).toMatchObject({ ok: false });
+  expect(mockGetFirestore).not.toHaveBeenCalled();
+});
+
 it('keeps Telegram in the same one-upload schedule group as the other platforms', async () => {
   delete process.env.QSTASH_TOKEN;
   mockVerifyIdToken.mockResolvedValue({ uid: 'owner' });
