@@ -809,7 +809,6 @@ const createApprovalLoginCode = async (req, res) => {
   }
 };
 
-<<<<<<< HEAD
 const completeGoogleBotLogin = async (req, res) => {
   const idToken = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
   if (!idToken) return res.status(401).json({ error: 'Sign in with Google first.' });
@@ -826,7 +825,9 @@ const completeGoogleBotLogin = async (req, res) => {
   } catch (error) {
     console.error('Telegram Google link failed:', error?.message || error);
     return res.status(500).json({ error: 'Could not connect the Telegram chat.' });
-=======
+  }
+};
+
 const getApprovalConnectionStatus = async (req, res) => {
   const idToken = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
   if (!idToken) return res.status(401).json({ error: 'Sign in on the website first.' });
@@ -861,7 +862,6 @@ const getApprovalConnectionStatus = async (req, res) => {
     return res.status(200).json({ active: profile.telegramBotActive === true, linked: linkSnap.exists, webhookReady });
   } catch (error) {
     return res.status(503).json({ error: 'Could not check the Telegram approval connection.' });
->>>>>>> de343d298ed7c74a6749440ac0230c4035e24711
   }
 };
 
@@ -891,24 +891,17 @@ export default async function handler(req, res) {
     return createApprovalLoginCode(req, res);
   }
 
-<<<<<<< HEAD
   if (req.query?.action === 'complete-google-link') {
     return completeGoogleBotLogin(req, res);
+  }
+
+  if (req.query?.action === 'approval-status') {
+    return getApprovalConnectionStatus(req, res);
   }
 
   // Owner bots use a uid-specific webhook. The DGACADEMY owner bot also serves
   // other website accounts after a verified Google link. The legacy deployment
   // bot uses the URL without a uid.
-=======
-  if (req.query?.action === 'approval-status') {
-    return getApprovalConnectionStatus(req, res);
-  }
-
-  // Present only for a per-user bot's own webhook URL (see activateOwnBot) --
-  // the shared bot's webhook URL carries none, so ownerId stays null and every
-  // function below falls back to its original single-tenant behavior exactly
-  // as before this feature existed.
->>>>>>> de343d298ed7c74a6749440ac0230c4035e24711
   const ownerId = String(req.query?.uid || '').trim() || null;
 
   let db = null;
