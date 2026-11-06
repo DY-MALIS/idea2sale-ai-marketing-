@@ -6,6 +6,10 @@ on:
     - cron: '0 */6 * * *'
   workflow_dispatch: {}
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   # Keep destinations independent: a Telegram/TikTok failure must not skip
   # a due YouTube post. Run them on both schedules so the six-hour usage tick
@@ -14,37 +18,37 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Trigger due Telegram posts
-        env:
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          curl --fail-with-body --show-error --silent --connect-timeout 10 --max-time 120 -X POST -H "Authorization: Bearer $CRON_SECRET" https://aime.angkorgate.ai/api/telegram/run-scheduled
+          OIDC_TOKEN=$(curl --fail --show-error --silent -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=https%3A%2F%2Faime.angkorgate.ai%2Fscheduler" | jq -r '.value')
+          test -n "$OIDC_TOKEN" && test "$OIDC_TOKEN" != null
+          curl --fail-with-body --show-error --silent --connect-timeout 10 --max-time 120 -X POST -H "X-GitHub-OIDC-Token: $OIDC_TOKEN" https://aime.angkorgate.ai/api/telegram/run-scheduled
 
   tiktok-posts:
     runs-on: ubuntu-latest
     steps:
       - name: Trigger due TikTok posts
-        env:
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          curl --fail-with-body --show-error --silent --connect-timeout 10 --max-time 120 -X POST -H "Authorization: Bearer $CRON_SECRET" "https://aime.angkorgate.ai/api/tiktok/publish?action=cron"
+          OIDC_TOKEN=$(curl --fail --show-error --silent -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=https%3A%2F%2Faime.angkorgate.ai%2Fscheduler" | jq -r '.value')
+          test -n "$OIDC_TOKEN" && test "$OIDC_TOKEN" != null
+          curl --fail-with-body --show-error --silent --connect-timeout 10 --max-time 120 -X POST -H "X-GitHub-OIDC-Token: $OIDC_TOKEN" "https://aime.angkorgate.ai/api/tiktok/publish?action=cron"
 
   youtube-posts:
     runs-on: ubuntu-latest
     steps:
       - name: Trigger due YouTube posts
-        env:
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          curl --fail-with-body --show-error --silent --connect-timeout 10 --max-time 120 -X POST -H "Authorization: Bearer $CRON_SECRET" "https://aime.angkorgate.ai/api/tiktok/publish?action=youtubeCron"
+          OIDC_TOKEN=$(curl --fail --show-error --silent -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=https%3A%2F%2Faime.angkorgate.ai%2Fscheduler" | jq -r '.value')
+          test -n "$OIDC_TOKEN" && test "$OIDC_TOKEN" != null
+          curl --fail-with-body --show-error --silent --connect-timeout 10 --max-time 120 -X POST -H "X-GitHub-OIDC-Token: $OIDC_TOKEN" "https://aime.angkorgate.ai/api/tiktok/publish?action=youtubeCron"
 
   facebook-posts:
     runs-on: ubuntu-latest
     steps:
       - name: Trigger due Facebook Page posts
-        env:
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          curl --fail-with-body --show-error --silent --connect-timeout 10 --max-time 120 -X POST -H "Authorization: Bearer $CRON_SECRET" "https://aime.angkorgate.ai/api/tiktok/publish?action=facebookCron"
+          OIDC_TOKEN=$(curl --fail --show-error --silent -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=https%3A%2F%2Faime.angkorgate.ai%2Fscheduler" | jq -r '.value')
+          test -n "$OIDC_TOKEN" && test "$OIDC_TOKEN" != null
+          curl --fail-with-body --show-error --silent --connect-timeout 10 --max-time 120 -X POST -H "X-GitHub-OIDC-Token: $OIDC_TOKEN" "https://aime.angkorgate.ai/api/tiktok/publish?action=facebookCron"
 
   usage-check:
     # OpenRouter credit balance and ImageKit's monthly video-transformation
@@ -54,7 +58,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check OpenRouter/ImageKit usage
-        env:
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          curl --fail-with-body --show-error --silent --connect-timeout 10 --max-time 120 -X POST -H "Authorization: Bearer $CRON_SECRET" "https://aime.angkorgate.ai/api/telegram/run-scheduled?action=usageCheck"
+          OIDC_TOKEN=$(curl --fail --show-error --silent -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=https%3A%2F%2Faime.angkorgate.ai%2Fscheduler" | jq -r '.value')
+          test -n "$OIDC_TOKEN" && test "$OIDC_TOKEN" != null
+          curl --fail-with-body --show-error --silent --connect-timeout 10 --max-time 120 -X POST -H "X-GitHub-OIDC-Token: $OIDC_TOKEN" "https://aime.angkorgate.ai/api/telegram/run-scheduled?action=usageCheck"

@@ -5,6 +5,7 @@ import { logAudit } from '../_audit.js';
 import { getAutomationAccessToken, recordTikTokPostSync, scheduleTikTokQStashDelivery, markAutomationTokenRevoked } from '../_tiktok.js';
 import { claimPendingPost, findRecentDuplicateTikTokPost, findRecentDuplicateYouTubePost, isSourcePlanActive } from '../_telegramClaim.js';
 import { approvalNeeded } from '../_telegramApproval.js';
+import { isAuthorizedScheduledRequest } from '../_cronAuth.js';
 
 import { getYouTubeAutomationAccessToken, publishVideoToYouTube, scheduleYouTubeQStashDelivery } from '../_youtube.js';
 import { getFacebookPages, publishFacebookReel, publishFacebookPhoto, getFacebookReelStatus, scheduleFacebookQStashDelivery } from '../_facebook.js';
@@ -474,14 +475,7 @@ async function failUnconnectedTikTokPost(db, ref) {
 // TikTok via api/tiktok/callback.js. Invoked by vercel.json's cron and the
 // GitHub Action fallback poller, both hitting ?action=cron.
 async function runTikTokCron(req, res) {
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) {
-    console.error('CRON_SECRET is not configured; refusing to run the scheduled TikTok poller.');
-    return res.status(500).json({ error: 'CRON_SECRET is not configured on the server.' });
-  }
-  const auth = req.headers.authorization || '';
-  const querySecret = req.query?.secret;
-  if (auth !== `Bearer ${cronSecret}` && querySecret !== cronSecret) {
+  if (!await isAuthorizedScheduledRequest(req)) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
@@ -949,14 +943,7 @@ async function deliverOneScheduledYouTubePost(db, docRef) {
 // (SchedulerHub.tsx, platform YOUTUBE). Invoked by vercel.json's cron, same
 // shared-secret check as runTikTokCron above.
 async function runYouTubeCron(req, res) {
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) {
-    console.error('CRON_SECRET is not configured; refusing to run the scheduled YouTube poller.');
-    return res.status(500).json({ error: 'CRON_SECRET is not configured on the server.' });
-  }
-  const auth = req.headers.authorization || '';
-  const querySecret = req.query?.secret;
-  if (auth !== `Bearer ${cronSecret}` && querySecret !== cronSecret) {
+  if (!await isAuthorizedScheduledRequest(req)) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
@@ -1086,8 +1073,7 @@ async function deliverOneScheduledFacebookPost(db, docRef) {
 }
 
 async function runFacebookCron(req, res) {
-  const secret = process.env.CRON_SECRET;
-  if (!secret || (req.headers.authorization !== `Bearer ${secret}` && req.query?.secret !== secret)) return res.status(401).json({ error: 'Unauthorized' });
+  if (!await isAuthorizedScheduledRequest(req)) return res.status(401).json({ error: 'Unauthorized' });
   try {
     const db = initFirebaseAdmin();
     const now = Date.now();

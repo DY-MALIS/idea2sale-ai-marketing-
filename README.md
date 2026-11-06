@@ -149,9 +149,10 @@ The bot owner can connect without sending an account password through Telegram: 
    delivery failure alerts. Do not reuse the public `TELEGRAM_CHAT_ID` for internal alerts.
 4. Register the webhook (`api/telegram/webhook.js`) with Telegram and set `TELEGRAM_WEBHOOK_SECRET`.
 5. Scheduled posts are delivered two ways: Upstash QStash for precise-time delivery, and a fallback poller
-   (`.github/workflows/telegram-scheduler.yml`, every 10 minutes) that calls `/api/telegram/run-scheduled`. Confirm
-   the GitHub Action is enabled on the repo — Vercel's own cron entry for the same endpoint only runs once a day
-   and is not sufficient on its own.
+   (`.github/workflows/telegram-scheduler.yml`, every 10 minutes) that calls `/api/telegram/run-scheduled`.
+   The GitHub Action uses a short-lived GitHub OIDC token restricted to this repository, main branch, and workflow;
+   it no longer uses the GitHub `CRON_SECRET` repository secret. Confirm the Action is enabled and its jobs pass.
+   Vercel's own cron entry for the same endpoint only runs once a day and is not sufficient on its own.
 
 ## Deployment to Vercel
 
@@ -160,10 +161,8 @@ The bot owner can connect without sending an account password through Telegram: 
 3. Deploy — `vercel.json` handles cron scheduling and SPA rewrites; every file under `api/` is auto-deployed as a
    serverless function.
 4. Confirm `APP_URL` matches the deployed domain (used to build TikTok/Telegram redirect and webhook URLs).
-5. Set `CRON_SECRET` in Vercel — `/api/telegram/run-scheduled` now refuses to run without it (fails closed, not
-   optional). Also add the same value as a `CRON_SECRET` secret on the GitHub repo (Settings → Secrets → Actions),
-   since `.github/workflows/telegram-scheduler.yml` sends it as a bearer token. Vercel Cron sends it automatically
-   once the env var is set; the GitHub Action needs the repo secret to match.
+5. Keep `CRON_SECRET` in Vercel for its built-in cron requests. GitHub Actions uses the separate OIDC authentication
+   in `.github/workflows/telegram-scheduler.yml`, so no matching GitHub repository secret is needed.
 6. In Firebase Console, enable Firestore point-in-time recovery or scheduled backups, then perform a restore test
    into a separate scratch project. The application-level JSON backup does not replace managed disaster recovery.
 7. Enable Firebase alerts for unusual Authentication activity and monitor Firestore rule denials; these events are

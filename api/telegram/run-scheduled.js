@@ -11,6 +11,7 @@ import { ensureApprovalRequest } from '../_telegramApproval.js';
 import { getScheduledCallbackBaseUrl } from '../_callbackUrl.js';
 import { notifyAdmins } from '../_alert.js';
 import { runUsageChecks } from '../_usageMonitor.js';
+import { isAuthorizedScheduledRequest } from '../_cronAuth.js';
 import { checkRateLimit, getClientIp } from '../_rateLimit.js';
 import { generateOpenRouterImage, startOpenRouterVideo } from '../_openrouter.js';
 import { preparePlanVideoSpeech } from '../_videoSpeech.js';
@@ -682,14 +683,7 @@ export default async function handler(req, res) {
     return await postTelegramMessage(req, res);
   }
 
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) {
-    console.error('CRON_SECRET is not configured; refusing to run the scheduled Telegram poller.');
-    return res.status(500).json({ error: 'CRON_SECRET is not configured on the server.' });
-  }
-  const auth = req.headers.authorization || '';
-  const querySecret = req.query?.secret;
-  if (auth !== `Bearer ${cronSecret}` && querySecret !== cronSecret) {
+  if (!await isAuthorizedScheduledRequest(req)) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
