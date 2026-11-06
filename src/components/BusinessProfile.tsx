@@ -103,6 +103,9 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
   const [approvalLoginCode, setApprovalLoginCode] = useState('');
   const [approvalLoginStatus, setApprovalLoginStatus] = useState('');
   const [creatingApprovalLoginCode, setCreatingApprovalLoginCode] = useState(false);
+  const [approvalConnection, setApprovalConnection] = useState<{ active: boolean; linked: boolean; webhookReady: boolean } | null>(null);
+  const [approvalConnectionError, setApprovalConnectionError] = useState('');
+  const [checkingApprovalConnection, setCheckingApprovalConnection] = useState(false);
   const [accountPassword, setAccountPassword] = useState('');
   const [confirmAccountPassword, setConfirmAccountPassword] = useState('');
   const [passwordStatus, setPasswordStatus] = useState('');
@@ -632,12 +635,37 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
       }
       setTelegramBotActive(Boolean(data.active));
       setBotStatusMessage(data.message || null);
+      setApprovalConnection(null);
     } catch (err: any) {
       setBotStatusMessage(err.message || 'Could not update your bot.');
     } finally {
       setActivatingBot(false);
     }
   };
+
+  const checkApprovalConnection = async () => {
+    if (!user || isDemoMode) return;
+    setCheckingApprovalConnection(true);
+    setApprovalConnectionError('');
+    try {
+      const idToken = await user.getIdToken();
+      const response = await fetch('/api/telegram/webhook?action=approval-status', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Could not check the Telegram connection.');
+      setApprovalConnection({ active: data.active === true, linked: data.linked === true, webhookReady: data.webhookReady === true });
+    } catch (error: any) {
+      setApprovalConnectionError(error?.message || 'Could not check the Telegram connection.');
+    } finally {
+      setCheckingApprovalConnection(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!authLoading && user && !isDemoMode) void checkApprovalConnection();
+  }, [authLoading, user?.uid, isDemoMode]);
 
   const saveAccountPassword = async () => {
     if (!user?.email || accountPassword.length < 8) {
@@ -1113,6 +1141,15 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
             {!isDemoMode && user?.email && (
               <div className="rounded-2xl border border-slate-200 p-5 dark:border-slate-700">
                 <h3 className="mb-2 font-bold text-slate-900 dark:text-slate-100">Approval bot sign-in</h3>
+                {approvalConnection && (
+                  <p className={`mb-2 text-xs font-semibold ${approvalConnection.webhookReady && approvalConnection.linked ? 'text-emerald-700' : 'text-amber-700'}`}>
+                    {approvalConnection.webhookReady
+                      ? (approvalConnection.linked ? 'Bot ready. Your Telegram chat is connected for approvals.' : 'Bot webhook ready. Connect your Telegram chat with a login code below.')
+                      : 'Bot webhook is not ready for approval buttons. Activate your bot again above.'}
+                  </p>
+                )}
+                {approvalConnectionError && <p className="mb-2 text-xs text-rose-600">{approvalConnectionError}</p>}
+                <button type="button" onClick={checkApprovalConnection} disabled={checkingApprovalConnection} className="mb-3 text-xs font-semibold text-brand-700 underline disabled:opacity-50">{checkingApprovalConnection ? 'Checking connection…' : 'Check connection'}</button>
                 <p className="mb-3 text-xs text-slate-600 dark:text-slate-300">Generate a one-time code here, then send it to your activated Telegram bot. Your website password stays with Firebase Authentication.</p>
                 <button type="button" onClick={createApprovalCode} disabled={!telegramBotActive || creatingApprovalLoginCode} className="mb-3 rounded-xl bg-brand-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{creatingApprovalLoginCode ? 'Creating code…' : 'Generate Telegram login code'}</button>
                 {!telegramBotActive && <p className="mb-3 text-xs text-amber-600">Activate your Telegram bot above first.</p>}

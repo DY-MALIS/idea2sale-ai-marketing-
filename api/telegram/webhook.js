@@ -807,6 +807,43 @@ const createApprovalLoginCode = async (req, res) => {
   }
 };
 
+const getApprovalConnectionStatus = async (req, res) => {
+  const idToken = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
+  if (!idToken) return res.status(401).json({ error: 'Sign in on the website first.' });
+  let db;
+  try {
+    db = initFirebaseAdmin();
+  } catch {
+    return res.status(503).json({ error: 'Telegram approval connection is unavailable.' });
+  }
+  let decoded;
+  try {
+    decoded = await admin.auth().verifyIdToken(idToken, true);
+  } catch {
+    return res.status(401).json({ error: 'Sign-in verification failed.' });
+  }
+  try {
+    const [profileSnap, linkSnap] = await Promise.all([
+      db.collection('business_profiles').doc(decoded.uid).get(),
+      db.collection('telegram_approval_links').doc(decoded.uid).get(),
+    ]);
+    const profile = profileSnap.data() || {};
+    const token = String(profile.telegramBotToken || '').trim();
+    let webhookReady = false;
+    if (profile.telegramBotActive === true && token) {
+      const response = await fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`, { signal: AbortSignal.timeout(5000) });
+      const data = await response.json();
+      const expectedUrl = `${getBaseUrl(req)}/api/telegram/webhook?uid=${encodeURIComponent(decoded.uid)}`;
+      webhookReady = response.ok && data.ok === true && data.result?.url === expectedUrl
+        && Array.isArray(data.result?.allowed_updates) && data.result.allowed_updates.includes('callback_query');
+    }
+    res.setHeader('Cache-Control', 'no-store');
+    return res.status(200).json({ active: profile.telegramBotActive === true, linked: linkSnap.exists, webhookReady });
+  } catch (error) {
+    return res.status(503).json({ error: 'Could not check the Telegram approval connection.' });
+  }
+};
+
 export default async function handler(req, res) {
   if (req.query?.action === 'set-webhook') {
     if (!['GET', 'POST'].includes(req.method)) {
@@ -831,6 +868,10 @@ export default async function handler(req, res) {
 
   if (req.query?.action === 'login-code') {
     return createApprovalLoginCode(req, res);
+  }
+
+  if (req.query?.action === 'approval-status') {
+    return getApprovalConnectionStatus(req, res);
   }
 
   // Present only for a per-user bot's own webhook URL (see activateOwnBot) --

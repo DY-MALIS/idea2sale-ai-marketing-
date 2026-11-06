@@ -133,7 +133,7 @@ npm run dev
 
 ### Content approval bot
 
-`@dgacademy_official_bot` is configured as an owner bot in Business Profile. It uses that owner's saved `telegramBotToken` and existing `/api/telegram/webhook?uid=<owner-uid>` webhook. Its webhook must subscribe to `callback_query` updates as well as messages; activating the bot again in Business Profile registers the updated webhook after deployment. The shared `TELEGRAM_BOT_TOKEN` belongs to a different bot and is not used for approvals. Other owner bots can use `/login` for the same approval flow; the plain `/start` sign-in prompt is specific to `@dgacademy_official_bot` so customer deep links continue to work.
+`@dgacademy_official_bot` is configured as an owner bot in Business Profile. It uses that owner's saved `telegramBotToken` and existing `/api/telegram/webhook?uid=<owner-uid>` webhook. Its webhook must subscribe to `callback_query` updates as well as messages; activating the bot again in Business Profile registers the updated webhook after deployment. Business Profile's **Check connection** reports whether the webhook accepts approval buttons and whether the owner's private chat is linked. The shared `TELEGRAM_BOT_TOKEN` belongs to a different bot and is not used for approvals. Other owner bots can use `/login` for the same approval flow; the plain `/start` sign-in prompt is specific to `@dgacademy_official_bot` so customer deep links continue to work.
 
 The bot owner can connect without sending an account password through Telegram: sign in on the website, activate the owner bot, then generate a one-time Telegram login code in Business Profile. Send `/login <code>` to that bot in a private chat within 10 minutes. The code is stored only as a hash in Firestore and is consumed on first use. `/logout` disconnects the chat. The older email/password bot flow remains available; it requires Email/Password in Firebase Authentication, and deletion of credential messages from Telegram is not guaranteed. Existing Google users can add a Firebase password in Business Profile without changing their UID. New scheduled auto-publish posts wait for separate Yes/No decisions per destination; posts already pending before deployment keep their prior behavior. Instagram and Twitter planning-only rows do not request approval.
 
@@ -163,8 +163,8 @@ New Guest sign-in has been retired in both the website and the guest-token API. 
 4. Confirm `APP_URL` matches the deployed domain (used to build TikTok/Telegram redirect and webhook URLs).
 5. Keep `CRON_SECRET` in Vercel for its built-in cron requests. GitHub Actions uses the separate OIDC authentication
    in `.github/workflows/telegram-scheduler.yml`, so no matching GitHub repository secret is needed.
-6. In Firebase Console, enable Firestore point-in-time recovery or scheduled backups, then perform a restore test
-   into a separate scratch project. The application-level JSON backup does not replace managed disaster recovery.
+6. Download an application JSON backup from Security Center and keep it securely outside the app. Firestore
+   point-in-time recovery and managed backups are optional paid safeguards; they are not enabled for this project.
 7. Enable Firebase alerts for unusual Authentication activity and monitor Firestore rule denials; these events are
    not visible to the application when Firebase rejects them before request handling.
 
@@ -174,8 +174,7 @@ New Guest sign-in has been retired in both the website and the guest-token API. 
   actions, scheduler changes, Smart Reply rules, automation status, audience training, business-profile updates,
   and backup/restore. High-frequency AI chat autosaves are intentionally excluded.
 - Admins can download and merge-restore a versioned JSON application backup in Security Center. Firebase
-  point-in-time recovery / managed exports are still a separate production safeguard that must be enabled and
-  verified in Firebase.
+  point-in-time recovery and managed exports remain disabled by choice; the JSON backup has a narrower recovery scope.
 - The local Express server mounts the production TikTok publish handler. Some older compatibility routes remain in
   `server.ts` and should not be used as the source of truth for production behavior.
 - Ads Manager Lite generates AI strategy/creative/scaling guidance only; it does not connect to Meta or TikTok Ads
