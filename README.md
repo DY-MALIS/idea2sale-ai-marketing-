@@ -13,11 +13,9 @@ for access details.
 
 - Vite, React 19, TypeScript, Tailwind CSS
 - Express dev server (`server.ts`, used by `npm run dev`)
-- **Production runs on Vercel serverless functions** under `api/*.js` — `server.ts` is local-dev-only and does not
-  fully mirror what's deployed. `/api/tiktok/publish` has a separate, older implementation in `server.ts` and can
-  drift from `api/tiktok/publish.js` (production) — check both if you change TikTok video publishing behavior.
-  `/api/tiktok/publish-photo` and `/api/telegram/run-scheduled` avoid this by having `server.ts` import and mount
-  the same handler used in production, so those two can't drift.
+- **Production runs on Vercel serverless functions** under `api/*.js`. The local Express server (`server.ts`) mounts
+  the same handlers for TikTok publishing, Telegram scheduling, and the other main API routes. Check Vercel's
+  functions when verifying production behavior; the local server still has some compatibility routes.
 - Firebase (Auth + Firestore) for data and auth
 - ImageKit for legacy media; Cloudflare R2 for new media when enabled
 - Upstash QStash for precise-time scheduled delivery
@@ -135,11 +133,17 @@ npm run dev
 
 ### Content approval bot
 
+<<<<<<< HEAD
 `@dgacademy_official_bot` uses the bot owner's saved `telegramBotToken` and `/api/telegram/webhook?uid=<bot-owner-uid>` webhook, but now accepts connections from other website accounts. Keep that owner bot active, with `message` and `callback_query` webhook updates; activating it again in Business Profile registers the current update list. The deployment-wide `TELEGRAM_BOT_TOKEN` belongs to a different bot and is not used for approvals. Set `APP_URL` to the deployed website origin so the bot sends the correct Google connection link.
+=======
+`@dgacademy_official_bot` is configured as an owner bot in Business Profile. It uses that owner's saved `telegramBotToken` and existing `/api/telegram/webhook?uid=<owner-uid>` webhook. Its webhook must subscribe to `callback_query` updates as well as messages; activating the bot again in Business Profile registers the updated webhook after deployment. Business Profile's **Check connection** reports whether the webhook accepts approval buttons and whether the owner's private chat is linked. The shared `TELEGRAM_BOT_TOKEN` belongs to a different bot and is not used for approvals. Other owner bots can use `/login` for the same approval flow; the plain `/start` sign-in prompt is specific to `@dgacademy_official_bot` so customer deep links continue to work.
+>>>>>>> de343d298ed7c74a6749440ac0230c4035e24711
 
 Any existing website account can send `/login` to `@dgacademy_official_bot` in a private chat. The bot sends a single-use, 10-minute website link. The user continues with Google on the website; Firebase verifies the existing account, and the app binds that Firebase UID to the Telegram user ID. A new Google account created from the link is refused: sign up on the website first, then request a fresh bot link. Existing email/password users can link Google to their current Firebase account on the connection page; this preserves their UID and data. `/logout` disconnects the chat. Bot links and approvals are owner-scoped by Firebase UID. Other owner bots retain their one-time code and legacy password flows. No password is stored in the app database. New scheduled auto-publish posts wait for separate Yes/No decisions per destination; posts already pending before deployment keep their prior behavior.
 
 Deploy the updated Firestore rules alongside the app so linked users can see their own CRM inbox. The shared approval bot requires `/login` before private chat or approvals; group messages are ignored because a group cannot be mapped to one website account. Existing Firestore documents are not migrated or removed. Expired, unused login-link records are cleared by the scheduled Telegram runner.
+
+New Guest sign-in has been retired in both the website and the guest-token API. Existing local demo mode remains available.
 
 1. For each company login, create its own bot via [@BotFather](https://t.me/BotFather). Save its token and public
    channel username (`@mychannel` or `https://t.me/mychannel`) in that login's Business Profile, then add that bot as
@@ -151,9 +155,10 @@ Deploy the updated Firestore rules alongside the app so linked users can see the
    delivery failure alerts. Do not reuse the public `TELEGRAM_CHAT_ID` for internal alerts.
 4. Register the webhook (`api/telegram/webhook.js`) with Telegram and set `TELEGRAM_WEBHOOK_SECRET`.
 5. Scheduled posts are delivered two ways: Upstash QStash for precise-time delivery, and a fallback poller
-   (`.github/workflows/telegram-scheduler.yml`, every 10 minutes) that calls `/api/telegram/run-scheduled`. Confirm
-   the GitHub Action is enabled on the repo — Vercel's own cron entry for the same endpoint only runs once a day
-   and is not sufficient on its own.
+   (`.github/workflows/telegram-scheduler.yml`, every 10 minutes) that calls `/api/telegram/run-scheduled`.
+   The GitHub Action uses a short-lived GitHub OIDC token restricted to this repository, main branch, and workflow;
+   it no longer uses the GitHub `CRON_SECRET` repository secret. Confirm the Action is enabled and its jobs pass.
+   Vercel's own cron entry for the same endpoint only runs once a day and is not sufficient on its own.
 
 ## Deployment to Vercel
 
@@ -162,12 +167,10 @@ Deploy the updated Firestore rules alongside the app so linked users can see the
 3. Deploy — `vercel.json` handles cron scheduling and SPA rewrites; every file under `api/` is auto-deployed as a
    serverless function.
 4. Confirm `APP_URL` matches the deployed domain (used to build TikTok/Telegram redirect and webhook URLs).
-5. Set `CRON_SECRET` in Vercel — `/api/telegram/run-scheduled` now refuses to run without it (fails closed, not
-   optional). Also add the same value as a `CRON_SECRET` secret on the GitHub repo (Settings → Secrets → Actions),
-   since `.github/workflows/telegram-scheduler.yml` sends it as a bearer token. Vercel Cron sends it automatically
-   once the env var is set; the GitHub Action needs the repo secret to match.
-6. In Firebase Console, enable Firestore point-in-time recovery or scheduled backups, then perform a restore test
-   into a separate scratch project. The application-level JSON backup does not replace managed disaster recovery.
+5. Keep `CRON_SECRET` in Vercel for its built-in cron requests. GitHub Actions uses the separate OIDC authentication
+   in `.github/workflows/telegram-scheduler.yml`, so no matching GitHub repository secret is needed.
+6. Download an application JSON backup from Security Center and keep it securely outside the app. Firestore
+   point-in-time recovery and managed backups are optional paid safeguards; they are not enabled for this project.
 7. Enable Firebase alerts for unusual Authentication activity and monitor Firestore rule denials; these events are
    not visible to the application when Firebase rejects them before request handling.
 
@@ -177,9 +180,8 @@ Deploy the updated Firestore rules alongside the app so linked users can see the
   actions, scheduler changes, Smart Reply rules, automation status, audience training, business-profile updates,
   and backup/restore. High-frequency AI chat autosaves are intentionally excluded.
 - Admins can download and merge-restore a versioned JSON application backup in Security Center. Firebase
-  point-in-time recovery / managed exports are still a separate production safeguard that must be enabled and
-  verified in Firebase.
-- `server.ts` (local dev) and `api/tiktok/publish.js` (production) implement TikTok video publishing separately
-  and can drift — production is the source of truth.
+  point-in-time recovery and managed exports remain disabled by choice; the JSON backup has a narrower recovery scope.
+- The local Express server mounts the production TikTok publish handler. Some older compatibility routes remain in
+  `server.ts` and should not be used as the source of truth for production behavior.
 - Ads Manager Lite generates AI strategy/creative/scaling guidance only; it does not connect to Meta or TikTok Ads
   accounts, so there is no automated bid/budget management.

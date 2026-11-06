@@ -809,6 +809,7 @@ const createApprovalLoginCode = async (req, res) => {
   }
 };
 
+<<<<<<< HEAD
 const completeGoogleBotLogin = async (req, res) => {
   const idToken = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
   if (!idToken) return res.status(401).json({ error: 'Sign in with Google first.' });
@@ -825,6 +826,42 @@ const completeGoogleBotLogin = async (req, res) => {
   } catch (error) {
     console.error('Telegram Google link failed:', error?.message || error);
     return res.status(500).json({ error: 'Could not connect the Telegram chat.' });
+=======
+const getApprovalConnectionStatus = async (req, res) => {
+  const idToken = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
+  if (!idToken) return res.status(401).json({ error: 'Sign in on the website first.' });
+  let db;
+  try {
+    db = initFirebaseAdmin();
+  } catch {
+    return res.status(503).json({ error: 'Telegram approval connection is unavailable.' });
+  }
+  let decoded;
+  try {
+    decoded = await admin.auth().verifyIdToken(idToken, true);
+  } catch {
+    return res.status(401).json({ error: 'Sign-in verification failed.' });
+  }
+  try {
+    const [profileSnap, linkSnap] = await Promise.all([
+      db.collection('business_profiles').doc(decoded.uid).get(),
+      db.collection('telegram_approval_links').doc(decoded.uid).get(),
+    ]);
+    const profile = profileSnap.data() || {};
+    const token = String(profile.telegramBotToken || '').trim();
+    let webhookReady = false;
+    if (profile.telegramBotActive === true && token) {
+      const response = await fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`, { signal: AbortSignal.timeout(5000) });
+      const data = await response.json();
+      const expectedUrl = `${getBaseUrl(req)}/api/telegram/webhook?uid=${encodeURIComponent(decoded.uid)}`;
+      webhookReady = response.ok && data.ok === true && data.result?.url === expectedUrl
+        && Array.isArray(data.result?.allowed_updates) && data.result.allowed_updates.includes('callback_query');
+    }
+    res.setHeader('Cache-Control', 'no-store');
+    return res.status(200).json({ active: profile.telegramBotActive === true, linked: linkSnap.exists, webhookReady });
+  } catch (error) {
+    return res.status(503).json({ error: 'Could not check the Telegram approval connection.' });
+>>>>>>> de343d298ed7c74a6749440ac0230c4035e24711
   }
 };
 
@@ -854,6 +891,7 @@ export default async function handler(req, res) {
     return createApprovalLoginCode(req, res);
   }
 
+<<<<<<< HEAD
   if (req.query?.action === 'complete-google-link') {
     return completeGoogleBotLogin(req, res);
   }
@@ -861,6 +899,16 @@ export default async function handler(req, res) {
   // Owner bots use a uid-specific webhook. The DGACADEMY owner bot also serves
   // other website accounts after a verified Google link. The legacy deployment
   // bot uses the URL without a uid.
+=======
+  if (req.query?.action === 'approval-status') {
+    return getApprovalConnectionStatus(req, res);
+  }
+
+  // Present only for a per-user bot's own webhook URL (see activateOwnBot) --
+  // the shared bot's webhook URL carries none, so ownerId stays null and every
+  // function below falls back to its original single-tenant behavior exactly
+  // as before this feature existed.
+>>>>>>> de343d298ed7c74a6749440ac0230c4035e24711
   const ownerId = String(req.query?.uid || '').trim() || null;
 
   let db = null;

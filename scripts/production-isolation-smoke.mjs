@@ -6,11 +6,11 @@ import dotenv from 'dotenv';
 import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth, signInWithCustomToken, signOut } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc, getDocs, deleteDoc, collection, query, where } from 'firebase/firestore';
+import admin, { initFirebaseAdmin } from '../api/_firebaseAdmin.js';
 
 dotenv.config({ path: '.env.local' });
 dotenv.config({ path: '.env' });
 
-const origin = 'https://aime.angkorgate.ai';
 const config = {
   apiKey: process.env.VITE_FIREBASE_API_KEY,
   authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -19,16 +19,13 @@ const config = {
 };
 const databaseId = process.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID;
 if (!config.apiKey || !config.projectId || !databaseId) throw new Error('Local Firebase public configuration is missing.');
+initFirebaseAdmin();
 
 async function guest(label) {
-  const response = await fetch(`${origin}/api/telegram/run-scheduled?action=guest-token`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
-  });
-  const data = await response.json();
-  if (!response.ok || !data.token) throw new Error(`Guest ${label} token failed: HTTP ${response.status}`);
+  const token = await admin.auth().createCustomToken(`guest_device_${randomUUID().replaceAll('-', '')}`, { guest: true });
   const app = initializeApp(config, `smoke-${label}-${randomUUID()}`);
   const auth = getAuth(app);
-  const credential = await signInWithCustomToken(auth, data.token);
+  const credential = await signInWithCustomToken(auth, token);
   return { app, auth, db: getFirestore(app, databaseId), uid: credential.user.uid };
 }
 

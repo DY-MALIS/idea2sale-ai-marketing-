@@ -3,7 +3,7 @@ import dotenv from 'dotenv';
 import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth, signInWithCustomToken, signOut } from 'firebase/auth';
 import { getFirestore, doc, getDoc } from 'firebase/firestore';
-import { initFirebaseAdmin } from '../api/_firebaseAdmin.js';
+import admin, { initFirebaseAdmin } from '../api/_firebaseAdmin.js';
 
 dotenv.config({ path: '.env.local' });
 dotenv.config({ path: '.env' });
@@ -18,14 +18,11 @@ const users = [];
 let uploadedId = '';
 let owner = null;
 async function guest(label) {
-  const reply = await fetch(`${origin}/api/telegram/run-scheduled?action=guest-token`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
-  });
-  const data = await reply.json();
-  if (!reply.ok || !data.token) throw new Error(`Guest ${label} failed: HTTP ${reply.status}`);
+  initFirebaseAdmin();
+  const token = await admin.auth().createCustomToken(`guest_device_${randomUUID().replaceAll('-', '')}`, { guest: true });
   const app = initializeApp(config, `profile-file-smoke-${label}-${randomUUID()}`);
   const auth = getAuth(app);
-  await signInWithCustomToken(auth, data.token);
+  await signInWithCustomToken(auth, token);
   const account = { app, auth, db: getFirestore(app, process.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID) };
   users.push(account);
   return account;

@@ -2,7 +2,6 @@ import { startKhmerVideoJob } from '../_khmerVideo.js';
 import admin from 'firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { initFirebaseAdmin } from '../_firebaseAdmin.js';
-import { randomBytes } from 'crypto';
 import { Client as QStashClient } from '@upstash/qstash';
 import sharp from 'sharp';
 import { logAudit } from '../_audit.js';
@@ -12,7 +11,7 @@ import { cleanupExpiredGoogleLinks } from '../_telegramGoogleLink.js';
 import { getScheduledCallbackBaseUrl } from '../_callbackUrl.js';
 import { notifyAdmins } from '../_alert.js';
 import { runUsageChecks } from '../_usageMonitor.js';
-import { checkRateLimit, getClientIp } from '../_rateLimit.js';
+import { isAuthorizedScheduledRequest } from '../_cronAuth.js';
 import { generateOpenRouterImage, startOpenRouterVideo } from '../_openrouter.js';
 import { preparePlanVideoSpeech } from '../_videoSpeech.js';
 import { generateKhmerSpeech } from '../_khmerNarration.js';
@@ -88,7 +87,6 @@ export const applyLogoWatermarkServer = async (imageDataUrl, logoDataUrl) => {
   }
 };
 
-const GUEST_TOKEN_RATE_LIMIT_PER_HOUR = Number(process.env.GUEST_TOKEN_RATE_LIMIT_PER_HOUR) || 30;
 
 // Telegram rejects the whole send with "message caption is too long" if a photo/video/
 // document caption exceeds 1024 characters (sendMessage's own text has a separate, higher
@@ -150,30 +148,6 @@ const verifyUser = async (req) => {
     throw error;
   }
   return admin.auth().verifyIdToken(token, true);
-};
-
-const createGuestToken = async (req, res, db) => {
-  // No auth exists yet at this point (this endpoint is what *creates* a guest
-  // session) -- the client IP is the only available throttling key.
-  try {
-    const { allowed } = await checkRateLimit(db, {
-      scope: 'guest-token',
-      key: getClientIp(req),
-      limit: GUEST_TOKEN_RATE_LIMIT_PER_HOUR,
-    });
-    if (!allowed) {
-      return res.status(429).json({ ok: false, error: 'Too many guest sessions started from this connection. Please wait a bit and try again.' });
-    }
-  } catch (error) {
-    console.error('Guest-token rate limit check failed, allowing request through:', error?.message || error);
-  }
-
-  // The caller must never choose its Firebase UID. A caller-selected installation
-  // ID could be reused to mint a token for an existing guest account.
-  const uid = `guest_device_${randomBytes(20).toString('hex')}`;
-  const token = await admin.auth().createCustomToken(uid, { guest: true });
-  res.setHeader('Cache-Control', 'no-store');
-  return res.status(200).json({ ok: true, token });
 };
 
 const createSignedUpload = async (req, res) => {
@@ -636,15 +610,7 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST' && req.query?.action === 'guest-token') {
-    try {
-      const db = initFirebaseAdmin();
-      return await createGuestToken(req, res, db);
-    } catch (error) {
-      return res.status(error?.statusCode || 500).json({
-        ok: false,
-        error: error?.message || 'Could not start a guest session.'
-      });
-    }
+    return res.status(410).json({ ok: false, error: 'Guest sign-in is no longer available. Sign in with email or Google.' });
   }
 
   if (req.method === 'POST' && req.query?.action === 'migrate-guest') {
@@ -683,14 +649,7 @@ export default async function handler(req, res) {
     return await postTelegramMessage(req, res);
   }
 
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) {
-    console.error('CRON_SECRET is not configured; refusing to run the scheduled Telegram poller.');
-    return res.status(500).json({ error: 'CRON_SECRET is not configured on the server.' });
-  }
-  const auth = req.headers.authorization || '';
-  const querySecret = req.query?.secret;
-  if (auth !== `Bearer ${cronSecret}` && querySecret !== cronSecret) {
+  if (!await isAuthorizedScheduledRequest(req)) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
