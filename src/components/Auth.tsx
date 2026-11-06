@@ -22,6 +22,8 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [emailEditable, setEmailEditable] = useState(false);
+  const [passwordEditable, setPasswordEditable] = useState(false);
   const firebaseApiKey = import.meta.env.VITE_FIREBASE_API_KEY || '';
 
   useEffect(() => {
@@ -82,6 +84,10 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
     event.preventDefault();
     setError(null);
     setErrorCode(null);
+    if (!email.trim() || !password) {
+      setError('Enter your email address and password.');
+      return;
+    }
     if (!isLogin && password.length < 8) {
       setError('Use a password of at least 8 characters.');
       return;
@@ -116,8 +122,11 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
   const selectEmailMode = (login: boolean) => {
     if (isLogin === login) return;
     setIsLogin(login);
+    setEmail('');
     setPassword('');
     setConfirmPassword('');
+    setEmailEditable(false);
+    setPasswordEditable(false);
     setError(null);
     setErrorCode(null);
   };
@@ -146,12 +155,12 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
             <button type="button" disabled={loading} aria-pressed={isLogin} onClick={() => selectEmailMode(true)} className={`rounded-lg px-4 py-3 text-sm font-bold transition-colors disabled:opacity-50 ${isLogin ? 'bg-white text-brand-700 shadow-sm dark:bg-slate-700 dark:text-brand-300' : 'text-slate-600 hover:text-brand-700 dark:text-slate-300'}`}>Sign in</button>
             <button type="button" disabled={loading} aria-pressed={!isLogin} onClick={() => selectEmailMode(false)} className={`rounded-lg px-4 py-3 text-sm font-bold transition-colors disabled:opacity-50 ${!isLogin ? 'bg-white text-brand-700 shadow-sm dark:bg-slate-700 dark:text-brand-300' : 'text-slate-600 hover:text-brand-700 dark:text-slate-300'}`}>Register</button>
           </div>
-          <form onSubmit={handleEmailSubmit} className="mb-6 space-y-3">
+          <form onSubmit={handleEmailSubmit} autoComplete="off" className="mb-6 space-y-3">
             <h2 className="text-sm font-bold text-slate-700 dark:text-slate-200">{isLogin ? 'Email sign-in' : 'Register with email'}</h2>
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-200" htmlFor="account-email">Email address</label>
-            <input id="account-email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-slate-900" />
+            <input id="account-email" type="email" autoComplete="off" readOnly={!emailEditable} required value={email} onFocus={(event) => { if (!email) event.currentTarget.value = ''; setEmailEditable(true); }} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-slate-900" />
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-200" htmlFor="account-password">Password</label>
-            <input id="account-password" type="password" autoComplete={isLogin ? 'current-password' : 'new-password'} required minLength={isLogin ? undefined : 8} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-slate-900" />
+            <input id="account-password" type="password" autoComplete={isLogin ? 'off' : 'new-password'} readOnly={!passwordEditable} required minLength={isLogin ? undefined : 8} value={password} onFocus={(event) => { if (!password) event.currentTarget.value = ''; setPasswordEditable(true); }} onChange={(event) => setPassword(event.target.value)} placeholder="Password" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-slate-900" />
             {!isLogin && (
               <>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-200" htmlFor="account-confirm-password">Confirm password</label>
