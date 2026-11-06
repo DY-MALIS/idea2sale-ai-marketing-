@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mock = vi.hoisted(() => ({
   pages: vi.fn(), facebookQueue: vi.fn(), youtubeQueue: vi.fn(), tiktokQueue: vi.fn(), telegramQueue: vi.fn(),
@@ -9,13 +9,17 @@ vi.mock('../../api/_tiktok.js', () => ({ scheduleTikTokQStashDelivery: mock.tikt
 vi.mock('../../api/telegram/run-scheduled.js', () => ({ scheduleQStashDelivery: mock.telegramQueue }));
 const { queueContentPlanDestinations } = await import('../../api/_contentPlanFanout.js');
 
-const fakeDb = (item, profile = {}) => {
+afterEach(() => vi.unstubAllGlobals());
+
+const fakeDb = (item, profile = {}, link = null, botProfile = {}) => {
   const posts = new Map();
   const itemRef = { kind: 'item', get: async () => ({ exists: true, data: () => item }) };
   const db = {
     collection: (name) => name === 'content_plan_items'
       ? { doc: () => itemRef }
-      : name === 'business_profiles' ? { doc: () => ({ get: async () => ({ data: () => profile }) }) }
+      : name === 'business_profiles' ? { doc: (id) => ({ get: async () => ({ data: () => id === item.userId ? profile : botProfile }) }) }
+      : name === 'telegram_approval_links' ? { doc: () => ({ get: async () => ({ data: () => link }) }) }
+      : name === 'telegram_approval_chats' ? { doc: () => ({ get: async () => ({ data: () => link ? { uid: item.userId, botOwnerId: link.botOwnerId, chatId: link.chatId } : null }) }) }
       : { doc: (id) => ({ id }) },
     runTransaction: async (callback) => callback({
       get: async (ref) => ref.kind === 'item'
@@ -29,6 +33,10 @@ const fakeDb = (item, profile = {}) => {
 
 describe('Content Plan publishing', () => {
   beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, result: [
+      { status: 'creator', user: { id: 123 } },
+      { status: 'administrator', can_post_messages: true, user: { id: 456, username: 'dgacademy_official_bot' } },
+    ] }) }));
     mock.pages.mockReset().mockResolvedValue({ selectedPageId: '123' });
     mock.facebookQueue.mockReset().mockResolvedValue(true);
     mock.youtubeQueue.mockReset().mockResolvedValue(true);
@@ -75,5 +83,17 @@ describe('Content Plan publishing', () => {
     expect(posts.get('plan-image-2-telegram')).toMatchObject({ approvalRequired: true, approvalStatus: 'AWAITING_DUE', platform: 'TELEGRAM', mediaUrl: 'https://example.com/photo.jpg' });
     expect(posts.get('plan-image-2-facebook')).toMatchObject({ approvalRequired: true, approvalStatus: 'AWAITING_DUE' });
     expect(mock.telegramQueue).toHaveBeenCalledOnce();
+  });
+
+  it('queues a linked account photo with the shared bot and its own channel', async () => {
+    const { db, posts } = fakeDb(
+      { userId: 'customer', type: 'image', status: 'PROCESSING', autoPublishDestinations: true, approvalRequired: true, topic: 'Photo' },
+      { telegramBotToken: 'invalid-customer-token', telegramChannelUrl: '@customerchannel' },
+      { botOwnerId: 'bot-owner', telegramUserId: '123', chatId: '123' },
+      { telegramBotToken: 'shared-token', telegramBotActive: true, telegramBotUsername: 'dgacademy_official_bot' },
+    );
+    const result = await queueContentPlanDestinations(db, 'image-3', 'https://example.com/photo.jpg', {});
+    expect(result.queued).toContain('TELEGRAM');
+    expect(posts.get('plan-image-3-telegram')).toMatchObject({ userId: 'customer', platform: 'TELEGRAM', approvalRequired: true });
   });
 });

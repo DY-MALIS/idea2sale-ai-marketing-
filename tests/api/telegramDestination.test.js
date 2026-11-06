@@ -1,0 +1,66 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { resolveTelegramDestination, sharedBotCanPublishToChannel } from '../../api/_telegramDestination.js';
+
+afterEach(() => vi.unstubAllGlobals());
+
+const admins = [
+  { status: 'creator', user: { id: 123 } },
+  { status: 'administrator', can_post_messages: true, user: { id: 456, username: 'dgacademy_official_bot' } },
+];
+
+const fakeDb = ({ account = {}, link = null, binding = null, owner = {} } = {}) => ({
+  collection: (name) => ({
+    doc: (id) => ({
+      get: async () => ({ data: () => name === 'business_profiles'
+        ? (id === 'customer' ? account : owner)
+        : name === 'telegram_approval_links' ? link
+        : binding }),
+    }),
+  }),
+});
+
+describe('shared Telegram publishing destination', () => {
+  it('uses the shared bot token with the linked website account channel', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, result: admins }) }));
+    const db = fakeDb({
+      account: { telegramBotToken: 'stale-token', telegramChannelUrl: '@customerchannel' },
+      link: { botOwnerId: 'bot-owner', telegramUserId: '123', chatId: '123' },
+      binding: { uid: 'customer', botOwnerId: 'bot-owner', chatId: '123' },
+      owner: { telegramBotToken: 'shared-token', telegramBotActive: true, telegramBotUsername: 'dgacademy_official_bot' },
+    });
+    expect(await resolveTelegramDestination(db, 'customer')).toEqual({ token: 'shared-token', chatId: '@customerchannel' });
+  });
+
+  it('requires the linked user and shared bot to be channel posting admins', () => {
+    expect(sharedBotCanPublishToChannel(admins, '123')).toBe(true);
+    expect(sharedBotCanPublishToChannel(admins, '999')).toBe(false);
+    expect(sharedBotCanPublishToChannel([{ ...admins[0], status: 'member' }, admins[1]], '123')).toBe(false);
+    expect(sharedBotCanPublishToChannel([admins[0], { ...admins[1], can_post_messages: false }], '123')).toBe(false);
+  });
+
+  it('rejects a stale or mismatched shared bot link', async () => {
+    const db = fakeDb({
+      account: { telegramBotToken: 'stale-token', telegramChannelUrl: '@customerchannel' },
+      link: { botOwnerId: 'bot-owner', telegramUserId: '123', chatId: '123' },
+      binding: { uid: 'someone-else', botOwnerId: 'bot-owner', chatId: '123' },
+      owner: { telegramBotToken: 'shared-token', telegramBotActive: true, telegramBotUsername: 'dgacademy_official_bot' },
+    });
+    expect(await resolveTelegramDestination(db, 'customer')).toEqual({ token: '', chatId: '' });
+  });
+
+  it('refuses a channel where the linked user is not an administrator', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, result: admins.slice(1) }) }));
+    const db = fakeDb({
+      account: { telegramChannelUrl: '@otherchannel' },
+      link: { botOwnerId: 'bot-owner', telegramUserId: '123', chatId: '123' },
+      binding: { uid: 'customer', botOwnerId: 'bot-owner', chatId: '123' },
+      owner: { telegramBotToken: 'shared-token', telegramBotActive: true, telegramBotUsername: 'dgacademy_official_bot' },
+    });
+    expect(await resolveTelegramDestination(db, 'customer')).toEqual({ token: '', chatId: '' });
+  });
+
+  it('keeps an unlinked owner bot destination unchanged', async () => {
+    const db = fakeDb({ account: { telegramBotToken: 'owner-token', telegramChannelUrl: '@ownerchannel' } });
+    expect(await resolveTelegramDestination(db, 'customer')).toEqual({ token: 'owner-token', chatId: '@ownerchannel' });
+  });
+});

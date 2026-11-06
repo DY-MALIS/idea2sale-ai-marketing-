@@ -1,7 +1,7 @@
 import { getAuth } from 'firebase-admin/auth';
 import { FieldValue } from 'firebase-admin/firestore';
 import { initFirebaseAdmin } from '../_firebaseAdmin.js';
-import { telegramDestinationFromProfile } from '../../shared/telegramDestination.js';
+import { resolveTelegramDestination } from '../_telegramDestination.js';
 import { compareKhmerTranscript } from '../../shared/videoSpeech.js';
 
 export default async function reviewVideoHandler(req, res) {
@@ -18,8 +18,7 @@ export default async function reviewVideoHandler(req, res) {
   }
   try {
     if (action === 'approve') {
-      const profile = (await db.collection('business_profiles').doc(user.uid).get()).data() || {};
-      const destination = telegramDestinationFromProfile(profile);
+      const destination = await resolveTelegramDestination(db, user.uid);
       const hasDestination = Boolean(destination.token && destination.chatId);
       if (!hasDestination) return res.status(409).json({ error: 'Connect a Telegram chat in Business Profile before sending this video.' });
     }

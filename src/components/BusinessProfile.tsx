@@ -104,7 +104,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
   const [approvalLoginCode, setApprovalLoginCode] = useState('');
   const [approvalLoginStatus, setApprovalLoginStatus] = useState('');
   const [creatingApprovalLoginCode, setCreatingApprovalLoginCode] = useState(false);
-  const [approvalConnection, setApprovalConnection] = useState<{ active: boolean; linked: boolean; webhookReady: boolean } | null>(null);
+  const [approvalConnection, setApprovalConnection] = useState<{ active: boolean; linked: boolean; webhookReady: boolean; sharedBot: boolean; channelReady: boolean } | null>(null);
   const [approvalConnectionError, setApprovalConnectionError] = useState('');
   const [checkingApprovalConnection, setCheckingApprovalConnection] = useState(false);
   const [accountPassword, setAccountPassword] = useState('');
@@ -658,7 +658,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'Could not check the Telegram connection.');
-      setApprovalConnection({ active: data.active === true, linked: data.linked === true, webhookReady: data.webhookReady === true });
+      setApprovalConnection({ active: data.active === true, linked: data.linked === true, webhookReady: data.webhookReady === true, sharedBot: data.sharedBot === true, channelReady: data.channelReady === true });
     } catch (error: any) {
       setApprovalConnectionError(error?.message || 'Could not check the Telegram connection.');
     } finally {
@@ -1053,8 +1053,9 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
                 {t('myTelegramChannelTitle')}
               </label>
               <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">{t('myTelegramChannelDesc')}</p>
+              {approvalConnection?.sharedBot && <p className="mb-3 text-xs text-slate-600 dark:text-slate-300">Your account uses @dgacademy_official_bot for approvals and channel publishing. Save your channel username below; you do not need a separate bot token.</p>}
               <div className="space-y-3">
-                <div>
+                {!approvalConnection?.sharedBot && <div>
                   <label htmlFor="telegram-bot-token" className="mb-1 block text-[10px] font-bold text-slate-500 dark:text-slate-400">{t('telegramBotTokenLabel')}</label>
                   <input
                     id="telegram-bot-token"
@@ -1065,7 +1066,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
                     autoComplete="off"
                     className="w-full px-4 py-3 bg-brand-50 border border-brand-100 dark:bg-slate-800 dark:border-slate-700 rounded-2xl text-sm text-brand-700 dark:text-slate-100 focus:outline-none focus:ring-2 ring-brand-500/20"
                   />
-                </div>
+                </div>}
                 <div>
                   {/* This is the field the Sidebar's "Open Telegram Channel"
                       link and publishing destination actually read -- placed
@@ -1105,7 +1106,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
               </div>
             </div>
 
-            {!isDemoMode && user && (
+            {!isDemoMode && user && !approvalConnection?.sharedBot && (
               <div>
                 <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
                   <Bot size={12} />
@@ -1145,10 +1146,12 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
               <div className="rounded-2xl border border-slate-200 p-5 dark:border-slate-700">
                 <h3 className="mb-2 font-bold text-slate-900 dark:text-slate-100">Approval bot sign-in</h3>
                 <p className="mb-3 text-xs text-slate-600 dark:text-slate-300">To connect this website account to @dgacademy_official_bot, send /login to the bot in a private chat, open its link, and continue with Google. Your website password stays with Firebase Authentication.</p>
-                {telegramBotActive && approvalConnection && (
-                  <p className={`mb-2 text-xs font-semibold ${approvalConnection.webhookReady && approvalConnection.linked ? 'text-emerald-700' : 'text-amber-700'}`}>
+                {approvalConnection && (
+                  <p className={`mb-2 text-xs font-semibold ${approvalConnection.webhookReady && approvalConnection.linked && approvalConnection.channelReady ? 'text-emerald-700' : 'text-amber-700'}`}>
                     {approvalConnection.webhookReady
-                      ? (approvalConnection.linked ? 'Bot ready. Your Telegram chat is connected for approvals.' : 'Bot webhook ready. Send /login in a private chat to connect.')
+                      ? (approvalConnection.linked
+                        ? (approvalConnection.channelReady ? 'Bot and channel ready for approvals and publishing.' : 'Bot connected. Save a channel where you and the bot can post.')
+                        : 'Bot webhook ready. Send /login in a private chat to connect.')
                       : 'Bot webhook is not ready for approval buttons. Activate your bot again above.'}
                   </p>
                 )}

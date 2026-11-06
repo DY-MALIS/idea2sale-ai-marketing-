@@ -17,7 +17,7 @@ import { preparePlanVideoSpeech } from '../_videoSpeech.js';
 import { generateKhmerSpeech } from '../_khmerNarration.js';
 import { applyPosterTextOverlay } from '../_posterOverlay.js';
 import { getUntransformedImageKitVideoUrl } from '../../shared/imageKitUrl.js';
-import { telegramDestinationFromProfile } from '../../shared/telegramDestination.js';
+import { resolveTelegramDestination as resolveAccountTelegramDestination } from '../_telegramDestination.js';
 import { queueContentPlanDestinations } from '../_contentPlanFanout.js';
 import reviewVideoHandler from './_review-video.js';
 import { createCloudinaryUploadAuth } from '../_cloudinaryStorage.js';
@@ -539,15 +539,13 @@ export const postTelegramMessage = async (req, res) => {
   }
 };
 
-// Every post requires its owner's Business Profile bot and channel. There is no
-// deployment-wide fallback: an ownerless legacy post is never broadcast.
+// The destination is always the website account's channel. Accounts linked to
+// DGACADEMY use its bot token; other accounts retain their own bot token.
 export const resolveTelegramDestination = async (db, userId) => {
-  if (!userId || !db) return { token: '', chatId: '' };
   try {
-    const snap = await db.collection('business_profiles').doc(userId).get();
-    return telegramDestinationFromProfile(snap.data());
+    return await resolveAccountTelegramDestination(db, userId);
   } catch (error) {
-    console.error('Could not load the post owner\'s Telegram profile:', error?.message);
+    console.error('Could not load the account\'s Telegram destination:', error?.message);
     return { token: '', chatId: '' };
   }
 };
@@ -556,7 +554,7 @@ export const sendTelegram = async (post, db) => {
   const { token, chatId } = await resolveTelegramDestination(db, post.userId);
 
   if (!token || !chatId) {
-    throw new Error('Connect your own Telegram bot and channel in Business Profile before publishing.');
+    throw new Error('Connect Telegram and save a channel in Business Profile before publishing.');
   }
 
   const rawText = String(post.content || '').trim();

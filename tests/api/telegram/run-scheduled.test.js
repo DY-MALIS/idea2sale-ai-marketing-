@@ -100,6 +100,7 @@ it('keeps Telegram in the same one-upload schedule group as the other platforms'
   planMocks.db = {
     collection: (name) => name === 'business_profiles'
       ? { doc: () => ({ get: async () => ({ data: () => ({ telegramBotToken: 'bot-token', telegramChatId: '-100123' }) }) }) }
+      : name === 'telegram_approval_links' ? { doc: () => ({ get: async () => ({ data: () => null }) }) }
       : { add: addPost },
   };
   const scheduledTime = new Date(Date.now() + 60 * 60 * 1000).toISOString();
@@ -129,6 +130,7 @@ it.each(['photo', 'video'])('saves a scheduled Telegram %s for the owner usernam
   planMocks.db = {
     collection: (name) => name === 'business_profiles'
       ? { doc: () => ({ get: async () => ({ data: () => ({ telegramBotToken: 'bot-token', telegramChannelUrl: '@datingcafe168' }) }) }) }
+      : name === 'telegram_approval_links' ? { doc: () => ({ get: async () => ({ data: () => null }) }) }
       : { add: addPost },
   };
   const mediaUrl = `https://ik.imagekit.io/demo/telegram-media/post.${mediaType === 'video' ? 'mp4' : 'jpg'}`;

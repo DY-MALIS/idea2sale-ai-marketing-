@@ -11,6 +11,8 @@ function setup(item) {
   mocks.init.mockReturnValue({
     collection: name => ({ doc: id => name === 'business_profiles'
       ? { name, id, get: vi.fn(async () => ({ data: () => ({ telegramBotToken: 'test-token', telegramChatId: '@test-channel' }) })) }
+      : name === 'telegram_approval_links'
+      ? { name, id, get: vi.fn(async () => ({ data: () => null })) }
       : { name, id } }),
     runTransaction: fn => fn(tx),
   });

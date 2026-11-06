@@ -2,7 +2,7 @@ import { getFacebookPages, scheduleFacebookQStashDelivery } from './_facebook.js
 import { scheduleYouTubeQStashDelivery } from './_youtube.js';
 import { scheduleTikTokQStashDelivery } from './_tiktok.js';
 import { scheduleQStashDelivery } from './telegram/run-scheduled.js';
-import { telegramDestinationFromProfile } from '../shared/telegramDestination.js';
+import { resolveTelegramDestination } from './_telegramDestination.js';
 
 // Queue each destination once. The platform pollers own the actual upload and
 // its final status in Content Timeline. A stale video callback cannot create
@@ -22,10 +22,9 @@ export async function queueContentPlanDestinations(db, itemId, mediaUrl, req) {
     : (item.approvalRequired === true ? ['TELEGRAM', 'FACEBOOK'] : ['FACEBOOK']);
   const connection = await getFacebookPages(db, item.userId).catch(() => null);
   const facebookPageId = connection?.selectedPageId || connection?.pages?.[0]?.id;
-  const profile = item.approvalRequired === true
-    ? (await db.collection('business_profiles').doc(item.userId).get()).data() || {}
-    : {};
-  const telegramDestination = telegramDestinationFromProfile(profile);
+  const telegramDestination = item.approvalRequired === true
+    ? await resolveTelegramDestination(db, item.userId)
+    : { token: '', chatId: '' };
   const queued = [];
   const skipped = [];
   for (const platform of targets) {

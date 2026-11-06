@@ -135,18 +135,19 @@ npm run dev
 
 `@dgacademy_official_bot` uses the bot owner's saved `telegramBotToken` and `/api/telegram/webhook?uid=<bot-owner-uid>` webhook, and accepts connections from other website accounts. Keep that owner bot active with `message` and `callback_query` webhook updates; activating it again in Business Profile registers the current update list. Business Profile's **Check connection** reports whether the owner's webhook accepts approval buttons and whether their private chat is linked. The deployment-wide `TELEGRAM_BOT_TOKEN` belongs to a different bot and is not used for approvals. Set `APP_URL` to the deployed website origin so the bot sends the correct Google connection link. Other owner bots retain their separate sign-in flows.
 
-Any existing website account can send `/login` to `@dgacademy_official_bot` in a private chat. The bot sends a single-use, 10-minute website link. The user continues with Google on the website; Firebase verifies the existing account, and the app binds that Firebase UID to the Telegram user ID. A new Google account created from the link is refused: sign up on the website first, then request a fresh bot link. Existing email/password users can link Google to their current Firebase account on the connection page; this preserves their UID and data. `/logout` disconnects the chat. Bot links and approvals are owner-scoped by Firebase UID. Other owner bots retain their one-time code and legacy password flows. No password is stored in the app database. New scheduled auto-publish posts wait for separate Yes/No decisions per destination; posts already pending before deployment keep their prior behavior.
+Any existing website account can send `/login` to `@dgacademy_official_bot` in a private chat. The bot sends a single-use, 10-minute website link. The user continues with Google on the website; Firebase verifies the existing account, and the app binds that Firebase UID to the Telegram user ID. A new Google account created from the link is refused: sign up on the website first, then request a fresh bot link. Existing email/password users can link Google to their current Firebase account on the connection page; this preserves their UID and data. `/logout` disconnects the chat. Linked accounts receive their own Yes/No approvals in this shared bot and use the shared bot to publish to their own channel saved in Business Profile. The shared bot must be an administrator with posting permission in each channel. Linked users do not need to enter a bot token. Other owner bots retain their one-time code and legacy password flows. No password is stored in the app database. New scheduled auto-publish posts wait for separate Yes/No decisions per destination; posts already pending before deployment keep their prior behavior.
 
 Deploy the updated Firestore rules alongside the app so linked users can see their own CRM inbox. The shared approval bot requires `/login` before private chat or approvals; group messages are ignored because a group cannot be mapped to one website account. Existing Firestore documents are not migrated or removed. Expired, unused login-link records are cleared by the scheduled Telegram runner.
 
 New Guest sign-in has been retired in both the website and the guest-token API. Existing local demo mode remains available.
 
-1. For each company login, create its own bot via [@BotFather](https://t.me/BotFather). Save its token and public
-   channel username (`@mychannel` or `https://t.me/mychannel`) in that login's Business Profile, then add that bot as
-   an administrator of the channel. A numeric channel/chat ID is supported when no username is saved. If both are
-   present, the username wins. Every post uses only that account's bot and destination.
-2. `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are not used as fallbacks for publishing. A post without an owner or
-   without the owner's bot and destination is blocked instead of going to a shared channel.
+1. Accounts linked to `@dgacademy_official_bot` save their own public channel username (`@mychannel` or
+   `https://t.me/mychannel`) in Business Profile and add the shared bot as a channel administrator. The shared bot
+   delivers approvals privately to the linked website user and publishes approved posts only to that user's channel.
+   Accounts using their own separate bots can still save an individual token and channel. A numeric channel/chat ID
+   is supported when no username is saved. If both are present, the username wins.
+2. `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are not used as fallbacks for publishing. A post without a website
+   owner, verified bot link or owner bot, and destination is blocked instead of going to a shared channel.
 3. Set `TELEGRAM_ADMIN_CHAT_ID` to a private administrator chat/group to receive best-effort publishing and AI
    delivery failure alerts. Do not reuse the public `TELEGRAM_CHAT_ID` for internal alerts.
 4. Register the webhook (`api/telegram/webhook.js`) with Telegram and set `TELEGRAM_WEBHOOK_SECRET`.

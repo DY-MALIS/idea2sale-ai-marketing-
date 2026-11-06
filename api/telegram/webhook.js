@@ -5,6 +5,7 @@ import { logAudit } from '../_audit.js';
 import { botCall, decideApproval } from '../_telegramApproval.js';
 import { handleApprovalBotLogin, issueApprovalLoginCode } from '../_telegramBotAuth.js';
 import { createGoogleLink, completeGoogleLink, disconnectGoogleLink, linkedWebsiteUid } from '../_telegramGoogleLink.js';
+import { resolveTelegramDestination } from '../_telegramDestination.js';
 
 const TELEGRAM_LIMIT = 3900;
 
@@ -848,18 +849,31 @@ const getApprovalConnectionStatus = async (req, res) => {
       db.collection('business_profiles').doc(decoded.uid).get(),
       db.collection('telegram_approval_links').doc(decoded.uid).get(),
     ]);
-    const profile = profileSnap.data() || {};
-    const token = String(profile.telegramBotToken || '').trim();
+    const link = linkSnap.data();
+    const sharedBot = Boolean(link?.botOwnerId);
+    const botOwnerId = sharedBot ? link.botOwnerId : decoded.uid;
+    const botProfile = sharedBot
+      ? (await db.collection('business_profiles').doc(botOwnerId).get()).data() || {}
+      : profileSnap.data() || {};
+    const token = String(botProfile.telegramBotToken || '').trim();
+    let linked = linkSnap.exists;
+    if (sharedBot) {
+      const binding = (await db.collection('telegram_approval_chats').doc(`${botOwnerId}_${link.telegramUserId}`).get()).data();
+      linked = binding?.uid === decoded.uid && binding.botOwnerId === botOwnerId
+        && String(binding.chatId) === String(link.chatId)
+        && String(botProfile.telegramBotUsername || '').toLowerCase() === 'dgacademy_official_bot';
+    }
     let webhookReady = false;
-    if (profile.telegramBotActive === true && token) {
+    if (botProfile.telegramBotActive === true && token) {
       const response = await fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`, { signal: AbortSignal.timeout(5000) });
       const data = await response.json();
-      const expectedUrl = `${getBaseUrl(req)}/api/telegram/webhook?uid=${encodeURIComponent(decoded.uid)}`;
+      const expectedUrl = `${getBaseUrl(req)}/api/telegram/webhook?uid=${encodeURIComponent(botOwnerId)}`;
       webhookReady = response.ok && data.ok === true && data.result?.url === expectedUrl
         && Array.isArray(data.result?.allowed_updates) && data.result.allowed_updates.includes('callback_query');
     }
+    const destination = await resolveTelegramDestination(db, decoded.uid);
     res.setHeader('Cache-Control', 'no-store');
-    return res.status(200).json({ active: profile.telegramBotActive === true, linked: linkSnap.exists, webhookReady });
+    return res.status(200).json({ active: botProfile.telegramBotActive === true, linked, webhookReady, sharedBot, channelReady: Boolean(destination.token && destination.chatId) });
   } catch (error) {
     return res.status(503).json({ error: 'Could not check the Telegram approval connection.' });
   }
