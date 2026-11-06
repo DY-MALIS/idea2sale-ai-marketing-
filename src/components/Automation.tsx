@@ -98,12 +98,20 @@ const Automation: React.FC = () => {
   useEffect(() => {
     setHasOwnBot(false);
     if (isDemoMode || !user) return;
-    const unsubscribe = onSnapshot(doc(db, 'business_profiles', user.uid), (snap) => {
-      setHasOwnBot(Boolean(snap.data()?.telegramBotActive));
+    let ownBot = false;
+    let linkedBot = false;
+    const refresh = () => setHasOwnBot(ownBot || linkedBot);
+    const unsubscribeProfile = onSnapshot(doc(db, 'business_profiles', user.uid), (snap) => {
+      ownBot = Boolean(snap.data()?.telegramBotActive);
+      refresh();
     }, (error) => {
       console.error('Business profile bot-status listener error:', error);
     });
-    return () => unsubscribe();
+    const unsubscribeLink = onSnapshot(doc(db, 'telegram_approval_links', user.uid), (snap) => {
+      linkedBot = Boolean(snap.data()?.botOwnerId);
+      refresh();
+    }, (error) => console.error('Telegram link listener error:', error));
+    return () => { unsubscribeProfile(); unsubscribeLink(); };
   }, [user, isDemoMode]);
   const canSeeInbox = viewingAllAccounts || hasOwnBot;
 

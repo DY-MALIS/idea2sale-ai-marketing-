@@ -418,9 +418,9 @@ service cloud.firestore {
 
     match /telegram_leads/{leadId} {
       // Written only by the server (Admin SDK bypasses these rules). The shared
-      // bot's leads have no ownerId (null) and stay admin-only, as before -- a
-      // per-user bot's leads (see activateOwnBot in api/telegram/webhook.js) also
-      // let that bot's own owner read (not list-all -- their client query must
+      // legacy deployment bot's leads have no ownerId (null) and stay admin-only.
+      // Owner bots and linked DGACADEMY chats use the website user's uid and
+      // let that user read their own leads (their client query must
       // filter by ownerId == their own uid for the list rule to be satisfiable).
       allow read: if isAdmin() || (isSignedIn() && resource.data.ownerId == request.auth.uid);
       allow list: if isAdmin() || (isSignedIn() && resource.data.ownerId == request.auth.uid);
@@ -432,6 +432,13 @@ service cloud.firestore {
       // rationale as telegram_leads.
       allow read: if isAdmin() || (isSignedIn() && resource.data.ownerId == request.auth.uid);
       allow list: if isAdmin() || (isSignedIn() && resource.data.ownerId == request.auth.uid);
+      allow write: if false;
+    }
+
+    match /telegram_approval_links/{userId} {
+      // The linked website account can see its connection status. Only the
+      // verified server flow creates or removes Telegram identity bindings.
+      allow read: if isSignedIn() && userId == request.auth.uid;
       allow write: if false;
     }
 

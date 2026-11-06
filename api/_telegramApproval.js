@@ -38,7 +38,19 @@ export async function ensureApprovalRequest(db, ref, knownPost) {
     if (post.approvalStatus !== 'AWAITING_LINK' || post.status !== 'AWAITING_APPROVAL') await ref.update({ status: 'AWAITING_APPROVAL', approvalStatus: 'AWAITING_LINK' });
     return false;
   }
-  const profile = (await db.collection('business_profiles').doc(post.userId).get()).data() || {};
+  const botOwnerId = String(link.botOwnerId || post.userId);
+  if (link.botOwnerId) {
+    const chatBinding = (await db.collection('telegram_approval_chats').doc(`${botOwnerId}_${link.telegramUserId}`).get()).data();
+    if (!chatBinding || chatBinding.uid !== post.userId || String(chatBinding.chatId) !== String(link.chatId)) {
+      await ref.update({ status: 'AWAITING_APPROVAL', approvalStatus: 'AWAITING_LINK' });
+      return false;
+    }
+  }
+  const profile = (await db.collection('business_profiles').doc(botOwnerId).get()).data() || {};
+  if (String(profile.telegramBotUsername || '').toLowerCase() === 'dgacademy_official_bot' && !link.botOwnerId) {
+    await ref.update({ status: 'AWAITING_APPROVAL', approvalStatus: 'AWAITING_LINK' });
+    return false;
+  }
   const botToken = String(profile.telegramBotToken || '').trim();
   if (!botToken || profile.telegramBotActive !== true) {
     await ref.update({ status: 'AWAITING_APPROVAL', approvalStatus: 'SEND_FAILED', approvalError: 'Owner bot is not active.', nextApprovalRetryAt: Date.now() + 10 * 60_000 });
@@ -89,7 +101,13 @@ export async function decideApproval(db, callback, botOwnerId) {
   const chatId = String(callback.message?.chat?.id || '');
   const messageId = callback.message?.message_id;
   const binding = (await db.collection('telegram_approval_chats').doc(`${botOwnerId}_${actorId}`).get()).data();
-  if (!binding || binding.chatId !== chatId || binding.uid !== botOwnerId) return { ok: false, text: 'Sign in to this bot again.' };
+  if (!binding || String(binding.chatId) !== chatId || (binding.botOwnerId || binding.uid) !== botOwnerId) return { ok: false, text: 'Sign in to this bot again.' };
+  if (binding.botOwnerId) {
+    const link = (await db.collection('telegram_approval_links').doc(binding.uid).get()).data();
+    if (!link || link.botOwnerId !== botOwnerId || String(link.chatId) !== chatId || String(link.telegramUserId) !== actorId) {
+      return { ok: false, text: 'Sign in to this bot again.' };
+    }
+  }
   const ref = db.collection('scheduled_posts').doc(postId);
   const result = await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);

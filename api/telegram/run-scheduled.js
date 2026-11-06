@@ -8,6 +8,7 @@ import sharp from 'sharp';
 import { logAudit } from '../_audit.js';
 import { claimPendingPost, findRecentDuplicateTelegramPost } from '../_telegramClaim.js';
 import { ensureApprovalRequest } from '../_telegramApproval.js';
+import { cleanupExpiredGoogleLinks } from '../_telegramGoogleLink.js';
 import { getScheduledCallbackBaseUrl } from '../_callbackUrl.js';
 import { notifyAdmins } from '../_alert.js';
 import { runUsageChecks } from '../_usageMonitor.js';
@@ -707,14 +708,17 @@ export default async function handler(req, res) {
 
   try {
     const db = initFirebaseAdmin();
+    await cleanupExpiredGoogleLinks(db).catch((error) => console.error('Telegram login link cleanup failed:', error?.message || error));
     const nowIso = new Date().toISOString();
     // Pending bot requests have their own status so an unanswered request
     // cannot occupy every slot in the platform delivery queues.
-    for (const approvalStatus of (req.query?.planVideoId ? [] : ['SEND_FAILED', 'REQUESTING'])) {
+    for (const approvalStatus of (req.query?.planVideoId ? [] : ['AWAITING_LINK', 'SEND_FAILED', 'REQUESTING'])) {
       const waiting = await db.collection('scheduled_posts').where('approvalStatus', '==', approvalStatus).get();
       const retryable = waiting.docs
         .filter((doc) => doc.data()?.status === 'AWAITING_APPROVAL'
-          && (approvalStatus === 'SEND_FAILED'
+          && (approvalStatus === 'AWAITING_LINK'
+            ? true
+            : approvalStatus === 'SEND_FAILED'
             ? Number(doc.data()?.nextApprovalRetryAt || 0) <= Date.now()
             : Date.now() - (doc.data()?.approvalRequestStartedAt?.toMillis?.() || 0) >= 5 * 60_000))
         .sort((a, b) => Number(a.data()?.nextApprovalRetryAt || 0) - Number(b.data()?.nextApprovalRetryAt || 0))

@@ -1,14 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { claimPendingPost } from '../../api/_telegramClaim.js';
-import { decideApproval } from '../../api/_telegramApproval.js';
+import { decideApproval, ensureApprovalRequest } from '../../api/_telegramApproval.js';
 
-const fakeDb = (posts, binding = { uid: 'owner', chatId: '200' }) => ({
+const fakeDb = (posts, binding = { uid: 'owner', chatId: '200' }, links = {}) => ({
   collection(name) {
     return {
       doc(id) {
         return {
           id, parent: { id: name },
-          async get() { return { exists: Boolean(name === 'telegram_approval_chats' ? binding : posts[id]), data: () => name === 'telegram_approval_chats' ? binding : posts[id] }; },
+          async get() { return { exists: Boolean(name === 'telegram_approval_chats' ? binding : name === 'telegram_approval_links' ? links[id] : posts[id]), data: () => name === 'telegram_approval_chats' ? binding : name === 'telegram_approval_links' ? links[id] : posts[id] }; },
           async update(patch) { posts[id] = { ...posts[id], ...patch }; },
         };
       },
@@ -63,6 +63,46 @@ describe('Telegram post approval', () => {
     expect((await decideApproval(db, callback('y', 'post', 100, 201), 'owner')).ok).toBe(false);
     expect((await decideApproval(db, callback('y', 'post', 100, 200, 8), 'owner')).ok).toBe(false);
     expect(posts.post.approvalStatus).toBe('REQUESTED');
+  });
+
+  it('lets a shared bot approve only the post owned by the linked website UID', async () => {
+    const posts = {
+      own: { userId: 'website-user', platform: 'TELEGRAM', status: 'AWAITING_APPROVAL', approvalRequired: true, approvalStatus: 'REQUESTED', approvalChatId: '200', approvalTelegramUserId: '100', approvalMessageId: 7 },
+      other: { userId: 'another-user', platform: 'TELEGRAM', status: 'AWAITING_APPROVAL', approvalRequired: true, approvalStatus: 'REQUESTED', approvalChatId: '200', approvalTelegramUserId: '100', approvalMessageId: 7 },
+    };
+    const db = fakeDb(posts, { uid: 'website-user', botOwnerId: 'bot-owner', chatId: '200' }, { 'website-user': { botOwnerId: 'bot-owner', chatId: '200', telegramUserId: '100' } });
+    expect((await decideApproval(db, callback('y', 'own'), 'bot-owner')).approved).toBe(true);
+    expect((await decideApproval(db, callback('y', 'other'), 'bot-owner')).ok).toBe(false);
+  });
+
+  it('sends another user’s approval through the shared bot token', async () => {
+    const posts = {
+      post: { userId: 'website-user', platform: 'FACEBOOK', content: 'Preview', status: 'PENDING', approvalRequired: true, approvalStatus: 'AWAITING_DUE', scheduledTime: new Date(Date.now() - 1000).toISOString() },
+      'bot-owner': { telegramBotToken: 'shared-bot-token', telegramBotActive: true },
+      'website-user': { telegramBotToken: 'wrong-user-token', telegramBotActive: true },
+    };
+    const binding = { uid: 'website-user', botOwnerId: 'bot-owner', chatId: '200' };
+    const links = { 'website-user': { botOwnerId: 'bot-owner', telegramUserId: '100', chatId: '200' } };
+    const db = fakeDb(posts, binding, links);
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, result: { message_id: 77 } }) });
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      expect(await ensureApprovalRequest(db, db.collection('scheduled_posts').doc('post'))).toBe(true);
+      expect(fetchMock.mock.calls[0][0]).toContain('/botshared-bot-token/sendMessage');
+      expect(posts.post.approvalStatus).toBe('REQUESTED');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('holds an old owner-bot link until the owner completes Google sign-in', async () => {
+    const posts = {
+      post: { userId: 'bot-owner', platform: 'TELEGRAM', status: 'PENDING', approvalRequired: true, approvalStatus: 'AWAITING_DUE', scheduledTime: new Date(Date.now() - 1000).toISOString() },
+      'bot-owner': { telegramBotToken: 'bot-token', telegramBotActive: true, telegramBotUsername: 'dgacademy_official_bot' },
+    };
+    const db = fakeDb(posts, { uid: 'bot-owner', chatId: '200' }, { 'bot-owner': { telegramUserId: '100', chatId: '200' } });
+    expect(await ensureApprovalRequest(db, db.collection('scheduled_posts').doc('post'))).toBe(false);
+    expect(posts.post).toMatchObject({ status: 'AWAITING_APPROVAL', approvalStatus: 'AWAITING_LINK' });
   });
 
   it('cancels an approval whose Content Plan was replaced', async () => {

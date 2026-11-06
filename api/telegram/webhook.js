@@ -4,6 +4,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { logAudit } from '../_audit.js';
 import { botCall, decideApproval } from '../_telegramApproval.js';
 import { handleApprovalBotLogin, issueApprovalLoginCode } from '../_telegramBotAuth.js';
+import { createGoogleLink, completeGoogleLink, disconnectGoogleLink, linkedWebsiteUid } from '../_telegramGoogleLink.js';
 
 const TELEGRAM_LIMIT = 3900;
 
@@ -230,6 +231,7 @@ const upsertTelegramLead = async (db, message, text, forcedTag, ownerId, extraFi
         messageCount: FieldValue.increment(1),
         lastMessage: text.slice(0, 500),
         lastMessageAt: FieldValue.serverTimestamp(),
+        ...(extraFields.botOwnerId ? { botOwnerId: extraFields.botOwnerId } : {}),
       });
     }
   } catch (error) {
@@ -586,7 +588,7 @@ const sendManualReply = async (req, res) => {
     return res.status(400).json({ error: 'The reply destination does not match this conversation.' });
   }
 
-  const token = await resolveOwnerBotToken(db, ownerId);
+  const token = await resolveOwnerBotToken(db, lead.botOwnerId || ownerId);
   if (!token) {
     return res.status(503).json({ error: 'Telegram bot is not configured.' });
   }
@@ -807,6 +809,25 @@ const createApprovalLoginCode = async (req, res) => {
   }
 };
 
+const completeGoogleBotLogin = async (req, res) => {
+  const idToken = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
+  if (!idToken) return res.status(401).json({ error: 'Sign in with Google first.' });
+  try {
+    const db = initFirebaseAdmin();
+    const decoded = await admin.auth().verifyIdToken(idToken, true);
+    if (decoded.firebase?.sign_in_provider !== 'google.com') {
+      return res.status(403).json({ error: 'Use Google sign-in to connect Telegram.' });
+    }
+    const user = await admin.auth().getUser(decoded.uid);
+    const result = await completeGoogleLink(db, req.body?.state, user);
+    res.setHeader('Cache-Control', 'no-store');
+    return res.status(result.ok ? 200 : 400).json(result);
+  } catch (error) {
+    console.error('Telegram Google link failed:', error?.message || error);
+    return res.status(500).json({ error: 'Could not connect the Telegram chat.' });
+  }
+};
+
 export default async function handler(req, res) {
   if (req.query?.action === 'set-webhook') {
     if (!['GET', 'POST'].includes(req.method)) {
@@ -833,10 +854,13 @@ export default async function handler(req, res) {
     return createApprovalLoginCode(req, res);
   }
 
-  // Present only for a per-user bot's own webhook URL (see activateOwnBot) --
-  // the shared bot's webhook URL carries none, so ownerId stays null and every
-  // function below falls back to its original single-tenant behavior exactly
-  // as before this feature existed.
+  if (req.query?.action === 'complete-google-link') {
+    return completeGoogleBotLogin(req, res);
+  }
+
+  // Owner bots use a uid-specific webhook. The DGACADEMY owner bot also serves
+  // other website accounts after a verified Google link. The legacy deployment
+  // bot uses the URL without a uid.
   const ownerId = String(req.query?.uid || '').trim() || null;
 
   let db = null;
@@ -862,12 +886,18 @@ export default async function handler(req, res) {
   }
 
   const update = req.body || {};
+  const sharedApprovalBot = Boolean(ownerId && String(ownerProfile.telegramBotUsername || '').toLowerCase() === 'dgacademy_official_bot');
 
   // Owner bots handle account credentials and approval decisions before the
   // CRM can record a message or the AI can echo it back.
   if (approvalBotRequest && db && update.callback_query) {
     const callback = update.callback_query;
-    const result = await decideApproval(db, callback, ownerId).catch(() => ({ ok: false, text: 'Could not process this decision. Try again.' }));
+    const linkedUid = sharedApprovalBot
+      ? await linkedWebsiteUid(db, ownerId, String(callback.from?.id || ''), String(callback.message?.chat?.id || ''))
+      : null;
+    const result = sharedApprovalBot && !linkedUid
+      ? { ok: false, text: 'Sign in with Google using /login before approving.' }
+      : await decideApproval(db, callback, ownerId).catch(() => ({ ok: false, text: 'Could not process this decision. Try again.' }));
     await botCall('answerCallbackQuery', { callback_query_id: callback.id, text: result.text, show_alert: !result.ok }, token).catch(() => {});
     if (result.ok) {
       await botCall('editMessageReplyMarkup', { chat_id: callback.message.chat.id, message_id: callback.message.message_id, reply_markup: { inline_keyboard: [] } }, token).catch(() => {});
@@ -894,9 +924,35 @@ export default async function handler(req, res) {
     }
     return res.status(200).json({ ok: result.ok });
   }
-  if (approvalBotRequest && db && update.message?.chat?.type === 'private') {
-    const allowStart = String(ownerProfile.telegramBotUsername || '').toLowerCase() === 'dgacademy_official_bot';
-    if (await handleApprovalBotLogin(db, update.message, ownerId, token, allowStart)) return res.status(200).json({ ok: true, approvalLogin: true });
+  if (approvalBotRequest && db && update.message?.chat?.type === 'private' && update.message?.from?.id) {
+    if (sharedApprovalBot) {
+      const message = update.message;
+      const command = String(message.text || '').trim();
+      if (/^\/(?:login|start)(?:\s|$)/i.test(command)) {
+        if (!String(process.env.APP_URL || process.env.PUBLIC_APP_URL || process.env.VERCEL_PROJECT_PRODUCTION_URL || '').trim()) {
+          return res.status(503).json({ error: 'APP_URL is required for Telegram Google sign-in links.' });
+        }
+        const url = await createGoogleLink(db, {
+          botOwnerId: ownerId, actorId: message.from.id, chatId: message.chat.id, baseUrl: getBaseUrl(req),
+        });
+        await botCall('sendMessage', { chat_id: message.chat.id, text: `Open this link and sign in with your existing website Google account:\n${url}\n\nThis link expires in 10 minutes and works once.` }, token);
+        return res.status(200).json({ ok: true, googleLogin: true });
+      }
+      if (/^\/logout(?:\s|$)/i.test(command)) {
+        await disconnectGoogleLink(db, ownerId, String(message.from.id), String(message.chat.id));
+        await botCall('sendMessage', { chat_id: message.chat.id, text: 'Disconnected from your website account. Send /login to connect again.' }, token);
+        return res.status(200).json({ ok: true, googleLogout: true });
+      }
+      const oldLoginState = await db.collection('telegram_approval_login_states').doc(`${ownerId}_${message.from.id}`).get();
+      if (oldLoginState.exists) {
+        await oldLoginState.ref.delete();
+        await botCall('deleteMessage', { chat_id: message.chat.id, message_id: message.message_id }, token).catch(() => {});
+        await botCall('sendMessage', { chat_id: message.chat.id, text: 'Bot sign-in now uses Google on the website. Send /login to get a secure link.' }, token);
+        return res.status(200).json({ ok: true, oldLoginCleared: true });
+      }
+    } else {
+      if (await handleApprovalBotLogin(db, update.message, ownerId, token)) return res.status(200).json({ ok: true, approvalLogin: true });
+    }
   }
 
   if (update.message_reaction || update.message_reaction_count) {
@@ -939,6 +995,19 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true, ignored: 'automatic-channel-forward' });
   }
 
+  let conversationOwnerId = ownerId;
+  if (sharedApprovalBot) {
+    if (message?.chat?.type !== 'private' || !message?.from?.id) {
+      return res.status(200).json({ ok: true, ignored: 'shared-bot-group' });
+    }
+    const linkedUid = await linkedWebsiteUid(db, ownerId, String(message.from.id), String(chatId));
+    if (!linkedUid) {
+      await botCall('sendMessage', { chat_id: chatId, text: 'Connect your website account first. Send /login to receive a secure Google sign-in link.' }, token);
+      return res.status(200).json({ ok: true, loginRequired: true });
+    }
+    conversationOwnerId = linkedUid;
+  }
+
   if (!text) {
     await sendTelegramHtmlMessage(
       token,
@@ -964,27 +1033,30 @@ export default async function handler(req, res) {
       // Ownership check: a lead id is only honored for the same owner it was
       // created for, so one business's scan results can't be replayed against
       // a different business's bot.
-      if (scanLeadSnap.exists && scanLeadSnap.data()?.ownerId === ownerId) scanLead = scanLeadSnap.data();
+      if (scanLeadSnap.exists && scanLeadSnap.data()?.ownerId === conversationOwnerId) scanLead = scanLeadSnap.data();
     } catch (error) {
       console.error('Facebook-scan lead lookup failed:', error?.message || error);
     }
   }
 
   const leadContext = db
-    ? await upsertTelegramLead(db, message, text, scanLead ? 'interested' : undefined, ownerId, scanLead ? {
-        origin: 'facebook_scanner',
-        scanLeadId,
-        scanBusinessName: scanLead.businessName || null,
-      } : {})
-    : messageLeadContext(message, ownerId);
+    ? await upsertTelegramLead(db, message, text, scanLead ? 'interested' : undefined, conversationOwnerId, {
+        ...(sharedApprovalBot ? { botOwnerId: ownerId } : {}),
+        ...(scanLead ? {
+          origin: 'facebook_scanner',
+          scanLeadId,
+          scanBusinessName: scanLead.businessName || null,
+        } : {}),
+      })
+    : messageLeadContext(message, conversationOwnerId);
   if (db && ['group', 'supergroup'].includes(message?.chat?.type)) {
     await recordChannelComment(db, message, text).catch((error) => {
       console.error('Telegram comment count failed:', error?.message || error);
     });
   }
-  if (db) await logMessage(db, leadContext.conversationId, 'in', text, leadContext.source, ownerId);
+  if (db) await logMessage(db, leadContext.conversationId, 'in', text, leadContext.source, conversationOwnerId);
 
-  const businessName = db ? await getBusinessName(db, ownerId) : null;
+  const businessName = db ? await getBusinessName(db, conversationOwnerId) : null;
   const isKhmer = containsKhmer(text);
 
   if (scanLead) {
@@ -998,32 +1070,32 @@ export default async function handler(req, res) {
     });
     const openingMessage = (greeting || '').trim() || scanLead.inboxMessage || welcomeMessage(isKhmer, businessName);
     await sendTelegramHtmlMessage(token, chatId, openingMessage, { disableWebPagePreview: true, replyToMessageId: leadContext.replyToMessageId });
-    if (db) await logMessage(db, leadContext.conversationId, 'out', openingMessage, 'ai', ownerId);
+    if (db) await logMessage(db, leadContext.conversationId, 'out', openingMessage, 'ai', conversationOwnerId);
     return res.status(200).json({ ok: true });
   }
 
   if (/^\/(start|help)\b/i.test(text)) {
     const welcome = welcomeMessage(isKhmer, businessName);
     await sendTelegramHtmlMessage(token, chatId, welcome, { disableWebPagePreview: true, replyToMessageId: leadContext.replyToMessageId });
-    if (db) await logMessage(db, leadContext.conversationId, 'out', welcome, 'system', ownerId);
+    if (db) await logMessage(db, leadContext.conversationId, 'out', welcome, 'system', conversationOwnerId);
     return res.status(200).json({ ok: true });
   }
 
   // Lead capture/logging above always runs (that's CRM data collection, not
   // "automation"); only the rule-matched and AI-generated auto-replies below are
   // gated -- this is what Automation.tsx's ACTIVE/PAUSED toggle actually controls.
-  const automationActive = db ? await getAutomationActive(db, ownerId) : false;
+  const automationActive = db ? await getAutomationActive(db, conversationOwnerId) : false;
   if (!automationActive) {
     return res.status(200).json({ ok: true, automationPaused: true });
   }
 
   if (db) {
-    const ruleResponse = await findMatchingReplyRule(db, text, ownerId).catch(() => null);
+    const ruleResponse = await findMatchingReplyRule(db, text, conversationOwnerId).catch(() => null);
     // Never send a saved English rule to a Khmer question (or vice versa).
     // A mismatched rule falls through to the language-locked AI response below.
     if (ruleResponse && containsKhmer(ruleResponse) === isKhmer) {
       await sendTelegramHtmlMessage(token, chatId, ruleResponse, { replyToMessageId: leadContext.replyToMessageId });
-      await logMessage(db, leadContext.conversationId, 'out', ruleResponse, 'rule', ownerId);
+      await logMessage(db, leadContext.conversationId, 'out', ruleResponse, 'rule', conversationOwnerId);
       return res.status(200).json({ ok: true, matchedRule: true });
     }
   }
@@ -1048,7 +1120,7 @@ export default async function handler(req, res) {
       await sendTelegramHtmlMessage(token, chatId, chunk, { replyToMessageId: leadContext.replyToMessageId });
     }
 
-    if (db) await logMessage(db, leadContext.conversationId, 'out', reply, 'ai', ownerId);
+    if (db) await logMessage(db, leadContext.conversationId, 'out', reply, 'ai', conversationOwnerId);
 
     return res.status(200).json({ ok: true });
   } catch (error) {
