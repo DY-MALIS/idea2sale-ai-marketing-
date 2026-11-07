@@ -1,5 +1,14 @@
 # Meta App Review — Facebook Page scheduling
 
+## Live App Review check — 2026-11-07
+
+- The Aime Page Publisher submission is still **Not submitted**. Meta's Verification step remains **Incomplete**, and the final **Submit for review** action is disabled.
+- Uploaded the genuine, captioned Page publishing recording `artifacts/meta-review/Aime-Facebook-Page-review-enhanced.mp4` to the `pages_manage_posts` and `pages_show_list` permission dialogs. Both dialogs now show **Edit** after saving, and reopening `pages_show_list` displayed **View uploaded screencast**. This recording does not demonstrate the connected Page read used for `pages_read_engagement`; that permission still needs a separate truthful screen recording.
+- Meta Business Suite Security Center still shows an unfinished DGACADEMY Business Verification document submission. The Ministry of Commerce certificate `C:/Users/PC/Downloads/DGACADEMY MOC-50024795 New.pdf` confirms DGACADEMY is a **sole proprietorship** (registration 50024795), but the one-page certificate does not show its address. The two-page hotel tax invoice `TI26-01681_$782.00_DGACADEMY.pdf` names DGACADEMY and a PPIU Building address, but it is a hotel invoice, not one of Meta's accepted business-address document types, and its printed address is not identical to the address entered in Meta. Do not submit it as an accepted address proof.
+- Data handling still answers **Yes** to processors but has no processor entries. Meta explicitly requires each processor's service category and every country of processing or remote access. Current evidence does not establish the full country lists for Vercel, Google Cloud/Firebase, or OpenRouter. The form flags the empty processor list as required; do not submit an incomplete or US-only declaration.
+- Reviewer instructions contain app navigation and Facebook Login for Business usage details. Optional reviewer access credentials remain blank. A reviewer will need working app and Page access for an end-to-end test; do not invent credentials or imply that any Google account can publish to the owner's Page.
+- Updated the saved reviewer instructions to describe the current Telegram `/login` and per-Facebook-post Yes approval gate, then reopened the form and verified the text persisted.
+
 ## Live read check — 2026-11-05
 
 - The Firebase owner account `dymalis88@gmail.com` has five connected Pages. `Daily Food` is selected, and its 20 recent posts were readable through the Graph API. The `DG Academy` Page URL saved in Business Profile is not one of those five connected Pages, so the AI Agent currently gets only its public description and cannot verify its posts.
