@@ -8,8 +8,9 @@ export const sharedBotCanPublishToChannel = (administrators, telegramUserId) => 
   return mayPost(member) && mayPost(bot);
 };
 
-// A linked account can use the configured shared channel. The reciprocal chat
-// binding prevents another account from borrowing the owner's bot token.
+// A linked account uses its own saved channel when the shared bot can post
+// there. The configured shared channel is a fallback only when no channel was
+// saved. The reciprocal chat binding prevents token borrowing.
 export async function resolveTelegramDestination(db, userId, allowShared = true) {
   if (!db || !userId) return { token: '', chatId: '' };
   const [profileSnap, linkSnap] = await Promise.all([
@@ -20,13 +21,16 @@ export async function resolveTelegramDestination(db, userId, allowShared = true)
   const link = linkSnap.data();
   const sharedChannelId = String(process.env.TELEGRAM_SHARED_CHANNEL_ID || '').trim();
   const sharedOwnerId = String(process.env.TELEGRAM_SHARED_BOT_OWNER_UID || '').trim();
-  if (allowShared && sharedChannelId && userId === sharedOwnerId
-    && profile.telegramBotActive === true
-    && String(profile.telegramBotUsername || '').toLowerCase() === 'dgacademy_official_bot'
-    && String(profile.businessName || '').trim()) {
-    return { token: String(profile.telegramBotToken || '').trim(), chatId: sharedChannelId };
+  if (!link?.botOwnerId) {
+    const own = telegramDestinationFromProfile(profile);
+    if (own.token && own.chatId) return own;
+    return allowShared && !String(profile.telegramChannelUrl || profile.telegramChatId || '').trim()
+      && sharedChannelId && userId === sharedOwnerId && profile.telegramBotActive === true
+      && String(profile.telegramBotUsername || '').toLowerCase() === 'dgacademy_official_bot'
+      && String(profile.businessName || '').trim()
+      ? { token: String(profile.telegramBotToken || '').trim(), chatId: sharedChannelId }
+      : { token: '', chatId: '' };
   }
-  if (!link?.botOwnerId) return telegramDestinationFromProfile(profile);
 
   if (!link.telegramUserId || !link.chatId) return { token: '', chatId: '' };
   const [bindingSnap, botProfileSnap] = await Promise.all([
@@ -41,13 +45,14 @@ export async function resolveTelegramDestination(db, userId, allowShared = true)
     || String(botProfile.telegramBotUsername || '').toLowerCase() !== 'dgacademy_official_bot') {
     return { token: '', chatId: '' };
   }
-  if (allowShared && sharedChannelId && link.botOwnerId === sharedOwnerId) {
-    return String(profile.businessName || '').trim()
+  const destination = telegramDestinationFromProfile({ ...profile, telegramBotToken: botProfile.telegramBotToken });
+  if (!String(botProfile.telegramBotToken || '').trim()) return { token: '', chatId: '' };
+  if (!destination.chatId) {
+    return allowShared && !String(profile.telegramChannelUrl || profile.telegramChatId || '').trim()
+      && sharedChannelId && link.botOwnerId === sharedOwnerId && String(profile.businessName || '').trim()
       ? { token: String(botProfile.telegramBotToken || '').trim(), chatId: sharedChannelId }
       : { token: '', chatId: '' };
   }
-  const destination = telegramDestinationFromProfile({ ...profile, telegramBotToken: botProfile.telegramBotToken });
-  if (!destination.token || !destination.chatId) return destination;
   try {
     const response = await fetch(`https://api.telegram.org/bot${destination.token}/getChatAdministrators`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },

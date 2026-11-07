@@ -873,7 +873,8 @@ const getApprovalConnectionStatus = async (req, res) => {
     }
     const destination = await resolveTelegramDestination(db, decoded.uid);
     res.setHeader('Cache-Control', 'no-store');
-    return res.status(200).json({ active: botProfile.telegramBotActive === true, linked, webhookReady, sharedBot, channelReady: Boolean(destination.token && destination.chatId), channelLabel: destination.chatId === String(process.env.TELEGRAM_SHARED_CHANNEL_ID || '').trim() ? '@aimarketingengine' : destination.chatId });
+    const sharedChannelId = String(process.env.TELEGRAM_SHARED_CHANNEL_ID || '').trim();
+    return res.status(200).json({ active: botProfile.telegramBotActive === true, linked, webhookReady, sharedBot, channelReady: Boolean(destination.token && destination.chatId), channelLabel: sharedChannelId && destination.chatId === sharedChannelId ? '@aimarketingengine' : destination.chatId });
   } catch (error) {
     return res.status(503).json({ error: 'Could not check the Telegram approval connection.' });
   }

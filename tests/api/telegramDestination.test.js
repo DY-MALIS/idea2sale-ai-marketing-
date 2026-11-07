@@ -45,6 +45,8 @@ describe('shared Telegram publishing destination', () => {
   });
 
   it('uses the shared bot token with the linked website account channel', async () => {
+    process.env.TELEGRAM_SHARED_CHANNEL_ID = '-1004495121549';
+    process.env.TELEGRAM_SHARED_BOT_OWNER_UID = 'bot-owner';
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, result: admins }) }));
     const db = fakeDb({
       account: { telegramBotToken: 'stale-token', telegramChannelUrl: '@customerchannel' },
@@ -73,6 +75,8 @@ describe('shared Telegram publishing destination', () => {
   });
 
   it('refuses a channel where the linked user is not an administrator', async () => {
+    process.env.TELEGRAM_SHARED_CHANNEL_ID = '-1004495121549';
+    process.env.TELEGRAM_SHARED_BOT_OWNER_UID = 'bot-owner';
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, result: admins.slice(1) }) }));
     const db = fakeDb({
       account: { telegramChannelUrl: '@otherchannel' },
@@ -86,5 +90,12 @@ describe('shared Telegram publishing destination', () => {
   it('keeps an unlinked owner bot destination unchanged', async () => {
     const db = fakeDb({ account: { telegramBotToken: 'owner-token', telegramChannelUrl: '@ownerchannel' } });
     expect(await resolveTelegramDestination(db, 'customer')).toEqual({ token: 'owner-token', chatId: '@ownerchannel' });
+  });
+
+  it('prefers the bot owner’s saved channel over the shared fallback', async () => {
+    process.env.TELEGRAM_SHARED_CHANNEL_ID = '-1004495121549';
+    process.env.TELEGRAM_SHARED_BOT_OWNER_UID = 'bot-owner';
+    const db = fakeDb({ owner: { businessName: 'DGACADEMY', telegramBotToken: 'shared-token', telegramBotActive: true, telegramBotUsername: 'dgacademy_official_bot', telegramChannelUrl: '@ownchannel' } });
+    expect(await resolveTelegramDestination(db, 'bot-owner')).toEqual({ token: 'shared-token', chatId: '@ownchannel' });
   });
 });

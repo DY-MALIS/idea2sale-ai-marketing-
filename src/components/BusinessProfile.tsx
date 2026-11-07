@@ -104,7 +104,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
   const [approvalLoginCode, setApprovalLoginCode] = useState('');
   const [approvalLoginStatus, setApprovalLoginStatus] = useState('');
   const [creatingApprovalLoginCode, setCreatingApprovalLoginCode] = useState(false);
-  const [approvalConnection, setApprovalConnection] = useState<{ active: boolean; linked: boolean; webhookReady: boolean; sharedBot: boolean; channelReady: boolean } | null>(null);
+  const [approvalConnection, setApprovalConnection] = useState<{ active: boolean; linked: boolean; webhookReady: boolean; sharedBot: boolean; channelReady: boolean; channelLabel?: string } | null>(null);
   const [approvalConnectionError, setApprovalConnectionError] = useState('');
   const [checkingApprovalConnection, setCheckingApprovalConnection] = useState(false);
   const [accountPassword, setAccountPassword] = useState('');
@@ -1053,7 +1053,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
                 {t('myTelegramChannelTitle')}
               </label>
               <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">{t('myTelegramChannelDesc')}</p>
-              {approvalConnection?.sharedBot && <p className="mb-3 text-xs text-slate-600 dark:text-slate-300">Your account uses @dgacademy_official_bot for approvals and publishes approved posts to @aimarketingengine. You do not need a separate bot or channel.</p>}
+              {approvalConnection?.sharedBot && <p className="mb-3 text-xs text-slate-600 dark:text-slate-300">Your account uses @dgacademy_official_bot for approvals. Save your own channel below and add the bot as a posting admin to publish there. Leave the channel empty to use @aimarketingengine.</p>}
               <div className="space-y-3">
                 {!approvalConnection?.sharedBot && <div>
                   <label htmlFor="telegram-bot-token" className="mb-1 block text-[10px] font-bold text-slate-500 dark:text-slate-400">{t('telegramBotTokenLabel')}</label>
@@ -1067,7 +1067,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
                     className="w-full px-4 py-3 bg-brand-50 border border-brand-100 dark:bg-slate-800 dark:border-slate-700 rounded-2xl text-sm text-brand-700 dark:text-slate-100 focus:outline-none focus:ring-2 ring-brand-500/20"
                   />
                 </div>}
-                {!approvalConnection?.sharedBot && <div>
+                <div>
                   {/* This is the field the Sidebar's "Open Telegram Channel"
                       link and publishing destination actually read -- placed
                       and labeled ahead of the legacy Chat ID field below so
@@ -1091,7 +1091,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
                         : `Saved as ${channelPreviewUsername} for Telegram publishing.`}
                     </p>
                   )}
-                </div>}
+                </div>
                 {!approvalConnection?.sharedBot && <div>
                   <label htmlFor="telegram-chat-id" className="mb-1 block text-[10px] font-bold text-slate-500 dark:text-slate-400">{t('telegramChatIdLabel')}</label>
                   <input
@@ -1150,7 +1150,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
                   <p className={`mb-2 text-xs font-semibold ${approvalConnection.webhookReady && approvalConnection.linked && approvalConnection.channelReady ? 'text-emerald-700' : 'text-amber-700'}`}>
                     {approvalConnection.webhookReady
                       ? (approvalConnection.linked
-                        ? (approvalConnection.channelReady ? 'Bot and channel ready for approvals and publishing.' : 'Bot connected. Check the shared channel setup.')
+                        ? (approvalConnection.channelReady ? `Bot and ${approvalConnection.channelLabel || 'channel'} ready for approvals and publishing.` : 'Bot connected. Check your saved channel and the bot’s posting permission.')
                         : 'Bot webhook ready. Send /login in a private chat to connect.')
                       : 'Bot webhook is not ready for approval buttons. Activate your bot again above.'}
                   </p>
