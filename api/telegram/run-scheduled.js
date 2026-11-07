@@ -560,7 +560,7 @@ export const sendTelegram = async (post, db) => {
     const profile = (await db.collection('business_profiles').doc(post.userId).get()).data() || {};
     const businessName = String(profile.businessName || '').trim();
     if (!businessName) throw new Error('Save a business name before publishing to the shared Telegram channel.');
-    rawText = `${businessName}\n\n${rawText}${rawText ? '\n\n' : ''}Chat: https://t.me/dgacademy_official_bot?start=b_${post.userId}`;
+    rawText = `${businessName}\nChat: https://t.me/dgacademy_official_bot?start=b_${post.userId}${rawText ? `\n\n${rawText}` : ''}`;
   }
   const mediaType = String(post.mediaType || '').trim().toLowerCase();
   // Uploaded videos use original bytes to avoid ImageKit's transformation quota;
