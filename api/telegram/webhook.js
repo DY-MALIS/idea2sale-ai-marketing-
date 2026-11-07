@@ -955,25 +955,29 @@ export default async function handler(req, res) {
       : await decideApproval(db, callback, ownerId).catch(() => ({ ok: false, text: 'Could not process this decision. Try again.' }));
     await botCall('answerCallbackQuery', { callback_query_id: callback.id, text: result.text, show_alert: !result.ok }, token).catch(() => {});
     if (result.ok) {
-      await botCall('editMessageReplyMarkup', { chat_id: callback.message.chat.id, message_id: callback.message.message_id, reply_markup: { inline_keyboard: [] } }, token).catch(() => {});
+      for (const messageId of new Set((result.decisions || []).map((item) => item.approvalMessageId).filter(Boolean))) {
+        await botCall('editMessageReplyMarkup', { chat_id: callback.message.chat.id, message_id: messageId, reply_markup: { inline_keyboard: [] } }, token).catch(() => {});
+      }
       if (result.approved) {
-        try {
-          const now = new Date(Math.max(Date.now(), new Date(result.scheduledTime).getTime() || 0));
-          if (result.platform === 'TELEGRAM') {
-            const { scheduleQStashDelivery } = await import('./run-scheduled.js');
-            await scheduleQStashDelivery(req, result.postId, now);
-          } else if (result.platform === 'FACEBOOK') {
-            const { scheduleFacebookQStashDelivery } = await import('../_facebook.js');
-            await scheduleFacebookQStashDelivery(result.postId, now);
-          } else if (result.platform === 'YOUTUBE') {
-            const { scheduleYouTubeQStashDelivery } = await import('../_youtube.js');
-            await scheduleYouTubeQStashDelivery(req, result.postId, now);
-          } else if (result.platform === 'TIKTOK') {
-            const { scheduleTikTokQStashDelivery } = await import('../_tiktok.js');
-            await scheduleTikTokQStashDelivery(req, result.postId, now);
+        for (const decision of result.decisions || [{ postId: result.postId, platform: result.platform, scheduledTime: result.scheduledTime }]) {
+          try {
+            const now = new Date(Math.max(Date.now(), new Date(decision.scheduledTime).getTime() || 0));
+            if (decision.platform === 'TELEGRAM') {
+              const { scheduleQStashDelivery } = await import('./run-scheduled.js');
+              await scheduleQStashDelivery(req, decision.postId, now);
+            } else if (decision.platform === 'FACEBOOK') {
+              const { scheduleFacebookQStashDelivery } = await import('../_facebook.js');
+              await scheduleFacebookQStashDelivery(decision.postId, now);
+            } else if (decision.platform === 'YOUTUBE') {
+              const { scheduleYouTubeQStashDelivery } = await import('../_youtube.js');
+              await scheduleYouTubeQStashDelivery(req, decision.postId, now);
+            } else if (decision.platform === 'TIKTOK') {
+              const { scheduleTikTokQStashDelivery } = await import('../_tiktok.js');
+              await scheduleTikTokQStashDelivery(req, decision.postId, now);
+            }
+          } catch (error) {
+            console.error('Approved post delivery deferred to cron:', error?.message || error);
           }
-        } catch (error) {
-          console.error('Approved post delivery deferred to cron:', error?.message || error);
         }
       }
     }

@@ -66,7 +66,10 @@ export async function ensureApprovalRequest(db, ref, knownPost) {
   });
   if (!claimed) return false;
   const media = String(post.videoUrl || post.mediaUrl || '').trim();
-  const preview = [`Do you accept this content to post to ${post.platform}?`, '', String(post.content || '').slice(0, 2500), ...(media ? ['', `Media: ${media}`] : [])].join('\n').slice(0, 3900);
+  const question = post.sourcePlanItemId
+    ? 'Approve this Content Plan item for all connected destinations (for example Telegram and Facebook)?'
+    : `Do you accept this content to post to ${post.platform}?`;
+  const preview = [question, '', String(post.content || '').slice(0, 2500), ...(media ? ['', `Media: ${media}`] : [])].join('\n').slice(0, 3900);
   try {
     const message = await botCall('sendMessage', {
       chat_id: link.chatId, text: preview,
@@ -120,10 +123,29 @@ export async function decideApproval(db, callback, botOwnerId) {
         return { ok: false, text: 'This Content Plan was replaced.' };
       }
     }
-    tx.update(ref, choice === 'y'
-      ? { status: 'PENDING', approvalStatus: 'APPROVED', approvedAt: FieldValue.serverTimestamp(), approvedByTelegramUserId: actorId }
-      : { approvalStatus: 'REJECTED', status: 'CANCELLED', rejectedAt: FieldValue.serverTimestamp(), rejectedByTelegramUserId: actorId });
-    return { ok: true, approved: choice === 'y', postId, platform: post.platform, scheduledTime: post.scheduledTime, text: choice === 'y' ? 'Approved. Publishing now.' : 'Rejected. This post will not publish.' };
+    const group = [{ id: postId, data: post, ref }];
+    if (post.sourcePlanItemId && post.groupId === `plan-${post.sourcePlanItemId}`) {
+      const siblings = await tx.get(db.collection('scheduled_posts').where('sourcePlanItemId', '==', post.sourcePlanItemId));
+      for (const sibling of siblings.docs) {
+        const data = sibling.data();
+        if (sibling.id === postId || data?.userId !== post.userId || data?.groupId !== post.groupId
+          || data?.content !== post.content || String(data?.videoUrl || data?.mediaUrl || '') !== String(post.videoUrl || post.mediaUrl || '')
+          || data?.approvalRequired !== true || !['PENDING', 'AWAITING_APPROVAL'].includes(data?.status)
+          || ['APPROVED', 'REJECTED'].includes(data?.approvalStatus)
+          || (data?.approvalChatId && String(data.approvalChatId) !== chatId)
+          || (data?.approvalTelegramUserId && String(data.approvalTelegramUserId) !== actorId)
+          || !isDue(data)) continue;
+        group.push({ id: sibling.id, data, ref: sibling.ref });
+      }
+    }
+    for (const member of group) {
+      tx.update(member.ref, choice === 'y'
+        ? { status: 'PENDING', approvalStatus: 'APPROVED', approvedAt: FieldValue.serverTimestamp(), approvedByTelegramUserId: actorId }
+        : { approvalStatus: 'REJECTED', status: 'CANCELLED', rejectedAt: FieldValue.serverTimestamp(), rejectedByTelegramUserId: actorId });
+    }
+    const decisions = group.map(({ id, data }) => ({ postId: id, platform: data.platform, scheduledTime: data.scheduledTime, approvalMessageId: data.approvalMessageId }));
+    return { ok: true, approved: choice === 'y', decisions, postId, platform: post.platform, scheduledTime: post.scheduledTime,
+      text: choice === 'y' ? `Approved for ${decisions.map((item) => item.platform).join(', ')}. Publishing now.` : 'Rejected. This content will not publish.' };
   });
   return result;
 }

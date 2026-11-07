@@ -5,6 +5,7 @@ import { decideApproval, ensureApprovalRequest } from '../../api/_telegramApprov
 const fakeDb = (posts, binding = { uid: 'owner', chatId: '200' }, links = {}) => ({
   collection(name) {
     return {
+      where(field, _op, value) { return { queryName: name, field, value }; },
       doc(id) {
         return {
           id, parent: { id: name },
@@ -16,7 +17,10 @@ const fakeDb = (posts, binding = { uid: 'owner', chatId: '200' }, links = {}) =>
   },
   runTransaction(fn) {
     return fn({
-      async get(ref) { return { exists: Boolean(posts[ref.id]), id: ref.id, data: () => posts[ref.id] }; },
+      async get(ref) {
+        if (ref.queryName) return { docs: Object.entries(posts).filter(([, data]) => data?.[ref.field] === ref.value).map(([id, data]) => ({ id, ref: { id }, data: () => data })) };
+        return { exists: Boolean(posts[ref.id]), id: ref.id, data: () => posts[ref.id] };
+      },
       update(ref, patch) { posts[ref.id] = { ...posts[ref.id], ...patch }; },
     });
   },
@@ -63,6 +67,21 @@ describe('Telegram post approval', () => {
     expect((await decideApproval(db, callback('y', 'post', 100, 201), 'owner')).ok).toBe(false);
     expect((await decideApproval(db, callback('y', 'post', 100, 200, 8), 'owner')).ok).toBe(false);
     expect(posts.post.approvalStatus).toBe('REQUESTED');
+  });
+
+  it('one Content Plan Yes approves Telegram and Facebook for the same account and item', async () => {
+    const base = { userId: 'owner', groupId: 'plan-item', sourcePlanItemId: 'item', content: 'Photo', status: 'AWAITING_APPROVAL', approvalRequired: true, approvalStatus: 'REQUESTED', approvalChatId: '200', approvalTelegramUserId: '100', scheduledTime: new Date(Date.now() - 1000).toISOString() };
+    const posts = {
+      telegram: { ...base, platform: 'TELEGRAM', approvalMessageId: 7 },
+      facebook: { ...base, platform: 'FACEBOOK', approvalMessageId: 8 },
+      unrelated: { ...base, userId: 'someone-else', platform: 'TELEGRAM', approvalMessageId: 9 },
+      item: { userId: 'owner', status: 'DONE' },
+    };
+    const result = await decideApproval(fakeDb(posts), callback('y', 'facebook', 100, 200, 8), 'owner');
+    expect(result.decisions.map((decision) => decision.platform).sort()).toEqual(['FACEBOOK', 'TELEGRAM']);
+    expect(posts.telegram).toMatchObject({ status: 'PENDING', approvalStatus: 'APPROVED' });
+    expect(posts.facebook).toMatchObject({ status: 'PENDING', approvalStatus: 'APPROVED' });
+    expect(posts.unrelated.approvalStatus).toBe('REQUESTED');
   });
 
   it('lets a shared bot approve only the post owned by the linked website UID', async () => {
