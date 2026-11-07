@@ -40,12 +40,27 @@ export default async function replaceContentPlan(req, res) {
     let replacedCount = 0;
     await db.runTransaction(async (tx) => {
       const old = await tx.get(collection.where('userId', '==', owner.uid));
+      const existingPosts = await tx.get(db.collection('scheduled_posts').where('userId', '==', owner.uid));
+      const retainIds = new Set(existingPosts.docs.filter((snapshot) => {
+        const post = snapshot.data();
+        return post.sourcePlanItemId && post.approvalRequired === true
+          && ['PENDING', 'AWAITING_APPROVAL', 'PROCESSING'].includes(post.status)
+          && post.approvalStatus !== 'REJECTED';
+      }).map((snapshot) => snapshot.data().sourcePlanItemId));
       const activeOld = old.docs;
       // Firestore transactions allow at most 500 writes. Fail without changing
       // anything rather than deleting only part of a customer's old plan.
-      if (activeOld.length + items.length > 450) throw Object.assign(new Error('Too many existing plan items to replace at once.'), { statusCode: 409 });
-      replacedCount = activeOld.length;
-      activeOld.forEach((snapshot) => tx.delete(snapshot.ref));
+      const oldWrites = activeOld.filter((snapshot) => {
+        const keep = retainIds.has(snapshot.id) || ['DELETING', 'DELETE_FAILED'].includes(snapshot.data()?.status);
+        return !keep || !snapshot.data()?.archivedAt;
+      }).length;
+      if (oldWrites + items.length > 450) throw Object.assign(new Error('Too many existing plan items to replace at once.'), { statusCode: 409 });
+      replacedCount = activeOld.filter((snapshot) => !snapshot.data()?.archivedAt).length;
+      activeOld.forEach((snapshot) => {
+        if (retainIds.has(snapshot.id) || ['DELETING', 'DELETE_FAILED'].includes(snapshot.data()?.status)) {
+          if (!snapshot.data()?.archivedAt) tx.update(snapshot.ref, { archivedAt: FieldValue.serverTimestamp() });
+        } else tx.delete(snapshot.ref);
+      });
       items.forEach((item) => {
         const ref = collection.doc();
         tx.create(ref, {

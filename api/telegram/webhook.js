@@ -3,6 +3,7 @@ import admin, { initFirebaseAdmin } from '../_firebaseAdmin.js';
 import { FieldValue } from 'firebase-admin/firestore';
 import { logAudit } from '../_audit.js';
 import { botCall, decideApproval } from '../_telegramApproval.js';
+import { deleteRejectedPlanMedia } from '../_contentPlanMedia.js';
 import { handleApprovalBotLogin, issueApprovalLoginCode } from '../_telegramBotAuth.js';
 import { createGoogleLink, completeGoogleLink, disconnectGoogleLink, linkedWebsiteUid } from '../_telegramGoogleLink.js';
 import { resolveTelegramDestination } from '../_telegramDestination.js';
@@ -980,6 +981,9 @@ export default async function handler(req, res) {
             console.error('Approved post delivery deferred to cron:', error?.message || error);
           }
         }
+      } else if (result.deletePlanItemId) {
+        const cleanup = await deleteRejectedPlanMedia(db, result.deletePlanItemId);
+        if (cleanup.error) console.error('Rejected Content Plan media deletion deferred to cron:', cleanup.error);
       }
     }
     return res.status(200).json({ ok: result.ok });

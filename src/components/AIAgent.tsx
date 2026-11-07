@@ -672,7 +672,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       q,
       (snapshot) => {
         const rows = snapshot.docs
-          .filter((docSnap) => !docSnap.data().supersededBy)
+          .filter((docSnap) => !docSnap.data().supersededBy && !docSnap.data().archivedAt)
           .map((docSnap) => {
             const data = docSnap.data();
             return {

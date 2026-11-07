@@ -62,9 +62,10 @@ service cloud.firestore {
       allow read: if isAdmin()
         || (isSignedIn() && resource.data.userId == request.auth.uid);
       
-      allow create: if isSignedIn() 
+      allow create: if isSignedIn()
         && isValidId(postId)
         && incoming().userId == request.auth.uid
+        && !('sourcePlanItemId' in incoming())
         && incoming().videoId is string
         && incoming().videoId.size() < 500
         && incoming().status == 'PROCESSING'
@@ -160,6 +161,7 @@ service cloud.firestore {
       allow create: if isSignedIn()
         && isValidId(itemId)
         && incoming().userId == request.auth.uid
+        && !incoming().keys().hasAny(['generatedAssets', 'resultMediaUrl', 'sourceMediaUrl', 'sourceMediaAsset', 'narrationAudio', 'avatarImage', 'approvalFanoutReady', 'archivedAt', 'restoredFromApprovalPosts'])
         && incoming().scheduledDate.matches('^\\d{4}-\\d{2}-\\d{2}$')
         && incoming().type in ['image', 'video']
         && incoming().prompt is string

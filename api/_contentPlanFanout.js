@@ -23,6 +23,12 @@ export async function queueContentPlanDestinations(db, itemId, mediaUrl, req) {
   const facebookPageId = connection?.selectedPageId || connection?.pages?.[0]?.id;
   const queued = [];
   const skipped = [];
+  if (item.approvalRequired === true) {
+    // Cron may see the Telegram post while the remaining destinations are
+    // still being created. No prompt may leave until the group is complete.
+    await itemRef.update({ approvalFanoutReady: false });
+  }
+  const deliveryJobs = [];
   for (const platform of targets) {
     if (platform === 'FACEBOOK' && !facebookPageId) { skipped.push('FACEBOOK: no connected Page'); continue; }
     if (platform === 'TIKTOK' && item.tiktokDirectPostConsent !== true) { skipped.push('TIKTOK: consent missing'); continue; }
@@ -60,20 +66,38 @@ export async function queueContentPlanDestinations(db, itemId, mediaUrl, req) {
       } } : {}),
       createdAt: new Date(),
     };
-    const created = await db.runTransaction(async (tx) => {
+    const creation = await db.runTransaction(async (tx) => {
       const [freshItem, existing] = await Promise.all([tx.get(itemRef), tx.get(ref)]);
-      if (existing.exists || freshItem.data()?.supersededBy || freshItem.data()?.status !== 'PROCESSING') return false;
-      if (isVideo && freshItem.data()?.speechVerification?.passed !== true) return false;
+      if (freshItem.data()?.supersededBy || freshItem.data()?.status !== 'PROCESSING') return 'inactive';
+      if (isVideo && freshItem.data()?.speechVerification?.passed !== true) return 'inactive';
+      if (existing.exists) {
+        const previous = existing.data();
+        return previous?.userId === item.userId && previous?.groupId === `plan-${itemId}`
+          && previous?.content === data.content && previous?.platform === platform
+          && String(previous?.videoUrl || previous?.mediaUrl || '') === mediaUrl
+          && !['PUBLISHED', 'CANCELLED'].includes(previous?.status) ? 'existing' : 'conflict';
+      }
       tx.create(ref, data);
-      return true;
+      return 'created';
     });
-    if (!created) continue;
-    queued.push(platform);
+    if (creation === 'inactive') return { skipped: 'inactive', queued };
+    if (creation === 'conflict') throw new Error(`Content Plan ${platform} destination conflicts with existing media; review the item before retrying.`);
+    if (creation === 'created') queued.push(platform);
+    // An interrupted fanout may have created some deterministic posts already.
+    // Re-arm those jobs as well when a later invocation completes the group.
+    deliveryJobs.push({ platform, postId: ref.id });
+  }
+  if (item.approvalRequired === true) {
+    const fresh = await itemRef.get();
+    if (!fresh.exists || fresh.data()?.status !== 'PROCESSING' || fresh.data()?.supersededBy) return { skipped: 'inactive', queued };
+    await itemRef.update({ approvalFanoutReady: true });
+  }
+  for (const { platform, postId } of deliveryJobs) {
     try {
-      if (platform === 'TELEGRAM') await scheduleQStashDelivery(req, ref.id, new Date());
-      else if (platform === 'YOUTUBE') await scheduleYouTubeQStashDelivery(req, ref.id, new Date());
-      else if (platform === 'FACEBOOK') await scheduleFacebookQStashDelivery(ref.id, new Date());
-      else await scheduleTikTokQStashDelivery(req, ref.id, new Date());
+      if (platform === 'TELEGRAM') await scheduleQStashDelivery(req, postId, new Date());
+      else if (platform === 'YOUTUBE') await scheduleYouTubeQStashDelivery(req, postId, new Date());
+      else if (platform === 'FACEBOOK') await scheduleFacebookQStashDelivery(postId, new Date());
+      else await scheduleTikTokQStashDelivery(req, postId, new Date());
     } catch (error) {
       // The platform's cron remains the delivery fallback.
       console.warn(`Content Plan ${platform} precise delivery deferred:`, error?.message || error);

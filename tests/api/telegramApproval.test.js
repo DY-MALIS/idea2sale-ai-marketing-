@@ -1,11 +1,17 @@
 import { describe, expect, it, vi } from 'vitest';
 import { claimPendingPost } from '../../api/_telegramClaim.js';
-import { decideApproval, ensureApprovalRequest } from '../../api/_telegramApproval.js';
+import { decideApproval, ensureApprovalRequest, reconcilePendingApprovalGroups } from '../../api/_telegramApproval.js';
 
 const fakeDb = (posts, binding = { uid: 'owner', chatId: '200' }, links = {}) => ({
   collection(name) {
     return {
-      where(field, _op, value) { return { queryName: name, field, value }; },
+      where(field, _op, value) { return {
+        queryName: name, field, value,
+        limit() { return this; },
+        async get() { return { docs: Object.entries(posts).filter(([, data]) => data?.[field] === value).map(([id, data]) => ({
+          id, ref: { id, update: async (patch) => { posts[id] = { ...posts[id], ...patch }; } }, data: () => data,
+        })) }; },
+      }; },
       doc(id) {
         return {
           id, parent: { id: name },
@@ -22,6 +28,7 @@ const fakeDb = (posts, binding = { uid: 'owner', chatId: '200' }, links = {}) =>
         return { exists: Boolean(posts[ref.id]), id: ref.id, data: () => posts[ref.id] };
       },
       update(ref, patch) { posts[ref.id] = { ...posts[ref.id], ...patch }; },
+      create(ref, data) { posts[ref.id] = data; },
     });
   },
 });
@@ -70,18 +77,136 @@ describe('Telegram post approval', () => {
   });
 
   it('one Content Plan Yes approves Telegram and Facebook for the same account and item', async () => {
-    const base = { userId: 'owner', groupId: 'plan-item', sourcePlanItemId: 'item', content: 'Photo', status: 'AWAITING_APPROVAL', approvalRequired: true, approvalStatus: 'REQUESTED', approvalChatId: '200', approvalTelegramUserId: '100', scheduledTime: new Date(Date.now() - 1000).toISOString() };
+    const base = { userId: 'owner', groupId: 'plan-item', sourcePlanItemId: 'item', content: 'Photo', status: 'AWAITING_APPROVAL', approvalRequired: true, aiSuggested: true, mediaUrl: 'https://example.com/photo.jpg', approvalStatus: 'REQUESTED', approvalChatId: '200', approvalTelegramUserId: '100', scheduledTime: new Date(Date.now() - 5 * 24 * 60 * 60_000).toISOString() };
     const posts = {
-      telegram: { ...base, platform: 'TELEGRAM', approvalMessageId: 7 },
-      facebook: { ...base, platform: 'FACEBOOK', approvalMessageId: 8 },
+      'plan-item-telegram': { ...base, platform: 'TELEGRAM', approvalMessageId: 7 },
+      'plan-item-facebook': { ...base, platform: 'FACEBOOK', approvalMessageId: 8 },
       unrelated: { ...base, userId: 'someone-else', platform: 'TELEGRAM', approvalMessageId: 9 },
-      item: { userId: 'owner', status: 'DONE' },
+      item: { userId: 'owner', status: 'DONE', archivedAt: new Date(), resultMediaUrl: base.mediaUrl, approvalRequired: true, autoPublishDestinations: true },
     };
-    const result = await decideApproval(fakeDb(posts), callback('y', 'facebook', 100, 200, 8), 'owner');
+    const result = await decideApproval(fakeDb(posts), callback('y', 'plan-item-facebook', 100, 200, 8), 'owner');
     expect(result.decisions.map((decision) => decision.platform).sort()).toEqual(['FACEBOOK', 'TELEGRAM']);
-    expect(posts.telegram).toMatchObject({ status: 'PENDING', approvalStatus: 'APPROVED' });
-    expect(posts.facebook).toMatchObject({ status: 'PENDING', approvalStatus: 'APPROVED' });
+    expect(posts['plan-item-telegram']).toMatchObject({ status: 'PENDING', approvalStatus: 'APPROVED' });
+    expect(posts['plan-item-facebook']).toMatchObject({ status: 'PENDING', approvalStatus: 'APPROVED' });
     expect(posts.unrelated.approvalStatus).toBe('REQUESTED');
+  });
+
+  it('sends one prompt for all destinations and keeps the other post waiting', async () => {
+    const base = { userId: 'owner', groupId: 'plan-item', sourcePlanItemId: 'item', content: 'Photo', status: 'PENDING', approvalRequired: true, aiSuggested: true, approvalStatus: 'AWAITING_DUE', scheduledTime: new Date(Date.now() - 1000).toISOString(), mediaUrl: 'https://example.com/photo.jpg' };
+    const posts = {
+      'plan-item-telegram': { ...base, platform: 'TELEGRAM' }, 'plan-item-facebook': { ...base, platform: 'FACEBOOK' },
+      item: { userId: 'owner', status: 'DONE', approvalFanoutReady: true, resultMediaUrl: base.mediaUrl, approvalRequired: true, autoPublishDestinations: true },
+      'bot-owner': { telegramBotToken: 'shared-token', telegramBotActive: true },
+    };
+    const links = { owner: { botOwnerId: 'bot-owner', telegramUserId: '100', chatId: '200' } };
+    const db = fakeDb(posts, { uid: 'owner', botOwnerId: 'bot-owner', chatId: '200' }, links);
+    const originalTransaction = db.runTransaction.bind(db);
+    let transactionQueue = Promise.resolve();
+    db.runTransaction = (operation) => {
+      const next = transactionQueue.then(() => originalTransaction(operation));
+      transactionQueue = next.catch(() => {});
+      return next;
+    };
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, result: { message_id: 77 } }) });
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      expect(await ensureApprovalRequest(db, db.collection('scheduled_posts').doc('plan-item-facebook'))).toBe(false);
+      const concurrent = await Promise.all([
+        ensureApprovalRequest(db, db.collection('scheduled_posts').doc('plan-item-telegram')),
+        ensureApprovalRequest(db, db.collection('scheduled_posts').doc('plan-item-telegram')),
+      ]);
+      expect(concurrent.filter(Boolean)).toHaveLength(1);
+      expect(await ensureApprovalRequest(db, db.collection('scheduled_posts').doc('plan-item-telegram'))).toBe(false);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body).text).toContain('TELEGRAM, FACEBOOK');
+      expect(posts['plan-item-facebook'].approvalStatus).toBe('AWAITING_DUE');
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it('removes the redundant keyboard from an old two-message group', async () => {
+    const base = { userId: 'owner', groupId: 'plan-item', sourcePlanItemId: 'item', content: 'Photo', mediaUrl: 'https://example.com/photo.jpg', aiSuggested: true, approvalRequired: true, status: 'AWAITING_APPROVAL', approvalStatus: 'REQUESTED', approvalChatId: '200', approvalTelegramUserId: '100' };
+    const posts = {
+      'plan-item-telegram': { ...base, platform: 'TELEGRAM', approvalMessageId: 7 },
+      'plan-item-facebook': { ...base, platform: 'FACEBOOK', approvalMessageId: 8 },
+      item: { userId: 'owner', status: 'DONE', resultMediaUrl: base.mediaUrl, approvalRequired: true, autoPublishDestinations: true },
+      'bot-owner': { telegramBotToken: 'shared-token', telegramBotActive: true },
+    };
+    const db = fakeDb(posts, { uid: 'owner', botOwnerId: 'bot-owner', chatId: '200' }, { owner: { botOwnerId: 'bot-owner', chatId: '200', telegramUserId: '100' } });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, result: true }) });
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      await reconcilePendingApprovalGroups(db);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body).message_id).toBe(8);
+      expect(posts['plan-item-facebook'].approvalStatus).toBe('GROUP_PENDING');
+      expect(posts['plan-item-telegram'].approvalStatus).toBe('REQUESTED');
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it('No cancels every pending destination and marks generated media for deletion once', async () => {
+    const base = { userId: 'owner', groupId: 'plan-item', sourcePlanItemId: 'item', content: 'Photo', status: 'AWAITING_APPROVAL', approvalRequired: true, aiSuggested: true, approvalStatus: 'REQUESTED', approvalChatId: '200', approvalTelegramUserId: '100', scheduledTime: new Date(Date.now() - 2 * 24 * 60 * 60_000).toISOString(), mediaUrl: 'https://example.com/photo.jpg' };
+    const posts = {
+      'plan-item-telegram': { ...base, platform: 'TELEGRAM', approvalMessageId: 7 },
+      'plan-item-facebook': { ...base, platform: 'FACEBOOK', approvalMessageId: 8 },
+      item: { userId: 'owner', status: 'DONE', resultMediaUrl: base.mediaUrl, approvalRequired: true, autoPublishDestinations: true },
+    };
+    const db = fakeDb(posts);
+    const result = await decideApproval(db, callback('n', 'plan-item-telegram'), 'owner');
+    expect(result).toMatchObject({ ok: true, approved: false, deletePlanItemId: 'item' });
+    expect(posts['plan-item-telegram']).toMatchObject({ status: 'CANCELLED', approvalStatus: 'REJECTED' });
+    expect(posts['plan-item-facebook']).toMatchObject({ status: 'CANCELLED', approvalStatus: 'REJECTED' });
+    expect(posts.item.status).toBe('DELETING');
+    expect((await decideApproval(db, callback('y', 'plan-item-telegram'), 'owner')).ok).toBe(false);
+  });
+
+  it('refuses No if any destination has already published', async () => {
+    const base = { userId: 'owner', groupId: 'plan-item', sourcePlanItemId: 'item', content: 'Photo', mediaUrl: 'https://example.com/photo.jpg', aiSuggested: true, approvalRequired: true, scheduledTime: new Date(Date.now() - 1000).toISOString() };
+    const posts = {
+      'plan-item-telegram': { ...base, platform: 'TELEGRAM', status: 'AWAITING_APPROVAL', approvalStatus: 'REQUESTED', approvalChatId: '200', approvalTelegramUserId: '100', approvalMessageId: 7 },
+      'plan-item-facebook': { ...base, platform: 'FACEBOOK', status: 'PUBLISHED', approvalStatus: 'APPROVED' },
+      item: { userId: 'owner', status: 'DONE', resultMediaUrl: base.mediaUrl, approvalRequired: true, autoPublishDestinations: true },
+    };
+    expect((await decideApproval(fakeDb(posts), callback('n', 'plan-item-telegram'), 'owner')).ok).toBe(false);
+    expect(posts.item.status).toBe('DONE');
+    expect(posts['plan-item-telegram'].approvalStatus).toBe('REQUESTED');
+  });
+
+  it('rejects a forged Content Plan post whose media differs from the generated output', async () => {
+    const posts = {
+      'plan-item-telegram': { userId: 'owner', groupId: 'plan-item', sourcePlanItemId: 'item', platform: 'TELEGRAM', content: 'Photo', mediaUrl: 'https://example.com/another-users-photo.jpg', aiSuggested: true, approvalRequired: true, status: 'AWAITING_APPROVAL', approvalStatus: 'REQUESTED', approvalChatId: '200', approvalTelegramUserId: '100', approvalMessageId: 7 },
+      item: { userId: 'owner', status: 'DONE', resultMediaUrl: 'https://example.com/own-photo.jpg', approvalRequired: true, autoPublishDestinations: true },
+    };
+    expect((await decideApproval(fakeDb(posts), callback('n', 'plan-item-telegram'), 'owner')).ok).toBe(false);
+    expect(posts.item.status).toBe('DONE');
+  });
+
+  it('restores a consistent orphaned old approval before a late Yes', async () => {
+    const base = { userId: 'owner', groupId: 'plan-item', sourcePlanItemId: 'item', content: 'Photo', status: 'AWAITING_APPROVAL', approvalRequired: true, aiSuggested: true, approvalStatus: 'REQUESTED', approvalChatId: '200', approvalTelegramUserId: '100', scheduledTime: new Date(Date.now() - 3 * 24 * 60 * 60_000).toISOString(), mediaUrl: 'https://example.com/photo.jpg' };
+    const posts = { 'plan-item-telegram': { ...base, platform: 'TELEGRAM', approvalMessageId: 7 }, 'plan-item-facebook': { ...base, platform: 'FACEBOOK', approvalMessageId: 8 } };
+    const result = await decideApproval(fakeDb(posts), callback('y', 'plan-item-telegram'), 'owner');
+    expect(result.ok).toBe(true);
+    expect(posts.item).toMatchObject({ userId: 'owner', status: 'DONE', restoredFromApprovalPosts: true });
+    expect(posts['plan-item-facebook'].approvalStatus).toBe('APPROVED');
+  });
+
+  it('revives a legacy sibling cancelled only because plan replacement removed its source', async () => {
+    const base = { userId: 'owner', groupId: 'plan-item', sourcePlanItemId: 'item', content: 'Photo', approvalRequired: true, aiSuggested: true, scheduledTime: new Date(Date.now() - 1000).toISOString(), mediaUrl: 'https://example.com/photo.jpg' };
+    const posts = {
+      'plan-item-telegram': { ...base, platform: 'TELEGRAM', status: 'AWAITING_APPROVAL', approvalStatus: 'REQUESTED', approvalChatId: '200', approvalTelegramUserId: '100', approvalMessageId: 7 },
+      'plan-item-facebook': { ...base, platform: 'FACEBOOK', status: 'CANCELLED', cancelledReason: 'Content Plan was replaced.', approvalStatus: 'AWAITING_DUE' },
+    };
+    const result = await decideApproval(fakeDb(posts), callback('y', 'plan-item-telegram'), 'owner');
+    expect(result.ok).toBe(true);
+    expect(result.decisions.map((decision) => decision.platform).sort()).toEqual(['FACEBOOK', 'TELEGRAM']);
+    expect(posts['plan-item-facebook']).toMatchObject({ status: 'PENDING', approvalStatus: 'APPROVED' });
+  });
+
+  it('accepts a delivered prompt with an uncertain database write without resending it', async () => {
+    const posts = { post: { userId: 'owner', platform: 'FACEBOOK', status: 'AWAITING_APPROVAL', approvalRequired: true, approvalStatus: 'SEND_UNCERTAIN' } };
+    const db = fakeDb(posts);
+    const recovered = { ...callback('y', 'post'), message: { message_id: 7, chat: { id: 200 }, from: { is_bot: true } } };
+    expect((await decideApproval(db, recovered, 'owner')).approved).toBe(true);
+    expect(posts.post.approvalStatus).toBe('APPROVED');
   });
 
   it('lets a shared bot approve only the post owned by the linked website UID', async () => {

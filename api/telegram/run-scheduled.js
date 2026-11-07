@@ -6,7 +6,7 @@ import { Client as QStashClient } from '@upstash/qstash';
 import sharp from 'sharp';
 import { logAudit } from '../_audit.js';
 import { claimPendingPost, findRecentDuplicateTelegramPost } from '../_telegramClaim.js';
-import { ensureApprovalRequest } from '../_telegramApproval.js';
+import { ensureApprovalRequest, reconcilePendingApprovalGroups } from '../_telegramApproval.js';
 import { cleanupExpiredGoogleLinks } from '../_telegramGoogleLink.js';
 import { getScheduledCallbackBaseUrl } from '../_callbackUrl.js';
 import { notifyAdmins } from '../_alert.js';
@@ -19,6 +19,7 @@ import { applyPosterTextOverlay } from '../_posterOverlay.js';
 import { getUntransformedImageKitVideoUrl } from '../../shared/imageKitUrl.js';
 import { resolveTelegramDestination as resolveAccountTelegramDestination } from '../_telegramDestination.js';
 import { queueContentPlanDestinations } from '../_contentPlanFanout.js';
+import { deleteRejectedPlanMedia, generatedAsset } from '../_contentPlanMedia.js';
 import reviewVideoHandler from './_review-video.js';
 import { createCloudinaryUploadAuth } from '../_cloudinaryStorage.js';
 import {
@@ -670,21 +671,42 @@ export default async function handler(req, res) {
   try {
     const db = initFirebaseAdmin();
     await cleanupExpiredGoogleLinks(db).catch((error) => console.error('Telegram login link cleanup failed:', error?.message || error));
+    if (!req.query?.planVideoId) {
+      await reconcilePendingApprovalGroups(db).catch((error) => console.error('Approval group reconciliation failed:', error?.message || error));
+      for (const status of ['DELETING', 'DELETE_FAILED']) {
+        const pendingDeletion = await db.collection('content_plan_items').where('status', '==', status).limit(100).get();
+        for (const item of pendingDeletion.docs.filter((doc) => status !== 'DELETE_FAILED'
+          || Number(doc.data()?.nextDeletionRetryAt || 0) <= Date.now()).slice(0, 5)) {
+          const outcome = await deleteRejectedPlanMedia(db, item.id);
+          if (outcome.error) console.error(`Content Plan media deletion ${item.id} failed:`, outcome.error);
+        }
+      }
+    }
     const nowIso = new Date().toISOString();
     // Pending bot requests have their own status so an unanswered request
     // cannot occupy every slot in the platform delivery queues.
-    for (const approvalStatus of (req.query?.planVideoId ? [] : ['AWAITING_LINK', 'SEND_FAILED', 'REQUESTING'])) {
+    for (const approvalStatus of (req.query?.planVideoId ? [] : ['AWAITING_LINK', 'SEND_FAILED'])) {
       const waiting = await db.collection('scheduled_posts').where('approvalStatus', '==', approvalStatus).get();
       const retryable = waiting.docs
         .filter((doc) => doc.data()?.status === 'AWAITING_APPROVAL'
           && (approvalStatus === 'AWAITING_LINK'
-            ? true
-            : approvalStatus === 'SEND_FAILED'
-            ? Number(doc.data()?.nextApprovalRetryAt || 0) <= Date.now()
-            : Date.now() - (doc.data()?.approvalRequestStartedAt?.toMillis?.() || 0) >= 5 * 60_000))
+            ? true : Number(doc.data()?.nextApprovalRetryAt || 0) <= Date.now()))
         .sort((a, b) => Number(a.data()?.nextApprovalRetryAt || 0) - Number(b.data()?.nextApprovalRetryAt || 0))
         .slice(0, 10);
       for (const waitingPost of retryable) await ensureApprovalRequest(db, waitingPost.ref, waitingPost.data());
+    }
+    // A process that died around sendMessage has an unknown delivery outcome.
+    // Do not blindly retry it and create another Yes/No message.
+    if (!req.query?.planVideoId) {
+      const uncertain = await db.collection('scheduled_posts').where('approvalStatus', '==', 'REQUESTING').limit(20).get();
+      for (const doc of uncertain.docs) {
+        const started = doc.data()?.approvalRequestStartedAt?.toMillis?.() || 0;
+        if (doc.data()?.status === 'AWAITING_APPROVAL' && Date.now() - started >= 5 * 60_000) {
+          await doc.ref.update({ approvalStatus: 'SEND_UNCERTAIN', approvalError: 'Telegram delivery outcome is unknown; manual recovery is required.' });
+          console.error(`Approval prompt ${doc.id} has an uncertain Telegram send outcome.`);
+          await notifyAdmins(`Content Plan approval ${doc.id}: Telegram send outcome is unknown. Check the owner's chat before retrying.`);
+        }
+      }
     }
 
     // Authenticated one-item trigger for an explicitly approved plan video.
@@ -1001,7 +1023,11 @@ export default async function handler(req, res) {
         // the Telegram send that follows can fail -- otherwise a transient delivery
         // failure (rate limit, timeout, missing bot config) hits the catch below and
         // discards an already-generated image, forcing a costly full regeneration on retry.
-        if (!(await updateActivePlanItem(db, planDoc.ref, { resultMediaUrl: uploaded.mediaUrl }))) {
+        const imageAsset = generatedAsset(uploaded, 'photo');
+        if (!(await updateActivePlanItem(db, planDoc.ref, {
+          resultMediaUrl: uploaded.mediaUrl,
+          ...(imageAsset ? { generatedAssets: FieldValue.arrayUnion(imageAsset) } : {}),
+        }))) {
           results.push({ id: planDoc.id, ok: true, contentPlan: true, skipped: 'superseded' });
           continue;
         }

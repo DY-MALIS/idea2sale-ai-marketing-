@@ -56,4 +56,34 @@ describe('replace content plan', () => {
     expect(res.statusCode).toBe(400);
     expect(mocks.db.collection).not.toHaveBeenCalled();
   });
+
+  it('archives old items with unanswered approvals while replacing the visible plan', async () => {
+    const deleted = [];
+    const updated = [];
+    const created = [];
+    const oldDocs = ['pending-approval', 'finished'].map((id) => ({
+      id, ref: { id }, data: () => ({ userId: 'owner-1', status: 'DONE' }),
+    }));
+    const pendingPosts = [{ data: () => ({
+      userId: 'owner-1', sourcePlanItemId: 'pending-approval', status: 'AWAITING_APPROVAL',
+      approvalRequired: true, approvalStatus: 'REQUESTED',
+    }) }];
+    mocks.db = {
+      collection: (name) => ({ doc: () => ({ id: 'new-plan-item' }), where: () => ({ name }) }),
+      runTransaction: async (callback) => callback({
+        get: async (query) => ({ docs: query.name === 'scheduled_posts' ? pendingPosts : oldDocs }),
+        delete: (ref) => deleted.push(ref.id),
+        update: (ref, fields) => updated.push({ id: ref.id, fields }),
+        create: (ref, fields) => created.push({ ref, fields }),
+      }),
+    };
+    const res = response();
+    await handler({ method: 'POST', headers: { authorization: 'Bearer token' }, body: {
+      items: [{ scheduledDate: '2026-11-08', type: 'image', topic: 'New', prompt: 'New image' }],
+    } }, res);
+    expect(res.statusCode).toBe(200);
+    expect(deleted).toEqual(['finished']);
+    expect(updated).toEqual([{ id: 'pending-approval', fields: { archivedAt: expect.anything() } }]);
+    expect(created).toHaveLength(1);
+  });
 });

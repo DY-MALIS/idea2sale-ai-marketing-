@@ -24,6 +24,7 @@ import { transformR2Video } from '../_r2VideoTransforms.js';
 import { wantsSilentVideo } from '../../shared/videoSpeech.js';
 import { replaceVideoNarration } from '../_videoNarrationMux.js';
 import { queueContentPlanDestinations } from '../_contentPlanFanout.js';
+import { assetFromUrl, generatedAsset } from '../_contentPlanMedia.js';
 
 // A stuck/broken video job should not poll forever: 40 attempts at the
 // default ~20s spacing is roughly 13 minutes, comfortably past how long a
@@ -110,7 +111,8 @@ export const processContentPlanVideo = async (db, itemId, req) => {
         }
         if (!uploaded) uploaded = await uploadMediaDataUrl({ mediaDataUrl: result.videoUrl, mediaType: 'video' });
         sourceMediaUrl = uploaded.mediaUrl;
-        await ref.update({ sourceMediaUrl });
+        const sourceMediaAsset = generatedAsset(uploaded, 'video');
+        await ref.update({ sourceMediaUrl, ...(sourceMediaAsset ? { sourceMediaAsset } : {}) });
       }
       uploaded = { mediaUrl: sourceMediaUrl };
       const silentVideo = item.voiceOverMode === 'silent' || item.voiceOverWanted === false
@@ -136,6 +138,7 @@ export const processContentPlanVideo = async (db, itemId, req) => {
             ...await uploadMediaDataUrl({ mediaDataUrl: audio.audioUrl, mediaType: 'audio' }),
             duration: Number(audio.duration),
           };
+          await ref.update({ narrationAudio: narration });
         }
         if (!Number.isFinite(narration.duration) || narration.duration <= 0) throw new Error('Could not verify Khmer narration duration.');
         if (narration.duration > duration) throw new Error(`Khmer narration exceeds ${duration} seconds. Shorten the dialogue and retry.`);
@@ -147,6 +150,8 @@ export const processContentPlanVideo = async (db, itemId, req) => {
         if (!narration.mediaUrl) throw new Error('Missing original Khmer narration URL. Regenerate this video.');
         const assembledVideo = await replaceVideoNarration(uploaded.mediaUrl, narration.mediaUrl);
         uploaded = await uploadMediaDataUrl({ mediaDataUrl: assembledVideo, mediaType: 'video' });
+        const assembledAsset = generatedAsset(uploaded, 'video');
+        if (assembledAsset) await ref.update({ generatedAssets: FieldValue.arrayUnion(assembledAsset) });
       }
       // Scheduled videos do not pass through the browser-side ffmpeg watermark.
       // Apply the saved logo before persisting the finished media URL.
@@ -156,9 +161,14 @@ export const processContentPlanVideo = async (db, itemId, req) => {
         uploaded.mediaUrl = await transformR2Video(uploaded.mediaUrl, { mute: silentVideo, logoDataUrl });
       } else if (logoDataUrl) {
         const uploadedLogo = await uploadMediaDataUrl({ mediaDataUrl: logoDataUrl, mediaType: 'photo' });
+        const logoAsset = generatedAsset(uploadedLogo, 'photo');
+        if (logoAsset) await ref.update({ generatedAssets: FieldValue.arrayUnion(logoAsset) });
         uploaded.mediaUrl = applyImageKitLogoOverlay(uploaded.mediaUrl, uploadedLogo.filePath);
       }
-      await ref.update({ resultMediaUrl: uploaded.mediaUrl });
+      const finalAsset = assetFromUrl(uploaded.mediaUrl);
+      await ref.update({ resultMediaUrl: uploaded.mediaUrl,
+        ...(finalAsset ? { generatedAssets: FieldValue.arrayUnion(finalAsset) } : {}),
+      });
     }
     if (item.voiceOverWanted !== false && item.voiceOverMode !== 'silent' && item.prompt
       && (item.voiceOverWanted === true || !wantsSilentVideo(item.prompt))) {

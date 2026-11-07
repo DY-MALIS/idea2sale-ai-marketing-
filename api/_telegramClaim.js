@@ -1,5 +1,5 @@
 import { FieldValue } from 'firebase-admin/firestore';
-import { ensureApprovalRequest } from './_telegramApproval.js';
+import { ensureApprovalRequest, validContentPlanPost } from './_telegramApproval.js';
 
 // Atomically claims a scheduled post for delivery: reads the doc, and only if
 // it is still PENDING, flips it to PROCESSING in the same transaction. Used by
@@ -19,7 +19,7 @@ export async function claimPendingPost(db, ref) {
     }
     if (data.sourcePlanItemId) {
       const source = await tx.get(db.collection('content_plan_items').doc(data.sourcePlanItemId));
-      if (!source.exists || source.data()?.userId !== data.userId || source.data()?.supersededBy || source.data()?.status === 'CANCELLED') {
+      if (!source.exists || source.data()?.supersededBy || !validContentPlanPost(ref.id, data, source.data())) {
         tx.update(ref, { status: 'CANCELLED', cancelledReason: 'Content Plan was replaced.' });
         return { skipped: 'plan_replaced' };
       }
@@ -37,7 +37,8 @@ export async function claimPendingPost(db, ref) {
 export async function isSourcePlanActive(db, post) {
   if (!post?.sourcePlanItemId) return true;
   const source = await db.collection('content_plan_items').doc(post.sourcePlanItemId).get();
-  return source.exists && source.data()?.userId === post.userId && !source.data()?.supersededBy && source.data()?.status !== 'CANCELLED';
+  return source.exists && !source.data()?.supersededBy
+    && validContentPlanPost(post.id, post, source.data());
 }
 
 // Second, cross-document safety net: the atomic claim above only stops the

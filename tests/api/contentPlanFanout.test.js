@@ -13,7 +13,10 @@ afterEach(() => vi.unstubAllGlobals());
 
 const fakeDb = (item, profile = {}, link = null, botProfile = {}) => {
   const posts = new Map();
-  const itemRef = { kind: 'item', get: async () => ({ exists: true, data: () => item }) };
+  const itemRef = {
+    kind: 'item', get: async () => ({ exists: true, data: () => item }),
+    update: async (patch) => Object.assign(item, patch),
+  };
   const db = {
     collection: (name) => name === 'content_plan_items'
       ? { doc: () => itemRef }
@@ -24,11 +27,11 @@ const fakeDb = (item, profile = {}, link = null, botProfile = {}) => {
     runTransaction: async (callback) => callback({
       get: async (ref) => ref.kind === 'item'
         ? { exists: true, data: () => item }
-        : { exists: posts.has(ref.id) },
+        : { exists: posts.has(ref.id), data: () => posts.get(ref.id) },
       create: (ref, data) => posts.set(ref.id, data),
     }),
   };
-  return { db, posts };
+  return { db, posts, item };
 };
 
 describe('Content Plan publishing', () => {
@@ -74,14 +77,20 @@ describe('Content Plan publishing', () => {
   });
 
   it('queues a new plan image separately for Telegram and Facebook, both awaiting approval', async () => {
-    const { db, posts } = fakeDb(
+    const { db, posts, item } = fakeDb(
       { userId: 'owner', type: 'image', status: 'PROCESSING', autoPublishDestinations: true, approvalRequired: true, topic: 'Photo' },
       { telegramBotToken: 'owner-token', telegramChannelUrl: '@ownerchannel' },
     );
+    mock.telegramQueue.mockImplementation(async () => {
+      expect(posts.size).toBe(2);
+      expect(item.approvalFanoutReady).toBe(true);
+      return true;
+    });
     const result = await queueContentPlanDestinations(db, 'image-2', 'https://example.com/photo.jpg', {});
     expect(result.queued).toEqual(['TELEGRAM', 'FACEBOOK']);
     expect(posts.get('plan-image-2-telegram')).toMatchObject({ approvalRequired: true, approvalStatus: 'AWAITING_DUE', platform: 'TELEGRAM', mediaUrl: 'https://example.com/photo.jpg' });
     expect(posts.get('plan-image-2-facebook')).toMatchObject({ approvalRequired: true, approvalStatus: 'AWAITING_DUE' });
+    expect(item.approvalFanoutReady).toBe(true);
     expect(mock.telegramQueue).toHaveBeenCalledOnce();
   });
 
