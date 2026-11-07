@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { resolveTelegramDestination, sharedBotCanPublishToChannel } from '../../api/_telegramDestination.js';
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  delete process.env.TELEGRAM_SHARED_CHANNEL_ID;
+  delete process.env.TELEGRAM_SHARED_BOT_OWNER_UID;
+});
 
 const admins = [
   { status: 'creator', user: { id: 123 } },
@@ -20,6 +24,26 @@ const fakeDb = ({ account = {}, link = null, binding = null, owner = {} } = {}) 
 });
 
 describe('shared Telegram publishing destination', () => {
+  it('publishes a Google-linked business to the configured shared channel without its own channel', async () => {
+    process.env.TELEGRAM_SHARED_CHANNEL_ID = '-1004495121549';
+    process.env.TELEGRAM_SHARED_BOT_OWNER_UID = 'bot-owner';
+    const db = fakeDb({
+      account: { businessName: 'Customer Business' },
+      link: { botOwnerId: 'bot-owner', telegramUserId: '123', chatId: '123' },
+      binding: { uid: 'customer', botOwnerId: 'bot-owner', chatId: '123' },
+      owner: { telegramBotToken: 'shared-token', telegramBotActive: true, telegramBotUsername: 'dgacademy_official_bot' },
+    });
+    expect(await resolveTelegramDestination(db, 'customer')).toEqual({ token: 'shared-token', chatId: '-1004495121549' });
+    expect(await resolveTelegramDestination(db, 'customer', false)).toEqual({ token: '', chatId: '' });
+  });
+
+  it('lets the shared bot owner use the configured channel while approvals still require a private chat link', async () => {
+    process.env.TELEGRAM_SHARED_CHANNEL_ID = '-1004495121549';
+    process.env.TELEGRAM_SHARED_BOT_OWNER_UID = 'bot-owner';
+    const db = fakeDb({ owner: { businessName: 'DGACADEMY', telegramBotToken: 'shared-token', telegramBotActive: true, telegramBotUsername: 'dgacademy_official_bot' } });
+    expect(await resolveTelegramDestination(db, 'bot-owner')).toEqual({ token: 'shared-token', chatId: '-1004495121549' });
+  });
+
   it('uses the shared bot token with the linked website account channel', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, result: admins }) }));
     const db = fakeDb({

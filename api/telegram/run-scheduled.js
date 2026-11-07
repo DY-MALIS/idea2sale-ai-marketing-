@@ -347,7 +347,7 @@ const createScheduledTelegramPost = async (req, res) => {
   const db = initFirebaseAdmin();
   const destination = await resolveTelegramDestination(db, decoded.uid);
   if (!destination.token || !destination.chatId) {
-    return res.status(409).json({ error: 'Connect your own Telegram bot and channel in Business Profile before scheduling.' });
+    return res.status(409).json({ error: 'Connect your Google account to @dgacademy_official_bot using /login before scheduling.' });
   }
   let uploaded;
   if (mediaUrl) {
@@ -539,11 +539,9 @@ export const postTelegramMessage = async (req, res) => {
   }
 };
 
-// The destination is always the website account's channel. Accounts linked to
-// DGACADEMY use its bot token; other accounts retain their own bot token.
-export const resolveTelegramDestination = async (db, userId) => {
+export const resolveTelegramDestination = async (db, userId, allowShared = true) => {
   try {
-    return await resolveAccountTelegramDestination(db, userId);
+    return await resolveAccountTelegramDestination(db, userId, allowShared);
   } catch (error) {
     console.error('Could not load the account\'s Telegram destination:', error?.message);
     return { token: '', chatId: '' };
@@ -551,13 +549,19 @@ export const resolveTelegramDestination = async (db, userId) => {
 };
 
 export const sendTelegram = async (post, db) => {
-  const { token, chatId } = await resolveTelegramDestination(db, post.userId);
+  const { token, chatId } = await resolveTelegramDestination(db, post.userId, post.approvalRequired === true);
 
   if (!token || !chatId) {
     throw new Error('Connect Telegram and save a channel in Business Profile before publishing.');
   }
 
-  const rawText = String(post.content || '').trim();
+  let rawText = String(post.content || '').trim();
+  if (post.approvalRequired === true && chatId === String(process.env.TELEGRAM_SHARED_CHANNEL_ID || '').trim()) {
+    const profile = (await db.collection('business_profiles').doc(post.userId).get()).data() || {};
+    const businessName = String(profile.businessName || '').trim();
+    if (!businessName) throw new Error('Save a business name before publishing to the shared Telegram channel.');
+    rawText = `${businessName}\n\n${rawText}${rawText ? '\n\n' : ''}Chat: https://t.me/dgacademy_official_bot?start=b_${post.userId}`;
+  }
   const mediaType = String(post.mediaType || '').trim().toLowerCase();
   // Uploaded videos use original bytes to avoid ImageKit's transformation quota;
   // generated videos retain any substantive narration or logo transforms.

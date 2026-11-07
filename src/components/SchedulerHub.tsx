@@ -9,7 +9,6 @@ import Scheduler from './Scheduler';
 import ActivityPulse from './ActivityPulse';
 import { db } from '../lib/firebase';
 import { collection, addDoc, doc, getDocFromServer, serverTimestamp } from 'firebase/firestore';
-import { telegramDestinationFromProfile } from '../../shared/telegramDestination.js';
 import { useLanguage } from '../contexts/LanguageContext';
 import { saveLocalMedia } from '../lib/localMediaStore';
 import { withUploadTimeout } from '../lib/withUploadTimeout';
@@ -278,10 +277,10 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     let active = true;
     const loadDestination = async () => {
       try {
-        const snapshot = await getDocFromServer(doc(db, 'business_profiles', user.uid));
-        const profile = snapshot.data() || {};
-        const destination = telegramDestinationFromProfile(profile);
-        if (active) setTelegramDestination({ ready: Boolean(destination.token && destination.chatId), label: destination.chatId });
+        const response = await fetch('/api/telegram/webhook?action=approval-status', { headers: { Authorization: `Bearer ${await user.getIdToken()}` } });
+        const destination = await response.json();
+        if (!response.ok) throw new Error(destination.error || 'Could not check Telegram.');
+        if (active) setTelegramDestination({ ready: Boolean(destination.linked && destination.webhookReady && destination.channelReady), label: destination.channelLabel || '' });
       } catch {
         if (active) setTelegramDestination({ ready: false, label: '' });
       }
@@ -1574,7 +1573,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                             ? (language === 'km' ? 'កំពុងពិនិត្យ Telegram channel…' : 'Checking Telegram channel…')
                             : telegramDestination.ready
                               ? `${language === 'km' ? 'ផុសទៅ Telegram channel របស់គណនីនេះ៖' : 'Posting to this account’s Telegram channel:'} ${telegramDestination.label}`
-                              : (language === 'km' ? 'មិនទាន់ភ្ជាប់ Telegram channel ទេ។ សូមរក្សាទុក Bot Token និង Channel ក្នុង Business Profile។' : 'No Telegram channel connected. Save a bot token and channel in Business Profile.')}
+                              : (language === 'km' ? 'មិនទាន់ភ្ជាប់ Telegram ទេ។ សូមផ្ញើ /login ទៅ @dgacademy_official_bot ហើយភ្ជាប់គណនី Google។' : 'Connect your Google account with /login in @dgacademy_official_bot before scheduling.')}
                         </div>
                       )}
                       {!hasSharedVideoField && sharedVideoName && !telegramMediaFile && (

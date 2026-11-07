@@ -2,7 +2,6 @@ import { getFacebookPages, scheduleFacebookQStashDelivery } from './_facebook.js
 import { scheduleYouTubeQStashDelivery } from './_youtube.js';
 import { scheduleTikTokQStashDelivery } from './_tiktok.js';
 import { scheduleQStashDelivery } from './telegram/run-scheduled.js';
-import { resolveTelegramDestination } from './_telegramDestination.js';
 
 // Queue each destination once. The platform pollers own the actual upload and
 // its final status in Content Timeline. A stale video callback cannot create
@@ -22,14 +21,10 @@ export async function queueContentPlanDestinations(db, itemId, mediaUrl, req) {
     : (item.approvalRequired === true ? ['TELEGRAM', 'FACEBOOK'] : ['FACEBOOK']);
   const connection = await getFacebookPages(db, item.userId).catch(() => null);
   const facebookPageId = connection?.selectedPageId || connection?.pages?.[0]?.id;
-  const telegramDestination = item.approvalRequired === true
-    ? await resolveTelegramDestination(db, item.userId)
-    : { token: '', chatId: '' };
   const queued = [];
   const skipped = [];
   for (const platform of targets) {
     if (platform === 'FACEBOOK' && !facebookPageId) { skipped.push('FACEBOOK: no connected Page'); continue; }
-    if (platform === 'TELEGRAM' && (!telegramDestination.token || !telegramDestination.chatId)) { skipped.push('TELEGRAM: no connected channel'); continue; }
     if (platform === 'TIKTOK' && item.tiktokDirectPostConsent !== true) { skipped.push('TIKTOK: consent missing'); continue; }
     const ref = db.collection('scheduled_posts').doc(`plan-${itemId}-${platform.toLowerCase()}`);
     const scheduledTime = new Date().toISOString();

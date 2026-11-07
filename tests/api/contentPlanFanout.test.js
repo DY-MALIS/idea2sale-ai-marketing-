@@ -85,7 +85,7 @@ describe('Content Plan publishing', () => {
     expect(mock.telegramQueue).toHaveBeenCalledOnce();
   });
 
-  it('queues a linked account photo with the shared bot and its own channel', async () => {
+  it('queues a linked account photo for Telegram approval', async () => {
     const { db, posts } = fakeDb(
       { userId: 'customer', type: 'image', status: 'PROCESSING', autoPublishDestinations: true, approvalRequired: true, topic: 'Photo' },
       { telegramBotToken: 'invalid-customer-token', telegramChannelUrl: '@customerchannel' },
@@ -95,5 +95,14 @@ describe('Content Plan publishing', () => {
     const result = await queueContentPlanDestinations(db, 'image-3', 'https://example.com/photo.jpg', {});
     expect(result.queued).toContain('TELEGRAM');
     expect(posts.get('plan-image-3-telegram')).toMatchObject({ userId: 'customer', platform: 'TELEGRAM', approvalRequired: true });
+  });
+
+  it('keeps a new Telegram destination queued while its owner has not linked the bot', async () => {
+    const { db, posts } = fakeDb(
+      { userId: 'customer', type: 'image', status: 'PROCESSING', autoPublishDestinations: true, approvalRequired: true, topic: 'Photo' },
+    );
+    const result = await queueContentPlanDestinations(db, 'image-4', 'https://example.com/photo.jpg', {});
+    expect(result.queued).toContain('TELEGRAM');
+    expect(posts.get('plan-image-4-telegram')).toMatchObject({ status: 'PENDING', approvalRequired: true });
   });
 });

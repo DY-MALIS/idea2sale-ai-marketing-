@@ -1835,7 +1835,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
               setAutomationNoticeKind('error');
               setAutomationNotice(language === 'km'
                 ? 'វីដេអូបានបង្កើត ប៉ុន្តែសំឡេងត្រូវពិនិត្យមុនប្រើ។ សូមមើលវីដេអូខាងក្រោម។'
-                : 'Video was generated, but its speech needs review. See the video below.');
+                : 'Video was generated, but its speech needs review. It has not been queued for Telegram or other platforms. Review the video below.');
             }
             setSegmentProgress(null);
             setVideoVoiceQualityNotice(language === 'km'

@@ -8,10 +8,9 @@ export const sharedBotCanPublishToChannel = (administrators, telegramUserId) => 
   return mayPost(member) && mayPost(bot);
 };
 
-// A website account linked through the DGACADEMY bot publishes to its own
-// saved channel with that same bot. The link and its reciprocal chat binding
-// must both exist so another account cannot borrow the owner's bot token.
-export async function resolveTelegramDestination(db, userId) {
+// A linked account can use the configured shared channel. The reciprocal chat
+// binding prevents another account from borrowing the owner's bot token.
+export async function resolveTelegramDestination(db, userId, allowShared = true) {
   if (!db || !userId) return { token: '', chatId: '' };
   const [profileSnap, linkSnap] = await Promise.all([
     db.collection('business_profiles').doc(userId).get(),
@@ -19,6 +18,14 @@ export async function resolveTelegramDestination(db, userId) {
   ]);
   const profile = profileSnap.data() || {};
   const link = linkSnap.data();
+  const sharedChannelId = String(process.env.TELEGRAM_SHARED_CHANNEL_ID || '').trim();
+  const sharedOwnerId = String(process.env.TELEGRAM_SHARED_BOT_OWNER_UID || '').trim();
+  if (allowShared && sharedChannelId && userId === sharedOwnerId
+    && profile.telegramBotActive === true
+    && String(profile.telegramBotUsername || '').toLowerCase() === 'dgacademy_official_bot'
+    && String(profile.businessName || '').trim()) {
+    return { token: String(profile.telegramBotToken || '').trim(), chatId: sharedChannelId };
+  }
   if (!link?.botOwnerId) return telegramDestinationFromProfile(profile);
 
   if (!link.telegramUserId || !link.chatId) return { token: '', chatId: '' };
@@ -33,6 +40,11 @@ export async function resolveTelegramDestination(db, userId) {
     || botProfile.telegramBotActive !== true
     || String(botProfile.telegramBotUsername || '').toLowerCase() !== 'dgacademy_official_bot') {
     return { token: '', chatId: '' };
+  }
+  if (allowShared && sharedChannelId && link.botOwnerId === sharedOwnerId) {
+    return String(profile.businessName || '').trim()
+      ? { token: String(botProfile.telegramBotToken || '').trim(), chatId: sharedChannelId }
+      : { token: '', chatId: '' };
   }
   const destination = telegramDestinationFromProfile({ ...profile, telegramBotToken: botProfile.telegramBotToken });
   if (!destination.token || !destination.chatId) return destination;
