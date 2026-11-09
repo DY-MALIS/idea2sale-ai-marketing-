@@ -45,8 +45,9 @@ export default async function replaceContentPlan(req, res) {
       const retainIds = new Set(existingPosts.docs.filter((snapshot) => {
         const post = snapshot.data();
         return post.sourcePlanItemId && post.approvalRequired === true
-          && ['PENDING', 'AWAITING_APPROVAL', 'PROCESSING'].includes(post.status)
-          && ['REQUESTED', 'REQUESTING', 'SEND_UNCERTAIN', 'APPROVED'].includes(post.approvalStatus);
+          && (post.status === 'PUBLISHED' || (
+            ['PENDING', 'AWAITING_APPROVAL', 'PROCESSING'].includes(post.status)
+            && ['REQUESTED', 'REQUESTING', 'SEND_UNCERTAIN', 'APPROVED'].includes(post.approvalStatus)));
       }).map((snapshot) => snapshot.data().sourcePlanItemId));
       const activeOld = old.docs;
       cancelledTriggers = activeOld.filter((snapshot) => snapshot.data()?.status === 'PENDING')

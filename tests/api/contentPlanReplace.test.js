@@ -128,4 +128,28 @@ describe('replace content plan', () => {
       { id: 'early', fields: { status: 'DELETING', supersededBy: 'new-1' } },
     ]);
   });
+
+  it('keeps media for a post that was already published', async () => {
+    const updates = [];
+    const source = { id: 'published', ref: { id: 'published' }, data: () => ({
+      userId: 'owner-1', status: 'DONE', resultMediaUrl: 'https://cdn.example/published.jpg',
+    }) };
+    const post = { data: () => ({ userId: 'owner-1', sourcePlanItemId: 'published',
+      approvalRequired: true, approvalStatus: 'APPROVED', status: 'PUBLISHED',
+    }) };
+    mocks.db = {
+      collection: (name) => ({ doc: () => ({ id: 'replacement' }), where: () => ({ name }) }),
+      runTransaction: async (callback) => callback({
+        get: async (query) => ({ docs: query.name === 'scheduled_posts' ? [post] : [source] }),
+        update: (ref, fields) => updates.push({ id: ref.id, fields }),
+        create: vi.fn(), delete: vi.fn(),
+      }),
+    };
+    const res = response();
+    await handler({ method: 'POST', headers: { authorization: 'Bearer token' }, body: {
+      items: [{ scheduledDate: '2026-11-10', type: 'image', topic: 'New', prompt: 'New image' }],
+    } }, res);
+    expect(res.statusCode, JSON.stringify(res.body)).toBe(200);
+    expect(updates).toEqual([{ id: 'published', fields: { archivedAt: expect.anything() } }]);
+  });
 });
