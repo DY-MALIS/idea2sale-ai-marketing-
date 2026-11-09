@@ -180,8 +180,8 @@ it('starts a due Content Plan video before an unrelated image fails', async () =
             if (name !== 'content_plan_items') return { docs: [] };
             const status = filters.find(([key]) => key === 'status')?.[1];
             const type = filters.find(([key]) => key === 'type')?.[1];
-            if (status === 'PENDING' && type === 'video') return { docs: [{ id: videoRef.id, ref: videoRef }] };
-            if (status === 'PENDING' && type === 'image') return { docs: [{ id: imageRef.id, ref: imageRef }] };
+            if (status === 'PENDING' && type === 'video') return { docs: [{ id: videoRef.id, ref: videoRef, data: () => video }] };
+            if (status === 'PENDING' && type === 'image') return { docs: [{ id: imageRef.id, ref: imageRef, data: () => image }] };
             return { docs: [] };
           },
         };

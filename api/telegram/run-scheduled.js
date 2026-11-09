@@ -20,6 +20,7 @@ import { getUntransformedImageKitVideoUrl } from '../../shared/imageKitUrl.js';
 import { resolveTelegramDestination as resolveAccountTelegramDestination } from '../_telegramDestination.js';
 import { queueContentPlanDestinations } from '../_contentPlanFanout.js';
 import { deleteRejectedPlanMedia, generatedAsset } from '../_contentPlanMedia.js';
+import { contentPlanDay, selectDuePlanItems } from '../_contentPlanQuota.js';
 import reviewVideoHandler from './_review-video.js';
 import { createCloudinaryUploadAuth } from '../_cloudinaryStorage.js';
 import {
@@ -798,19 +799,33 @@ export default async function handler(req, res) {
     const results = [];
     const DAILY_IMAGE_CAP = 2;
     const DAILY_VIDEO_CAP = 1;
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const planTodayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    const planTodayStr = contentPlanDay();
     const isPlanDue = (doc) => {
       const item = typeof doc.data === 'function' ? doc.data() : doc.data;
       return !item?.scheduledAt || String(item.scheduledAt) <= new Date().toISOString();
     };
-    const countGeneratedToday = async (type, statuses) => {
-      const snapshot = await db.collection('content_plan_items').where('type', '==', type).where('status', 'in', statuses).get();
-      return snapshot.docs.filter((doc) => {
-        const data = doc.data();
-        const ts = data.completedAt || data.processingAt;
-        return ts?.toDate?.().toISOString().slice(0, 10) === todayStr;
-      }).length;
+    const generatedToday = async (type, statuses) => (await db.collection('content_plan_items')
+      .where('type', '==', type).where('status', 'in', statuses).get()).docs;
+    const duePlanItemsFor = async (type, generated, dailyCap) => {
+      const pageSize = 20;
+      let query = db.collection('content_plan_items')
+        .where('status', '==', 'PENDING')
+        .where('type', '==', type)
+        .where('scheduledDate', '<=', planTodayStr)
+        .orderBy('scheduledDate', 'asc')
+        .limit(pageSize);
+      const candidates = [];
+      // Keep paging past an account whose own quota is filled; otherwise its
+      // first 20 overdue rows can hide every other account's due work.
+      for (let page = 0; page < 20; page += 1) {
+        const snapshot = await query.get();
+        candidates.push(...snapshot.docs.filter(isPlanDue));
+        const selected = selectDuePlanItems(candidates, generated, dailyCap, planTodayStr)
+          .slice(0, dailyCap);
+        if (selected.length === dailyCap || snapshot.docs.length < pageSize) return selected;
+        query = query.startAfter(snapshot.docs.at(-1));
+      }
+      return selectDuePlanItems(candidates, generated, dailyCap, planTodayStr).slice(0, dailyCap);
     };
     // Start due video before unrelated post or image delivery. Those jobs can
     // fail or consume this invocation's time without affecting video starts.
@@ -981,25 +996,10 @@ export default async function handler(req, res) {
     // Auto-generate content-plan items (see extractContentPlan in api/ai.js
     // and AIAgent.tsx's plan-upload UI) due today or earlier.
     //
-    // The cap must reflect how many have ALREADY been generated today across
-    // every invocation, not just this one -- capping only per-invocation
-    // (the original version of this) let each extra trigger on the same day
-    // (a manual re-run, a duplicate cron fire) add its own fresh 2/1 on top,
-    // and that's exactly what happened live: one day produced 8 images and 3
-    // videos instead of 2 and 1. countGeneratedToday makes the cap a real
-    // per-calendar-day ceiling no matter how many times this runs today.
-    const imagesGeneratedToday = await countGeneratedToday('image', ['DONE']);
-    const remainingImageCap = Math.max(0, DAILY_IMAGE_CAP - imagesGeneratedToday);
-    const planSnapshot = await db
-      .collection('content_plan_items')
-      .where('status', '==', 'PENDING')
-      .where('type', '==', 'image')
-      .where('scheduledDate', '<=', planTodayStr)
-      .orderBy('scheduledDate', 'asc')
-      .limit(20)
-      .get();
-    const duePlanItems = planSnapshot.docs.filter(isPlanDue)
-      .slice(0, remainingImageCap);
+    // Count each account's prior work in the same Bangkok calendar day as its
+    // plan. A global cap let unrelated accounts exhaust this owner's quota.
+    const imagesGeneratedToday = await generatedToday('image', ['DONE', 'PROCESSING']);
+    const duePlanItems = await duePlanItemsFor('image', imagesGeneratedToday, DAILY_IMAGE_CAP);
 
     for (const planDoc of duePlanItems) {
       // Same atomic compare-and-swap claimPendingPost already uses for
@@ -1105,18 +1105,8 @@ export default async function handler(req, res) {
     // PROCESSING and REVIEW count too, not just DONE -- a video started earlier
     // today already consumed today's quota while it is being generated or waits
     // for the required human quality check.
-    const videosGeneratedToday = await countGeneratedToday('video', GENERATED_VIDEO_STATUSES);
-    const remainingVideoCap = Math.max(0, DAILY_VIDEO_CAP - videosGeneratedToday);
-    const videoPlanSnapshot = await db
-      .collection('content_plan_items')
-      .where('status', '==', 'PENDING')
-      .where('type', '==', 'video')
-      .where('scheduledDate', '<=', planTodayStr)
-      .orderBy('scheduledDate', 'asc')
-      .limit(10)
-      .get();
-    const dueVideoPlanItems = videoPlanSnapshot.docs.filter(isPlanDue)
-      .slice(0, remainingVideoCap);
+    const videosGeneratedToday = await generatedToday('video', GENERATED_VIDEO_STATUSES);
+    const dueVideoPlanItems = await duePlanItemsFor('video', videosGeneratedToday, DAILY_VIDEO_CAP);
 
     for (const planDoc of dueVideoPlanItems) {
       // Same atomic claim as the image loop above -- without it, two
