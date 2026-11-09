@@ -88,9 +88,12 @@ export async function ensureApprovalRequest(db, ref, knownPost) {
   const claimed = await db.runTransaction(async (tx) => {
     const fresh = await tx.get(ref);
     const data = fresh.data();
+    const source = data?.sourcePlanItemId
+      ? await tx.get(db.collection('content_plan_items').doc(data.sourcePlanItemId)) : null;
     if (!data || !['PENDING', 'AWAITING_APPROVAL'].includes(data.status) || data.approvalRequired !== true
       || ['APPROVED', 'REJECTED', 'REQUESTING', 'SEND_UNCERTAIN'].includes(data.approvalStatus)
-      || (data.approvalStatus === 'REQUESTED' && String(data.approvalTelegramUserId) === String(link.telegramUserId))) return false;
+      || (data.approvalStatus === 'REQUESTED' && String(data.approvalTelegramUserId) === String(link.telegramUserId))
+      || (source && (source.data()?.supersededBy || !validContentPlanPost(ref.id, data, source.data())))) return false;
     tx.update(ref, { status: 'AWAITING_APPROVAL', approvalStatus: 'REQUESTING', approvalRequestStartedAt: FieldValue.serverTimestamp() });
     return true;
   });

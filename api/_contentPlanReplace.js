@@ -1,8 +1,7 @@
 import { getAuth } from 'firebase-admin/auth';
 import { FieldValue } from 'firebase-admin/firestore';
-import { Client as QStashClient } from '@upstash/qstash';
 import { initFirebaseAdmin } from './_firebaseAdmin.js';
-import { getScheduledCallbackBaseUrl } from './_callbackUrl.js';
+import { cancelContentPlanStart, contentPlanTiming, scheduleContentPlanStart } from './_contentPlanTiming.js';
 
 const validDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''));
 const validTime = (value) => value == null || value === '' || /^([01]\d|2[0-3]):[0-5]\d$/.test(String(value));
@@ -38,6 +37,8 @@ export default async function replaceContentPlan(req, res) {
   const replacementId = collection.doc().id;
   try {
     let replacedCount = 0;
+    let createdItems = [];
+    let cancelledTriggers = [];
     await db.runTransaction(async (tx) => {
       const old = await tx.get(collection.where('userId', '==', owner.uid));
       const existingPosts = await tx.get(db.collection('scheduled_posts').where('userId', '==', owner.uid));
@@ -45,29 +46,43 @@ export default async function replaceContentPlan(req, res) {
         const post = snapshot.data();
         return post.sourcePlanItemId && post.approvalRequired === true
           && ['PENDING', 'AWAITING_APPROVAL', 'PROCESSING'].includes(post.status)
-          && post.approvalStatus !== 'REJECTED';
+          && ['REQUESTED', 'REQUESTING', 'SEND_UNCERTAIN', 'APPROVED'].includes(post.approvalStatus);
       }).map((snapshot) => snapshot.data().sourcePlanItemId));
       const activeOld = old.docs;
+      cancelledTriggers = activeOld.filter((snapshot) => snapshot.data()?.status === 'PENDING')
+        .map((snapshot) => snapshot.data()?.generationTriggerMessageId).filter(Boolean);
       // Firestore transactions allow at most 500 writes. Fail without changing
       // anything rather than deleting only part of a customer's old plan.
-      const oldWrites = activeOld.filter((snapshot) => {
-        const keep = retainIds.has(snapshot.id) || ['DELETING', 'DELETE_FAILED'].includes(snapshot.data()?.status);
-        return !keep || !snapshot.data()?.archivedAt;
-      }).length;
+      const unsentPosts = existingPosts.docs.filter((snapshot) => snapshot.data()?.sourcePlanItemId
+        && ['PENDING', 'AWAITING_APPROVAL'].includes(snapshot.data()?.status)
+        && ['AWAITING_DUE', 'AWAITING_LINK', 'SEND_FAILED'].includes(snapshot.data()?.approvalStatus));
+      const oldWrites = activeOld.length + unsentPosts.length;
       if (oldWrites + items.length > 450) throw Object.assign(new Error('Too many existing plan items to replace at once.'), { statusCode: 409 });
       replacedCount = activeOld.filter((snapshot) => !snapshot.data()?.archivedAt).length;
+      unsentPosts.forEach((snapshot) => tx.update(snapshot.ref, {
+        status: 'CANCELLED', approvalStatus: 'REJECTED', cancelledReason: 'Content Plan was replaced.',
+      }));
       activeOld.forEach((snapshot) => {
         if (retainIds.has(snapshot.id) || ['DELETING', 'DELETE_FAILED'].includes(snapshot.data()?.status)) {
           if (!snapshot.data()?.archivedAt) tx.update(snapshot.ref, { archivedAt: FieldValue.serverTimestamp() });
+        } else if (snapshot.data()?.resultMediaUrl || snapshot.data()?.status === 'PROCESSING') {
+          tx.update(snapshot.ref, {
+            status: 'DELETING', supersededBy: replacementId, archivedAt: FieldValue.serverTimestamp(),
+            deletionClaimedAt: null,
+          });
         } else tx.delete(snapshot.ref);
       });
+      createdItems = [];
       items.forEach((item) => {
         const ref = collection.doc();
+        const timing = contentPlanTiming(scheduledAtFor(item), item.type);
+        createdItems.push({ id: ref.id, nextGenerationAt: timing.nextGenerationAt });
         tx.create(ref, {
           userId: owner.uid,
           planId: replacementId,
           scheduledDate: item.scheduledDate,
           scheduledAt: scheduledAtFor(item),
+          ...timing,
           scheduledTime: String(item.scheduledTime || ''),
           type: item.type,
           topic: String(item.topic).trim(),
@@ -99,20 +114,14 @@ export default async function replaceContentPlan(req, res) {
         });
       });
     });
-    const scheduleTimes = [...new Set(items.map(scheduledAtFor))];
+    const cancellations = await Promise.allSettled(cancelledTriggers.map((messageId) => cancelContentPlanStart(messageId)));
+    for (const outcome of cancellations.filter((entry) => entry.status === 'rejected')) {
+      console.warn('Could not cancel a superseded Content Plan trigger:', outcome.reason);
+    }
     let schedulingWarning = null;
     try {
-      const token = String(process.env.QSTASH_TOKEN || '').trim();
-      if (!token) throw new Error('QSTASH_TOKEN is not configured.');
-      const client = new QStashClient({ token, baseUrl: process.env.QSTASH_URL });
-      const callbackUrl = `${getScheduledCallbackBaseUrl()}/api/telegram/deliver`;
-      for (const scheduledAt of scheduleTimes) {
-        await client.publishJSON({
-          url: callbackUrl,
-          body: { runContentPlan: true },
-          notBefore: Math.max(Math.floor(Date.now() / 1000) + 1, Math.floor(new Date(scheduledAt).getTime() / 1000)),
-        });
-      }
+      const outcomes = await Promise.allSettled(createdItems.map((item) => scheduleContentPlanStart(item.id, item.nextGenerationAt, db)));
+      if (outcomes.some((outcome) => outcome.status === 'rejected')) throw outcomes.find((outcome) => outcome.status === 'rejected').reason;
     } catch (error) {
       console.error('Content plan wake-up scheduling failed:', error);
       schedulingWarning = 'The plan was saved, but its automatic trigger could not be scheduled. Contact support before relying on its posting time.';

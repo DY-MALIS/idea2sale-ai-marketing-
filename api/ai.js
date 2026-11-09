@@ -39,6 +39,7 @@ import { isContentPlanEditFollowup, isContentPlanEditPronounFollowup, isContentP
 import { isContentPlanCreationRequest, isStandaloneAudioRequest, shouldClassifyCreativeMedia } from '../shared/agentIntent.js';
 import { createHash } from 'crypto';
 import replaceContentPlan from './_contentPlanReplace.js';
+import { cancelContentPlanStart, contentPlanTiming, scheduleContentPlanStart } from './_contentPlanTiming.js';
 import { ensureVideoImageDataUrl } from './_videoReferenceImage.js';
 
 const agentContentPlanText = (body, limit = 14) => (Array.isArray(body?.contentPlan) ? body.contentPlan : [])
@@ -1338,10 +1339,14 @@ export default async function handler(req, res) {
       if (req.body?.target === 'saved' && hasChanges) {
         const firestore = initFirebaseAdmin();
         const planCollection = firestore.collection('content_plan_items');
+        const triggers = [];
+        const oldTriggers = [];
         const created = additions.map((item) => ({
           ref: planCollection.doc(),
           data: {
             ...item,
+            scheduledAt: new Date(`${item.scheduledDate}T00:00:00+07:00`).toISOString(),
+            ...contentPlanTiming(new Date(`${item.scheduledDate}T00:00:00+07:00`).toISOString(), item.type),
             userId: owner.uid,
             businessName: String(req.body?.businessName || '').slice(0, 200),
             autoPublishDestinations: true,
@@ -1373,15 +1378,41 @@ export default async function handler(req, res) {
               throw Object.assign(new Error('A video needs Khmer narration before it can be saved.'), { statusCode: 400 });
             }
             const { date, ...fields } = changes;
+            const scheduledAt = date
+              ? new Date(`${date}T${snapshot.data()?.scheduledTime || '00:00'}:00+07:00`).toISOString()
+              : snapshot.data()?.scheduledAt || new Date(`${snapshot.data()?.scheduledDate || editable[uniquePatches[position].index - 1].date}T00:00:00+07:00`).toISOString();
+            const timing = date || changes.type
+              ? contentPlanTiming(scheduledAt, nextType)
+              : {
+                  approvalDueAt: snapshot.data()?.approvalDueAt || scheduledAt,
+                  nextGenerationAt: snapshot.data()?.nextGenerationAt
+                    || contentPlanTiming(scheduledAt, nextType).nextGenerationAt,
+                };
             transaction.update(snapshot.ref, {
               ...fields,
               ...(date ? { scheduledDate: date } : {}),
+              scheduledAt, ...timing,
+              ...(date || changes.type ? { quotaDeferredAt: null, quotaNoticeStatus: null, quotaMessage: null } : {}),
               ...(changes.type === 'video' ? { duration: 8, voiceOverWanted: true, voiceOverMode: 'edge-seedance' } : {}),
             });
+            triggers.push({ id: snapshot.ref.id, nextGenerationAt: timing.nextGenerationAt });
+            if (snapshot.data()?.generationTriggerMessageId) oldTriggers.push(snapshot.data().generationTriggerMessageId);
           });
-          removals.forEach((_, position) => transaction.delete(snapshots[uniquePatches.length + position].ref));
-          created.forEach(({ ref, data }) => transaction.create(ref, data));
+          removals.forEach((_, position) => {
+            const snapshot = snapshots[uniquePatches.length + position];
+            transaction.delete(snapshot.ref);
+            if (snapshot.data()?.generationTriggerMessageId) oldTriggers.push(snapshot.data().generationTriggerMessageId);
+          });
+          created.forEach(({ ref, data }) => {
+            transaction.create(ref, data);
+            triggers.push({ id: ref.id, nextGenerationAt: data.nextGenerationAt });
+          });
         });
+        await Promise.allSettled(oldTriggers.map((messageId) => cancelContentPlanStart(messageId)));
+        const scheduled = await Promise.allSettled(triggers.map(({ id, nextGenerationAt }) => scheduleContentPlanStart(id, nextGenerationAt, firestore)));
+        if (scheduled.some((result) => result.status === 'rejected')) {
+          console.error('Saved Content Plan edit trigger failed:', scheduled.find((result) => result.status === 'rejected').reason);
+        }
         addedItems = created.map(({ ref, data }) => ({ id: ref.id, ...data }));
       }
       return res.status(200).json({ patches: uniquePatches, removals, additions: addedItems, applied: req.body?.target === 'saved' && hasChanges });

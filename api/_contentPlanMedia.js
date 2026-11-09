@@ -142,11 +142,11 @@ export async function deleteRejectedPlanMedia(db, itemId) {
       item.narrationAudio?.mediaUrl, item.avatarImage?.mediaUrl,
       ...(Array.isArray(item.generatedAssets) ? item.generatedAssets.map((asset) => asset?.mediaUrl) : [])]
       .filter(Boolean);
-    if (!item.resultMediaUrl || requiredUrls.some((url) => !assetFromUrl(url))) {
+    if (requiredUrls.some((url) => !assetFromUrl(url))) {
       throw new Error('A generated media file could not be located in configured storage.');
     }
-    const shared = await Promise.all(['mediaUrl', 'videoUrl'].map((field) =>
-      db.collection('scheduled_posts').where(field, '==', item.resultMediaUrl).get()));
+    const shared = item.resultMediaUrl ? await Promise.all(['mediaUrl', 'videoUrl'].map((field) =>
+      db.collection('scheduled_posts').where(field, '==', item.resultMediaUrl).get())) : [];
     if (shared.some((snapshot) => snapshot.docs.some((post) => post.data()?.sourcePlanItemId !== itemId
       && !['CANCELLED', 'FAILED'].includes(post.data()?.status)))) {
       throw new Error('The generated media is still referenced by another active or published post.');

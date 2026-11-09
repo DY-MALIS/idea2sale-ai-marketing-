@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ verify: vi.fn(), db: null }));
+const mocks = vi.hoisted(() => ({ verify: vi.fn(), db: null, schedule: vi.fn(), cancel: vi.fn() }));
 vi.mock('firebase-admin/auth', () => ({ getAuth: () => ({ verifyIdToken: mocks.verify }) }));
 vi.mock('../../api/_firebaseAdmin.js', () => ({ initFirebaseAdmin: () => mocks.db }));
+vi.mock('../../api/_contentPlanTiming.js', async (importOriginal) => ({
+  ...await importOriginal(), scheduleContentPlanStart: mocks.schedule, cancelContentPlanStart: mocks.cancel,
+}));
 const { default: handler } = await import('../../api/_contentPlanReplace.js');
 
 const response = () => ({
@@ -15,13 +18,18 @@ const response = () => ({
 describe('replace content plan', () => {
   beforeEach(() => {
     mocks.verify.mockReset().mockResolvedValue({ uid: 'owner-1' });
+    mocks.schedule.mockReset().mockResolvedValue({ messageId: 'queued' });
+    mocks.cancel.mockReset().mockResolvedValue(undefined);
   });
 
   it('atomically removes all old plan items before the new plan becomes visible', async () => {
     const deleted = [];
+    const updated = [];
     const creates = [];
     const oldDocs = ['PENDING', 'PROCESSING', 'DONE'].map((status, i) => ({
-      ref: { id: `old-${i}` }, data: () => ({ status, userId: 'owner-1' }),
+      ref: { id: `old-${i}` }, data: () => ({ status, userId: 'owner-1',
+        ...(status === 'PENDING' ? { generationTriggerMessageId: 'old-qstash-trigger' } : {}),
+      }),
     }));
     let nextId = 0;
     const collection = {
@@ -29,10 +37,11 @@ describe('replace content plan', () => {
       where: () => ({ kind: 'owner-query' }),
     };
     mocks.db = {
-      collection: () => collection,
+      collection: (name) => name === 'scheduled_posts' ? { where: () => ({ kind: 'posts-query' }) } : collection,
       runTransaction: async (callback) => callback({
-        get: async () => ({ docs: oldDocs }),
+        get: async (query) => ({ docs: query.kind === 'posts-query' ? [] : oldDocs }),
         delete: (ref) => deleted.push(ref),
+        update: (ref, fields) => updated.push({ ref, fields }),
         create: (ref, fields) => creates.push({ ref, fields }),
       }),
     };
@@ -41,10 +50,14 @@ describe('replace content plan', () => {
       method: 'POST', headers: { authorization: 'Bearer token' },
       body: { items: [{ scheduledDate: '2026-10-29', type: 'image', topic: 'New', prompt: 'New image' }] },
     }, res);
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode, JSON.stringify(res.body)).toBe(200);
     expect(res.body).toMatchObject({ savedCount: 1, replacedCount: 3 });
-    expect(deleted.map((ref) => ref.id)).toEqual(['old-0', 'old-1', 'old-2']);
+    expect(deleted.map((ref) => ref.id)).toEqual(['old-0', 'old-2']);
+    expect(updated).toMatchObject([{ ref: { id: 'old-1' }, fields: { status: 'DELETING' } }]);
     expect(creates[0].fields).toMatchObject({ userId: 'owner-1', status: 'PENDING', topic: 'New' });
+    expect(creates[0].fields.approvalDueAt).toBe('2026-10-28T17:00:00.000Z');
+    expect(mocks.schedule).toHaveBeenCalledWith('new-2', expect.any(String), mocks.db);
+    expect(mocks.cancel).toHaveBeenCalledWith('old-qstash-trigger');
   });
 
   it('rejects invalid replacement before touching existing items', async () => {
@@ -81,9 +94,38 @@ describe('replace content plan', () => {
     await handler({ method: 'POST', headers: { authorization: 'Bearer token' }, body: {
       items: [{ scheduledDate: '2026-11-08', type: 'image', topic: 'New', prompt: 'New image' }],
     } }, res);
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode, JSON.stringify(res.body)).toBe(200);
     expect(deleted).toEqual(['finished']);
     expect(updated).toEqual([{ id: 'pending-approval', fields: { archivedAt: expect.anything() } }]);
     expect(created).toHaveLength(1);
+  });
+
+  it('cancels unsent early media destinations and schedules cleanup', async () => {
+    const updates = [];
+    const source = { id: 'early', ref: { id: 'early' }, data: () => ({
+      userId: 'owner-1', status: 'DONE', resultMediaUrl: 'https://cdn.example/early.jpg',
+    }) };
+    const destination = { id: 'plan-early-telegram', ref: { id: 'plan-early-telegram' }, data: () => ({
+      userId: 'owner-1', sourcePlanItemId: 'early', status: 'PENDING',
+      approvalRequired: true, approvalStatus: 'AWAITING_DUE',
+    }) };
+    let id = 0;
+    mocks.db = {
+      collection: (name) => ({ doc: () => ({ id: `new-${++id}` }), where: () => ({ name }) }),
+      runTransaction: async (callback) => callback({
+        get: async (query) => ({ docs: query.name === 'scheduled_posts' ? [destination] : [source] }),
+        update: (ref, fields) => updates.push({ id: ref.id, fields }),
+        create: vi.fn(), delete: vi.fn(),
+      }),
+    };
+    const res = response();
+    await handler({ method: 'POST', headers: { authorization: 'Bearer token' }, body: {
+      items: [{ scheduledDate: '2026-11-10', type: 'image', topic: 'New', prompt: 'New image' }],
+    } }, res);
+    expect(res.statusCode, JSON.stringify(res.body)).toBe(200);
+    expect(updates).toMatchObject([
+      { id: 'plan-early-telegram', fields: { status: 'CANCELLED', approvalStatus: 'REJECTED' } },
+      { id: 'early', fields: { status: 'DELETING', supersededBy: 'new-1' } },
+    ]);
   });
 });

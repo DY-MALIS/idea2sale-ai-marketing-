@@ -8,6 +8,9 @@ const { generateText, update, remove, create, transactionGet, runTransaction } =
   transactionGet: vi.fn(),
   runTransaction: vi.fn(),
 }));
+vi.mock('../../api/_contentPlanTiming.js', async (importOriginal) => ({
+  ...await importOriginal(), scheduleContentPlanStart: vi.fn().mockResolvedValue({ messageId: 'queued' }),
+}));
 
 vi.mock('../../api/_openrouter.js', async (importOriginal) => ({
   ...(await importOriginal()),
@@ -68,7 +71,10 @@ describe('editContentPlan', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.body.applied).toBe(true);
-    expect(update).toHaveBeenCalledWith(expect.anything(), { topic: 'Updated campaign', prompt: 'Updated campaign photo' });
+    expect(update).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      topic: 'Updated campaign', prompt: 'Updated campaign photo',
+      approvalDueAt: '2026-10-04T17:00:00.000Z',
+    }));
   });
 
   it('refuses to report success when the row is no longer pending', async () => {

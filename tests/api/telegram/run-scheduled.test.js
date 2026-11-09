@@ -11,12 +11,20 @@ const planMocks = vi.hoisted(() => ({
   publishJSON: vi.fn(),
   image: vi.fn(),
   logAudit: vi.fn(),
+  claimPlan: vi.fn(async (_db, ref) => {
+    const snap = await ref.get();
+    const post = snap.data();
+    if (post?.status !== 'PENDING') return { skipped: 'inactive' };
+    await ref.update({ status: 'PROCESSING' });
+    return { post: { id: ref.id, ...post } };
+  }),
 }));
 vi.mock('../../../api/_openrouter.js', async (importOriginal) => ({
   ...(await importOriginal()),
   generateOpenRouterImage: planMocks.image,
 }));
 vi.mock('../../../api/_audit.js', () => ({ logAudit: planMocks.logAudit }));
+vi.mock('../../../api/_contentPlanClaim.js', () => ({ claimScheduledPlanItem: planMocks.claimPlan, sendQuotaNotice: vi.fn() }));
 vi.mock('../../../api/_firebaseAdmin.js', () => ({ initFirebaseAdmin: () => planMocks.db || mockGetFirestore() }));
 vi.mock('../../../api/_khmerVideo.js', () => ({ startKhmerVideoJob: planMocks.startKhmerVideoJob }));
 vi.mock('../../../api/_videoSpeech.js', async (importOriginal) => ({
@@ -54,6 +62,7 @@ afterEach(() => {
   planMocks.publishJSON.mockReset();
   planMocks.image.mockReset();
   planMocks.logAudit.mockReset();
+  planMocks.claimPlan.mockClear();
   vi.restoreAllMocks();
 });
 

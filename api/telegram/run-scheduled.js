@@ -19,8 +19,10 @@ import { applyPosterTextOverlay } from '../_posterOverlay.js';
 import { getUntransformedImageKitVideoUrl } from '../../shared/imageKitUrl.js';
 import { resolveTelegramDestination as resolveAccountTelegramDestination } from '../_telegramDestination.js';
 import { queueContentPlanDestinations } from '../_contentPlanFanout.js';
-import { deleteRejectedPlanMedia, generatedAsset } from '../_contentPlanMedia.js';
-import { contentPlanDay, selectDuePlanItems } from '../_contentPlanQuota.js';
+import { deleteGeneratedAsset, deleteRejectedPlanMedia, generatedAsset } from '../_contentPlanMedia.js';
+import { contentPlanDay } from '../_contentPlanQuota.js';
+import { contentPlanLeadMs } from '../_contentPlanTiming.js';
+import { claimScheduledPlanItem, sendQuotaNotice } from '../_contentPlanClaim.js';
 import reviewVideoHandler from './_review-video.js';
 import { createCloudinaryUploadAuth } from '../_cloudinaryStorage.js';
 import {
@@ -656,6 +658,10 @@ export default async function handler(req, res) {
   if (!await isAuthorizedScheduledRequest(req)) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
+  const requestedPlanStartId = String(req.query?.planStartId || '').trim();
+  if (requestedPlanStartId && !/^[A-Za-z0-9_-]{1,128}$/.test(requestedPlanStartId)) {
+    return res.status(400).json({ error: 'Invalid Content Plan item id.' });
+  }
 
   // Proactive OpenRouter/ImageKit quota check, run on its own low-frequency
   // schedule (see .github/workflows/telegram-scheduler.yml) rather than on
@@ -671,8 +677,8 @@ export default async function handler(req, res) {
 
   try {
     const db = initFirebaseAdmin();
-    await cleanupExpiredGoogleLinks(db).catch((error) => console.error('Telegram login link cleanup failed:', error?.message || error));
-    if (!req.query?.planVideoId) {
+    if (!requestedPlanStartId) await cleanupExpiredGoogleLinks(db).catch((error) => console.error('Telegram login link cleanup failed:', error?.message || error));
+    if (!requestedPlanStartId && !req.query?.planVideoId) {
       await reconcilePendingApprovalGroups(db).catch((error) => console.error('Approval group reconciliation failed:', error?.message || error));
       for (const status of ['DELETING', 'DELETE_FAILED']) {
         const pendingDeletion = await db.collection('content_plan_items').where('status', '==', status).limit(100).get();
@@ -684,9 +690,15 @@ export default async function handler(req, res) {
       }
     }
     const nowIso = new Date().toISOString();
+    if (!requestedPlanStartId && !req.query?.planVideoId) {
+      for (const noticeStatus of ['PENDING', 'SEND_FAILED']) {
+        const notices = await db.collection('content_plan_items').where('quotaNoticeStatus', '==', noticeStatus).limit(10).get();
+        for (const notice of notices.docs) await sendQuotaNotice(db, notice.ref);
+      }
+    }
     // Pending bot requests have their own status so an unanswered request
     // cannot occupy every slot in the platform delivery queues.
-    for (const approvalStatus of (req.query?.planVideoId ? [] : ['AWAITING_LINK', 'SEND_FAILED'])) {
+    for (const approvalStatus of (req.query?.planVideoId || requestedPlanStartId ? [] : ['AWAITING_LINK', 'SEND_FAILED'])) {
       const waiting = await db.collection('scheduled_posts').where('approvalStatus', '==', approvalStatus).get();
       const retryable = waiting.docs
         .filter((doc) => doc.data()?.status === 'AWAITING_APPROVAL'
@@ -698,7 +710,7 @@ export default async function handler(req, res) {
     }
     // A process that died around sendMessage has an unknown delivery outcome.
     // Do not blindly retry it and create another Yes/No message.
-    if (!req.query?.planVideoId) {
+    if (!requestedPlanStartId && !req.query?.planVideoId) {
       const uncertain = await db.collection('scheduled_posts').where('approvalStatus', '==', 'REQUESTING').limit(20).get();
       for (const doc of uncertain.docs) {
         const started = doc.data()?.approvalRequestStartedAt?.toMillis?.() || 0;
@@ -770,7 +782,7 @@ export default async function handler(req, res) {
     // it again, leaving it stuck forever without this recovery step.
     const STALE_PROCESSING_MS = 3 * 60 * 1000;
     const staleCutoff = Date.now() - STALE_PROCESSING_MS;
-    const stuckSnapshot = await db
+    const stuckSnapshot = requestedPlanStartId ? { docs: [] } : await db
       .collection('scheduled_posts')
       .where('platform', '==', 'TELEGRAM')
       .where('status', '==', 'PROCESSING')
@@ -799,19 +811,22 @@ export default async function handler(req, res) {
     const results = [];
     const DAILY_IMAGE_CAP = 2;
     const DAILY_VIDEO_CAP = 1;
-    const planTodayStr = contentPlanDay();
     const isPlanDue = (doc) => {
       const item = typeof doc.data === 'function' ? doc.data() : doc.data;
-      return !item?.scheduledAt || String(item.scheduledAt) <= new Date().toISOString();
+      const due = item?.nextGenerationAt || (item?.scheduledAt
+        ? new Date(new Date(item.scheduledAt).getTime() - contentPlanLeadMs(item.type)).toISOString() : '');
+      return !due || due <= new Date().toISOString();
     };
-    const generatedToday = async (type, statuses) => (await db.collection('content_plan_items')
-      .where('type', '==', type).where('status', 'in', statuses).get()).docs;
-    const duePlanItemsFor = async (type, generated, dailyCap) => {
+    const duePlanItemsFor = async (type, dailyCap) => {
+      if (requestedPlanStartId) {
+        const doc = await db.collection('content_plan_items').doc(requestedPlanStartId).get();
+        return doc.exists && doc.data()?.type === type && doc.data()?.status === 'PENDING' && isPlanDue(doc) ? [doc] : [];
+      }
       const pageSize = 20;
       let query = db.collection('content_plan_items')
         .where('status', '==', 'PENDING')
         .where('type', '==', type)
-        .where('scheduledDate', '<=', planTodayStr)
+        .where('scheduledDate', '<=', contentPlanDay(new Date(Date.now() + contentPlanLeadMs(type))))
         .orderBy('scheduledDate', 'asc')
         .limit(pageSize);
       const candidates = [];
@@ -820,12 +835,10 @@ export default async function handler(req, res) {
       for (let page = 0; page < 20; page += 1) {
         const snapshot = await query.get();
         candidates.push(...snapshot.docs.filter(isPlanDue));
-        const selected = selectDuePlanItems(candidates, generated, dailyCap, planTodayStr)
-          .slice(0, dailyCap);
-        if (selected.length === dailyCap || snapshot.docs.length < pageSize) return selected;
+        if (candidates.length >= dailyCap || snapshot.docs.length < pageSize) return candidates.slice(0, dailyCap);
         query = query.startAfter(snapshot.docs.at(-1));
       }
-      return selectDuePlanItems(candidates, generated, dailyCap, planTodayStr).slice(0, dailyCap);
+      return candidates.slice(0, dailyCap);
     };
     // Start due video before unrelated post or image delivery. Those jobs can
     // fail or consume this invocation's time without affecting video starts.
@@ -842,7 +855,7 @@ export default async function handler(req, res) {
     // the first. Successful poll scheduling refreshes pollScheduledAt, so the
     // frequent fallback cron only touches jobs with no active chain.
     const videoPollRecoveryCutoff = Date.now() - 90 * 1000;
-    const processingVideoSnapshot = await db
+    const processingVideoSnapshot = requestedPlanStartId ? { docs: [] } : await db
       .collection('content_plan_items')
       .where('status', '==', 'PROCESSING')
       .where('type', '==', 'video')
@@ -892,7 +905,7 @@ export default async function handler(req, res) {
     // manual-approval flow. Move every successfully verified one into the same
     // deterministic scheduled-post outbox used by manual approval, so enabling
     // auto-post also drains that backlog without generating or sending twice.
-    const verifiedReviewSnapshot = await db
+    const verifiedReviewSnapshot = requestedPlanStartId ? { docs: [] } : await db
       .collection('content_plan_items')
       .where('status', '==', 'REVIEW')
       .where('type', '==', 'video')
@@ -934,7 +947,7 @@ export default async function handler(req, res) {
       if (queued) results.push({ id: reviewDoc.id, ok: true, contentPlan: true, legacyVideoQueued: true });
     }
 
-    const snapshot = await db
+    const snapshot = requestedPlanStartId ? { docs: [] } : await db
       .collection('scheduled_posts')
       .where('platform', '==', 'TELEGRAM')
       .where('status', '==', 'PENDING')
@@ -998,8 +1011,7 @@ export default async function handler(req, res) {
     //
     // Count each account's prior work in the same Bangkok calendar day as its
     // plan. A global cap let unrelated accounts exhaust this owner's quota.
-    const imagesGeneratedToday = await generatedToday('image', ['DONE', 'PROCESSING']);
-    const duePlanItems = await duePlanItemsFor('image', imagesGeneratedToday, DAILY_IMAGE_CAP);
+    const duePlanItems = await duePlanItemsFor('image', DAILY_IMAGE_CAP);
 
     for (const planDoc of duePlanItems) {
       // Same atomic compare-and-swap claimPendingPost already uses for
@@ -1007,9 +1019,9 @@ export default async function handler(req, res) {
       // prior invocation plus a fresh scheduled trigger, or a manual
       // re-trigger) can both read this doc as PENDING and both generate +
       // send the same image.
-      const claim = await claimPendingPost(db, planDoc.ref);
+      const claim = await claimScheduledPlanItem(db, planDoc.ref);
       if (!claim.post) {
-        results.push({ id: planDoc.id, ok: true, contentPlan: true, skipped: true });
+        results.push({ id: planDoc.id, ok: true, contentPlan: true, skipped: claim.deferred ? 'quota_deferred' : claim.skipped });
         continue;
       }
       const item = claim.post;
@@ -1028,6 +1040,8 @@ export default async function handler(req, res) {
           resultMediaUrl: uploaded.mediaUrl,
           ...(imageAsset ? { generatedAssets: FieldValue.arrayUnion(imageAsset) } : {}),
         }))) {
+          if (imageAsset) await deleteGeneratedAsset(imageAsset).catch((error) =>
+            console.error(`Could not clean up superseded Content Plan image ${planDoc.id}:`, error));
           results.push({ id: planDoc.id, ok: true, contentPlan: true, skipped: 'superseded' });
           continue;
         }
@@ -1105,17 +1119,16 @@ export default async function handler(req, res) {
     // PROCESSING and REVIEW count too, not just DONE -- a video started earlier
     // today already consumed today's quota while it is being generated or waits
     // for the required human quality check.
-    const videosGeneratedToday = await generatedToday('video', GENERATED_VIDEO_STATUSES);
-    const dueVideoPlanItems = await duePlanItemsFor('video', videosGeneratedToday, DAILY_VIDEO_CAP);
+    const dueVideoPlanItems = await duePlanItemsFor('video', DAILY_VIDEO_CAP);
 
     for (const planDoc of dueVideoPlanItems) {
       // Same atomic claim as the image loop above -- without it, two
       // overlapping cron runs could both start a paid video generation job
       // for the same item (the second one's videoJobId would silently
       // clobber the first's, orphaning that job and its cost).
-      const claim = await claimPendingPost(db, planDoc.ref);
+      const claim = await claimScheduledPlanItem(db, planDoc.ref);
       if (!claim.post) {
-        results.push({ id: planDoc.id, ok: true, contentPlan: true, skipped: true });
+        results.push({ id: planDoc.id, ok: true, contentPlan: true, skipped: claim.deferred ? 'quota_deferred' : claim.skipped });
         continue;
       }
       const item = claim.post;

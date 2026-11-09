@@ -104,6 +104,10 @@ interface SavedPlanItem {
   productImageLabel?: string;
   status: 'PENDING' | 'PROCESSING' | 'DONE' | 'FAILED' | 'REVIEW' | 'READY';
   errorMessage?: string;
+  quotaMessage?: string;
+  approvalDueAt?: string;
+  nextGenerationAt?: string;
+  quotaDeferredAt?: unknown;
   resultMediaUrl?: string;
   speechVerification?: { passed: boolean; similarity?: number; transcript?: string; expected?: string; unavailable?: boolean; method?: string };
   publishDestinationsQueued?: string[];
@@ -692,6 +696,10 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
               aspectRatio: ['9:16', '16:9', '1:1', '3:4'].includes(data.aspectRatio) ? data.aspectRatio : data.type === 'video' ? '9:16' : '1:1',
               status: data.status || 'PENDING',
               errorMessage: data.errorMessage || undefined,
+              quotaMessage: data.quotaMessage || undefined,
+              approvalDueAt: data.approvalDueAt || undefined,
+              nextGenerationAt: data.nextGenerationAt || undefined,
+              quotaDeferredAt: data.quotaDeferredAt || undefined,
               resultMediaUrl: data.resultMediaUrl || undefined,
               speechVerification: data.speechVerification || undefined,
               publishDestinationsQueued: Array.isArray(data.publishDestinationsQueued) ? data.publishDestinationsQueued : undefined,
@@ -1864,10 +1872,20 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                                   {item.type === 'video' ? (language === 'km' ? 'វីដេអូ' : 'Video') : (language === 'km' ? 'រូបភាព' : 'Image')}
                                 </span>
                                 <span className={`rounded-full px-2 py-0.5 text-[10px] ${statusStyle[displayedStatus]}`}>
-                                  {statusLabel[displayedStatus]}
+                                  {item.status === 'PENDING' && item.quotaDeferredAt
+                                    ? (language === 'km' ? 'ពន្យារពេលដោយកម្រិតប្រចាំថ្ងៃ' : 'Deferred by daily limit')
+                                    : statusLabel[displayedStatus]}
                                 </span>
                               </div>
                               <p className="mt-1 truncate text-sm font-bold text-brand-700 dark:text-brand-300">{item.topic}</p>
+                              {item.status === 'PENDING' && item.quotaDeferredAt && item.approvalDueAt && (
+                                <p role="status" className="mt-1 text-xs font-semibold text-amber-700 dark:text-amber-300">
+                                  {language === 'km' ? 'បានដល់កម្រិតបង្កើតប្រចាំថ្ងៃ។ សាកល្បងបង្កើតម្ដងទៀត៖ ' : 'Daily generation limit reached. Next generation attempt: '}
+                                  {new Intl.DateTimeFormat(language === 'km' ? 'km-KH' : 'en-US', { timeZone: 'Asia/Bangkok', dateStyle: 'medium', timeStyle: 'short' }).format(new Date(item.nextGenerationAt || item.approvalDueAt))}
+                                  {language === 'km' ? '។ ស្នើសុំអនុម័ត៖ ' : '. Approval target: '}
+                                  {new Intl.DateTimeFormat(language === 'km' ? 'km-KH' : 'en-US', { timeZone: 'Asia/Bangkok', dateStyle: 'medium', timeStyle: 'short' }).format(new Date(item.approvalDueAt))} (Bangkok)
+                                </p>
+                              )}
                               {Boolean(item.publishDestinationsQueued?.length) && <p className="mt-1 text-xs text-sky-700 dark:text-sky-300">{language === 'km' ? 'បានដាក់ជួរផុស៖ ' : 'Queued for publishing: '}{item.publishDestinationsQueued?.join(', ')}</p>}
                               {Boolean(item.publishDestinationsSkipped?.length) && <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">{language === 'km' ? 'មិនទាន់ដាក់ជួរ៖ ' : 'Not queued: '}{item.publishDestinationsSkipped?.join(', ')}</p>}
                               <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">

@@ -33,7 +33,7 @@ export async function queueContentPlanDestinations(db, itemId, mediaUrl, req) {
     if (platform === 'FACEBOOK' && !facebookPageId) { skipped.push('FACEBOOK: no connected Page'); continue; }
     if (platform === 'TIKTOK' && item.tiktokDirectPostConsent !== true) { skipped.push('TIKTOK: consent missing'); continue; }
     const ref = db.collection('scheduled_posts').doc(`plan-${itemId}-${platform.toLowerCase()}`);
-    const scheduledTime = new Date().toISOString();
+    const scheduledTime = item.approvalDueAt || item.scheduledAt || new Date().toISOString();
     const data = {
       userId: item.userId,
       content: String(item.topic || '').slice(0, 2000),
@@ -94,10 +94,11 @@ export async function queueContentPlanDestinations(db, itemId, mediaUrl, req) {
   }
   for (const { platform, postId } of deliveryJobs) {
     try {
-      if (platform === 'TELEGRAM') await scheduleQStashDelivery(req, postId, new Date());
-      else if (platform === 'YOUTUBE') await scheduleYouTubeQStashDelivery(req, postId, new Date());
-      else if (platform === 'FACEBOOK') await scheduleFacebookQStashDelivery(postId, new Date());
-      else await scheduleTikTokQStashDelivery(req, postId, new Date());
+      const deliveryAt = new Date(Math.max(Date.now() + 1000, new Date(item.approvalDueAt || item.scheduledAt || 0).getTime()));
+      if (platform === 'TELEGRAM') await scheduleQStashDelivery(req, postId, deliveryAt);
+      else if (platform === 'YOUTUBE') await scheduleYouTubeQStashDelivery(req, postId, deliveryAt);
+      else if (platform === 'FACEBOOK') await scheduleFacebookQStashDelivery(postId, deliveryAt);
+      else await scheduleTikTokQStashDelivery(req, postId, deliveryAt);
     } catch (error) {
       // The platform's cron remains the delivery fallback.
       console.warn(`Content Plan ${platform} precise delivery deferred:`, error?.message || error);

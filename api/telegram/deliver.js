@@ -46,6 +46,13 @@ const isTransientVideoProcessingError = (error) => {
 // function's idempotency comment already relies on.
 const DELIVERY_CLAIM_STALE_MS = 2 * 60 * 1000;
 
+const updateActivePlanItem = (db, ref, fields) => db.runTransaction(async (tx) => {
+  const snap = await tx.get(ref);
+  if (snap.data()?.status !== 'PROCESSING' || snap.data()?.supersededBy) return false;
+  tx.update(ref, fields);
+  return true;
+});
+
 const claimDelivery = async (db, ref) => db.runTransaction(async (tx) => {
   const freshSnap = await tx.get(ref);
   const freshItem = freshSnap.data();
@@ -203,7 +210,9 @@ export const processContentPlanVideo = async (db, itemId, req) => {
       await ref.update({ publishDestinationsQueued: fanout.queued, publishDestinationsSkipped: fanout.skipped });
     }
     if (item.approvalRequired === true) {
-      await ref.update({ status: 'DONE', resultMediaUrl: uploaded.mediaUrl, completedAt: FieldValue.serverTimestamp(), errorMessage: null });
+      if (!(await updateActivePlanItem(db, ref, {
+        status: 'DONE', resultMediaUrl: uploaded.mediaUrl, completedAt: FieldValue.serverTimestamp(), errorMessage: null,
+      }))) return { ok: true, skipped: 'superseded' };
       return { ok: true, videoReady: true, awaitingApproval: true };
     }
     // Speech verification is the automated quality gate. Once it passes, send
@@ -347,13 +356,13 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Invalid JSON payload.' });
   }
 
-  if (payload?.runContentPlan === true) {
+  if (payload?.runContentPlan === true || payload?.contentPlanStartId) {
     // The QStash signature has been verified above. Reuse the existing cron
     // runner so image generation, approval, limits and retries have one path.
     return runScheduled({
       method: 'POST',
       headers: { authorization: `Bearer ${process.env.CRON_SECRET || ''}` },
-      query: {},
+      query: payload?.contentPlanStartId ? { planStartId: String(payload.contentPlanStartId) } : {},
     }, res);
   }
 

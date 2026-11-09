@@ -9,7 +9,7 @@ vi.mock('../../api/_tiktok.js', () => ({ scheduleTikTokQStashDelivery: mock.tikt
 vi.mock('../../api/telegram/run-scheduled.js', () => ({ scheduleQStashDelivery: mock.telegramQueue }));
 const { queueContentPlanDestinations } = await import('../../api/_contentPlanFanout.js');
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 const fakeDb = (item, profile = {}, link = null, botProfile = {}) => {
   const posts = new Map();
@@ -92,6 +92,31 @@ describe('Content Plan publishing', () => {
     expect(posts.get('plan-image-2-facebook')).toMatchObject({ approvalRequired: true, approvalStatus: 'AWAITING_DUE' });
     expect(item.approvalFanoutReady).toBe(true);
     expect(mock.telegramQueue).toHaveBeenCalledOnce();
+  });
+
+  it('holds an early image approval until the scheduled time', async () => {
+    vi.useFakeTimers().setSystemTime('2026-11-09T05:56:00Z');
+    const due = '2026-11-09T06:00:00.000Z';
+    const { db, posts } = fakeDb({
+      userId: 'owner', type: 'image', status: 'PROCESSING', autoPublishDestinations: true,
+      approvalRequired: true, topic: 'Photo', approvalDueAt: due,
+    });
+    await queueContentPlanDestinations(db, 'early-image', 'https://example.com/photo.jpg', {});
+    expect(posts.get('plan-early-image-telegram').scheduledTime).toBe(due);
+    expect(mock.telegramQueue.mock.calls[0][2].toISOString()).toBe(due);
+    expect(mock.facebookQueue.mock.calls[0][1].toISOString()).toBe(due);
+  });
+
+  it('queues a slow video approval immediately after media is ready', async () => {
+    vi.useFakeTimers().setSystemTime('2026-11-09T06:03:00Z');
+    const due = '2026-11-09T06:00:00.000Z';
+    const { db, posts } = fakeDb({
+      userId: 'owner', type: 'video', status: 'PROCESSING', autoPublishDestinations: true,
+      approvalRequired: true, topic: 'Video', approvalDueAt: due, speechVerification: { passed: true },
+    });
+    await queueContentPlanDestinations(db, 'late-video', 'https://example.com/video.mp4', {});
+    expect(posts.get('plan-late-video-telegram').scheduledTime).toBe(due);
+    expect(mock.telegramQueue.mock.calls[0][2].toISOString()).toBe('2026-11-09T06:03:01.000Z');
   });
 
   it('queues a linked account photo for Telegram approval', async () => {
