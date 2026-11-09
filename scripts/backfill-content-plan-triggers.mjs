@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { initFirebaseAdmin } from '../api/_firebaseAdmin.js';
 import { contentPlanTiming, scheduleContentPlanStart } from '../api/_contentPlanTiming.js';
 
+process.env.APP_URL ||= 'https://aime.angkorgate.ai';
 const apply = process.argv.includes('--apply');
 const db = initFirebaseAdmin();
 const snapshot = await db.collection('content_plan_items').where('status', '==', 'PENDING').get();
