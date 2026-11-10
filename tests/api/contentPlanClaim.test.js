@@ -1,10 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ schedule: vi.fn(), botCall: vi.fn() }));
+const mocks = vi.hoisted(() => ({ schedule: vi.fn(), botCall: vi.fn(), entitlement: vi.fn() }));
 vi.mock('../../api/_contentPlanTiming.js', async (importOriginal) => ({
   ...await importOriginal(), scheduleContentPlanStart: mocks.schedule,
 }));
 vi.mock('../../api/_telegramApproval.js', () => ({ botCall: mocks.botCall }));
+vi.mock('../../api/_contentPlanEntitlements.js', () => ({
+  hasUnlimitedContentPlanGeneration: mocks.entitlement,
+}));
 const { claimScheduledPlanItem } = await import('../../api/_contentPlanClaim.js');
 
 const makeDb = (items) => {
@@ -51,6 +54,7 @@ describe('Content Plan generation claim', () => {
   beforeEach(() => {
     mocks.schedule.mockReset().mockResolvedValue({ messageId: 'queued' });
     mocks.botCall.mockReset().mockResolvedValue({ message_id: 1 });
+    mocks.entitlement.mockReset().mockResolvedValue(false);
   });
 
   it('claims one item once across duplicate trigger and cron calls', async () => {
@@ -89,5 +93,22 @@ describe('Content Plan generation claim', () => {
       second: { ...baseItem('video'), nextGenerationAt: '2026-11-09T05:45:00.000Z' },
     });
     expect((await claimScheduledPlanItem(db, ref('second'), Date.parse('2026-11-09T05:45:00Z'))).deferred).toBe(true);
+  });
+
+  it.each(['image', 'video'])('lets the entitled account claim multiple %s items without quota deferral', async (type) => {
+    mocks.entitlement.mockResolvedValue(true);
+    const { db, ref, records } = makeDb({
+      first: { ...baseItem(type), status: 'DONE', generationQuotaDay: '2026-11-09' },
+      second: { ...baseItem(type), status: 'DONE', generationQuotaDay: '2026-11-09' },
+      third: baseItem(type),
+      fourth: baseItem(type),
+    });
+    const now = Date.parse(start);
+    expect((await claimScheduledPlanItem(db, ref('third'), now)).post.id).toBe('third');
+    expect((await claimScheduledPlanItem(db, ref('fourth'), now)).post.id).toBe('fourth');
+    expect(await claimScheduledPlanItem(db, ref('third'), now)).toEqual({ skipped: 'inactive' });
+    expect(mocks.schedule).not.toHaveBeenCalled();
+    expect(mocks.botCall).not.toHaveBeenCalled();
+    expect(records.has(`content_plan_generation_quotas/owner_2026-11-09_${type}`)).toBe(false);
   });
 });

@@ -2,11 +2,16 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { contentPlanDay } from './_contentPlanQuota.js';
 import { contentPlanLeadMs, nextContentPlanQuotaTiming, scheduleContentPlanStart } from './_contentPlanTiming.js';
 import { botCall } from './_telegramApproval.js';
+import { hasUnlimitedContentPlanGeneration } from './_contentPlanEntitlements.js';
 
 const capFor = (type) => type === 'video' ? 1 : 2;
 const timestampDay = (value) => value?.toDate ? contentPlanDay(value.toDate()) : '';
 
 export async function claimScheduledPlanItem(db, ref, now = Date.now()) {
+  const candidate = (await ref.get()).data();
+  const unlimitedUserId = candidate?.status === 'PENDING' && candidate.userId
+    && await hasUnlimitedContentPlanGeneration(candidate.userId)
+    ? candidate.userId : null;
   const result = await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     const item = snap.data();
@@ -17,6 +22,11 @@ export async function claimScheduledPlanItem(db, ref, now = Date.now()) {
     if (new Date(nextGenerationAt).getTime() > now + 1000) return { skipped: 'early' };
 
     const day = contentPlanDay(new Date(now));
+    if (item.userId === unlimitedUserId) {
+      tx.update(ref, { status: 'PROCESSING', processingAt: FieldValue.serverTimestamp(), generationQuotaDay: day,
+        quotaDeferredAt: null, quotaNoticeStatus: null, quotaMessage: null });
+      return { post: { id: ref.id, ...item, approvalDueAt }, id: ref.id };
+    }
     const quotaRef = db.collection('content_plan_generation_quotas').doc(`${item.userId}_${day}_${item.type}`);
     const quota = await tx.get(quotaRef);
     const ownerItems = await tx.get(db.collection('content_plan_items').where('userId', '==', item.userId));
