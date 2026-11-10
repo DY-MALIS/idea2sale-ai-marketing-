@@ -629,6 +629,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const [planSavedCount, setPlanSavedCount] = useState<number | null>(null);
   const [planSavedTypes, setPlanSavedTypes] = useState({ images: 0, videos: 0 });
   const [savedPlanItems, setSavedPlanItems] = useState<SavedPlanItem[]>([]);
+  const [approvalBotLinked, setApprovalBotLinked] = useState<boolean | null>(null);
   const planFileInputRef = useRef<HTMLInputElement>(null);
   const planSectionRef = useRef<HTMLElement>(null);
 
@@ -724,6 +725,19 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       (error) => console.error('Content plan status listener failed:', error),
     );
     return () => unsubscribe();
+  }, [user, isDemoMode]);
+
+  useEffect(() => {
+    if (isDemoMode || !user) {
+      setApprovalBotLinked(null);
+      return;
+    }
+    return onSnapshot(doc(db, 'telegram_approval_links', user.uid),
+      (snapshot) => setApprovalBotLinked(snapshot.exists()),
+      (error) => {
+        console.error('Telegram approval link listener failed:', error);
+        setApprovalBotLinked(null);
+      });
   }, [user, isDemoMode]);
   // Guards against overwriting the just-loaded saved conversation with an empty
   // autosave that could otherwise fire before the initial load resolves.
@@ -1832,6 +1846,13 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                     <p className="text-xs font-black uppercase tracking-widest text-brand-500">
                       {language === 'km' ? `ស្ថានភាពផែនការ (${savedPlanItems.length})` : `Plan Status (${savedPlanItems.length})`}
                     </p>
+                    {approvalBotLinked === false && savedPlanItems.some((item) => item.approvalRequired && !['FAILED'].includes(item.status)) && (
+                      <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-800 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
+                        {language === 'km'
+                          ? `ការស្នើសុំអនុម័តកំពុងរង់ចាំ៖ គណនី ${user.email || 'Google'} មិនទាន់បានភ្ជាប់ទៅ Telegram bot ទេ។ ផ្ញើ /login ទៅ @dgacademy_official_bot ហើយចូលដោយគណនី Google នេះ។`
+                          : `Telegram approval is waiting: ${user.email || 'this website account'} is not linked to the bot. Send /login to @dgacademy_official_bot and sign in with this Google account. Due Yes/No requests will be sent after you connect.`}
+                      </p>
+                    )}
                     <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
                       {savedPlanItems.map((item) => {
                         const isLegacyAudioReview = item.status === 'FAILED'
