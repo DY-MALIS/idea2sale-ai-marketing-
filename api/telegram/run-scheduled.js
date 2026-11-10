@@ -913,6 +913,43 @@ export default async function handler(req, res) {
       // above any normal REVIEW backlog, just not unbounded.
       .limit(200)
       .get();
+    // A completed approval-required video may have been held by the former
+    // quality gate. Resume finalization from its stored media, never the paid
+    // provider start. The normal poll worker adds a warning to the bot prompt.
+    for (const reviewDoc of verifiedReviewSnapshot.docs.filter((doc) => {
+      const item = doc.data();
+      return item?.approvalRequired === true && item?.autoPublishDestinations === true
+        && item?.resultMediaUrl && item?.videoJobId && !item?.supersededBy;
+    }).slice(0, 10)) {
+      const resumed = await db.runTransaction(async (tx) => {
+        const fresh = await tx.get(reviewDoc.ref);
+        const item = fresh.data();
+        if (item?.status !== 'REVIEW' || item?.approvalRequired !== true || !item?.resultMediaUrl
+          || !item?.videoJobId || item?.supersededBy) return false;
+        const warnings = Array.isArray(item.approvalReviewWarnings)
+          ? item.approvalReviewWarnings.filter((warning) => typeof warning === 'string').slice(0, 3) : [];
+        if (item.speechVerification?.passed === false && !warnings.some((warning) => /speech verification/i.test(warning))) {
+          warnings.push(item.speechVerification?.unavailable
+            ? 'Speech verification: automatic Khmer speech checking was unavailable. Listen to the video before approving.'
+            : 'Speech verification: the Khmer speech did not match the requested narration. Listen before approving.');
+        }
+        if (item.imageFallbackReason && !warnings.some((warning) => warning.startsWith('Visual review:'))) {
+          warnings.push(`Visual review: ${item.imageFallbackReason}`);
+        }
+        tx.update(reviewDoc.ref, { status: 'PROCESSING', approvalReviewWarnings: warnings.slice(0, 3),
+          approvalQueueError: null, pollScheduledAt: null, approvalProcessingClaimedAt: null });
+        return true;
+      });
+      if (!resumed) continue;
+      try {
+        await scheduleContentPlanPoll(req, reviewDoc.id);
+        await reviewDoc.ref.update({ pollScheduledAt: FieldValue.serverTimestamp(), pollSchedulingError: null });
+        results.push({ id: reviewDoc.id, ok: true, contentPlan: true, approvalReviewRecovered: true });
+      } catch (error) {
+        await reviewDoc.ref.update({ pollSchedulingError: String(error?.message || error).slice(0, 300) });
+        results.push({ id: reviewDoc.id, ok: false, contentPlan: true, approvalReviewRecoveryDeferred: true });
+      }
+    }
     const verifiedReviewDocs = verifiedReviewSnapshot.docs
       .filter((doc) => doc.data()?.speechVerification?.passed === true && doc.data()?.resultMediaUrl && !doc.data()?.imageFallbackReason)
       .slice(0, 10);

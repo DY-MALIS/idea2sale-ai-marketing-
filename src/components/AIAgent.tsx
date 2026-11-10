@@ -84,7 +84,8 @@ const normalizePlanItems = (value: unknown): PlanItem[] => (Array.isArray(value)
   aspectRatio: ['9:16', '16:9', '1:1', '3:4'].includes(item.aspectRatio) ? item.aspectRatio : item.type === 'video' ? '9:16' : '1:1',
   productImageUrl: String(item.productImageUrl || ''),
   productImageLabel: String(item.productImageLabel || ''),
-  selected: true,
+  scriptEditedByUser: item.scriptEditedByUser === true,
+  selected: item.selected !== false,
 }));
 
 interface SavedPlanItem {
@@ -113,6 +114,9 @@ interface SavedPlanItem {
   publishDestinationsQueued?: string[];
   publishDestinationsSkipped?: string[];
   autoPublishDestinations?: boolean;
+  approvalRequired?: boolean;
+  approvalReviewWarnings?: string[];
+  approvalQueueError?: string;
   tiktokDirectPostConsent?: boolean;
   tiktokCommercialDisclosure?: boolean;
   tiktokOwnBrand?: boolean;
@@ -623,6 +627,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const [planError, setPlanError] = useState<string | null>(null);
   const [planEditNotice, setPlanEditNotice] = useState<string | null>(null);
   const [planSavedCount, setPlanSavedCount] = useState<number | null>(null);
+  const [planSavedTypes, setPlanSavedTypes] = useState({ images: 0, videos: 0 });
   const [savedPlanItems, setSavedPlanItems] = useState<SavedPlanItem[]>([]);
   const planFileInputRef = useRef<HTMLInputElement>(null);
   const planSectionRef = useRef<HTMLElement>(null);
@@ -705,6 +710,9 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
               publishDestinationsQueued: Array.isArray(data.publishDestinationsQueued) ? data.publishDestinationsQueued : undefined,
               publishDestinationsSkipped: Array.isArray(data.publishDestinationsSkipped) ? data.publishDestinationsSkipped : undefined,
               autoPublishDestinations: data.autoPublishDestinations === true,
+              approvalRequired: data.approvalRequired === true,
+              approvalReviewWarnings: Array.isArray(data.approvalReviewWarnings) ? data.approvalReviewWarnings : [],
+              approvalQueueError: String(data.approvalQueueError || ''),
               tiktokDirectPostConsent: data.tiktokDirectPostConsent === true,
               tiktokCommercialDisclosure: data.tiktokCommercialDisclosure === true,
               tiktokOwnBrand: data.tiktokOwnBrand === true,
@@ -1046,6 +1054,8 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     setPlanExtracting(true);
     setPlanError(null);
     setPlanSavedCount(null);
+    setPlanSavedTypes({ images: 0, videos: 0 });
+    setPlanTikTokConsent(false);
     setPlanEditNotice(null);
     try {
       const response = await fetch('/api/ai', {
@@ -1132,6 +1142,12 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     setPlanItems((items) => items.map((item, i) => (i === index ? { ...item, time } : item)));
   };
 
+  const updatePlanType = (index: number, type: PlanItem['type']) => {
+    setPlanItems((items) => items.map((item, i) => (i === index
+      ? { ...item, type, aspectRatio: type === 'video' ? '9:16' : '1:1' }
+      : item)));
+  };
+
   const updatePlanNarration = (index: number, voiceOverText: string) => {
     setPlanItems((items) => items.map((item, i) => (i === index ? { ...item, voiceOverText, scriptEditedByUser: true } : item)));
   };
@@ -1141,39 +1157,10 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     setPlanItems((items) => items.map((item, i) => (i === index ? { ...item, productImageUrl, productImageLabel } : item)));
   };
 
-  const createPlanVideoNow = (item: PlanItem) => {
-    if (!user || isDemoMode) {
-      notify(videoSignInMessage(), 'error');
-      return;
-    }
-    try {
-      triggerCreativeAutomation({
-        ready: true,
-        kind: 'video',
-        prompt: item.prompt,
-        platform: 'General',
-        aspectRatio: item.aspectRatio || '9:16',
-        duration: 8,
-        voiceOverWanted: true,
-        voiceOverText: item.voiceOverText,
-        voiceGender: item.voiceGender || 'Female',
-        performanceStyle: item.performanceStyle || '',
-      }, 'km');
-    } catch (error) {
-      notify(error instanceof Error ? error.message : 'Could not start this video.', 'error');
-    }
-  };
-
   const handleSavePlan = async () => {
     if (!user || isDemoMode) return;
     const selectedItems = planItems.filter((item) => item.selected);
     if (!selectedItems.length) return;
-    if (selectedItems.some((item) => item.type === 'video') && !planTikTokConsent) {
-      setPlanError(language === 'km'
-        ? 'សូមយល់ព្រមលក្ខខណ្ឌ TikTok Direct Post មុនរក្សាទុកវីដេអូក្នុងផែនការ។'
-        : 'Agree to TikTok Direct Post before saving videos in the plan.');
-      return;
-    }
     if (selectedItems.some((item) => item.type === 'video' && !/[\u1780-\u17ff]/u.test(item.voiceOverText || ''))) {
       setPlanError(language === 'km' ? 'សូមដាក់អត្ថបទនិយាយជាភាសាខ្មែរសម្រាប់វីដេអូ ៨ វិនាទី។' : 'Add Khmer narration for each 8-second video before saving.');
       return;
@@ -1214,6 +1201,10 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       setPlanItems([]);
       setPlanLink('');
       setPlanSavedCount(data.savedCount);
+      setPlanSavedTypes({
+        images: selectedItems.filter((item) => item.type === 'image').length,
+        videos: selectedItems.filter((item) => item.type === 'video').length,
+      });
       if (data.schedulingWarning) setPlanError(data.schedulingWarning);
       setPlanTikTokConsent(false);
     } catch (error) {
@@ -1729,12 +1720,19 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                 {planSavedCount !== null && !planError && (
                   <p className="flex items-center gap-2 text-sm font-bold text-emerald-600">
                     <Check size={16} />
-                    {language === 'km' ? `បានរក្សាទុក ${planSavedCount} ចំណុចជោគជ័យ!` : `Saved ${planSavedCount} item(s) successfully!`}
+                    {language === 'km'
+                      ? `បានរក្សាទុក ${planSavedCount} ចំណុច (${planSavedTypes.images} រូបភាព, ${planSavedTypes.videos} វីដេអូ)។ មើលស្ថានភាពផែនការខាងក្រោម។`
+                      : `Saved ${planSavedCount} item(s): ${planSavedTypes.images} image(s), ${planSavedTypes.videos} video(s). Check Plan Status below.`}
                   </p>
                 )}
 
                 {planItems.length > 0 && (
                   <div className="space-y-3">
+                    <p role="status" className="text-sm font-semibold text-brand-700 dark:text-brand-300">
+                      {language === 'km'
+                        ? `នេះជាសេចក្តីព្រាង។ បានជ្រើស ${planItems.filter((item) => item.selected && item.type === 'image').length} រូបភាព និង ${planItems.filter((item) => item.selected && item.type === 'video').length} វីដេអូ។ ចុច រក្សាទុកផែនការ ដើម្បីកំណត់ពេលបង្កើត និងស្នើអនុម័តតាម Telegram។`
+                        : `Draft only: ${planItems.filter((item) => item.selected && item.type === 'image').length} image(s) and ${planItems.filter((item) => item.selected && item.type === 'video').length} video(s) selected. Click Save Plan to schedule generation and Telegram approval.`}
+                    </p>
                     <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
                       {planItems.map((item, index) => (
                         <div
@@ -1752,9 +1750,15 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                             <div className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-brand-500">
                               <span>{item.date}</span>
                               {item.time && <span>{item.time}</span>}
-                              <span className="rounded-full bg-white px-2 py-0.5 text-[10px] dark:bg-slate-700">
-                                {item.type === 'video' ? (language === 'km' ? 'វីដេអូ' : 'Video') : (language === 'km' ? 'រូបភាព' : 'Image')}
-                              </span>
+                              <select
+                                aria-label={language === 'km' ? `ប្រភេទមាតិកាសម្រាប់ ${item.topic}` : `Content type for ${item.topic}`}
+                                value={item.type}
+                                onChange={(event) => updatePlanType(index, event.target.value as PlanItem['type'])}
+                                className="rounded-full border border-brand-200 bg-white px-2 py-0.5 text-[10px] dark:border-slate-600 dark:bg-slate-700"
+                              >
+                                <option value="image">{language === 'km' ? 'រូបភាព' : 'Image'}</option>
+                                <option value="video">{language === 'km' ? 'វីដេអូ' : 'Video'}</option>
+                              </select>
                             </div>
                             <p className="mt-1 truncate text-sm font-bold text-brand-700 dark:text-brand-300">{item.topic}</p>
                             <label className="mt-2 flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
@@ -1796,9 +1800,6 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                                     ))}
                                   </select>
                                 )}
-                                <button type="button" onClick={() => createPlanVideoNow(item)} className="mt-2 rounded-lg bg-brand-600 px-3 py-2 text-xs font-bold text-white hover:bg-brand-700">
-                                  {language === 'km' ? 'បង្កើតវីដេអូនេះឥឡូវ' : 'Create this video now'}
-                                </button>
                               </div>
                             )}
                           </div>
@@ -1809,8 +1810,8 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                       <label className="flex cursor-pointer items-start gap-2 text-xs font-bold text-brand-600 dark:text-brand-300">
                         <input type="checkbox" checked={planTikTokConsent} onChange={(event) => setPlanTikTokConsent(event.target.checked)} className="mt-0.5 h-4 w-4 accent-brand-600" />
                         <span>{language === 'km'
-                          ? 'ខ្ញុំយល់ព្រមឱ្យវីដេអូក្នុងផែនការនេះផុសដោយស្វ័យប្រវត្តិទៅ TikTok (Public) ហើយបញ្ជាក់សិទ្ធិតន្ត្រី និងថាជាការផ្សព្វផ្សាយម៉ាករបស់ក្រុមហ៊ុនខ្ញុំ។'
-                          : 'I agree to automatic TikTok Direct Posts (Public) for this plan, confirm music usage, and disclose promotion of my own brand.'}</span>
+                          ? 'ជម្រើស៖ ខ្ញុំយល់ព្រមឱ្យវីដេអូក្នុងផែនការនេះផុសទៅ TikTok (Public) បន្ទាប់ពីអនុម័ត ហើយបញ្ជាក់សិទ្ធិតន្ត្រី និងការផ្សព្វផ្សាយម៉ាក។ បើមិនជ្រើស TikTok នឹងត្រូវរំលង ហើយ Telegram នៅតែស្នើអនុម័ត។'
+                          : 'Optional: I agree to TikTok Direct Posts (Public) after approval, confirm music usage, and disclose promotion of my own brand. Without consent, TikTok is skipped and Telegram approval still works.'}</span>
                       </label>
                     )}
                     <p className="text-xs text-amber-700 dark:text-amber-300">{language === 'km' ? 'ពេលរក្សាទុកផែនការថ្មី ធាតុផែនការចាស់ទាំងអស់នឹងត្រូវលុប ហើយការងារចាស់ដែលនៅរង់ចាំនឹងឈប់។' : 'Saving a new plan deletes all previous plan items and stops pending old work.'}</p>
@@ -1888,6 +1889,13 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                               )}
                               {Boolean(item.publishDestinationsQueued?.length) && <p className="mt-1 text-xs text-sky-700 dark:text-sky-300">{language === 'km' ? 'បានដាក់ជួរផុស៖ ' : 'Queued for publishing: '}{item.publishDestinationsQueued?.join(', ')}</p>}
                               {Boolean(item.publishDestinationsSkipped?.length) && <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">{language === 'km' ? 'មិនទាន់ដាក់ជួរ៖ ' : 'Not queued: '}{item.publishDestinationsSkipped?.join(', ')}</p>}
+                              {item.approvalQueueError && <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">{language === 'km' ? 'កំពុងព្យាយាមស្នើអនុម័តឡើងវិញ៖ ' : 'Retrying approval setup: '}{item.approvalQueueError}</p>}
+                              {Boolean(item.approvalReviewWarnings?.length) && (
+                                <div role="status" className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
+                                  <strong>{language === 'km' ? 'វីដេអូនេះត្រូវការការពិនិត្យមុនអនុម័តតាម Telegram។' : 'Review this video before approving it in Telegram.'}</strong>
+                                  {item.approvalReviewWarnings?.map((warning, index) => <p key={`${index}-${warning}`} className="mt-1">{warning}</p>)}
+                                </div>
+                              )}
                               <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                                 {language === 'km' ? 'សមាមាត្រ' : 'Aspect ratio'}: {item.aspectRatio || (item.type === 'video' ? '9:16' : '1:1')}
                                 {item.type === 'video' && ` · ${language === 'km' ? 'សំឡេង' : 'Voice'}: ${item.voiceGender || 'Female'}`}
@@ -1901,7 +1909,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                               {['FAILED', 'REVIEW', 'READY'].includes(item.status) && item.errorMessage && (
                                 <p className={`mt-1 break-words text-xs ${item.status === 'FAILED' ? 'text-rose-500' : 'text-amber-700 dark:text-amber-300'}`}>{item.errorMessage}</p>
                               )}
-                              {['FAILED', 'REVIEW', 'READY'].includes(item.status) && item.resultMediaUrl && (
+                              {(['FAILED', 'REVIEW', 'READY'].includes(item.status) || Boolean(item.approvalReviewWarnings?.length)) && item.resultMediaUrl && (
                                 <div className="mt-2 space-y-1">
                                   {item.type === 'video' ? (
                                     <video src={item.resultMediaUrl} controls className="w-full max-w-xs rounded-lg" />
@@ -1944,7 +1952,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                                       : 'The video was retained, but audio verification did not finish. Watch and listen before approving.'}
                                 </p>
                               )}
-                              {(item.status === 'REVIEW' || item.status === 'READY' || isLegacyAudioReview || isCorrectedTranscriptReview) && (
+                              {!item.approvalRequired && (item.status === 'REVIEW' || item.status === 'READY' || isLegacyAudioReview || isCorrectedTranscriptReview) && (
                                 <button type="button" onClick={() => handleReviewPlanItem(item.id, 'approve', item.resultMediaUrl)} className="mt-2 rounded-lg bg-brand-600 p-2 text-xs text-white">
                                   {item.status === 'READY'
                                     ? (language === 'km' ? 'បញ្ជូនវីដេអូទៅ Telegram' : 'Send video to Telegram')

@@ -222,6 +222,46 @@ it('starts a due Content Plan video before an unrelated image fails', async () =
   expect(image).toMatchObject({ status: 'FAILED', errorMessage: 'Unrelated image failed' });
 });
 
+it('recovers a finished saved-plan video held in review without starting another paid job', async () => {
+  process.env.CRON_SECRET = 'cron-test';
+  process.env.QSTASH_TOKEN = 'qstash-test';
+  process.env.APP_URL = 'https://aime.example.test';
+  const item = { status: 'REVIEW', type: 'video', userId: 'owner', approvalRequired: true,
+    autoPublishDestinations: true, videoJobId: 'paid-job', resultMediaUrl: 'https://example.com/finished.mp4',
+    speechVerification: { passed: false }, imageFallbackReason: 'Presenter fallback' };
+  const ref = { id: 'review-video', get: async () => ({ exists: true, data: () => item }),
+    update: async (patch) => Object.assign(item, patch) };
+  planMocks.db = {
+    collection: (name) => ({
+      doc: () => ref,
+      where(field, _op, value) {
+        const filters = [[field, value]];
+        const query = {
+          where(nextField, _nextOp, nextValue) { filters.push([nextField, nextValue]); return query; },
+          orderBy() { return query; }, limit() { return query; },
+          async get() { return { docs: name === 'content_plan_items'
+            && filters.some(([key, val]) => key === 'status' && val === 'REVIEW')
+            && filters.some(([key, val]) => key === 'type' && val === 'video')
+            ? [{ id: ref.id, ref, data: () => item }] : [] }; },
+        };
+        return query;
+      },
+    }),
+    runTransaction: async (fn) => fn({ get: (target) => target.get(),
+      update: (target, patch) => { void target.update(patch); } }),
+  };
+  planMocks.publishJSON.mockResolvedValue({ messageId: 'recovery-poll' });
+  const res = createMockRes();
+  await scheduledHandler({ method: 'POST', headers: { authorization: 'Bearer cron-test' }, query: {} }, res);
+  expect(res.statusCode).toBe(200);
+  expect(item.status).toBe('PROCESSING');
+  expect(item.approvalReviewWarnings).toEqual([
+    expect.stringMatching(/Speech verification:/), expect.stringMatching(/Visual review:/),
+  ]);
+  expect(planMocks.publishJSON).toHaveBeenCalledWith(expect.objectContaining({ body: { contentPlanItemId: 'review-video' } }));
+  expect(planMocks.startKhmerVideoJob).not.toHaveBeenCalled();
+});
+
 it('starts an approved plan video once, saves its job ID, and schedules the poller', async () => {
   process.env.CRON_SECRET = 'cron-test';
   process.env.QSTASH_TOKEN = 'qstash-test';

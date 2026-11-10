@@ -70,6 +70,26 @@ describe('replace content plan', () => {
     expect(mocks.db.collection).not.toHaveBeenCalled();
   });
 
+  it('saves a scheduled video without TikTok consent for Telegram approval', async () => {
+    const created = [];
+    mocks.db = {
+      collection: (name) => ({ doc: () => ({ id: 'saved-video' }), where: () => ({ name }) }),
+      runTransaction: async (callback) => callback({
+        get: async () => ({ docs: [] }),
+        create: (ref, fields) => created.push({ ref, fields }),
+      }),
+    };
+    const res = response();
+    await handler({ method: 'POST', headers: { authorization: 'Bearer token' }, body: {
+      items: [{ scheduledDate: '2026-11-10', scheduledTime: '13:00', scheduledAt: '2026-11-10T06:00:00.000Z', type: 'video',
+        topic: 'Training', prompt: 'Presenter at a laptop', voiceOverText: 'សូមស្វាគមន៍' }],
+    } }, res);
+    expect(res.statusCode, JSON.stringify(res.body)).toBe(200);
+    expect(created[0].fields).toMatchObject({ type: 'video', status: 'PENDING',
+      approvalRequired: true, autoPublishDestinations: true, tiktokDirectPostConsent: false });
+    expect(mocks.schedule).toHaveBeenCalledWith('saved-video', expect.any(String), mocks.db);
+  });
+
   it('archives old items with unanswered approvals while replacing the visible plan', async () => {
     const deleted = [];
     const updated = [];

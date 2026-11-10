@@ -43,6 +43,7 @@ export async function ensureApprovalRequest(db, ref, knownPost) {
   const post = knownPost || (await ref.get()).data();
   if (!post || !['PENDING', 'AWAITING_APPROVAL'].includes(post.status) || post.approvalRequired !== true || !isDue(post)) return false;
   if (['APPROVED', 'REJECTED', 'SEND_UNCERTAIN', 'REQUESTING'].includes(post.approvalStatus)) return false;
+  let approvalReviewWarnings = [];
   if (post.sourcePlanItemId) {
     let source = await db.collection('content_plan_items').doc(post.sourcePlanItemId).get();
     if (!source.exists && await restoreOrphanedApprovalSource(db, post)) {
@@ -53,6 +54,9 @@ export async function ensureApprovalRequest(db, ref, knownPost) {
       return false;
     }
     if (source.data()?.approvalFanoutReady === false) return false;
+    if (source.data()?.type === 'video' && Array.isArray(source.data()?.approvalReviewWarnings)) {
+      approvalReviewWarnings = source.data().approvalReviewWarnings.slice(0, 3).map((warning) => String(warning).slice(0, 300));
+    }
     // Content Plan approval is one decision for the whole generated item.
     // The Telegram destination is the canonical request; other platform jobs
     // remain pending and are decided by its callback.
@@ -107,7 +111,17 @@ export async function ensureApprovalRequest(db, ref, knownPost) {
   const question = post.sourcePlanItemId
     ? `Approve this Content Plan item for ${destinations.join(', ') || 'its connected destinations'}?`
     : `Do you accept this content to post to ${post.platform}?`;
-  const preview = [question, '', String(post.content || '').slice(0, 2500), ...(media ? ['', `Media: ${media}`] : [])].join('\n').slice(0, 3900);
+  const warning = approvalReviewWarnings.length
+    ? ['VIDEO NEEDS YOUR REVIEW — watch and listen before choosing Yes.', ...approvalReviewWarnings.map((item) => `• ${item}`)].join('\n')
+    : '';
+  const preview = warning
+    ? (() => {
+      const mediaLine = media ? `Media: ${media}` : '';
+      const contentLimit = Math.max(0, Math.min(2500, 3900 - warning.length - question.length - mediaLine.length - 6));
+      return [warning, question, '', String(post.content || '').slice(0, contentLimit), ...(media ? ['', mediaLine] : [])]
+        .join('\n').slice(0, 3900);
+    })()
+    : [question, '', String(post.content || '').slice(0, 2500), ...(media ? ['', `Media: ${media}`] : [])].join('\n').slice(0, 3900);
   let message;
   try {
     message = await botCall('sendMessage', {

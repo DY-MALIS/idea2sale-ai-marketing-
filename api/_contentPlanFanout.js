@@ -3,6 +3,11 @@ import { scheduleYouTubeQStashDelivery } from './_youtube.js';
 import { scheduleTikTokQStashDelivery } from './_tiktok.js';
 import { scheduleQStashDelivery } from './telegram/run-scheduled.js';
 
+const hasPlanVideoWarning = (item, mediaUrl, matches) => item?.type === 'video'
+  && item.approvalRequired === true && item.resultMediaUrl === mediaUrl
+  && Array.isArray(item.approvalReviewWarnings)
+  && item.approvalReviewWarnings.some((warning) => typeof warning === 'string' && matches(warning));
+
 // Queue each destination once. The platform pollers own the actual upload and
 // its final status in Content Timeline. A stale video callback cannot create
 // posts after its plan item has been replaced.
@@ -12,8 +17,10 @@ export async function queueContentPlanDestinations(db, itemId, mediaUrl, req) {
   const item = itemSnap.data();
   if (!item || item.supersededBy || item.status !== 'PROCESSING') return { skipped: 'inactive', queued: [] };
   if (item.autoPublishDestinations !== true) return { skipped: 'not_enabled', queued: [] };
-  if (item.type === 'video' && item.speechVerification?.passed !== true) return { skipped: 'speech_not_verified', queued: [] };
-  if (item.type === 'video' && item.imageFallbackReason) return { skipped: 'visual_review_required', queued: [] };
+  const speechWarned = hasPlanVideoWarning(item, mediaUrl, (warning) => /speech verification/i.test(warning));
+  const visualWarned = hasPlanVideoWarning(item, mediaUrl, (warning) => warning.startsWith('Visual review:'));
+  if (item.type === 'video' && item.speechVerification?.passed !== true && !speechWarned) return { skipped: 'speech_not_verified', queued: [] };
+  if (item.type === 'video' && item.imageFallbackReason && !visualWarned) return { skipped: 'visual_review_required', queued: [] };
 
   const isVideo = item.type === 'video';
   const targets = isVideo
@@ -69,7 +76,10 @@ export async function queueContentPlanDestinations(db, itemId, mediaUrl, req) {
     const creation = await db.runTransaction(async (tx) => {
       const [freshItem, existing] = await Promise.all([tx.get(itemRef), tx.get(ref)]);
       if (freshItem.data()?.supersededBy || freshItem.data()?.status !== 'PROCESSING') return 'inactive';
-      if (isVideo && freshItem.data()?.speechVerification?.passed !== true) return 'inactive';
+      if (isVideo && freshItem.data()?.speechVerification?.passed !== true
+        && !hasPlanVideoWarning(freshItem.data(), mediaUrl, (warning) => /speech verification/i.test(warning))) return 'inactive';
+      if (isVideo && freshItem.data()?.imageFallbackReason
+        && !hasPlanVideoWarning(freshItem.data(), mediaUrl, (warning) => warning.startsWith('Visual review:'))) return 'inactive';
       if (existing.exists) {
         const previous = existing.data();
         return previous?.userId === item.userId && previous?.groupId === `plan-${itemId}`

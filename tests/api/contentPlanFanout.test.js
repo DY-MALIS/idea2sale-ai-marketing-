@@ -119,6 +119,40 @@ describe('Content Plan publishing', () => {
     expect(mock.telegramQueue.mock.calls[0][2].toISOString()).toBe('2026-11-09T06:03:01.000Z');
   });
 
+  it('queues a warned plan video for Telegram approval without TikTok consent', async () => {
+    const mediaUrl = 'https://example.com/review.mp4';
+    const { db, posts } = fakeDb({
+      userId: 'owner', type: 'video', status: 'PROCESSING', autoPublishDestinations: true,
+      approvalRequired: true, topic: 'Review clip', resultMediaUrl: mediaUrl,
+      speechVerification: { passed: false }, imageFallbackReason: 'Presenter fallback',
+      approvalReviewWarnings: [
+        'Speech verification: the Khmer speech did not match the requested narration.',
+        'Visual review: Presenter fallback',
+      ],
+      tiktokDirectPostConsent: false,
+    });
+    const result = await queueContentPlanDestinations(db, 'warned-video', mediaUrl, {});
+    expect(result.queued).toContain('TELEGRAM');
+    expect(result.skipped).toContain('TIKTOK: consent missing');
+    expect(posts.get('plan-warned-video-telegram')).toMatchObject({
+      approvalRequired: true, approvalStatus: 'AWAITING_DUE', mediaType: 'video', mediaUrl,
+    });
+    expect(posts.has('plan-warned-video-tiktok')).toBe(false);
+    expect(mock.tiktokQueue).not.toHaveBeenCalled();
+  });
+
+  it('does not queue an unverified video without a matching final-media warning', async () => {
+    const mediaUrl = 'https://example.com/review.mp4';
+    const { db, posts } = fakeDb({
+      userId: 'owner', type: 'video', status: 'PROCESSING', autoPublishDestinations: true,
+      approvalRequired: true, resultMediaUrl: 'https://example.com/another.mp4',
+      speechVerification: { passed: false },
+      approvalReviewWarnings: ['Speech verification: the Khmer speech did not match the requested narration.'],
+    });
+    expect(await queueContentPlanDestinations(db, 'unsafe-video', mediaUrl, {})).toMatchObject({ skipped: 'speech_not_verified' });
+    expect(posts.size).toBe(0);
+  });
+
   it('queues a linked account photo for Telegram approval', async () => {
     const { db, posts } = fakeDb(
       { userId: 'customer', type: 'image', status: 'PROCESSING', autoPublishDestinations: true, approvalRequired: true, topic: 'Photo' },

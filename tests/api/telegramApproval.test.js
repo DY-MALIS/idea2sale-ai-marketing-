@@ -123,6 +123,38 @@ describe('Telegram post approval', () => {
     } finally { vi.unstubAllGlobals(); }
   });
 
+  it('warns about a finished plan video and waits for Yes before publishing any destination', async () => {
+    const mediaUrl = 'https://example.com/review.mp4';
+    const base = { userId: 'owner', groupId: 'plan-item', sourcePlanItemId: 'item', content: 'Video',
+      status: 'PENDING', approvalRequired: true, aiSuggested: true, approvalStatus: 'AWAITING_DUE',
+      scheduledTime: new Date(Date.now() - 1000).toISOString(), mediaType: 'video' };
+    const posts = {
+      'plan-item-telegram': { ...base, platform: 'TELEGRAM', mediaUrl, videoUrl: '' },
+      'plan-item-youtube': { ...base, platform: 'YOUTUBE', mediaUrl: '', videoUrl: mediaUrl },
+      item: { userId: 'owner', type: 'video', status: 'DONE', approvalFanoutReady: true,
+        resultMediaUrl: mediaUrl, approvalRequired: true, autoPublishDestinations: true,
+        approvalReviewWarnings: ['The Khmer speech did not pass automatic verification. Listen before approving.'] },
+      'bot-owner': { telegramBotToken: 'shared-token', telegramBotActive: true },
+    };
+    const links = { owner: { botOwnerId: 'bot-owner', telegramUserId: '100', chatId: '200' } };
+    const db = fakeDb(posts, { uid: 'owner', botOwnerId: 'bot-owner', chatId: '200' }, links);
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, result: { message_id: 77 } }) });
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      expect(await claimPendingPost(db, db.collection('scheduled_posts').doc('plan-item-youtube')))
+        .toMatchObject({ skipped: 'awaiting_approval' });
+      expect(posts['plan-item-youtube'].status).not.toBe('PROCESSING');
+      expect(await ensureApprovalRequest(db, db.collection('scheduled_posts').doc('plan-item-telegram'))).toBe(true);
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.text).toContain('VIDEO NEEDS YOUR REVIEW');
+      expect(body.text).toContain(mediaUrl);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect((await decideApproval(db, callback('y', 'plan-item-telegram', 100, 200, 77), 'bot-owner')).approved).toBe(true);
+      expect(posts['plan-item-telegram']).toMatchObject({ status: 'PENDING', approvalStatus: 'APPROVED' });
+      expect(posts['plan-item-youtube']).toMatchObject({ status: 'PENDING', approvalStatus: 'APPROVED' });
+    } finally { vi.unstubAllGlobals(); }
+  });
+
   it('removes the redundant keyboard from an old two-message group', async () => {
     const base = { userId: 'owner', groupId: 'plan-item', sourcePlanItemId: 'item', content: 'Photo', mediaUrl: 'https://example.com/photo.jpg', aiSuggested: true, approvalRequired: true, status: 'AWAITING_APPROVAL', approvalStatus: 'REQUESTED', approvalChatId: '200', approvalTelegramUserId: '100' };
     const posts = {

@@ -37,14 +37,21 @@ const isTransientVideoProcessingError = (error) => {
     || /fetch failed|failed to fetch|econnreset|etimedout|socket hang up|network error|gateway timeout|service unavailable|too many requests/.test(message);
 };
 
-// Claims the final "ready to send" step so a duplicate/late QStash delivery
-// racing a still-in-flight invocation -- both read status PROCESSING at the
-// top of this function, then both finish polling/uploading/verifying around
-// the same time -- can't both post the same video to Telegram. A stale claim
-// (the invocation that took it crashed mid-send) is abandoned after this
-// window so QStash's own redelivery can still recover it, per the retry this
-// function's idempotency comment already relies on.
+// A finished legacy video still needs a final send claim. Saved-plan videos
+// claim their whole poll/assembly path below so duplicate callbacks cannot
+// upload different outputs or race while creating approval destinations.
 const DELIVERY_CLAIM_STALE_MS = 2 * 60 * 1000;
+const APPROVAL_PROCESSING_CLAIM_STALE_MS = 6 * 60 * 1000;
+
+const claimPlanVideoProcessing = (db, ref) => db.runTransaction(async (tx) => {
+  const snap = await tx.get(ref);
+  const item = snap.data();
+  if (item?.status !== 'PROCESSING' || item?.supersededBy || item?.approvalRequired !== true) return false;
+  const claimedAtMs = item.approvalProcessingClaimedAt?.toMillis?.();
+  if (typeof claimedAtMs === 'number' && Date.now() - claimedAtMs < APPROVAL_PROCESSING_CLAIM_STALE_MS) return false;
+  tx.update(ref, { approvalProcessingClaimedAt: FieldValue.serverTimestamp() });
+  return true;
+});
 
 const updateActivePlanItem = (db, ref, fields) => db.runTransaction(async (tx) => {
   const snap = await tx.get(ref);
@@ -74,6 +81,9 @@ export const processContentPlanVideo = async (db, itemId, req) => {
   if (item.status !== 'PROCESSING' || item.supersededBy || !item.videoJobId) {
     return { ok: true, skipped: 'not-processing' };
   }
+  if (item.approvalRequired === true && !(await claimPlanVideoProcessing(db, ref))) {
+    return { ok: true, skipped: 'already-processing' };
+  }
 
   try {
     let uploaded = item.resultMediaUrl ? { mediaUrl: item.resultMediaUrl } : null;
@@ -91,14 +101,16 @@ export const processContentPlanVideo = async (db, itemId, req) => {
       await ref.update({ pollAttempts: attempts });
       try {
         await scheduleContentPlanPoll(req, itemId);
-        await ref.update({ pollScheduledAt: FieldValue.serverTimestamp(), pollSchedulingError: null });
+        await ref.update({ pollScheduledAt: FieldValue.serverTimestamp(), pollSchedulingError: null,
+          ...(item.approvalRequired === true ? { approvalProcessingClaimedAt: null } : {}) });
         return { ok: true, stillProcessing: true, attempts };
       } catch (scheduleError) {
         const message = scheduleError?.message || 'Could not schedule the next video status check.';
         // The paid provider job is still valid. Keep PROCESSING so the cron
         // recovery loop can re-arm polling instead of discarding the job and
         // charging the user again on retry.
-        await ref.update({ pollSchedulingError: message, pollSchedulingFailedAt: FieldValue.serverTimestamp() });
+        await ref.update({ pollSchedulingError: message, pollSchedulingFailedAt: FieldValue.serverTimestamp(),
+          ...(item.approvalRequired === true ? { approvalProcessingClaimedAt: null } : {}) });
         await notifyAdmins(`Video job ${item.videoJobId} is still running but its next poll was deferred: ${message}`);
         return { ok: true, stillProcessing: true, pollingDeferred: true, attempts };
       }
@@ -177,7 +189,12 @@ export const processContentPlanVideo = async (db, itemId, req) => {
         ...(finalAsset ? { generatedAssets: FieldValue.arrayUnion(finalAsset) } : {}),
       });
     }
-    if (item.voiceOverWanted !== false && item.voiceOverMode !== 'silent' && item.prompt
+    const reviewWarnings = Array.isArray(item.approvalReviewWarnings)
+      ? item.approvalReviewWarnings.filter((warning) => typeof warning === 'string').slice(0, 3) : [];
+    const speechAlreadyChecked = item.speechVerification?.passed === true
+      || (item.approvalRequired === true && item.speechVerification?.passed === false
+        && reviewWarnings.some((warning) => /speech verification/i.test(warning)));
+    if (!speechAlreadyChecked && item.voiceOverWanted !== false && item.voiceOverMode !== 'silent' && item.prompt
       && (item.voiceOverWanted === true || !wantsSilentVideo(item.prompt))) {
       try {
         const speechVerification = await verifyUploadedVideoSpeech(uploaded.mediaUrl, item.voiceOverText);
@@ -190,18 +207,44 @@ export const processContentPlanVideo = async (db, itemId, req) => {
       } catch (verifyError) {
         const speechVerification = verifyError?.speechVerification || { passed: false };
         await ref.update({ speechVerification });
-        throw verifyError;
+        if (item.approvalRequired !== true || !verifyError?.speechVerification) throw verifyError;
+        reviewWarnings.push(speechVerification.unavailable
+          ? 'Speech verification: automatic Khmer speech checking was unavailable. Listen to the video before approving.'
+          : 'Speech verification: the Khmer speech did not match the requested narration. Listen before approving.');
       }
     }
     if (item.imageFallbackReason) {
-      await ref.update({
-        status: 'REVIEW',
-        errorMessage: item.imageFallbackReason,
-        reviewRequestedAt: FieldValue.serverTimestamp(),
-      });
-      return { ok: true, reviewRequired: true, videoReady: true };
+      if (item.approvalRequired !== true) {
+        await ref.update({
+          status: 'REVIEW',
+          errorMessage: item.imageFallbackReason,
+          reviewRequestedAt: FieldValue.serverTimestamp(),
+        });
+        return { ok: true, reviewRequired: true, videoReady: true };
+      }
+      if (!reviewWarnings.some((warning) => warning.startsWith('Visual review:'))) {
+        reviewWarnings.push(`Visual review: ${item.imageFallbackReason}`);
+      }
     }
-    const fanout = await queueContentPlanDestinations(db, itemId, uploaded.mediaUrl, req);
+    if (item.approvalRequired === true) await ref.update({ approvalReviewWarnings: reviewWarnings.slice(0, 3) });
+    let fanout;
+    try {
+      fanout = await queueContentPlanDestinations(db, itemId, uploaded.mediaUrl, req);
+      if (item.approvalRequired === true && fanout.skipped && fanout.skipped !== 'inactive'
+        && !Array.isArray(fanout.skipped)) throw new Error(`Video approval could not be queued: ${fanout.skipped}`);
+    } catch (queueError) {
+      if (item.approvalRequired !== true) throw queueError;
+      const message = String(queueError?.message || 'Could not queue video approval.').slice(0, 300);
+      await ref.update({ approvalQueueError: message, pollSchedulingFailedAt: FieldValue.serverTimestamp(),
+        approvalProcessingClaimedAt: null });
+      try {
+        await scheduleContentPlanPoll(req, itemId);
+        await ref.update({ pollScheduledAt: FieldValue.serverTimestamp(), pollSchedulingError: null });
+      } catch (scheduleError) {
+        await ref.update({ pollSchedulingError: String(scheduleError?.message || scheduleError).slice(0, 300) });
+      }
+      return { ok: true, videoReady: true, approvalQueuePending: true, error: message };
+    }
     if (fanout.skipped === 'inactive') return { ok: true, skipped: 'superseded' };
     if (['speech_not_verified', 'visual_review_required'].includes(fanout.skipped)) {
       throw new Error('Video quality verification did not pass; review it before publishing.');
@@ -211,7 +254,8 @@ export const processContentPlanVideo = async (db, itemId, req) => {
     }
     if (item.approvalRequired === true) {
       if (!(await updateActivePlanItem(db, ref, {
-        status: 'DONE', resultMediaUrl: uploaded.mediaUrl, completedAt: FieldValue.serverTimestamp(), errorMessage: null,
+        status: 'DONE', resultMediaUrl: uploaded.mediaUrl, completedAt: FieldValue.serverTimestamp(),
+        errorMessage: null, approvalQueueError: null, approvalProcessingClaimedAt: null,
       }))) return { ok: true, skipped: 'superseded' };
       return { ok: true, videoReady: true, awaitingApproval: true };
     }
@@ -278,13 +322,15 @@ export const processContentPlanVideo = async (db, itemId, req) => {
         errorMessage: message,
         speechVerification: error.speechVerification,
         reviewRequestedAt: FieldValue.serverTimestamp(),
+        ...(item.approvalRequired === true ? { approvalProcessingClaimedAt: null } : {}),
       });
       await notifyAdmins(`Content plan video item ${itemId} needs manual review: ${message}`);
       return { ok: false, reviewRequired: true, error: message };
     }
     if (isTransientVideoProcessingError(error) && (Number(item.pollAttempts) || 0) + 1 < MAX_VIDEO_POLL_ATTEMPTS) {
       const attempts = (Number(item.pollAttempts) || 0) + 1;
-      await ref.update({ pollAttempts: attempts, lastTransientError: message });
+      await ref.update({ pollAttempts: attempts, lastTransientError: message,
+        ...(item.approvalRequired === true ? { approvalProcessingClaimedAt: null } : {}) });
       try {
         await scheduleContentPlanPoll(req, itemId);
         await ref.update({ pollScheduledAt: FieldValue.serverTimestamp(), pollSchedulingError: null });
@@ -296,7 +342,9 @@ export const processContentPlanVideo = async (db, itemId, req) => {
         return { ok: true, stillProcessing: true, pollingDeferred: true, transientError: message, attempts };
       }
     }
-    await ref.update({ status: 'FAILED', errorMessage: message, failedAt: FieldValue.serverTimestamp(), ...(error?.speechVerification ? { speechVerification: error.speechVerification } : {}) });
+    await ref.update({ status: 'FAILED', errorMessage: message, failedAt: FieldValue.serverTimestamp(),
+      ...(item.approvalRequired === true ? { approvalProcessingClaimedAt: null } : {}),
+      ...(error?.speechVerification ? { speechVerification: error.speechVerification } : {}) });
     await notifyAdmins(`Content plan video item ${itemId} failed: ${message}`);
     return { ok: false, error: message };
   }
