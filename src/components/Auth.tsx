@@ -1,37 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { motion } from 'motion/react';
-import {
-  Sparkles,
-  AlertCircle
-} from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
 
-import { signInWithGoogle, auth, authPersistenceReady } from '../lib/firebase';
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
+import { signInWithGoogle } from '../lib/firebase';
 import { useLanguage } from '../contexts/LanguageContext';
 
-interface AuthProps {
-  onDemoMode?: () => void;
-}
-
-const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
+const Auth = () => {
   const { t, language } = useLanguage();
-  const [isLogin, setIsLogin] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [errorCode, setErrorCode] = useState<string | null>(null);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [emailEditable, setEmailEditable] = useState(false);
-  const [passwordEditable, setPasswordEditable] = useState(false);
-  const firebaseApiKey = import.meta.env.VITE_FIREBASE_API_KEY || '';
-
-  useEffect(() => {
-    if (firebaseApiKey !== 'AIzaSyCfsAFKqDFs5k5Na9iYdAjlwIohub1noJI' && error?.includes('suspended')) {
-      setError(null);
-      setErrorCode(null);
-    }
-  }, [error, firebaseApiKey]);
 
   const getFriendlyAuthError = (err: any) => {
     const code = err?.code || '';
@@ -58,77 +35,17 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
     return message || (language === 'km' ? 'Google login បរាជ័យ។' : 'Google login failed.');
   };
 
-  const isRecoverableFirebaseError = (code: string | null) => (
-    code === 'auth/admin-restricted-operation' ||
-    code === 'auth/operation-not-allowed' ||
-    code === 'auth/permission-denied'
-  );
-
   const handleGoogleLogin = async () => {
     setLoading(true);
     setError(null);
-    setErrorCode(null);
     try {
       await signInWithGoogle();
     } catch (err: any) {
       console.error(err);
-      const code = err.code || (err.message?.includes('api-key') ? 'auth/permission-denied' : null);
-      setErrorCode(code);
       setError(getFriendlyAuthError(err));
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleEmailSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    setError(null);
-    setErrorCode(null);
-    if (!email.trim() || !password) {
-      setError('Enter your email address and password.');
-      return;
-    }
-    if (!isLogin && password.length < 8) {
-      setError('Use a password of at least 8 characters.');
-      return;
-    }
-    if (!isLogin && password !== confirmPassword) {
-      setError('Passwords do not match.');
-      return;
-    }
-    setLoading(true);
-    try {
-      await authPersistenceReady;
-      if (isLogin) {
-        await signInWithEmailAndPassword(auth, email.trim(), password);
-      } else {
-        await createUserWithEmailAndPassword(auth, email.trim(), password);
-      }
-      setPassword('');
-      setConfirmPassword('');
-    } catch (err: any) {
-      if (err?.code === 'auth/email-already-in-use') {
-        setError('This email already has an account. Sign in with email if you have a password, or sign in with Google and add one in Business Profile.');
-      } else if (err?.code === 'auth/operation-not-allowed') {
-        setError('Email/password accounts are not enabled for this project.');
-      } else {
-        setError(isLogin ? 'Could not sign in. Check your email and password.' : 'Could not create your account. Check your email and password.');
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const selectEmailMode = (login: boolean) => {
-    if (isLogin === login) return;
-    setIsLogin(login);
-    setEmail('');
-    setPassword('');
-    setConfirmPassword('');
-    setEmailEditable(false);
-    setPasswordEditable(false);
-    setError(null);
-    setErrorCode(null);
   };
 
   return (
@@ -136,7 +53,7 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-lg"
+        className="w-full max-w-sm"
       >
         <div className="mb-8 flex flex-col items-center text-center">
           <img
@@ -145,30 +62,9 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
             className="mb-4 h-16 w-16 rounded-2xl shadow-lg"
           />
           <h1 className="text-2xl font-black text-brand-700 dark:text-brand-400">aime.angkorgate</h1>
-          <p className="text-slate-700 dark:text-slate-300 mt-2 text-lg sm:text-xl font-semibold leading-snug">
-            {isLogin ? t('signInToContinue') : t('joinAndGrow')}
-          </p>
         </div>
 
-        <div className="glass p-6 sm:p-8 md:p-10 rounded-[2rem] sm:rounded-[3rem] border border-white/70 shadow-2xl">
-          <div className="mb-6 grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1 dark:bg-slate-800" aria-label="Account access">
-            <button type="button" disabled={loading} aria-pressed={isLogin} onClick={() => selectEmailMode(true)} className={`rounded-lg px-4 py-3 text-sm font-bold transition-colors disabled:opacity-50 ${isLogin ? 'bg-white text-brand-700 shadow-sm dark:bg-slate-700 dark:text-brand-300' : 'text-slate-600 hover:text-brand-700 dark:text-slate-300'}`}>Sign in</button>
-            <button type="button" disabled={loading} aria-pressed={!isLogin} onClick={() => selectEmailMode(false)} className={`rounded-lg px-4 py-3 text-sm font-bold transition-colors disabled:opacity-50 ${!isLogin ? 'bg-white text-brand-700 shadow-sm dark:bg-slate-700 dark:text-brand-300' : 'text-slate-600 hover:text-brand-700 dark:text-slate-300'}`}>Register</button>
-          </div>
-          <form onSubmit={handleEmailSubmit} autoComplete="off" className="mb-6 space-y-3">
-            <h2 className="text-sm font-bold text-slate-700 dark:text-slate-200">{isLogin ? 'Email sign-in' : 'Register with email'}</h2>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-200" htmlFor="account-email">Email address</label>
-            <input id="account-email" type="email" autoComplete="off" readOnly={!emailEditable} required value={email} onFocus={(event) => { if (!email) event.currentTarget.value = ''; setEmailEditable(true); }} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-slate-900" />
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-200" htmlFor="account-password">Password</label>
-            <input id="account-password" type="password" autoComplete={isLogin ? 'off' : 'new-password'} readOnly={!passwordEditable} required minLength={isLogin ? undefined : 8} value={password} onFocus={(event) => { if (!password) event.currentTarget.value = ''; setPasswordEditable(true); }} onChange={(event) => setPassword(event.target.value)} placeholder="Password" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-slate-900" />
-            {!isLogin && (
-              <>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-200" htmlFor="account-confirm-password">Confirm password</label>
-                <input id="account-confirm-password" type="password" autoComplete="new-password" required minLength={8} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="Confirm password" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-slate-900" />
-              </>
-            )}
-            <button type="submit" disabled={loading} className="w-full rounded-xl bg-brand-700 px-5 py-3 font-bold text-white disabled:opacity-50">{isLogin ? 'Sign in with email' : 'Register with email'}</button>
-          </form>
+        <div className="glass p-6 sm:p-8 rounded-[2rem] border border-white/70 shadow-2xl">
           <div className="space-y-6">
             {error && (
               <div className="space-y-4">
@@ -176,43 +72,8 @@ const Auth: React.FC<AuthProps> = ({ onDemoMode }) => {
                   <AlertCircle size={14} className="shrink-0" />
                   <span>{error}</span>
                 </div>
-
-                {isRecoverableFirebaseError(errorCode) && onDemoMode && (
-                  <motion.button
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    type="button"
-                    onClick={onDemoMode}
-                    className="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold text-xs shadow-xl flex items-center justify-center gap-2 hover:bg-black transition-all"
-                  >
-                    <Sparkles size={16} className="text-brand-400" />
-                    {t('exploreDemo')}
-                  </motion.button>
-                )}
               </div>
             )}
-
-            {onDemoMode && (
-              <p className="text-center text-slate-600 dark:text-slate-300 text-[11px] sm:text-xs font-bold uppercase tracking-wide mt-4 leading-relaxed">
-                {t('orTryDemo')} {' '}
-                <button
-                  type="button"
-                  onClick={onDemoMode}
-                  className="text-brand-700 dark:text-brand-400 hover:underline inline-flex items-center gap-1"
-                >
-                  <Sparkles size={12} /> {t('exploreDemo')}
-                </button>
-              </p>
-            )}
-
-            <div className="relative my-8">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-slate-200 dark:border-slate-700"></div>
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-white dark:bg-slate-900 px-4 text-slate-600 dark:text-slate-300 font-bold tracking-widest">{t('orContinueWith')}</span>
-              </div>
-            </div>
 
             <motion.button
               whileHover={{ scale: 1.02 }}

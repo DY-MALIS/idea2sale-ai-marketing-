@@ -121,10 +121,6 @@ export default function App() {
 
   const effectivelyAuthenticated = !!user || isDemoMode;
   
-  const handleDemoMode = () => {
-    setDemoMode(true);
-  };
-
   const handleCreativeAutomation = (request: CreativeAutomationRequest) => {
     setCreativeAutomation({ owner: accountKey, request });
     setActiveTab(request.kind === 'video' ? 'video-voice' : 'poster-gen');
@@ -284,7 +280,7 @@ export default function App() {
           </div>
         </div>
       ) : !effectivelyAuthenticated ? (
-        <Auth onDemoMode={handleDemoMode} />
+        <Auth />
       ) : (
         <div key={accountKey} className="flex flex-1 relative">
           <AnimatePresence>
