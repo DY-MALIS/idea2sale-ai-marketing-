@@ -151,6 +151,13 @@ New Guest sign-in has been retired in both the website and the guest-token API. 
 3. Set `TELEGRAM_ADMIN_CHAT_ID` to a private administrator chat/group to receive best-effort publishing and AI
    delivery failure alerts. Do not reuse the public `TELEGRAM_CHAT_ID` for internal alerts.
 4. Register the webhook (`api/telegram/webhook.js`) with Telegram and set `TELEGRAM_WEBHOOK_SECRET`.
+   Replies to comments in `@aimarketingengine` use the separate `@aime_angkorgate_bot`.
+   Set `TELEGRAM_COMMENT_BOT_TOKEN` to that bot's token, `TELEGRAM_COMMENT_GROUP_ID`
+   to the linked discussion group's ID, and a separate random
+   `TELEGRAM_COMMENT_WEBHOOK_SECRET`. Register its webhook with
+   `/api/telegram/webhook?action=set-webhook&bot=comments&key=<TELEGRAM_WEBHOOK_SETUP_KEY>`.
+   The comment route accepts messages from that group only; it does not change the
+   approval bot or the deployment-wide `TELEGRAM_BOT_TOKEN`.
 5. Scheduled posts are delivered two ways: Upstash QStash for precise-time delivery, and a fallback poller
    (`.github/workflows/telegram-scheduler.yml`, every 10 minutes) that calls `/api/telegram/run-scheduled`.
    The GitHub Action uses a short-lived GitHub OIDC token restricted to this repository, main branch, and workflow;

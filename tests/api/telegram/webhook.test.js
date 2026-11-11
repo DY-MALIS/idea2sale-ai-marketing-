@@ -6,6 +6,7 @@ import {
   formatTelegramHtml,
   getAutomationActive,
   getBusinessName,
+  isCommentGroupMessage,
   manualReplyDestinationMatches,
   messageLeadContext,
   replyRuleTriggerMatches,
@@ -127,6 +128,23 @@ describe('messageLeadContext', () => {
     const a = messageLeadContext(privateMessage, 'owner-a');
     const b = messageLeadContext(privateMessage, 'owner-b');
     expect(a.conversationId).not.toBe(b.conversationId);
+  });
+});
+
+describe('isCommentGroupMessage', () => {
+  const groupId = '-1004352635134';
+
+  it('accepts new and edited messages in the linked discussion group', () => {
+    const message = { chat: { id: -1004352635134, type: 'supergroup' } };
+    expect(isCommentGroupMessage({ message }, groupId)).toBe(true);
+    expect(isCommentGroupMessage({ edited_message: message }, groupId)).toBe(true);
+  });
+
+  it('rejects other groups, private chats, channel posts, and missing configuration', () => {
+    expect(isCommentGroupMessage({ message: { chat: { id: -1001, type: 'supergroup' } } }, groupId)).toBe(false);
+    expect(isCommentGroupMessage({ message: { chat: { id: -1004352635134, type: 'private' } } }, groupId)).toBe(false);
+    expect(isCommentGroupMessage({ channel_post: { chat: { id: -1004352635134, type: 'channel' } } }, groupId)).toBe(false);
+    expect(isCommentGroupMessage({ message: { chat: { id: -1004352635134, type: 'supergroup' } } }, '')).toBe(false);
   });
 });
 

@@ -117,6 +117,11 @@ export const messageLeadContext = (message, ownerId) => {
   };
 };
 
+export const isCommentGroupMessage = (update, groupId) => {
+  const message = update?.message || update?.edited_message;
+  return Boolean(groupId && message?.chat?.type === 'supergroup' && String(message.chat.id) === String(groupId));
+};
+
 const includesAny = (text, phrases) => phrases.some((phrase) => text.includes(phrase));
 
 export const classifyLeadByKeywords = (value) => {
@@ -234,6 +239,7 @@ const upsertTelegramLead = async (db, message, text, forcedTag, ownerId, extraFi
         lastMessage: text.slice(0, 500),
         lastMessageAt: FieldValue.serverTimestamp(),
         ...(extraFields.botOwnerId ? { botOwnerId: extraFields.botOwnerId } : {}),
+        ...(extraFields.botKind ? { botKind: extraFields.botKind } : {}),
       });
     }
   } catch (error) {
@@ -590,7 +596,9 @@ const sendManualReply = async (req, res) => {
     return res.status(400).json({ error: 'The reply destination does not match this conversation.' });
   }
 
-  const token = await resolveOwnerBotToken(db, lead.botOwnerId || ownerId);
+  const token = lead.botKind === 'comments'
+    ? String(process.env.TELEGRAM_COMMENT_BOT_TOKEN || '').trim()
+    : await resolveOwnerBotToken(db, lead.botOwnerId || ownerId);
   if (!token) {
     return res.status(503).json({ error: 'Telegram bot is not configured.' });
   }
@@ -615,9 +623,10 @@ const getBaseUrl = (req) => {
 };
 
 const setWebhook = async (req, res) => {
-  const token = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
+  const commentBot = req.query?.bot === 'comments';
+  const token = String((commentBot ? process.env.TELEGRAM_COMMENT_BOT_TOKEN : process.env.TELEGRAM_BOT_TOKEN) || '').trim();
   if (!token) {
-    return res.status(503).json({ error: 'TELEGRAM_BOT_TOKEN is not configured in Vercel.' });
+    return res.status(503).json({ error: `${commentBot ? 'TELEGRAM_COMMENT_BOT_TOKEN' : 'TELEGRAM_BOT_TOKEN'} is not configured in Vercel.` });
   }
 
   const setupKey = (process.env.TELEGRAM_WEBHOOK_SETUP_KEY || '').trim();
@@ -629,14 +638,38 @@ const setWebhook = async (req, res) => {
   }
 
   const baseUrl = getBaseUrl(req);
-  const webhookUrl = `${baseUrl}/api/telegram/webhook`;
-  const secret = (process.env.TELEGRAM_WEBHOOK_SECRET || '').trim();
+  const webhookUrl = `${baseUrl}/api/telegram/webhook${commentBot ? '?bot=comments' : ''}`;
+  const secret = String((commentBot ? process.env.TELEGRAM_COMMENT_WEBHOOK_SECRET : process.env.TELEGRAM_WEBHOOK_SECRET) || '').trim();
+  if (!secret) {
+    return res.status(503).json({ error: `${commentBot ? 'TELEGRAM_COMMENT_WEBHOOK_SECRET' : 'TELEGRAM_WEBHOOK_SECRET'} is not configured.` });
+  }
+
+  if (commentBot) {
+    if (!String(process.env.TELEGRAM_COMMENT_GROUP_ID || '').trim()) {
+      return res.status(503).json({ error: 'TELEGRAM_COMMENT_GROUP_ID is not configured.' });
+    }
+    const identity = await fetch(`https://api.telegram.org/bot${token}/getMe`).then((response) => response.json()).catch(() => ({}));
+    if (identity?.result?.username?.toLowerCase() !== 'aime_angkorgate_bot') {
+      return res.status(400).json({ error: 'The comment bot token must belong to @aime_angkorgate_bot.' });
+    }
+    const membership = await fetch(`https://api.telegram.org/bot${token}/getChatMember?chat_id=${encodeURIComponent(process.env.TELEGRAM_COMMENT_GROUP_ID)}&user_id=${identity.result.id}`)
+      .then((response) => response.json()).catch(() => ({}));
+    const memberStatus = membership?.result?.status;
+    if (!['member', 'administrator', 'creator'].includes(memberStatus)) {
+      return res.status(400).json({ error: 'The comment bot is not a member of the configured discussion group.' });
+    }
+    if (memberStatus === 'member' && !identity.result.can_read_all_group_messages) {
+      return res.status(400).json({ error: 'The comment bot must be a group administrator or have privacy mode disabled.' });
+    }
+  }
 
   const payload = {
     url: webhookUrl,
-    allowed_updates: ['message', 'edited_message', 'channel_post', 'edited_channel_post', 'message_reaction', 'message_reaction_count'],
+    allowed_updates: commentBot
+      ? ['message', 'edited_message']
+      : ['message', 'edited_message', 'channel_post', 'edited_channel_post', 'message_reaction', 'message_reaction_count'],
     drop_pending_updates: false,
-    ...(secret ? { secret_token: secret } : {}),
+    secret_token: secret,
   };
 
   try {
@@ -658,6 +691,16 @@ const setWebhook = async (req, res) => {
     const webhookInfoResponse = await fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`);
     const webhookInfoData = await webhookInfoResponse.json().catch(() => ({}));
     const allowedUpdates = webhookInfoData?.result?.allowed_updates || [];
+    if (commentBot) {
+      return res.status(200).json({
+        ok: true,
+        botUsername: 'aime_angkorgate_bot',
+        webhookUrl,
+        groupId: String(process.env.TELEGRAM_COMMENT_GROUP_ID),
+        allowedUpdates,
+        pendingUpdates: webhookInfoData?.result?.pending_update_count || 0,
+      });
+    }
     let botIsChannelAdmin = false;
     let discussionGroupLinked = false;
     let botIsDiscussionAdmin = false;
@@ -919,6 +962,10 @@ export default async function handler(req, res) {
   // other website accounts after a verified Google link. The legacy deployment
   // bot uses the URL without a uid.
   const ownerId = String(req.query?.uid || '').trim() || null;
+  if (ownerId && req.query?.bot === 'comments') {
+    return res.status(400).json({ error: 'Comment bot and owner bot routes cannot be combined.' });
+  }
+  const commentBotRequest = req.query?.bot === 'comments' && !ownerId;
 
   let db = null;
   try {
@@ -929,20 +976,28 @@ export default async function handler(req, res) {
 
   const ownerProfile = ownerId && db ? (await db.collection('business_profiles').doc(ownerId).get()).data() || {} : {};
   const approvalBotRequest = Boolean(ownerId && ownerProfile.telegramBotActive === true);
-  const token = ownerId ? String(ownerProfile.telegramBotToken || '').trim() : (process.env.TELEGRAM_BOT_TOKEN || '').trim();
+  const token = ownerId
+    ? String(ownerProfile.telegramBotToken || '').trim()
+    : String((commentBotRequest ? process.env.TELEGRAM_COMMENT_BOT_TOKEN : process.env.TELEGRAM_BOT_TOKEN) || '').trim();
   if (!token) {
-    return res.status(503).json({ error: ownerId ? 'Owner Telegram bot is not configured.' : 'TELEGRAM_BOT_TOKEN is not configured in Vercel.' });
+    return res.status(503).json({ error: ownerId ? 'Owner Telegram bot is not configured.' : `${commentBotRequest ? 'TELEGRAM_COMMENT_BOT_TOKEN' : 'TELEGRAM_BOT_TOKEN'} is not configured in Vercel.` });
   }
 
-  const secret = String(process.env.TELEGRAM_WEBHOOK_SECRET || '').trim();
+  const secret = String((commentBotRequest ? process.env.TELEGRAM_COMMENT_WEBHOOK_SECRET : process.env.TELEGRAM_WEBHOOK_SECRET) || '').trim();
   if (!secret) {
-    return res.status(503).json({ error: 'TELEGRAM_WEBHOOK_SECRET is not configured.' });
+    return res.status(503).json({ error: `${commentBotRequest ? 'TELEGRAM_COMMENT_WEBHOOK_SECRET' : 'TELEGRAM_WEBHOOK_SECRET'} is not configured.` });
   }
   if (req.headers['x-telegram-bot-api-secret-token'] !== secret) {
     return res.status(401).json({ error: 'Invalid Telegram webhook secret.' });
   }
 
   const update = req.body || {};
+  if (commentBotRequest) {
+    const groupId = String(process.env.TELEGRAM_COMMENT_GROUP_ID || '').trim();
+    if (!isCommentGroupMessage(update, groupId)) {
+      return res.status(200).json({ ok: true, ignored: 'outside-comment-group' });
+    }
+  }
   const sharedApprovalBot = Boolean(ownerId && String(ownerProfile.telegramBotUsername || '').toLowerCase() === 'dgacademy_official_bot');
 
   // Owner bots handle account credentials and approval decisions before the
@@ -1119,6 +1174,7 @@ export default async function handler(req, res) {
 
   const leadContext = db
     ? await upsertTelegramLead(db, message, text, scanLead ? 'interested' : undefined, conversationOwnerId, {
+        ...(commentBotRequest ? { botKind: 'comments' } : {}),
         ...(sharedApprovalBot ? { botOwnerId: ownerId } : {}),
         ...(scanLead ? {
           origin: 'facebook_scanner',
@@ -1134,8 +1190,10 @@ export default async function handler(req, res) {
   }
   if (db) await logMessage(db, leadContext.conversationId, 'in', text, leadContext.source, conversationOwnerId);
 
-  const businessProfile = db ? (await db.collection('business_profiles').doc(conversationOwnerId).get()).data() || {} : {};
-  const businessName = String(businessProfile.businessName || '').trim() || null;
+  const businessProfile = db && conversationOwnerId
+    ? (await db.collection('business_profiles').doc(conversationOwnerId).get()).data() || {}
+    : {};
+  const businessName = commentBotRequest ? 'AI Marketing Engine' : String(businessProfile.businessName || '').trim() || null;
   const isKhmer = containsKhmer(text);
 
   if (scanLead) {
