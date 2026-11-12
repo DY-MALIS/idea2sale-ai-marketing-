@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
-import { AlertCircle, ArrowRight, LockKeyhole, ShieldCheck, Sparkles, Users, Zap } from 'lucide-react';
+import { AlertCircle, ArrowRight, LockKeyhole, Play, ShieldCheck, Sparkles, Users, Zap } from 'lucide-react';
 
 import { signInWithGoogle } from '../lib/firebase';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -11,7 +11,14 @@ const Auth = ({ isSignedIn = false }: { isSignedIn?: boolean }) => {
   const { t, language } = useLanguage();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [videoNeedsPlay, setVideoNeedsPlay] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const reduceMotion = useReducedMotion();
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    void video.play().catch(() => setVideoNeedsPlay(true));
+  }, []);
   const isKhmer = language === 'km';
   const copy = isKhmer ? {
     eyebrow: 'វេទិកាបង្កើតមាតិកាទីផ្សារដោយ AI',
@@ -92,25 +99,33 @@ const Auth = ({ isSignedIn = false }: { isSignedIn?: boolean }) => {
   return (
     <main className={`min-h-screen bg-[#11152e] text-white ${isKhmer ? 'font-khmer' : ''}`}>
       <div className="relative isolate min-h-screen overflow-hidden">
-      {reduceMotion ? (
-        <img src="/auth-full-scene-poster.webp" alt="" fetchPriority="high" className="pointer-events-none absolute inset-x-0 top-0 h-[100svh] w-full object-cover object-center [mask-image:linear-gradient(to_bottom,black_0%,black_85%,transparent_100%)] lg:inset-0 lg:h-full lg:[mask-image:none]" />
-      ) : (
         <video
+          ref={videoRef}
           src="/auth-full-scene-loop.mp4"
           poster="/auth-full-scene-start.webp"
           autoPlay
           muted
           loop
           playsInline
+          preload="auto"
+          onPlaying={() => setVideoNeedsPlay(false)}
+          onPause={() => setVideoNeedsPlay(true)}
+          onError={() => setVideoNeedsPlay(true)}
           aria-hidden="true"
           tabIndex={-1}
           className="pointer-events-none absolute inset-x-0 top-0 h-[100svh] w-full object-cover object-center [mask-image:linear-gradient(to_bottom,black_0%,black_85%,transparent_100%)] lg:inset-0 lg:h-full lg:[mask-image:none]"
         />
-      )}
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#10122c]/72 via-[#15142f]/10 to-transparent" />
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#11142f]/35 via-transparent to-[#11142f]/10" />
 
       <div className="relative mx-auto flex min-h-screen max-w-[1700px] flex-col px-5 pb-5 pt-6 sm:px-9 lg:px-14">
+        {videoNeedsPlay && <button
+          type="button"
+          onClick={() => void videoRef.current?.play().catch(() => setVideoNeedsPlay(true))}
+          className="absolute right-5 top-24 z-20 inline-flex items-center gap-2 rounded-full border border-white/40 bg-[#17162c]/80 px-4 py-2 text-sm font-semibold text-white shadow-lg backdrop-blur-md hover:bg-[#17162c] sm:right-9 lg:right-14"
+        >
+          <Play size={16} fill="currentColor" aria-hidden="true" /> {isKhmer ? 'ចាក់វីដេអូ' : 'Play video'}
+        </button>}
         <header className="flex min-h-14 items-center gap-5 pr-24 sm:pr-32">
           <a href="/" className="flex shrink-0 items-center gap-2.5 rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-orange-300" aria-label="Aime Angkorgate home">
             <img src="/favicon.svg" alt="" className="h-11 w-11 rounded-full shadow-[0_8px_26px_rgba(245,158,11,0.25)]" />
@@ -118,7 +133,7 @@ const Auth = ({ isSignedIn = false }: { isSignedIn?: boolean }) => {
           </a>
         </header>
 
-        <div className="grid flex-1 items-center gap-8 py-9 lg:grid-cols-[minmax(0,1fr)_minmax(300px,350px)] lg:gap-10 xl:gap-16">
+        <div className={`grid flex-1 items-center gap-8 py-9 lg:gap-10 xl:gap-16 ${isSignedIn ? '' : 'lg:grid-cols-[minmax(0,1fr)_minmax(300px,350px)]'}`}>
           <section className="min-w-0 max-w-[760px]">
             <p className="mb-5 inline-flex items-center gap-2 rounded-full border border-orange-300/60 bg-[#38243c]/65 px-4 py-2 text-[11px] font-bold tracking-[0.08em] text-orange-100 shadow-[0_0_28px_rgba(251,146,60,0.22)] backdrop-blur-sm sm:text-xs">
               <Sparkles size={16} aria-hidden="true" className="text-orange-300" /> {copy.eyebrow}
@@ -128,7 +143,7 @@ const Auth = ({ isSignedIn = false }: { isSignedIn?: boolean }) => {
             </h1>
             <p className="mt-5 max-w-[570px] text-base leading-7 text-white/90 drop-shadow-[0_2px_9px_rgba(0,0,0,0.7)] sm:text-lg sm:leading-8">{copy.description}</p>
             <div className="mt-7 hidden lg:block"><AuthShowcase /></div>
-            {!isSignedIn && <motion.button
+            <motion.button
               whileHover={reduceMotion ? undefined : { y: -3 }}
               whileTap={reduceMotion ? undefined : { scale: 0.98 }}
               type="button"
@@ -136,14 +151,14 @@ const Auth = ({ isSignedIn = false }: { isSignedIn?: boolean }) => {
               onClick={handlePrimaryAction}
               className="mt-7 inline-flex min-h-13 items-center justify-center gap-3 rounded-full border border-orange-200/70 bg-gradient-to-r from-[#ffad23] to-[#f76807] px-7 py-3 text-sm font-bold text-white shadow-[0_10px_28px_rgba(242,98,5,0.45)] transition-[filter,box-shadow] hover:brightness-110 hover:shadow-[0_14px_32px_rgba(242,98,5,0.6)] disabled:cursor-not-allowed disabled:opacity-50 sm:text-base"
             >
-              <Sparkles size={19} aria-hidden="true" /> {copy.getStarted} <ArrowRight size={18} aria-hidden="true" />
-            </motion.button>}
-            <a href="#features" className={`${isSignedIn ? 'mt-7' : 'ml-4'} inline-flex min-h-12 items-center text-sm font-semibold text-orange-100 underline-offset-4 hover:underline`}>
+              <Sparkles size={19} aria-hidden="true" /> {isSignedIn ? (isKhmer ? 'បើក App' : 'Open App') : copy.getStarted} <ArrowRight size={18} aria-hidden="true" />
+            </motion.button>
+            <a href="#features" className="ml-4 inline-flex min-h-12 items-center text-sm font-semibold text-orange-100 underline-offset-4 hover:underline">
               {isKhmer ? 'ស្វែងយល់អំពីមុខងារ' : 'Explore the features'} <ArrowRight size={16} aria-hidden="true" className="ml-1.5" />
             </a>
           </section>
 
-          <section aria-label={copy.welcome} className="mt-36 w-full max-w-[350px] justify-self-center lg:mt-0 lg:self-end lg:justify-self-end lg:pb-7">
+          {!isSignedIn && <section aria-label={copy.welcome} className="mt-36 w-full max-w-[350px] justify-self-center lg:mt-0 lg:self-end lg:justify-self-end lg:pb-7">
             <motion.div
               initial={reduceMotion ? false : { opacity: 0 }}
               animate={reduceMotion ? { opacity: 1 } : { opacity: 1, boxShadow: ['0 22px 55px rgba(5,8,30,0.42)', '0 28px 70px rgba(237,107,17,0.24)', '0 22px 55px rgba(5,8,30,0.42)'] }}
@@ -188,7 +203,7 @@ const Auth = ({ isSignedIn = false }: { isSignedIn?: boolean }) => {
                 <a href="/privacy-policy/" className="font-semibold text-orange-200 underline-offset-4 hover:underline">{t('privacyPolicy')}</a>.
               </p>}
             </motion.div>
-          </section>
+          </section>}
         </div>
 
         <div className="pb-7 lg:hidden"><AuthShowcase /></div>
@@ -207,3 +222,4 @@ const Auth = ({ isSignedIn = false }: { isSignedIn?: boolean }) => {
 };
 
 export default Auth;
+
