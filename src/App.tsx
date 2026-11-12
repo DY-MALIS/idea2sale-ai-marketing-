@@ -17,7 +17,6 @@ const Automation = lazy(() => import('./components/Automation'));
 import Auth from './components/Auth';
 import TelegramConnect from './components/TelegramConnect';
 import LegalPage from './components/LegalPage';
-import PublicWebsite from './components/PublicWebsite';
 const SecurityCenter = lazy(() => import('./components/SecurityCenter'));
 const FacebookScanner = lazy(() => import('./components/FacebookScanner'));
 import BusinessProfile from './components/BusinessProfile';
@@ -181,10 +180,6 @@ export default function App() {
 
   if (pathname === '/telegram-connect') {
     return <TelegramConnect />;
-  }
-
-  if (pathname === '/' || pathname === '/about') {
-    return <PublicWebsite />;
   }
 
   return (
