@@ -93,18 +93,18 @@ const Auth = ({ isSignedIn = false }: { isSignedIn?: boolean }) => {
     <main className={`min-h-screen bg-[#11152e] text-white ${isKhmer ? 'font-khmer' : ''}`}>
       <div className="relative isolate min-h-screen overflow-hidden">
       {reduceMotion ? (
-        <img src="/auth-natural-poster.webp" alt="" fetchPriority="high" className="pointer-events-none absolute inset-x-0 top-0 h-[100svh] w-full object-cover object-[52%_center] [mask-image:linear-gradient(to_bottom,black_0%,black_85%,transparent_100%)] lg:inset-0 lg:h-full lg:[mask-image:none]" />
+        <img src="/auth-full-scene-poster.webp" alt="" fetchPriority="high" className="pointer-events-none absolute inset-x-0 top-0 h-[100svh] w-full object-cover object-center [mask-image:linear-gradient(to_bottom,black_0%,black_85%,transparent_100%)] lg:inset-0 lg:h-full lg:[mask-image:none]" />
       ) : (
         <video
-          src="/auth-natural-loop.mp4"
-          poster="/auth-natural-poster.webp"
+          src="/auth-full-scene-loop.mp4"
+          poster="/auth-full-scene-start.webp"
           autoPlay
           muted
           loop
           playsInline
           aria-hidden="true"
           tabIndex={-1}
-          className="pointer-events-none absolute inset-x-0 top-0 h-[100svh] w-full object-cover object-[52%_center] [mask-image:linear-gradient(to_bottom,black_0%,black_85%,transparent_100%)] lg:inset-0 lg:h-full lg:[mask-image:none]"
+          className="pointer-events-none absolute inset-x-0 top-0 h-[100svh] w-full object-cover object-center [mask-image:linear-gradient(to_bottom,black_0%,black_85%,transparent_100%)] lg:inset-0 lg:h-full lg:[mask-image:none]"
         />
       )}
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#10122c]/72 via-[#15142f]/10 to-transparent" />
