@@ -8,14 +8,14 @@ const MAX_SIDE = 4096;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 const imageBytesFromDataUrl = (source) => {
-  const match = /^data:image\/(?:jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$/i.exec(String(source || ''));
-  if (!match) throw new Error('The video reference image must be a JPEG, PNG, or WebP image.');
-  const bytes = Buffer.from(match[1], 'base64');
+  const match = /^data:image\/(jpeg|jpg|png|webp|avif|gif|bmp|tiff|heif|heic);base64,([A-Za-z0-9+/=]+)$/i.exec(String(source || ''));
+  if (!match) throw new Error('The video reference image must be a supported image file.');
+  const bytes = Buffer.from(match[2], 'base64');
   if (!bytes.length || bytes.length > MAX_IMAGE_BYTES) throw new Error('The video reference image must be under 10 MB.');
-  return bytes;
+  return { bytes, declaredFormat: match[1].toLowerCase() };
 };
 
-const enlargeIfNeeded = async (bytes) => {
+const enlargeIfNeeded = async (bytes, declaredFormat = '') => {
   let metadata;
   try {
     metadata = await sharp(bytes, { limitInputPixels: 40_000_000 }).metadata();
@@ -28,7 +28,12 @@ const enlargeIfNeeded = async (bytes) => {
   const aspectRatio = width / height;
   if (width >= MIN_PROVIDER_SIDE && height >= MIN_PROVIDER_SIDE
     && aspectRatio >= 0.4 && aspectRatio <= 2.5
-    && Math.max(width, height) <= MAX_SIDE) return null;
+    && Math.max(width, height) <= MAX_SIDE
+    && (metadata.format === 'jpeg' || metadata.format === 'png')) {
+    return declaredFormat && declaredFormat !== metadata.format
+      ? `data:image/${metadata.format};base64,${bytes.toString('base64')}`
+      : null;
+  }
   // Very wide or tall photos need a neutral canvas as well as enough pixels.
   // Contain keeps the entire user image visible instead of cropping its edges.
   if (aspectRatio < 0.4 || aspectRatio > 2.5) {
@@ -47,6 +52,16 @@ const enlargeIfNeeded = async (bytes) => {
       .toBuffer();
     return `data:image/png;base64,${reduced.toString('base64')}`;
   }
+  if (width >= MIN_PROVIDER_SIDE && height >= MIN_PROVIDER_SIDE) {
+    // Veo accepts JPEG/PNG, while the browser uploader and saved product
+    // gallery may supply WebP, AVIF, or another decodable image format.
+    const converted = await sharp(bytes, { limitInputPixels: 40_000_000 })
+      .rotate()
+      .flatten({ background: '#ffffff' })
+      .jpeg({ quality: 88 })
+      .toBuffer();
+    return `data:image/jpeg;base64,${converted.toString('base64')}`;
+  }
   const scale = TARGET_SIDE / Math.min(width, height);
   const targetWidth = Math.ceil(width * scale);
   const targetHeight = Math.ceil(height * scale);
@@ -62,8 +77,8 @@ const enlargeIfNeeded = async (bytes) => {
 };
 
 export const ensureVideoImageDataUrl = async (source) => {
-  const bytes = imageBytesFromDataUrl(source);
-  return await enlargeIfNeeded(bytes) || source;
+  const { bytes, declaredFormat } = imageBytesFromDataUrl(source);
+  return await enlargeIfNeeded(bytes, declaredFormat) || source;
 };
 
 const downloadStoredImage = async (url) => {
@@ -90,8 +105,9 @@ export const prepareVideoProductImageUrl = async (source, uploadMediaDataUrl) =>
     throw new Error('The saved product image must come from the connected media storage.');
   }
   const originalUrl = isDataUrl ? '' : getOriginalImageKitUrl(source, process.env.IMAGEKIT_URL_ENDPOINT || '');
-  const bytes = isDataUrl ? imageBytesFromDataUrl(source) : await downloadStoredImage(originalUrl);
-  const enlarged = await enlargeIfNeeded(bytes);
+  const decoded = isDataUrl ? imageBytesFromDataUrl(source) : null;
+  const bytes = decoded?.bytes || await downloadStoredImage(originalUrl);
+  const enlarged = await enlargeIfNeeded(bytes, decoded?.declaredFormat || '');
   if (!enlarged && originalUrl) return originalUrl;
   const mediaDataUrl = enlarged || source;
   const uploaded = await uploadMediaDataUrl({ mediaDataUrl, mediaType: 'photo', folder: '/video-references' });

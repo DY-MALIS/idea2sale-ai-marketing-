@@ -3200,17 +3200,22 @@ Return ONLY a single valid JSON object with this exact structure:
             .filter((image) => (
               typeof image?.base64 === 'string'
               && image.base64.length <= MAX_VIDEO_REFERENCE_BASE64_CHARS
-              && /^image\/(?:jpeg|png|webp)$/i.test(String(image?.mimeType || ''))
+              && /^image\/(?:jpeg|jpg|png|webp|avif|gif|bmp|tiff|heif|heic)$/i.test(String(image?.mimeType || ''))
             ))
             .slice(0, MAX_VIDEO_REFERENCE_IMAGES)
         : [];
       // Both Veo first frames and Seedance presenter references require a
       // sufficiently large image. Upscale tiny uploads before a paid request.
-      const images = await Promise.all(submittedImages.map(async (image) => {
-        const dataUrl = await ensureVideoImageDataUrl(`data:${image.mimeType};base64,${image.base64}`);
-        const [, mimeType, base64] = /^data:([^;]+);base64,(.+)$/.exec(dataUrl) || [];
-        return { mimeType, base64 };
-      }));
+      let images;
+      try {
+        images = await Promise.all(submittedImages.map(async (image) => {
+          const dataUrl = await ensureVideoImageDataUrl(`data:${image.mimeType};base64,${image.base64}`);
+          const [, mimeType, base64] = /^data:([^;]+);base64,(.+)$/.exec(dataUrl) || [];
+          return { mimeType, base64 };
+        }));
+      } catch (error) {
+        throw Object.assign(new Error(error?.message || 'Could not prepare the starting image.'), { statusCode: 400 });
+      }
       const requestedDuration = Number(req.body?.duration);
       const duration = VIDEO_DURATION_OPTIONS.includes(requestedDuration)
         ? requestedDuration
