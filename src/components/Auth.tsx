@@ -82,9 +82,9 @@ const Auth = () => {
 
   return (
     <main className={`relative isolate min-h-screen overflow-hidden bg-[#11152e] text-white ${isKhmer ? 'font-khmer' : ''}`}>
-      <img src="/auth-cinematic.webp" alt="" fetchPriority="high" className="pointer-events-none absolute inset-0 h-full w-full object-cover object-[52%_center]" />
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#10122c]/95 via-[#15142f]/45 to-[#10122c]/35" />
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#11142f]/70 via-transparent to-[#11142f]/10" />
+      <img src="/auth-cinematic-sharp.webp" alt="" fetchPriority="high" className="pointer-events-none absolute inset-0 h-full w-full object-cover object-[52%_center]" />
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#10122c]/72 via-[#15142f]/10 to-transparent" />
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#11142f]/35 via-transparent to-[#11142f]/10" />
 
       <div className="relative mx-auto flex min-h-screen max-w-[1700px] flex-col px-5 pb-5 pt-6 sm:px-9 lg:px-14">
         <header className="flex min-h-14 items-center gap-5 pr-24 sm:pr-32">
