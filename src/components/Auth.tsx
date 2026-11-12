@@ -118,7 +118,7 @@ const Auth = ({ isSignedIn = false }: { isSignedIn?: boolean }) => {
           </a>
         </header>
 
-        <div className="grid flex-1 items-center gap-8 py-9 lg:grid-cols-[minmax(0,1fr)_minmax(300px,350px)] lg:gap-10 xl:gap-16">
+        <div className={`grid flex-1 items-center gap-8 py-9 lg:gap-10 xl:gap-16 ${isSignedIn ? '' : 'lg:grid-cols-[minmax(0,1fr)_minmax(300px,350px)]'}`}>
           <section className="min-w-0 max-w-[760px]">
             <p className="mb-5 inline-flex items-center gap-2 rounded-full border border-orange-300/60 bg-[#38243c]/65 px-4 py-2 text-[11px] font-bold tracking-[0.08em] text-orange-100 shadow-[0_0_28px_rgba(251,146,60,0.22)] backdrop-blur-sm sm:text-xs">
               <Sparkles size={16} aria-hidden="true" className="text-orange-300" /> {copy.eyebrow}
@@ -128,7 +128,7 @@ const Auth = ({ isSignedIn = false }: { isSignedIn?: boolean }) => {
             </h1>
             <p className="mt-5 max-w-[570px] text-base leading-7 text-white/90 drop-shadow-[0_2px_9px_rgba(0,0,0,0.7)] sm:text-lg sm:leading-8">{copy.description}</p>
             <div className="mt-7 hidden lg:block"><AuthShowcase /></div>
-            {!isSignedIn && <motion.button
+            <motion.button
               whileHover={reduceMotion ? undefined : { y: -3 }}
               whileTap={reduceMotion ? undefined : { scale: 0.98 }}
               type="button"
@@ -136,14 +136,14 @@ const Auth = ({ isSignedIn = false }: { isSignedIn?: boolean }) => {
               onClick={handlePrimaryAction}
               className="mt-7 inline-flex min-h-13 items-center justify-center gap-3 rounded-full border border-orange-200/70 bg-gradient-to-r from-[#ffad23] to-[#f76807] px-7 py-3 text-sm font-bold text-white shadow-[0_10px_28px_rgba(242,98,5,0.45)] transition-[filter,box-shadow] hover:brightness-110 hover:shadow-[0_14px_32px_rgba(242,98,5,0.6)] disabled:cursor-not-allowed disabled:opacity-50 sm:text-base"
             >
-              <Sparkles size={19} aria-hidden="true" /> {copy.getStarted} <ArrowRight size={18} aria-hidden="true" />
-            </motion.button>}
-            <a href="#features" className={`${isSignedIn ? 'mt-7' : 'ml-4'} inline-flex min-h-12 items-center text-sm font-semibold text-orange-100 underline-offset-4 hover:underline`}>
+              <Sparkles size={19} aria-hidden="true" /> {isSignedIn ? (isKhmer ? 'បើក App' : 'Open App') : copy.getStarted} <ArrowRight size={18} aria-hidden="true" />
+            </motion.button>
+            <a href="#features" className="ml-4 inline-flex min-h-12 items-center text-sm font-semibold text-orange-100 underline-offset-4 hover:underline">
               {isKhmer ? 'ស្វែងយល់អំពីមុខងារ' : 'Explore the features'} <ArrowRight size={16} aria-hidden="true" className="ml-1.5" />
             </a>
           </section>
 
-          <section aria-label={copy.welcome} className="mt-36 w-full max-w-[350px] justify-self-center lg:mt-0 lg:self-end lg:justify-self-end lg:pb-7">
+          {!isSignedIn && <section aria-label={copy.welcome} className="mt-36 w-full max-w-[350px] justify-self-center lg:mt-0 lg:self-end lg:justify-self-end lg:pb-7">
             <motion.div
               initial={reduceMotion ? false : { opacity: 0 }}
               animate={reduceMotion ? { opacity: 1 } : { opacity: 1, boxShadow: ['0 22px 55px rgba(5,8,30,0.42)', '0 28px 70px rgba(237,107,17,0.24)', '0 22px 55px rgba(5,8,30,0.42)'] }}
@@ -188,7 +188,7 @@ const Auth = ({ isSignedIn = false }: { isSignedIn?: boolean }) => {
                 <a href="/privacy-policy/" className="font-semibold text-orange-200 underline-offset-4 hover:underline">{t('privacyPolicy')}</a>.
               </p>}
             </motion.div>
-          </section>
+          </section>}
         </div>
 
         <div className="pb-7 lg:hidden"><AuthShowcase /></div>
