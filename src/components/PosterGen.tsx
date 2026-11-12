@@ -95,12 +95,16 @@ const applyLogoWatermark = (baseDataUrl: string, logoDataUrl: string): Promise<s
 // Khmer headline/CTA text on a poster is to never ask the AI to render it
 // and draw it ourselves afterward with an actual Khmer font -- "Kantumruy
 // Pro" is already loaded app-wide (src/index.css) for the UI itself.
-const POSTER_TEXT_FONT_FAMILY = '"Kantumruy Pro", sans-serif';
-const HEADLINE_FONT_SIZE_RATIO = 0.056;
-const CTA_FONT_SIZE_RATIO = 0.03;
-const TEXT_MARGIN_RATIO = 0.06;
+const POSTER_TEXT_FONT_FAMILY = '"Kantumruy Pro Poster", sans-serif';
+const HEADLINE_FONT_SIZE_RATIO = 0.06;
+const CTA_FONT_SIZE_RATIO = 0.031;
+const TEXT_MARGIN_RATIO = 0.055;
 const LINE_HEIGHT_RATIO = 1.28;
 const CTA_ACCENT_COLOR = '#f97316';
+const POSTER_BACKGROUND = '#102235';
+const posterFontFamily = (text: string) => /[\u1780-\u17ff]/u.test(text)
+  ? POSTER_TEXT_FONT_FAMILY
+  : '"Inter", sans-serif';
 
 const wrapCanvasText = (ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] => {
   const words = text.split(/\s+/).filter(Boolean);
@@ -129,6 +133,7 @@ const overlayPosterText = async (baseDataUrl: string, headline: string, cta: str
       await Promise.all([
         (document as any).fonts.load(`700 48px ${POSTER_TEXT_FONT_FAMILY}`),
         (document as any).fonts.load(`700 24px ${POSTER_TEXT_FONT_FAMILY}`),
+        (document as any).fonts.load('700 48px "Inter"'),
       ]);
     }
   } catch {
@@ -148,64 +153,70 @@ const overlayPosterText = async (baseDataUrl: string, headline: string, cta: str
           resolve(baseDataUrl);
           return;
         }
-        ctx.drawImage(base, 0, 0);
-
         const margin = Math.round(base.width * TEXT_MARGIN_RATIO);
         const maxTextWidth = base.width - margin * 2;
+        const photoHeight = Math.round(base.height * (base.height > base.width ? 0.62 : 0.54));
+        const photoBottom = margin + photoHeight;
+        const photoRadius = Math.round(base.width * 0.025);
+        ctx.fillStyle = POSTER_BACKGROUND;
+        ctx.fillRect(0, 0, base.width, base.height);
+        // The actual photo is a smaller, framed visual. Exact copy lives in
+        // the separate dark panel instead of obscuring a face or product.
+        const scale = Math.max(maxTextWidth / base.width, photoHeight / base.height);
+        const sourceWidth = maxTextWidth / scale;
+        const sourceHeight = photoHeight / scale;
+        ctx.save();
+        ctx.beginPath();
+        ctx.roundRect(margin, margin, maxTextWidth, photoHeight, photoRadius);
+        ctx.clip();
+        ctx.drawImage(base, (base.width - sourceWidth) / 2, (base.height - sourceHeight) / 2,
+          sourceWidth, sourceHeight, margin, margin, maxTextWidth, photoHeight);
+        ctx.restore();
         ctx.textAlign = 'left';
-        ctx.textBaseline = 'alphabetic';
+        ctx.textBaseline = 'top';
 
-        const headlineFontSize = Math.round(base.width * HEADLINE_FONT_SIZE_RATIO);
-        const headlineLineHeight = Math.round(headlineFontSize * LINE_HEIGHT_RATIO);
-        let headlineLines: string[] = [];
-        if (headlineText) {
-          ctx.font = `700 ${headlineFontSize}px ${POSTER_TEXT_FONT_FAMILY}`;
-          headlineLines = wrapCanvasText(ctx, headlineText, maxTextWidth).slice(0, 3);
-        }
-
-        const ctaFontSize = Math.round(base.width * CTA_FONT_SIZE_RATIO);
-        const ctaPaddingX = Math.round(ctaFontSize * 1.1);
-        const ctaPaddingY = Math.round(ctaFontSize * 0.7);
+        const ctaFontSize = Math.max(14, Math.round(base.width * CTA_FONT_SIZE_RATIO));
+        const ctaPaddingX = Math.round(base.width * 0.035);
+        const ctaPaddingY = Math.round(base.width * 0.018);
         let ctaPillWidth = 0;
         let ctaPillHeight = 0;
         if (ctaText) {
-          ctx.font = `700 ${ctaFontSize}px ${POSTER_TEXT_FONT_FAMILY}`;
+          ctx.font = `700 ${ctaFontSize}px ${posterFontFamily(ctaText)}`;
           ctaPillWidth = Math.min(ctx.measureText(ctaText).width + ctaPaddingX * 2, maxTextWidth);
-          ctaPillHeight = ctaFontSize + ctaPaddingY * 2;
+          ctaPillHeight = ctaFontSize * LINE_HEIGHT_RATIO + ctaPaddingY * 2;
         }
-
-        const gapBetween = headlineLines.length && ctaText ? Math.round(margin * 0.6) : 0;
-        const contentHeight = headlineLines.length * headlineLineHeight + gapBetween + ctaPillHeight;
-        const blockHeight = Math.max(base.height * 0.32, contentHeight + margin * 2);
-        const panelTop = base.height - blockHeight;
-
-        // Fade the photo under the copy without a hard edge across the subject.
-        const gradientTop = Math.max(0, panelTop - blockHeight * 0.48);
-        const gradient = ctx.createLinearGradient(0, gradientTop, 0, base.height);
-        gradient.addColorStop(0, 'rgba(8, 20, 37, 0)');
-        gradient.addColorStop(0.42, 'rgba(8, 20, 37, 0.64)');
-        gradient.addColorStop(1, 'rgba(8, 20, 37, 0.96)');
-        ctx.fillStyle = gradient;
-        ctx.fillRect(0, gradientTop, base.width, base.height - gradientTop);
+        const pillY = base.height - margin - ctaPillHeight;
+        const headlineTop = photoBottom + Math.round(margin * 1.2);
+        const headlineRoom = (ctaText ? pillY - margin * 0.55 : base.height - margin) - headlineTop;
+        let headlineFontSize = Math.round(base.width * HEADLINE_FONT_SIZE_RATIO);
+        let headlineLineHeight = Math.round(headlineFontSize * LINE_HEIGHT_RATIO);
+        let headlineLines: string[] = [];
+        if (headlineText) {
+          for (let size = headlineFontSize; size >= Math.max(14, Math.round(base.width * 0.032)); size -= 2) {
+            ctx.font = `700 ${size}px ${posterFontFamily(headlineText)}`;
+            const lines = wrapCanvasText(ctx, headlineText, maxTextWidth * 0.86);
+            headlineFontSize = size;
+            headlineLineHeight = Math.round(size * LINE_HEIGHT_RATIO);
+            headlineLines = lines;
+            if (lines.length * headlineLineHeight <= headlineRoom) break;
+          }
+        }
         ctx.fillStyle = CTA_ACCENT_COLOR;
-        ctx.fillRect(margin, panelTop + margin * 0.72, Math.max(42, base.width * 0.085), Math.max(4, base.width * 0.006));
+        ctx.fillRect(margin, photoBottom + Math.round(margin * 0.55),
+          Math.round(base.width * 0.095), Math.max(3, Math.round(base.width * 0.006)));
 
-        let y = panelTop + margin * 1.45 + headlineFontSize;
+        let y = headlineTop;
         if (headlineLines.length) {
-          ctx.font = `700 ${headlineFontSize}px ${POSTER_TEXT_FONT_FAMILY}`;
+          ctx.font = `700 ${headlineFontSize}px ${posterFontFamily(headlineText)}`;
           ctx.fillStyle = '#ffffff';
-          ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-          ctx.shadowBlur = headlineFontSize * 0.15;
           for (const line of headlineLines) {
-            ctx.fillText(line, margin, y, maxTextWidth);
+            ctx.fillText(line, margin, y, maxTextWidth * 0.86);
             y += headlineLineHeight;
           }
-          ctx.shadowBlur = 0;
         }
 
         if (ctaText) {
           const pillX = margin;
-          const pillY = base.height - margin - ctaPillHeight;
           const radius = ctaPillHeight / 2;
           ctx.fillStyle = CTA_ACCENT_COLOR;
           ctx.beginPath();
@@ -217,10 +228,12 @@ const overlayPosterText = async (baseDataUrl: string, headline: string, cta: str
           ctx.closePath();
           ctx.fill();
 
-          ctx.font = `700 ${ctaFontSize}px ${POSTER_TEXT_FONT_FAMILY}`;
+          ctx.font = `700 ${ctaFontSize}px ${posterFontFamily(ctaText)}`;
           ctx.fillStyle = '#ffffff';
           ctx.textAlign = 'center';
-          ctx.fillText(ctaText, pillX + ctaPillWidth / 2, pillY + ctaPillHeight / 2 + ctaFontSize * 0.35, ctaPillWidth - ctaPaddingX);
+          ctx.fillText(ctaText, pillX + ctaPillWidth / 2,
+            pillY + (ctaPillHeight - ctaFontSize * LINE_HEIGHT_RATIO) / 2,
+            ctaPillWidth - ctaPaddingX);
         }
 
         resolve(canvas.toDataURL('image/png'));
@@ -475,7 +488,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
       const ctaNote = requestedDetails.cta.trim() ? ` The call-to-action mood is "${requestedDetails.cta.trim()}".` : '';
       const fullPrompt = `Create the photographic background for a professionally designed marketing poster for a brand named "${effectiveBrand}".${headlineNote}${ctaNote} Style: ${requestedDetails.style}.
       Visual description: ${requestedPrompt}.
-      Compose a clear advertising layout rather than an ordinary full-frame photo: one dominant focal subject, intentional negative space for a headline, strong visual hierarchy, balanced brand-ready composition, and a clean lower area for a call-to-action. Use a real commercial photoshoot look with a physical subject, real environment, real light, realistic surfaces, and premium camera quality.
+      Compose a credible real-camera photograph with one clear, relevant focal subject. Keep the important subject within the central 80% so the app can crop it into a smaller rounded photo frame. The app places the headline and call-to-action in a separate panel below the photo, so do not reserve text space or draw a poster layout inside the image. Use a real setting, natural light, realistic surfaces, and premium camera quality; avoid CGI, futuristic cityscapes, neon trails, fantasy, and generic posed stock-photo models unless specifically requested.
 
       CRITICAL INSTRUCTION:
       - The current UI language is: ${language === 'km' ? 'Khmer' : 'English'}.
@@ -486,8 +499,8 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
       const response = await fetchImageGenerate({ action: 'imageGenerate', prompt: fullPrompt, aspectRatio: options.aspectRatio || '3:4' });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Image generation failed.');
-      const withLogo = await applyLogoWatermark(data.imageUrl, businessContext.logoDataUrl);
-      const finalImage = await overlayPosterText(withLogo, requestedDetails.headline, requestedDetails.cta);
+      const posterImage = await overlayPosterText(data.imageUrl, requestedDetails.headline, requestedDetails.cta);
+      const finalImage = await applyLogoWatermark(posterImage, businessContext.logoDataUrl);
       if (profileVersion !== profileVersionRef.current) return;
       setGeneratedImage(finalImage);
       void persistImageHistory(finalImage, requestedDetails.headline || requestedPrompt, {

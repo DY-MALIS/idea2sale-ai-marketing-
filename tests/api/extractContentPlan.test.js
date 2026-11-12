@@ -75,6 +75,8 @@ it('returns a company-specific Content Planner with ready-to-generate rows', asy
   expect(res.body.automation).toBeNull();
   expect(mocks.text).toHaveBeenCalledTimes(2);
   expect(mocks.text.mock.calls[1][0].prompt).toContain('My Cafe');
+  expect(mocks.text.mock.calls[1][0].prompt).toContain("source row's language");
+  expect(mocks.text.mock.calls[1][0].prompt).toContain('believable documentary-style commercial photograph');
 });
 
 it.each([

@@ -31,7 +31,7 @@ describe('applyPosterTextOverlay', () => {
     const raw = await decode(result);
     expect(raw.info.width).toBe(400);
     expect(raw.info.height).toBe(400);
-    const [r, g, b] = pixelAt(raw, 70, 364);
+    const [r, g, b] = pixelAt(raw, 30, 364);
     // #f97316 accent color -- allow antialiasing/font-render slack.
     expect(r).toBeGreaterThan(200);
     expect(g).toBeGreaterThan(90);
@@ -39,19 +39,29 @@ describe('applyPosterTextOverlay', () => {
     expect(b).toBeLessThan(60);
   }, 15_000); // Sharp font rendering can exceed Vitest's 5s default under full-suite load.
 
-  it('fades the lower photo without a hard panel edge', async () => {
+  it('frames the photo above a separate text panel', async () => {
     const base = await solidImageDataUrl(400, 400, { r: 200, g: 200, b: 200 });
     const result = await applyPosterTextOverlay(base, 'A short headline about the product', '');
     const raw = await decode(result);
-    const [, , , topAlpha] = pixelAt(raw, 5, 5);
-    expect(topAlpha).toBe(255);
-    const topPixel = pixelAt(raw, 5, 5);
-    const bottomPixel = pixelAt(raw, 5, 395);
-    expect(bottomPixel[0]).toBeLessThan(topPixel[0]);
-    const justAbove = pixelAt(raw, 5, 271);
-    const justBelow = pixelAt(raw, 5, 272);
-    expect(Math.abs(justAbove[0] - justBelow[0])).toBeLessThan(10);
+    expect(pixelAt(raw, 5, 5)[0]).toBeLessThan(50);
+    expect(pixelAt(raw, 200, 100)[0]).toBeGreaterThan(180);
+    expect(pixelAt(raw, 200, 380)[0]).toBeLessThan(50);
   });
+
+  it('renders Khmer headline and CTA with the bundled Khmer font', async () => {
+    const base = await solidImageDataUrl(600, 800);
+    const result = await applyPosterTextOverlay(base, 'រៀន AI ដើម្បីអនុវត្តក្នុងការងារពិត', 'ស្វែងយល់បន្ថែម');
+    expect(result).not.toBe(base);
+    const raw = await decode(result);
+    const brightTextPixels = [];
+    for (let y = 565; y < 720; y += 1) {
+      for (let x = 30; x < 550; x += 1) {
+        const [r, g, b] = pixelAt(raw, x, y);
+        if (r > 220 && g > 220 && b > 220) brightTextPixels.push(1);
+      }
+    }
+    expect(brightTextPixels.length).toBeGreaterThan(100);
+  }, 15_000);
 
   it('produces a same-size, decodable PNG for a non-square image', async () => {
     const base = await solidImageDataUrl(300, 500);

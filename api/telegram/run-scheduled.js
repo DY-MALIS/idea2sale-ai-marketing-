@@ -1063,7 +1063,10 @@ export default async function handler(req, res) {
       }
       const item = claim.post;
       try {
-        const image = await generateOpenRouterImage({ prompt: item.prompt, aspectRatio: item.aspectRatio || '1:1' });
+        const image = await generateOpenRouterImage({
+          prompt: `${item.prompt}\n\nFor this content-plan image, make a credible real-camera photograph of the actual topic. Show a real Cambodian setting and purposeful subject or activity when relevant. Avoid futuristic cityscapes, glowing pathways, CGI, generic posed models, and invented symbols. Do not put any words, captions, signs, logos, buttons or poster layout in the photograph; the app will frame it as a smaller image and add exact typography separately.`,
+          aspectRatio: item.aspectRatio || '1:1',
+        });
         const profileSnap = await db.collection('business_profiles').doc(item.userId).get().catch(() => null);
         const postered = await applyPosterTextOverlay(image.imageUrl, item.headline || '', item.cta || '');
         const watermarked = await applyLogoWatermarkServer(postered, profileSnap?.data()?.logoDataUrl);

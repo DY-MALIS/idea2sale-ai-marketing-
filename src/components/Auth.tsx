@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
-import { AlertCircle, CalendarDays, Sparkles, WandSparkles } from 'lucide-react';
+import { AlertCircle, CalendarDays, Check, LockKeyhole, Sparkles, WandSparkles } from 'lucide-react';
 
 import { signInWithGoogle } from '../lib/firebase';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -21,6 +21,8 @@ const Auth = () => {
     welcome: 'ចាប់ផ្តើមជាមួយ Aime',
     signInDescription: 'ចូលប្រើដើម្បីបង្កើតមាតិកាសម្រាប់អាជីវកម្មអ្នក។',
     secure: 'ចូលប្រើដោយសុវត្ថិភាពតាម Google',
+    signInLabel: 'គណនីរបស់អ្នក',
+    journey: 'ចាប់ផ្តើមពីគំនិតរបស់អ្នក ហើយបង្កើតមាតិកាដែលត្រៀមប្រើប្រាស់។',
   } : {
     eyebrow: 'YOUR CREATIVE MARKETING SPACE',
     headline: 'Turn a simple idea into content people notice.',
@@ -32,6 +34,8 @@ const Auth = () => {
     welcome: 'Make something great.',
     signInDescription: 'Sign in to start creating for your business.',
     secure: 'Secure sign-in with Google',
+    signInLabel: 'YOUR ACCOUNT',
+    journey: 'Bring your idea. Leave with content ready to share.',
   };
 
   const getFriendlyAuthError = (err: any) => {
@@ -92,34 +96,41 @@ const Auth = () => {
             <p className="mt-5 max-w-xl text-sm leading-7 text-[#6d5644] dark:text-slate-300 sm:text-base lg:text-lg lg:leading-8">
               {copy.description}
             </p>
-            <ul className="mt-6 flex flex-wrap gap-2.5 text-xs font-semibold text-[#704b2b] dark:text-amber-100 sm:text-sm">
+            <ul className="mt-6 hidden flex-wrap gap-2.5 text-xs font-semibold text-[#704b2b] dark:text-amber-100 sm:flex sm:text-sm">
               <li className="flex items-center gap-2 rounded-full bg-white/80 px-3.5 py-2 shadow-sm dark:bg-white/10"><WandSparkles size={16} aria-hidden="true" />{copy.create}</li>
               <li className="flex items-center gap-2 rounded-full bg-white/80 px-3.5 py-2 shadow-sm dark:bg-white/10"><Sparkles size={16} aria-hidden="true" />{copy.design}</li>
               <li className="flex items-center gap-2 rounded-full bg-white/80 px-3.5 py-2 shadow-sm dark:bg-white/10"><CalendarDays size={16} aria-hidden="true" />{copy.plan}</li>
             </ul>
           </div>
 
-          <div className="relative z-10 mt-8 overflow-hidden rounded-[1.75rem] border border-white/80 bg-[#d9a675] shadow-[0_24px_70px_-35px_rgba(112,51,10,0.65)] md:mt-auto md:translate-y-1 lg:mt-10">
-            <img src="/auth-hero.webp" alt={isKhmer ? 'ផលិតផលជាមួយទូរស័ព្ទ វីដេអូ រូបផ្សព្វផ្សាយ និងប្រតិទិនមាតិកា' : 'Product photography with video, campaign artwork, and a content calendar'} className="h-52 w-full object-cover object-center sm:h-64 md:h-[clamp(230px,32vh,400px)]" fetchPriority="high" />
+          <div className="relative z-10 mt-6 overflow-hidden rounded-[1.75rem] border border-white/80 bg-[#d9a675] shadow-[0_24px_70px_-35px_rgba(112,51,10,0.65)] md:mt-auto md:translate-y-1 lg:mt-10">
+            <img src="/auth-hero.webp" alt={isKhmer ? 'ផលិតផលជាមួយទូរស័ព្ទ វីដេអូ រូបផ្សព្វផ្សាយ និងប្រតិទិនមាតិកា' : 'Product photography with video, campaign artwork, and a content calendar'} className="h-28 w-full object-cover object-center sm:h-64 md:h-[clamp(230px,32vh,400px)]" fetchPriority="high" />
             <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#321b11]/85 via-[#321b11]/35 to-transparent px-5 pb-5 pt-14 text-sm font-semibold text-white sm:text-base">
               {copy.imageCaption}
             </div>
           </div>
         </section>
 
-        <section className="flex items-center justify-center bg-white px-6 py-12 dark:bg-slate-950 sm:px-10 md:px-8 lg:px-14">
+        <section className="relative flex items-center justify-center overflow-hidden bg-[#fffdfa] px-6 py-7 dark:bg-slate-950 sm:px-10 md:px-8 md:py-9 lg:px-14">
+          <div aria-hidden="true" className="pointer-events-none absolute -right-24 -top-28 h-80 w-80 rounded-full bg-amber-100/70 blur-3xl dark:bg-amber-900/10" />
+          <div aria-hidden="true" className="pointer-events-none absolute -bottom-32 -left-32 h-80 w-80 rounded-full bg-orange-100/60 blur-3xl dark:bg-orange-900/10" />
           <motion.div
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
-            className="w-full max-w-md"
+            className="relative w-full max-w-md"
           >
-            <div className="mb-8">
-              <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-[#b45309] dark:text-amber-400">aime.angkorgate</p>
-              <h2 className={`text-3xl font-bold leading-tight text-slate-900 dark:text-white sm:text-4xl ${isKhmer ? 'font-khmer' : 'font-display'}`}>{copy.welcome}</h2>
+            <div className="mb-5 md:mb-7">
+              <span className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-amber-100 bg-white shadow-[0_12px_26px_-14px_rgba(154,74,10,0.55)] dark:border-slate-700 dark:bg-slate-900 md:mb-6 md:h-14 md:w-14">
+                <img src="/favicon.svg" alt="" className="h-10 w-10" />
+              </span>
+              <p className="mb-3 text-[11px] font-bold uppercase tracking-[0.2em] text-[#b45309] dark:text-amber-400">{copy.signInLabel}</p>
+              <h2 className={`text-3xl font-bold leading-tight text-slate-900 dark:text-white sm:text-[2.6rem] ${isKhmer ? 'font-khmer' : 'font-display'}`}>{copy.welcome}</h2>
               <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300 sm:text-base">{copy.signInDescription}</p>
             </div>
 
-            <div className="rounded-[1.75rem] border border-amber-100 bg-[#fffcf7] p-5 shadow-[0_16px_50px_-30px_rgba(127,70,14,0.45)] dark:border-slate-800 dark:bg-slate-900 sm:p-7">
+            <div className="overflow-hidden rounded-[1.5rem] border border-[#eedbc5] bg-white shadow-[0_24px_60px_-30px_rgba(127,70,14,0.35)] dark:border-slate-700 dark:bg-slate-900">
+              <div aria-hidden="true" className="h-1 w-full bg-gradient-to-r from-[#b45309] via-[#f59e0b] to-[#ffd898]" />
+              <div className="p-5 sm:p-7">
               <div className="space-y-5">
             {error && (
               <div role="alert" className="space-y-4">
@@ -136,7 +147,7 @@ const Auth = () => {
               type="button"
               disabled={loading}
               onClick={handleGoogleLogin}
-              className="w-full min-h-14 px-5 py-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-xl font-bold text-sm sm:text-base flex items-center justify-center gap-3 transition-all shadow-sm hover:border-amber-300 hover:shadow-md dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed text-center"
+              className="w-full min-h-14 px-5 py-4 bg-[#fffaf2] dark:bg-slate-800 border border-[#e9d4bd] dark:border-slate-700 text-[#27334a] dark:text-slate-100 rounded-xl font-bold text-sm sm:text-base flex items-center justify-center gap-3 transition-all shadow-sm hover:border-[#d97706] hover:bg-[#fff3df] hover:shadow-md dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed text-center"
             >
               <svg viewBox="0 0 24 24" className="w-5 h-5" xmlns="http://www.w3.org/2000/svg">
                 <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
@@ -146,11 +157,17 @@ const Auth = () => {
               </svg>
               {t('continueWithGoogle')}
             </motion.button>
-                <p className="text-center text-xs text-slate-500 dark:text-slate-400">{copy.secure}</p>
+                <p className="flex items-center justify-center gap-1.5 text-center text-xs text-slate-500 dark:text-slate-400"><LockKeyhole size={13} aria-hidden="true" />{copy.secure}</p>
+              </div>
               </div>
             </div>
 
-            <p className="mt-8 text-center text-xs leading-6 text-slate-500 dark:text-slate-400">
+            <div className="mt-6 flex items-start gap-3 rounded-2xl border border-amber-100/80 bg-[#fff6e8] px-4 py-3.5 text-sm leading-6 text-[#74523b] dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#b45309] text-white"><Check size={12} aria-hidden="true" /></span>
+              <span>{copy.journey}</span>
+            </div>
+
+            <p className="mt-6 text-center text-xs leading-6 text-slate-500 dark:text-slate-400">
               {t('termsAndPrivacyPrefix')}{' '}
               <a href="/terms-of-service/" className="font-semibold text-[#a94d0b] underline-offset-4 hover:underline dark:text-amber-400">{t('termsOfService')}</a> {t('and')}{' '}
               <a href="/privacy-policy/" className="font-semibold text-[#a94d0b] underline-offset-4 hover:underline dark:text-amber-400">{t('privacyPolicy')}</a>.

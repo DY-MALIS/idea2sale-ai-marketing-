@@ -1,110 +1,93 @@
 import sharp from 'sharp';
 import { fileURLToPath } from 'node:url';
 
-// Mirrors src/components/PosterGen.tsx's overlayPosterText (browser Canvas 2D)
-// so calendar-generated posters get the same headline/CTA treatment as the
-// manual Poster tool. Serverless functions have no browser and no guaranteed
-// system fonts (Vercel's runtime ships none, and librsvg's <style>@font-face
-// src:url(data:...) embedding -- tried first -- silently falls back to
-// whatever default font fontconfig finds instead of loading it). sharp's
-// dedicated `text` input operator renders through Pango with an explicit
-// `fontfile`, which does load an arbitrary on-disk font reliably regardless
-// of what's registered on the host, so text is rendered there and shapes
-// (gradient, CTA pill) are rendered separately via plain SVG.
-const FONT_PATH = fileURLToPath(new URL('../assets/fonts/Inter-Bold.ttf', import.meta.url));
-const FONT_FAMILY = 'Inter';
-
-const HEADLINE_FONT_SIZE_RATIO = 0.056;
-const CTA_FONT_SIZE_RATIO = 0.03;
-const TEXT_MARGIN_RATIO = 0.06;
-const CTA_ACCENT_COLOR = '#f97316';
+// The image model supplies a photograph only. Keep exact text in its own
+// panel. Pango's fontfile option shapes Khmer in Vercel's fontless runtime.
+const LATIN_FONT = fileURLToPath(new URL('../assets/fonts/Inter-Bold.ttf', import.meta.url));
+const KHMER_FONT = fileURLToPath(new URL('../assets/fonts/KantumruyPro.ttf', import.meta.url));
+const BACKGROUND = '#102235';
+const ACCENT = '#f97316';
 
 const escapePango = (value) => String(value)
   .replace(/&/g, '&amp;')
   .replace(/</g, '&lt;')
   .replace(/>/g, '&gt;');
 
-const renderText = async (text, fontSize, { width, align } = {}) => sharp({
-  text: {
-    text: `<span foreground="#ffffff">${escapePango(text)}</span>`,
-    fontfile: FONT_PATH,
-    font: `${FONT_FAMILY} Bold ${fontSize}px`,
-    rgba: true,
-    ...(width ? { width, align: align || 'center' } : {}),
-  },
-}).png().toBuffer({ resolveWithObject: true });
+const renderText = async (value, size, width) => {
+  const khmer = /[\u1780-\u17ff]/u.test(value);
+  return sharp({
+    text: {
+      text: `<span foreground="#ffffff">${escapePango(value)}</span>`,
+      fontfile: khmer ? KHMER_FONT : LATIN_FONT,
+      font: `${khmer ? 'Kantumruy Pro' : 'Inter'} Bold ${size}px`,
+      rgba: true,
+      ...(width ? { width: Math.floor(width), align: 'left' } : {}),
+    },
+  }).png().toBuffer({ resolveWithObject: true });
+};
 
-// Composites a headline and/or CTA pill onto the bottom of an AI-generated
-// image, exactly like PosterGen.tsx's manual poster tool does client-side.
-// Text is expected to be English/Latin script -- the embedded font has no
-// Khmer glyph coverage, and the AI image prompt itself is separately told
-// never to render literal on-image text (see PosterGen.tsx and the calendar
-// prompt in api/ai.js), so this is the only place any text actually appears.
+const fitText = async (value, preferredSize, minSize, maxHeight, width) => {
+  let rendered;
+  for (let size = preferredSize; size >= minSize; size -= 2) {
+    rendered = await renderText(value, size, width);
+    if (rendered.info.height <= maxHeight && rendered.info.width <= width) break;
+  }
+  return rendered;
+};
+
 export async function applyPosterTextOverlay(imageDataUrl, headline = '', cta = '') {
-  const headlineText = String(headline).trim();
-  const ctaText = String(cta).trim();
+  const headlineText = String(headline).trim().slice(0, 80);
+  const ctaText = String(cta).trim().slice(0, 30);
   if (!headlineText && !ctaText) return imageDataUrl;
-
   const match = String(imageDataUrl).match(/^data:([^;,]+);base64,(.+)$/);
   if (!match) return imageDataUrl;
 
   try {
-    const baseBuffer = Buffer.from(match[2], 'base64');
-    const baseImage = sharp(baseBuffer);
-    const { width, height } = await baseImage.metadata();
+    const source = Buffer.from(match[2], 'base64');
+    const { width, height } = await sharp(source).metadata();
     if (!width || !height) return imageDataUrl;
 
-    const margin = Math.round(width * TEXT_MARGIN_RATIO);
-    const maxTextWidth = width - margin * 2;
+    const margin = Math.round(width * 0.055);
+    const contentWidth = width - margin * 2;
+    const photoHeight = Math.round(height * (height > width ? 0.62 : 0.54));
+    const photoBottom = margin + photoHeight;
+    const radius = Math.round(width * 0.025);
+    const mask = Buffer.from(`<svg width="${contentWidth}" height="${photoHeight}"><rect width="${contentWidth}" height="${photoHeight}" rx="${radius}" fill="white"/></svg>`);
+    const photo = await sharp(source)
+      .resize(contentWidth, photoHeight, { fit: 'cover', position: 'attention' })
+      .composite([{ input: mask, blend: 'dest-in' }]).png().toBuffer();
 
-    const headlineFontSize = Math.round(width * HEADLINE_FONT_SIZE_RATIO);
-    const ctaFontSize = Math.round(width * CTA_FONT_SIZE_RATIO);
+    const ctaSize = Math.max(14, Math.round(width * 0.031));
+    const ctaRender = ctaText
+      ? await fitText(ctaText, ctaSize, Math.max(12, Math.round(ctaSize * 0.7)), height * 0.08, contentWidth * 0.72)
+      : null;
+    const ctaPaddingX = Math.round(width * 0.035);
+    const ctaPaddingY = Math.round(width * 0.018);
+    const pillWidth = ctaRender ? Math.min(contentWidth, ctaRender.info.width + ctaPaddingX * 2) : 0;
+    const pillHeight = ctaRender ? ctaRender.info.height + ctaPaddingY * 2 : 0;
+    const pillY = height - margin - pillHeight;
+    const headlineY = photoBottom + Math.round(margin * 1.2);
+    const maxHeadlineHeight = (ctaRender ? pillY - margin * 0.55 : height - margin) - headlineY;
+    const headlineRender = headlineText
+      ? await fitText(headlineText, Math.round(width * 0.06), Math.max(14, Math.round(width * 0.032)), maxHeadlineHeight, contentWidth * 0.86)
+      : null;
 
-    const headline_ = headlineText ? await renderText(headlineText, headlineFontSize, { width: maxTextWidth, align: 'left' }) : null;
-    const cta_ = ctaText ? await renderText(ctaText, ctaFontSize) : null;
-
-    const ctaPaddingX = Math.round(ctaFontSize * 1.1);
-    const ctaPaddingY = Math.round(ctaFontSize * 0.7);
-    const ctaPillWidth = cta_ ? Math.min(cta_.info.width + ctaPaddingX * 2, maxTextWidth) : 0;
-    const ctaPillHeight = cta_ ? cta_.info.height + ctaPaddingY * 2 : 0;
-
-    const headlineHeight = headline_ ? headline_.info.height : 0;
-    const gapBetween = headline_ && cta_ ? Math.round(margin * 0.6) : 0;
-    const contentHeight = headlineHeight + gapBetween + ctaPillHeight;
-    const blockHeight = Math.round(Math.max(height * 0.32, contentHeight + margin * 2));
-    const panelTop = Math.max(0, height - blockHeight);
-    const gradientTop = Math.max(0, Math.round(panelTop - blockHeight * 0.48));
-
-    const pillX = margin;
-    const pillY = Math.round(height - margin - ctaPillHeight);
-    const radius = ctaPillHeight / 2;
-
-    const shapesSvg = `
-      <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-        <defs><linearGradient id="poster-shade" x1="0" y1="${gradientTop}" x2="0" y2="${height}" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#081425" stop-opacity="0"/><stop offset="0.42" stop-color="#081425" stop-opacity="0.64"/><stop offset="1" stop-color="#081425" stop-opacity="0.96"/></linearGradient></defs>
-        <rect x="0" y="${gradientTop}" width="${width}" height="${height - gradientTop}" fill="url(#poster-shade)" />
-        <rect x="${margin}" y="${panelTop + margin * 0.72}" width="${Math.max(42, width * 0.085)}" height="${Math.max(4, width * 0.006)}" fill="${CTA_ACCENT_COLOR}" />
-        ${cta_ ? `<rect x="${pillX}" y="${pillY}" width="${ctaPillWidth}" height="${ctaPillHeight}" rx="${radius}" fill="${CTA_ACCENT_COLOR}" />` : ''}
-      </svg>
-    `;
-
-    const layers = [{ input: Buffer.from(shapesSvg), top: 0, left: 0 }];
-    if (headline_) {
-      const y = Math.round(panelTop + margin * 1.45);
-      layers.push({ input: headline_.data, top: y, left: margin });
-    }
-    if (cta_) {
-      layers.push({
-        input: cta_.data,
-        top: Math.round(pillY + (ctaPillHeight - cta_.info.height) / 2),
-        left: Math.round(pillX + (ctaPillWidth - cta_.info.width) / 2),
-      });
-    }
-
-    const composited = await baseImage.composite(layers).png().toBuffer();
-    return `data:image/png;base64,${composited.toString('base64')}`;
+    const decoration = Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+      <rect x="${margin}" y="${photoBottom + Math.round(margin * 0.55)}" width="${Math.round(width * 0.095)}" height="${Math.max(3, Math.round(width * 0.006))}" rx="2" fill="${ACCENT}" />
+      ${ctaRender ? `<rect x="${margin}" y="${pillY}" width="${pillWidth}" height="${pillHeight}" rx="${pillHeight / 2}" fill="${ACCENT}" />` : ''}
+    </svg>`);
+    const layers = [{ input: photo, top: margin, left: margin }, { input: decoration, top: 0, left: 0 }];
+    if (headlineRender) layers.push({ input: headlineRender.data, top: headlineY, left: margin });
+    if (ctaRender) layers.push({
+      input: ctaRender.data,
+      top: Math.round(pillY + (pillHeight - ctaRender.info.height) / 2),
+      left: Math.round(margin + (pillWidth - ctaRender.info.width) / 2),
+    });
+    const composed = await sharp({ create: { width, height, channels: 4, background: BACKGROUND } })
+      .composite(layers).png().toBuffer();
+    return `data:image/png;base64,${composed.toString('base64')}`;
   } catch (error) {
-    console.error('Poster text overlay failed, using the image without it:', error?.message || error);
+    console.error('Poster text layout failed, using the image without it:', error?.message || error);
     return imageDataUrl;
   }
 }
