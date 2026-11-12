@@ -83,11 +83,11 @@ const Auth = () => {
   return (
     <main className={`relative isolate min-h-screen overflow-hidden bg-[#11152e] text-white ${isKhmer ? 'font-khmer' : ''}`}>
       {reduceMotion ? (
-        <img src="/auth-cinematic-sharp.webp" alt="" fetchPriority="high" className="pointer-events-none absolute inset-x-0 top-0 h-[100svh] w-full object-cover object-[52%_center] [mask-image:linear-gradient(to_bottom,black_0%,black_85%,transparent_100%)] lg:inset-0 lg:h-full lg:[mask-image:none]" />
+        <img src="/auth-typing-poster.webp" alt="" fetchPriority="high" className="pointer-events-none absolute inset-x-0 top-0 h-[100svh] w-full object-cover object-[52%_center] [mask-image:linear-gradient(to_bottom,black_0%,black_85%,transparent_100%)] lg:inset-0 lg:h-full lg:[mask-image:none]" />
       ) : (
         <video
-          src="/auth-typing-loop.mp4"
-          poster="/auth-cinematic-sharp.webp"
+          src="/auth-typing-real-loop.mp4"
+          poster="/auth-typing-poster.webp"
           autoPlay
           muted
           loop
