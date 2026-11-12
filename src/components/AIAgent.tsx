@@ -1586,7 +1586,8 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         <p className="text-slate-500 dark:text-slate-400 text-lg max-w-4xl">{text.subtitle}</p>
       </header>
 
-      <section className="glass rounded-2xl p-5">
+      <div className="grid min-w-0 grid-cols-1 items-start gap-4 xl:grid-cols-2 xl:gap-5">
+      <section className={`glass min-w-0 rounded-2xl p-4 sm:p-5 ${historyOpen ? 'xl:col-span-2' : ''}`}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <button
             type="button"
@@ -1662,7 +1663,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         )}
       </section>
 
-      <section ref={planSectionRef} className="glass min-w-0 rounded-2xl p-4 sm:p-5">
+      <section ref={planSectionRef} className={`glass min-w-0 rounded-2xl p-4 sm:p-5 ${planOpen ? 'xl:col-span-2' : ''}`}>
         <button
           type="button"
           onClick={() => setPlanOpen((open) => !open)}
@@ -2001,6 +2002,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           </div>
         )}
       </section>
+      </div>
 
       <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-12 xl:gap-8">
         <section className="xl:col-span-4 glass min-w-0 rounded-[2rem] p-4 space-y-5 self-start sm:p-7">

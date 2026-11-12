@@ -93,18 +93,18 @@ const Auth = ({ isSignedIn = false }: { isSignedIn?: boolean }) => {
     <main className={`min-h-screen bg-[#11152e] text-white ${isKhmer ? 'font-khmer' : ''}`}>
       <div className="relative isolate min-h-screen overflow-hidden">
       {reduceMotion ? (
-        <img src="/auth-lively-poster.webp" alt="" fetchPriority="high" className="pointer-events-none absolute inset-x-0 top-0 h-[100svh] w-full object-cover object-[52%_center] [mask-image:linear-gradient(to_bottom,black_0%,black_85%,transparent_100%)] lg:inset-0 lg:h-full lg:[mask-image:none]" />
+        <img src="/auth-full-scene-poster.webp" alt="" fetchPriority="high" className="pointer-events-none absolute inset-x-0 top-0 h-[100svh] w-full object-cover object-center [mask-image:linear-gradient(to_bottom,black_0%,black_85%,transparent_100%)] lg:inset-0 lg:h-full lg:[mask-image:none]" />
       ) : (
         <video
-          src="/auth-lively-loop.mp4"
-          poster="/auth-lively-poster.webp"
+          src="/auth-full-scene-loop.mp4"
+          poster="/auth-full-scene-start.webp"
           autoPlay
           muted
           loop
           playsInline
           aria-hidden="true"
           tabIndex={-1}
-          className="pointer-events-none absolute inset-x-0 top-0 h-[100svh] w-full object-cover object-[52%_center] [mask-image:linear-gradient(to_bottom,black_0%,black_85%,transparent_100%)] lg:inset-0 lg:h-full lg:[mask-image:none]"
+          className="pointer-events-none absolute inset-x-0 top-0 h-[100svh] w-full object-cover object-center [mask-image:linear-gradient(to_bottom,black_0%,black_85%,transparent_100%)] lg:inset-0 lg:h-full lg:[mask-image:none]"
         />
       )}
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#10122c]/72 via-[#15142f]/10 to-transparent" />
@@ -128,7 +128,7 @@ const Auth = ({ isSignedIn = false }: { isSignedIn?: boolean }) => {
             </h1>
             <p className="mt-5 max-w-[570px] text-base leading-7 text-white/90 drop-shadow-[0_2px_9px_rgba(0,0,0,0.7)] sm:text-lg sm:leading-8">{copy.description}</p>
             <div className="mt-7 hidden lg:block"><AuthShowcase /></div>
-            <motion.button
+            {!isSignedIn && <motion.button
               whileHover={reduceMotion ? undefined : { y: -3 }}
               whileTap={reduceMotion ? undefined : { scale: 0.98 }}
               type="button"
@@ -136,9 +136,9 @@ const Auth = ({ isSignedIn = false }: { isSignedIn?: boolean }) => {
               onClick={handlePrimaryAction}
               className="mt-7 inline-flex min-h-13 items-center justify-center gap-3 rounded-full border border-orange-200/70 bg-gradient-to-r from-[#ffad23] to-[#f76807] px-7 py-3 text-sm font-bold text-white shadow-[0_10px_28px_rgba(242,98,5,0.45)] transition-[filter,box-shadow] hover:brightness-110 hover:shadow-[0_14px_32px_rgba(242,98,5,0.6)] disabled:cursor-not-allowed disabled:opacity-50 sm:text-base"
             >
-              <Sparkles size={19} aria-hidden="true" /> {isSignedIn ? (isKhmer ? 'បើក App' : 'Open App') : copy.getStarted} <ArrowRight size={18} aria-hidden="true" />
-            </motion.button>
-            <a href="#features" className="ml-4 inline-flex min-h-12 items-center text-sm font-semibold text-orange-100 underline-offset-4 hover:underline">
+              <Sparkles size={19} aria-hidden="true" /> {copy.getStarted} <ArrowRight size={18} aria-hidden="true" />
+            </motion.button>}
+            <a href="#features" className={`${isSignedIn ? 'mt-7' : 'ml-4'} inline-flex min-h-12 items-center text-sm font-semibold text-orange-100 underline-offset-4 hover:underline`}>
               {isKhmer ? 'ស្វែងយល់អំពីមុខងារ' : 'Explore the features'} <ArrowRight size={16} aria-hidden="true" className="ml-1.5" />
             </a>
           </section>
