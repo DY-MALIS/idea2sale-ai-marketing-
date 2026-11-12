@@ -5,6 +5,7 @@ import { AlertCircle, ArrowRight, LockKeyhole, ShieldCheck, Sparkles, Users, Zap
 import { signInWithGoogle } from '../lib/firebase';
 import { useLanguage } from '../contexts/LanguageContext';
 import AuthShowcase from './AuthShowcase';
+import AuthInformation from './AuthInformation';
 
 const Auth = () => {
   const { t, language } = useLanguage();
@@ -30,7 +31,7 @@ const Auth = () => {
     eyebrow: 'AI CREATIVE MARKETING PLATFORM',
     headline: 'Turn a simple idea into',
     headlineAccent: 'powerful content.',
-    description: 'Aime helps you write campaigns, create visuals and videos, and plan your social content in one place.',
+    description: 'Create visuals and videos, schedule approved posts, and understand engagement in one AI marketing workspace.',
     welcome: 'Welcome to Aime',
     signInDescription: 'Sign in to start creating for your business.',
     secure: 'Secure sign-in with Google',
@@ -81,7 +82,8 @@ const Auth = () => {
   };
 
   return (
-    <main className={`relative isolate min-h-screen overflow-hidden bg-[#11152e] text-white ${isKhmer ? 'font-khmer' : ''}`}>
+    <main className={`min-h-screen bg-[#11152e] text-white ${isKhmer ? 'font-khmer' : ''}`}>
+      <div className="relative isolate min-h-screen overflow-hidden">
       {reduceMotion ? (
         <img src="/auth-typing-poster.webp" alt="" fetchPriority="high" className="pointer-events-none absolute inset-x-0 top-0 h-[100svh] w-full object-cover object-[52%_center] [mask-image:linear-gradient(to_bottom,black_0%,black_85%,transparent_100%)] lg:inset-0 lg:h-full lg:[mask-image:none]" />
       ) : (
@@ -128,6 +130,9 @@ const Auth = () => {
             >
               <Sparkles size={19} aria-hidden="true" /> {copy.getStarted} <ArrowRight size={18} aria-hidden="true" />
             </motion.button>
+            <a href="#features" className="ml-4 inline-flex min-h-12 items-center text-sm font-semibold text-orange-100 underline-offset-4 hover:underline">
+              {isKhmer ? 'ស្វែងយល់អំពីមុខងារ' : 'Explore the features'} <ArrowRight size={16} aria-hidden="true" className="ml-1.5" />
+            </a>
           </section>
 
           <section aria-label={copy.welcome} className="mt-36 w-full max-w-[350px] justify-self-center lg:mt-0 lg:self-end lg:justify-self-end lg:pb-7">
@@ -187,6 +192,8 @@ const Auth = () => {
           })}
         </footer>
       </div>
+      </div>
+      <AuthInformation />
     </main>
   );
 };
