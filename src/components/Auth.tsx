@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
-import { AlertCircle, ArrowRight, LockKeyhole, ShieldCheck, Sparkles, Users, Zap } from 'lucide-react';
+import { AlertCircle, ArrowRight, LockKeyhole, Play, ShieldCheck, Sparkles, Users, Zap } from 'lucide-react';
 
 import { signInWithGoogle } from '../lib/firebase';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -11,7 +11,14 @@ const Auth = ({ isSignedIn = false }: { isSignedIn?: boolean }) => {
   const { t, language } = useLanguage();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [videoNeedsPlay, setVideoNeedsPlay] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const reduceMotion = useReducedMotion();
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    void video.play().catch(() => setVideoNeedsPlay(true));
+  }, []);
   const isKhmer = language === 'km';
   const copy = isKhmer ? {
     eyebrow: 'វេទិកាបង្កើតមាតិកាទីផ្សារដោយ AI',
@@ -92,25 +99,33 @@ const Auth = ({ isSignedIn = false }: { isSignedIn?: boolean }) => {
   return (
     <main className={`min-h-screen bg-[#11152e] text-white ${isKhmer ? 'font-khmer' : ''}`}>
       <div className="relative isolate min-h-screen overflow-hidden">
-      {reduceMotion ? (
-        <img src="/auth-full-scene-poster.webp" alt="" fetchPriority="high" className="pointer-events-none absolute inset-x-0 top-0 h-[100svh] w-full object-cover object-center [mask-image:linear-gradient(to_bottom,black_0%,black_85%,transparent_100%)] lg:inset-0 lg:h-full lg:[mask-image:none]" />
-      ) : (
         <video
+          ref={videoRef}
           src="/auth-full-scene-loop.mp4"
           poster="/auth-full-scene-start.webp"
           autoPlay
           muted
           loop
           playsInline
+          preload="auto"
+          onPlaying={() => setVideoNeedsPlay(false)}
+          onPause={() => setVideoNeedsPlay(true)}
+          onError={() => setVideoNeedsPlay(true)}
           aria-hidden="true"
           tabIndex={-1}
           className="pointer-events-none absolute inset-x-0 top-0 h-[100svh] w-full object-cover object-center [mask-image:linear-gradient(to_bottom,black_0%,black_85%,transparent_100%)] lg:inset-0 lg:h-full lg:[mask-image:none]"
         />
-      )}
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#10122c]/72 via-[#15142f]/10 to-transparent" />
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#11142f]/35 via-transparent to-[#11142f]/10" />
 
       <div className="relative mx-auto flex min-h-screen max-w-[1700px] flex-col px-5 pb-5 pt-6 sm:px-9 lg:px-14">
+        {videoNeedsPlay && <button
+          type="button"
+          onClick={() => void videoRef.current?.play().catch(() => setVideoNeedsPlay(true))}
+          className="absolute right-5 top-24 z-20 inline-flex items-center gap-2 rounded-full border border-white/40 bg-[#17162c]/80 px-4 py-2 text-sm font-semibold text-white shadow-lg backdrop-blur-md hover:bg-[#17162c] sm:right-9 lg:right-14"
+        >
+          <Play size={16} fill="currentColor" aria-hidden="true" /> {isKhmer ? 'ចាក់វីដេអូ' : 'Play video'}
+        </button>}
         <header className="flex min-h-14 items-center gap-5 pr-24 sm:pr-32">
           <a href="/" className="flex shrink-0 items-center gap-2.5 rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-orange-300" aria-label="Aime Angkorgate home">
             <img src="/favicon.svg" alt="" className="h-11 w-11 rounded-full shadow-[0_8px_26px_rgba(245,158,11,0.25)]" />
@@ -207,3 +222,4 @@ const Auth = ({ isSignedIn = false }: { isSignedIn?: boolean }) => {
 };
 
 export default Auth;
+
