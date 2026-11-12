@@ -82,7 +82,23 @@ const Auth = () => {
 
   return (
     <main className={`relative isolate min-h-screen overflow-hidden bg-[#11152e] text-white ${isKhmer ? 'font-khmer' : ''}`}>
-      <img src="/auth-cinematic-sharp.webp" alt="" fetchPriority="high" className="pointer-events-none absolute inset-0 h-full w-full object-cover object-[52%_center]" />
+      {reduceMotion ? (
+        <img src="/auth-cinematic-sharp.webp" alt="" fetchPriority="high" className="pointer-events-none absolute inset-0 h-full w-full object-cover object-[52%_center]" />
+      ) : (
+        <motion.video
+          src="/auth-cinematic-motion.mp4"
+          poster="/auth-cinematic-sharp.webp"
+          autoPlay
+          muted
+          loop
+          playsInline
+          aria-hidden="true"
+          tabIndex={-1}
+          animate={{ scale: [1.01, 1.035, 1.01], x: [0, -8, 0] }}
+          transition={{ duration: 12, ease: 'easeInOut', repeat: Infinity }}
+          className="pointer-events-none absolute inset-0 h-full w-full object-cover object-[52%_center]"
+        />
+      )}
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#10122c]/72 via-[#15142f]/10 to-transparent" />
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#11142f]/35 via-transparent to-[#11142f]/10" />
 
@@ -119,7 +135,8 @@ const Auth = () => {
           <section aria-label={copy.welcome} className="w-full max-w-[430px] justify-self-center lg:justify-self-end">
             <motion.div
               initial={reduceMotion ? false : { opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
+              animate={reduceMotion ? { opacity: 1, y: 0 } : { opacity: 1, y: [0, -7, 0] }}
+              transition={reduceMotion ? undefined : { opacity: { duration: 0.5 }, y: { duration: 7, ease: 'easeInOut', repeat: Infinity } }}
               className="rounded-[2rem] border border-white/80 bg-[linear-gradient(160deg,rgba(255,255,255,0.98),rgba(255,246,234,0.97))] px-6 py-7 text-slate-900 shadow-[0_30px_90px_rgba(5,8,30,0.5)] backdrop-blur-xl sm:px-8 sm:py-9"
             >
               <div className="text-center">
@@ -134,6 +151,8 @@ const Auth = () => {
               <motion.button
                 whileHover={reduceMotion ? undefined : { scale: 1.02 }}
                 whileTap={reduceMotion ? undefined : { scale: 0.98 }}
+                animate={reduceMotion ? undefined : { boxShadow: ['0 10px 25px rgba(238,103,6,0.35)', '0 15px 35px rgba(238,103,6,0.58)', '0 10px 25px rgba(238,103,6,0.35)'] }}
+                transition={reduceMotion ? undefined : { duration: 5.5, ease: 'easeInOut', repeat: Infinity }}
                 type="button"
                 disabled={loading}
                 onClick={handleGoogleLogin}
