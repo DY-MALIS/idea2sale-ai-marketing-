@@ -119,6 +119,7 @@ export default function App() {
   }, [isMobileNavOpen]);
 
   const effectivelyAuthenticated = !!user || isDemoMode;
+  const isPublicHome = pathname === '/' || pathname === '/about';
   
   const handleCreativeAutomation = (request: CreativeAutomationRequest) => {
     setCreativeAutomation({ owner: accountKey, request });
@@ -185,7 +186,7 @@ export default function App() {
   return (
     <div className="flex flex-col min-h-screen font-sans bg-mesh overflow-x-hidden">
       {/* Top Header with Language Switcher - Always Visible */}
-      {effectivelyAuthenticated && (
+      {effectivelyAuthenticated && !isPublicHome && (
         <motion.button
           whileTap={{ scale: 0.95 }}
           type="button"
@@ -250,7 +251,7 @@ export default function App() {
           </AnimatePresence>
         </div>
 
-        {effectivelyAuthenticated && (
+        {effectivelyAuthenticated && !isPublicHome && (
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
@@ -274,8 +275,8 @@ export default function App() {
             <p className="text-slate-500 dark:text-slate-400 font-medium">{t('processing')}</p>
           </div>
         </div>
-      ) : !effectivelyAuthenticated ? (
-        <Auth />
+      ) : isPublicHome || !effectivelyAuthenticated ? (
+        <Auth isSignedIn={effectivelyAuthenticated} />
       ) : (
         <div key={accountKey} className="flex flex-1 relative">
           <AnimatePresence>
