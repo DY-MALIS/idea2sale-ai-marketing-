@@ -11,7 +11,6 @@ import { recordAuditEvent } from '../lib/auditClient';
 import { withUploadTimeout } from '../lib/withUploadTimeout';
 import { notifyBusinessProfileUpdated } from '../lib/businessBranding';
 import { channelUsernameFromProfile } from '../../shared/telegramDestination.js';
-import { EmailAuthProvider, linkWithCredential, updatePassword } from 'firebase/auth';
 
 const DEMO_STORAGE_KEY = 'demo_business_profile';
 const LOGO_MAX_DIMENSION = 256;
@@ -107,9 +106,6 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
   const [approvalConnection, setApprovalConnection] = useState<{ active: boolean; linked: boolean; webhookReady: boolean; sharedBot: boolean; channelReady: boolean; channelLabel?: string } | null>(null);
   const [approvalConnectionError, setApprovalConnectionError] = useState('');
   const [checkingApprovalConnection, setCheckingApprovalConnection] = useState(false);
-  const [accountPassword, setAccountPassword] = useState('');
-  const [confirmAccountPassword, setConfirmAccountPassword] = useState('');
-  const [passwordStatus, setPasswordStatus] = useState('');
 
   const [businessName, setBusinessName] = useState('');
   const [savedBusinessName, setSavedBusinessName] = useState('');
@@ -670,29 +666,6 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
     if (!authLoading && user && !isDemoMode) void checkApprovalConnection();
   }, [authLoading, user?.uid, isDemoMode]);
 
-  const saveAccountPassword = async () => {
-    if (!user?.email || accountPassword.length < 8) {
-      setPasswordStatus('Use an account with an email and a password of at least 8 characters.');
-      return;
-    }
-    if (accountPassword !== confirmAccountPassword) {
-      setPasswordStatus('Passwords do not match.');
-      return;
-    }
-    try {
-      if (user.providerData.some((provider) => provider.providerId === 'password')) {
-        await updatePassword(user, accountPassword);
-      } else {
-        await linkWithCredential(user, EmailAuthProvider.credential(user.email, accountPassword));
-      }
-      setAccountPassword('');
-      setConfirmAccountPassword('');
-      setPasswordStatus('Website account password saved.');
-    } catch (error: any) {
-      setPasswordStatus(error?.code === 'auth/requires-recent-login' ? 'Sign out and sign in with Google again, then retry.' : 'Could not save password. Please try again.');
-    }
-  };
-
   const createApprovalCode = async () => {
     if (!user || !telegramBotActive) return;
     setCreatingApprovalLoginCode(true);
@@ -1142,7 +1115,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
               </div>
             )}
 
-            {!isDemoMode && user?.email && (
+            {!isDemoMode && user && (approvalConnectionError || (approvalConnection && !(approvalConnection.webhookReady && approvalConnection.linked && approvalConnection.channelReady))) && (
               <div className="rounded-2xl border border-slate-200 p-5 dark:border-slate-700">
                 <h3 className="mb-2 font-bold text-slate-900 dark:text-slate-100">Approval bot sign-in</h3>
                 <p className="mb-3 text-xs text-slate-600 dark:text-slate-300">To connect this website account to @dgacademy_official_bot, send /login to the bot in a private chat, open its link, and continue with Google. Your website password stays with Firebase Authentication.</p>
@@ -1163,15 +1136,6 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
                   {approvalLoginCode && <p className="mb-2 font-mono text-lg font-bold tracking-wider text-slate-900 dark:text-slate-100">{approvalLoginCode}</p>}
                   {approvalLoginStatus && <p className="mb-4 text-xs text-slate-600 dark:text-slate-300">{approvalLoginStatus}</p>}
                 </>}
-                <p className="mb-3 text-xs text-slate-600 dark:text-slate-300">Optional: set or change the password for your website account ({user.email}).</p>
-                <label htmlFor="approval-account-email" className="mb-1 block text-xs font-semibold text-slate-700 dark:text-slate-200">Account email</label>
-                <input id="approval-account-email" type="email" value={user.email} readOnly className="mb-3 w-full rounded-xl border border-slate-200 bg-slate-100 p-3 text-slate-900" />
-                <label htmlFor="approval-account-password" className="mb-1 block text-xs font-semibold text-slate-700 dark:text-slate-200">New password</label>
-                <input id="approval-account-password" type="password" autoComplete="new-password" minLength={8} value={accountPassword} onChange={(event) => setAccountPassword(event.target.value)} placeholder="At least 8 characters" className="mb-3 w-full rounded-xl border border-slate-200 bg-white p-3 text-slate-900" />
-                <label htmlFor="approval-account-confirm-password" className="mb-1 block text-xs font-semibold text-slate-700 dark:text-slate-200">Confirm password</label>
-                <input id="approval-account-confirm-password" type="password" autoComplete="new-password" minLength={8} value={confirmAccountPassword} onChange={(event) => setConfirmAccountPassword(event.target.value)} placeholder="Confirm password" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-slate-900" />
-                <button type="button" onClick={saveAccountPassword} className="mt-3 rounded-xl bg-brand-700 px-4 py-2 text-sm font-bold text-white">Save password</button>
-                {passwordStatus && <p className="mt-2 text-xs text-slate-600 dark:text-slate-300">{passwordStatus}</p>}
               </div>
             )}
 
