@@ -6,6 +6,7 @@ import {
   formatTelegramHtml,
   getAutomationActive,
   getBusinessName,
+  isAnonymousCommentAdminMessage,
   isCommentGroupMessage,
   manualReplyDestinationMatches,
   messageLeadContext,
@@ -128,6 +129,34 @@ describe('messageLeadContext', () => {
     const a = messageLeadContext(privateMessage, 'owner-a');
     const b = messageLeadContext(privateMessage, 'owner-b');
     expect(a.conversationId).not.toBe(b.conversationId);
+  });
+
+  it('keeps the comment bot separate from the deployment bot in the same group', () => {
+    const message = {
+      chat: { id: -1004352635134, type: 'supergroup' },
+      from: { id: 555, first_name: 'Dara' },
+      message_id: 42,
+    };
+    const deployment = messageLeadContext(message, null);
+    const comments = messageLeadContext(message, null, 'comments');
+    expect(deployment.conversationId).toBe('-1004352635134:555');
+    expect(comments.conversationId).toBe('comments_-1004352635134:555');
+    expect(comments.replyChatId).toBe(deployment.replyChatId);
+    expect(comments.replyToMessageId).toBe(42);
+  });
+
+  it('uses the group identity for an anonymous admin comment', () => {
+    const message = {
+      chat: { id: -1004352635134, type: 'supergroup' },
+      sender_chat: { id: -1004352635134, title: 'AI Marketing Engine Chat' },
+      from: { id: 1087968824, first_name: 'Group', is_bot: true },
+      message_id: 43,
+    };
+    expect(isAnonymousCommentAdminMessage(message, '-1004352635134')).toBe(true);
+    expect(messageLeadContext(message, null, 'comments').actorId).toBe('-1004352635134');
+    expect(messageLeadContext(message, null, 'comments').replyToMessageId).toBe(43);
+    expect(isAnonymousCommentAdminMessage({ ...message, is_automatic_forward: true }, '-1004352635134')).toBe(false);
+    expect(isAnonymousCommentAdminMessage({ ...message, sender_chat: { id: -1002 } }, '-1004352635134')).toBe(false);
   });
 });
 

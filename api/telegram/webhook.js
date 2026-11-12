@@ -99,17 +99,21 @@ export const telegramReactionName = (reaction) => {
 // would collide on the same conversationId without this prefix. The shared
 // bot (ownerId null) keeps its original unprefixed IDs so existing
 // telegram_leads/telegram_messages docs keep resolving to the same lead.
-export const messageLeadContext = (message, ownerId) => {
+export const messageLeadContext = (message, ownerId, botKind = null) => {
   const chat = message?.chat || {};
-  const actor = message?.from || chat;
+  const anonymousAdmin = botKind === 'comments' && isAnonymousCommentAdminMessage(message, chat.id);
+  const actor = anonymousAdmin ? message.sender_chat : message?.from || chat;
   const isGroupComment = chat.type === 'group' || chat.type === 'supergroup';
   const actorId = String(actor.id ?? chat.id ?? 'unknown');
   const replyChatId = String(chat.id ?? actor.id ?? '');
   const rawConversationId = isGroupComment ? `${replyChatId}:${actorId}` : replyChatId;
+  // The deployment bot can also receive messages from this group. Keep its
+  // existing lead IDs, while giving the dedicated comment bot its own IDs.
+  const botConversationId = botKind === 'comments' ? `comments_${rawConversationId}` : rawConversationId;
   return {
     actor,
     actorId,
-    conversationId: ownerId ? `${ownerId}_${rawConversationId}` : rawConversationId,
+    conversationId: ownerId ? `${ownerId}_${botConversationId}` : botConversationId,
     replyChatId,
     replyToMessageId: isGroupComment ? message?.message_id || null : null,
     source: isGroupComment ? 'channel-comment' : 'user',
@@ -121,6 +125,14 @@ export const isCommentGroupMessage = (update, groupId) => {
   const message = update?.message || update?.edited_message;
   return Boolean(groupId && message?.chat?.type === 'supergroup' && String(message.chat.id) === String(groupId));
 };
+
+export const isAnonymousCommentAdminMessage = (message, groupId) => Boolean(
+  groupId
+  && message?.chat?.type === 'supergroup'
+  && String(message.chat.id) === String(groupId)
+  && String(message.sender_chat?.id) === String(groupId)
+  && !message.is_automatic_forward
+);
 
 const includesAny = (text, phrases) => phrases.some((phrase) => text.includes(phrase));
 
@@ -198,12 +210,12 @@ A request such as "I want you to create attractive content" is interested, not g
 };
 
 const upsertTelegramLead = async (db, message, text, forcedTag, ownerId, extraFields = {}) => {
-  const context = messageLeadContext(message, ownerId);
+  const context = messageLeadContext(message, ownerId, extraFields.botKind);
   const leadRef = db.collection('telegram_leads').doc(context.conversationId);
 
   try {
     const existingSnap = await leadRef.get();
-    const displayName = [context.actor.first_name, context.actor.last_name].filter(Boolean).join(' ') || context.actor.username || 'Telegram user';
+    const displayName = [context.actor.first_name, context.actor.last_name].filter(Boolean).join(' ') || context.actor.title || context.actor.username || 'Telegram user';
 
     if (!existingSnap.exists) {
       const tag = forcedTag || await classifyLead(text);
@@ -997,6 +1009,10 @@ export default async function handler(req, res) {
     if (!isCommentGroupMessage(update, groupId)) {
       return res.status(200).json({ ok: true, ignored: 'outside-comment-group' });
     }
+  } else if (!ownerId && isCommentGroupMessage(update, process.env.TELEGRAM_COMMENT_GROUP_ID)) {
+    // The dedicated comment bot owns conversations in this group. The legacy
+    // deployment bot may also be a member, but must not send a second reply.
+    return res.status(200).json({ ok: true, ignored: 'dedicated-comment-group' });
   }
   const sharedApprovalBot = Boolean(ownerId && String(ownerProfile.telegramBotUsername || '').toLowerCase() === 'dgacademy_official_bot');
 
@@ -1103,7 +1119,7 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true, ignored: true });
   }
 
-  if (message?.from?.is_bot) {
+  if (message?.from?.is_bot && !(commentBotRequest && isAnonymousCommentAdminMessage(message, chatId))) {
     return res.status(200).json({ ok: true, ignored: 'bot-message' });
   }
 
@@ -1182,7 +1198,7 @@ export default async function handler(req, res) {
           scanBusinessName: scanLead.businessName || null,
         } : {}),
       })
-    : messageLeadContext(message, conversationOwnerId);
+    : messageLeadContext(message, conversationOwnerId, commentBotRequest ? 'comments' : null);
   if (db && ['group', 'supergroup'].includes(message?.chat?.type)) {
     await recordChannelComment(db, message, text).catch((error) => {
       console.error('Telegram comment count failed:', error?.message || error);

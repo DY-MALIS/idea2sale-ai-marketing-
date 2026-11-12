@@ -156,8 +156,10 @@ New Guest sign-in has been retired in both the website and the guest-token API. 
    to the linked discussion group's ID, and a separate random
    `TELEGRAM_COMMENT_WEBHOOK_SECRET`. Register its webhook with
    `/api/telegram/webhook?action=set-webhook&bot=comments&key=<TELEGRAM_WEBHOOK_SETUP_KEY>`.
-   The comment route accepts messages from that group only; it does not change the
-   approval bot or the deployment-wide `TELEGRAM_BOT_TOKEN`.
+   Add these values to the production environment before registering the webhook;
+   local `.env` values are not deployed automatically. The comment route accepts
+   messages from that group only, and the deployment bot skips them to avoid
+   duplicate replies. The approval bot and `TELEGRAM_BOT_TOKEN` stay separate.
 5. Scheduled posts are delivered two ways: Upstash QStash for precise-time delivery, and a fallback poller
    (`.github/workflows/telegram-scheduler.yml`, every 10 minutes) that calls `/api/telegram/run-scheduled`.
    The GitHub Action uses a short-lived GitHub OIDC token restricted to this repository, main branch, and workflow;
