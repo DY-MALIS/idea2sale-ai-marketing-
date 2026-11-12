@@ -7,6 +7,7 @@ interface ImageReadOptions {
   maxDimension?: number;
   outputType?: 'image/jpeg' | 'image/webp';
   quality?: number;
+  onError?: (file: File, error: Error) => void;
 }
 
 const optimizedImageDataUrl = async (file: File, options: ImageReadOptions): Promise<string> => {
@@ -25,6 +26,10 @@ const optimizedImageDataUrl = async (file: File, options: ImageReadOptions): Pro
     canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
     const context = canvas.getContext('2d');
     if (!context) throw new Error('Image resizing is unavailable in this browser.');
+    if (options.outputType === 'image/jpeg') {
+      context.fillStyle = '#ffffff';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+    }
     context.drawImage(image, 0, 0, canvas.width, canvas.height);
     return canvas.toDataURL(options.outputType || 'image/webp', options.quality ?? 0.82);
   } finally {
@@ -48,6 +53,7 @@ export const readImagesIntoState = (
   files.slice(0, remainingSlots).forEach((file) => {
     if (!file.type.startsWith('image/')) {
       console.error('Unsupported image file:', file.name);
+      options.onError?.(file, new Error('This file is not an image.'));
       return;
     }
     if (options.maxDimension) {
@@ -58,7 +64,10 @@ export const readImagesIntoState = (
         setImages((current) => (
           current.length >= maxCount ? current : [...current, { base64, mimeType }]
         ));
-      }).catch((error) => console.error('Could not optimize this image:', file.name, error));
+      }).catch((error) => {
+        console.error('Could not optimize this image:', file.name, error);
+        options.onError?.(file, error instanceof Error ? error : new Error('Could not decode this image.'));
+      });
       return;
     }
     const reader = new FileReader();

@@ -2438,7 +2438,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                         <ImageIcon className="text-brand-300" size={28} />
                         <input
                           type="file"
-                          accept="image/*"
+                          accept="image/*,.avif,.gif,.bmp,.tif,.tiff,.heic,.heif"
                           multiple
                           className="hidden"
                           onChange={(e) => {
@@ -2448,8 +2448,11 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                             setCropStartingImage(false);
                             readImagesIntoState(files, MAX_VIDEO_IMAGES, videoImages.length, setVideoImages, {
                               maxDimension: 960,
-                              outputType: 'image/webp',
-                              quality: 0.74,
+                              outputType: 'image/jpeg',
+                              quality: 0.82,
+                              onError: (file) => notify(language === 'km'
+                                ? `មិនអាចបើករូប ${file.name} ក្នុង browser នេះបានទេ។ សូមជ្រើសរូបមួយផ្សេងទៀត។`
+                                : `This browser could not open ${file.name}. Choose another image.`, 'error'),
                             });
                           }}
                         />
