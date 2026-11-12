@@ -101,8 +101,8 @@ const Auth = ({ isSignedIn = false }: { isSignedIn?: boolean }) => {
       <div className="relative isolate min-h-screen overflow-hidden">
         <video
           ref={videoRef}
-          src="/auth-full-scene-loop.mp4"
-          poster="/auth-full-scene-start.webp"
+          src="/auth-keyboard-loop.mp4"
+          poster="/auth-natural-poster.webp"
           autoPlay
           muted
           loop
