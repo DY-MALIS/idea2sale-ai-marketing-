@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
-import { AlertCircle, Check, LockKeyhole, Sparkles } from 'lucide-react';
+import { AlertCircle, ArrowRight, LockKeyhole, ShieldCheck, Sparkles, Users, Zap } from 'lucide-react';
 
 import { signInWithGoogle } from '../lib/firebase';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -22,6 +22,10 @@ const Auth = () => {
     secure: 'ចូលប្រើដោយសុវត្ថិភាពតាម Google',
     signInLabel: 'កន្លែងចាប់ផ្តើមរបស់អ្នក',
     journey: 'ចាប់ផ្តើមពីគំនិតរបស់អ្នក ហើយបង្កើតមាតិកាដែលត្រៀមប្រើប្រាស់។',
+    getStarted: 'ចាប់ផ្តើមជាមួយ AI',
+    createAccount: 'បង្កើតគណនីតាម Google',
+    newHere: 'ថ្មីនៅ Aime?',
+    benefits: ['ឧបករណ៍ក្នុងកន្លែងតែមួយ', 'ដំណើរការដោយ AI', 'សម្រាប់អាជីវកម្ម', 'ការចូលប្រើមានសុវត្ថិភាព'],
   } : {
     eyebrow: 'AI CREATIVE MARKETING PLATFORM',
     headline: 'Turn a simple idea into',
@@ -32,6 +36,10 @@ const Auth = () => {
     secure: 'Secure sign-in with Google',
     signInLabel: 'YOUR CREATIVE SPACE',
     journey: 'Bring your idea. Leave with content ready to share.',
+    getStarted: 'Get started with AI',
+    createAccount: 'Create an account with Google',
+    newHere: 'New to Aime?',
+    benefits: ['All-in-one tools', 'Powered by AI', 'For business & creators', 'Secure sign-in'],
   };
 
   const getFriendlyAuthError = (err: any) => {
@@ -73,89 +81,100 @@ const Auth = () => {
   };
 
   return (
-    <main className={`min-h-screen overflow-hidden bg-[#14172f] text-white ${isKhmer ? 'font-khmer' : ''}`}>
-      <div className="mx-auto grid min-h-screen max-w-[1700px] md:grid-cols-[minmax(0,1.12fr)_minmax(370px,0.88fr)]">
-        <section className="relative flex min-w-0 flex-col overflow-hidden bg-[radial-gradient(circle_at_75%_12%,#55405d_0%,transparent_35%),linear-gradient(145deg,#171a3d_0%,#1d1b3e_52%,#352244_100%)] px-6 pb-8 pt-7 sm:px-10 md:px-8 md:pb-10 md:pt-9 lg:px-14 xl:px-20">
-          <div className="pointer-events-none absolute -left-24 top-36 h-72 w-72 rounded-full bg-orange-500/15 blur-3xl" />
-          <div className="pointer-events-none absolute -right-20 top-10 h-80 w-80 rounded-full border border-orange-300/10" />
-          <div className="relative z-10 flex items-center gap-3">
-            <img src="/favicon.svg" alt="" className="h-11 w-11 rounded-xl shadow-[0_8px_26px_rgba(245,158,11,0.25)]" />
-            <span className="font-display text-xl font-bold tracking-tight text-white">aime<span className="text-orange-300">.</span>angkorgate</span>
-          </div>
+    <main className={`relative isolate min-h-screen overflow-hidden bg-[#11152e] text-white ${isKhmer ? 'font-khmer' : ''}`}>
+      <img src="/auth-cinematic.webp" alt="" fetchPriority="high" className="pointer-events-none absolute inset-0 h-full w-full object-cover object-[52%_center]" />
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#10122c]/95 via-[#15142f]/45 to-[#10122c]/35" />
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#11142f]/70 via-transparent to-[#11142f]/10" />
 
-          <div className="relative z-10 mt-9 max-w-2xl md:mt-12 lg:mt-14">
-            <p className="mb-4 inline-flex items-center gap-2 rounded-full border border-orange-300/40 bg-orange-300/10 px-3.5 py-1.5 text-[11px] font-bold tracking-[0.12em] text-orange-100 shadow-[0_0_28px_rgba(251,146,60,0.12)]">
-              <Sparkles size={14} aria-hidden="true" /> {copy.eyebrow}
+      <div className="relative mx-auto flex min-h-screen max-w-[1700px] flex-col px-5 pb-5 pt-6 sm:px-9 lg:px-14">
+        <header className="flex min-h-14 items-center gap-5 pr-24 sm:pr-32">
+          <a href="/" className="flex shrink-0 items-center gap-2.5 rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-orange-300" aria-label="Aime Angkorgate home">
+            <img src="/favicon.svg" alt="" className="h-11 w-11 rounded-full shadow-[0_8px_26px_rgba(245,158,11,0.25)]" />
+            <span className="font-display text-lg font-bold tracking-tight text-white max-[380px]:hidden sm:text-xl">aime<span className="text-[#ff933c]">.</span>angkorgate</span>
+          </a>
+          <nav aria-label="Main navigation" className="ml-auto hidden items-center gap-7 text-sm font-semibold text-white/85 lg:flex xl:gap-10">
+            <a href="/" className="rounded-full border border-orange-300/60 bg-orange-500/25 px-5 py-2 text-white transition-colors hover:bg-orange-500/40">{isKhmer ? 'ទំព័រដើម' : 'Home'}</a>
+            <a href="/#features" className="transition-colors hover:text-orange-300">{isKhmer ? 'មុខងារ' : 'Features'}</a>
+            <a href="/#how-it-works" className="transition-colors hover:text-orange-300">{isKhmer ? 'របៀបប្រើ' : 'How it works'}</a>
+            <a href="mailto:dymalis88@gmail.com" className="transition-colors hover:text-orange-300">{isKhmer ? 'ជំនួយ' : 'Support'}</a>
+          </nav>
+        </header>
+
+        <div className="grid flex-1 items-center gap-8 py-9 lg:grid-cols-[minmax(0,1fr)_minmax(350px,430px)] lg:gap-10 xl:gap-16">
+          <section className="min-w-0 max-w-[760px]">
+            <p className="mb-5 inline-flex items-center gap-2 rounded-full border border-orange-300/60 bg-[#38243c]/65 px-4 py-2 text-[11px] font-bold tracking-[0.08em] text-orange-100 shadow-[0_0_28px_rgba(251,146,60,0.22)] backdrop-blur-sm sm:text-xs">
+              <Sparkles size={16} aria-hidden="true" className="text-orange-300" /> {copy.eyebrow}
             </p>
-            <h1 className={`max-w-[720px] text-[clamp(2.15rem,4.2vw,4.5rem)] font-extrabold leading-[1.08] tracking-tight text-white ${isKhmer ? 'font-khmer leading-[1.35]' : 'font-display'}`}>
-              {copy.headline}{' '}<span className="bg-gradient-to-r from-[#ffae64] via-[#ff8a46] to-[#ffca82] bg-clip-text text-transparent">{copy.headlineAccent}</span>
+            <h1 className={`max-w-[760px] text-[clamp(2.35rem,4vw,4.25rem)] font-extrabold leading-[1.08] tracking-tight text-white drop-shadow-[0_4px_16px_rgba(0,0,0,0.55)] ${isKhmer ? 'font-khmer leading-[1.28]' : 'font-display'}`}>
+              {copy.headline}<span className="block bg-gradient-to-r from-[#ffc478] via-[#ff8846] to-[#ffb353] bg-clip-text text-transparent">{copy.headlineAccent}</span>
             </h1>
-            <p className="mt-5 max-w-xl text-sm leading-7 text-white/75 sm:text-base lg:text-lg lg:leading-8">
-              {copy.description}
-            </p>
-          </div>
-
-          <AuthShowcase />
-        </section>
-
-        <section className="relative flex items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_20%_20%,#625171_0%,transparent_36%),linear-gradient(145deg,#28223f,#171b36)] px-5 py-8 sm:px-8 md:py-9 lg:px-14">
-          <div aria-hidden="true" className="pointer-events-none absolute -right-24 -top-28 h-80 w-80 rounded-full bg-orange-400/15 blur-3xl" />
-          <div aria-hidden="true" className="pointer-events-none absolute -bottom-32 -left-32 h-80 w-80 rounded-full bg-violet-500/20 blur-3xl" />
-          <motion.div
-            initial={reduceMotion ? false : { opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="relative w-full max-w-md rounded-[2.25rem] border border-white/90 bg-white px-6 py-8 text-slate-900 shadow-[0_35px_100px_-30px_rgba(0,0,0,0.65)] sm:px-8 sm:py-10"
-          >
-            <div className="mb-7 text-center">
-              <span className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-orange-100 bg-[#fff8ed] shadow-[0_12px_26px_-14px_rgba(154,74,10,0.55)]">
-                <img src="/favicon.svg" alt="" className="h-12 w-12" />
-              </span>
-              <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.2em] text-[#b45309]">{copy.signInLabel}</p>
-              <h2 className={`text-3xl font-bold leading-tight text-[#171a36] sm:text-[2.6rem] ${isKhmer ? 'font-khmer' : 'font-display'}`}>{copy.welcome}</h2>
-              <p className="mt-3 text-sm leading-6 text-slate-600 sm:text-base">{copy.signInDescription}</p>
-            </div>
-
-            <div className="space-y-4">
-            {error && (
-              <div role="alert">
-                <div className="flex items-center justify-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-center text-xs font-medium leading-relaxed text-red-600">
-                  <AlertCircle size={14} className="shrink-0" />
-                  <span>{error}</span>
-                </div>
-              </div>
-            )}
-
+            <p className="mt-5 max-w-[570px] text-base leading-7 text-white/90 drop-shadow-[0_2px_9px_rgba(0,0,0,0.7)] sm:text-lg sm:leading-8">{copy.description}</p>
+            <div className="mt-7 hidden lg:block"><AuthShowcase /></div>
             <motion.button
-              whileHover={reduceMotion ? undefined : { scale: 1.02 }}
+              whileHover={reduceMotion ? undefined : { y: -3 }}
               whileTap={reduceMotion ? undefined : { scale: 0.98 }}
               type="button"
               disabled={loading}
               onClick={handleGoogleLogin}
-              className="flex min-h-16 w-full items-center justify-center gap-3 rounded-2xl border border-orange-300 bg-gradient-to-r from-[#ff9e20] via-[#f97b10] to-[#e65f06] px-5 py-4 text-center text-sm font-bold text-white shadow-[0_12px_26px_-10px_rgba(234,100,7,0.8)] transition-all hover:brightness-110 hover:shadow-[0_16px_30px_-9px_rgba(234,100,7,0.9)] disabled:cursor-not-allowed disabled:opacity-50 sm:text-base"
+              className="mt-7 inline-flex min-h-13 items-center justify-center gap-3 rounded-full border border-orange-200/70 bg-gradient-to-r from-[#ffad23] to-[#f76807] px-7 py-3 text-sm font-bold text-white shadow-[0_10px_28px_rgba(242,98,5,0.45)] transition-[filter,box-shadow] hover:brightness-110 hover:shadow-[0_14px_32px_rgba(242,98,5,0.6)] disabled:cursor-not-allowed disabled:opacity-50 sm:text-base"
             >
-              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white shadow-sm"><svg viewBox="0 0 24 24" className="h-5 w-5" xmlns="http://www.w3.org/2000/svg">
-                <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-                <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-                <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/>
-                <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-              </svg></span>
-              {t('continueWithGoogle')}
+              <Sparkles size={19} aria-hidden="true" /> {copy.getStarted} <ArrowRight size={18} aria-hidden="true" />
             </motion.button>
-              <p className="flex items-center justify-center gap-1.5 text-center text-xs text-slate-500"><LockKeyhole size={13} aria-hidden="true" />{copy.secure}</p>
-            </div>
+          </section>
 
-            <div className="mt-7 flex items-start gap-3 rounded-2xl border border-orange-100 bg-[#fff6e8] px-4 py-3.5 text-sm leading-6 text-[#74523b]">
-              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#b45309] text-white"><Check size={12} aria-hidden="true" /></span>
-              <span>{copy.journey}</span>
-            </div>
+          <section aria-label={copy.welcome} className="w-full max-w-[430px] justify-self-center lg:justify-self-end">
+            <motion.div
+              initial={reduceMotion ? false : { opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="rounded-[2rem] border border-white/80 bg-[linear-gradient(160deg,rgba(255,255,255,0.98),rgba(255,246,234,0.97))] px-6 py-7 text-slate-900 shadow-[0_30px_90px_rgba(5,8,30,0.5)] backdrop-blur-xl sm:px-8 sm:py-9"
+            >
+              <div className="text-center">
+                <img src="/favicon.svg" alt="" className="mx-auto mb-4 h-14 w-14 rounded-full" />
+                <p className="font-display text-lg font-bold text-[#aa4a08]">aime<span className="text-orange-500">.</span>angkorgate</p>
+                <h2 className={`mt-5 text-3xl font-bold leading-tight text-[#171a36] ${isKhmer ? 'font-khmer' : 'font-display'}`}>{copy.welcome}</h2>
+                <p className="mt-2 text-sm leading-6 text-slate-600">{copy.signInDescription}</p>
+              </div>
 
-            <p className="mt-7 text-center text-xs leading-6 text-slate-500">
-              {t('termsAndPrivacyPrefix')}{' '}
-              <a href="/terms-of-service/" className="font-semibold text-[#a94d0b] underline-offset-4 hover:underline">{t('termsOfService')}</a> {t('and')}{' '}
-              <a href="/privacy-policy/" className="font-semibold text-[#a94d0b] underline-offset-4 hover:underline">{t('privacyPolicy')}</a>.
-            </p>
-          </motion.div>
-        </section>
+              {error && <div role="alert" className="mt-5 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700"><AlertCircle size={18} className="shrink-0" />{error}</div>}
+
+              <motion.button
+                whileHover={reduceMotion ? undefined : { scale: 1.02 }}
+                whileTap={reduceMotion ? undefined : { scale: 0.98 }}
+                type="button"
+                disabled={loading}
+                onClick={handleGoogleLogin}
+                className="mt-7 flex min-h-14 w-full items-center justify-center gap-3 rounded-full border border-orange-300 bg-gradient-to-r from-[#ffaf25] via-[#fc8510] to-[#ee6507] px-4 py-3 text-center text-sm font-bold text-white shadow-[0_10px_25px_rgba(238,103,6,0.4)] transition-[filter,box-shadow] hover:brightness-110 hover:shadow-[0_14px_28px_rgba(238,103,6,0.55)] disabled:cursor-not-allowed disabled:opacity-50 sm:text-base"
+              >
+                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white shadow-sm"><svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                  <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                  <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/>
+                  <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+                </svg></span>
+                {t('continueWithGoogle')}
+              </motion.button>
+              <p className="mt-3 flex items-center justify-center gap-1.5 text-center text-xs text-slate-500"><LockKeyhole size={13} aria-hidden="true" />{copy.secure}</p>
+
+              <div className="mt-7 flex items-center gap-3 text-xs text-slate-500"><span className="h-px flex-1 bg-slate-200" />{copy.newHere}<span className="h-px flex-1 bg-slate-200" /></div>
+              <button type="button" disabled={loading} onClick={handleGoogleLogin} className="mt-4 min-h-11 w-full rounded-full border border-orange-500 px-4 py-2.5 text-sm font-semibold text-[#af4f0b] transition-colors hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-50">{copy.createAccount}</button>
+
+              <p className="mt-6 text-center text-[11px] leading-5 text-slate-500">
+                {t('termsAndPrivacyPrefix')}{' '}
+                <a href="/terms-of-service/" className="font-semibold text-[#a94d0b] underline-offset-4 hover:underline">{t('termsOfService')}</a> {t('and')}{' '}
+                <a href="/privacy-policy/" className="font-semibold text-[#a94d0b] underline-offset-4 hover:underline">{t('privacyPolicy')}</a>.
+              </p>
+            </motion.div>
+          </section>
+        </div>
+
+        <div className="pb-7 lg:hidden"><AuthShowcase /></div>
+        <footer className="grid grid-cols-2 gap-3 rounded-2xl border border-white/15 bg-[#17172d]/45 px-4 py-4 text-[11px] font-semibold text-white/90 backdrop-blur-md sm:text-xs lg:grid-cols-4 lg:gap-0 lg:rounded-none lg:border-x-0 lg:border-b-0 lg:bg-[#17172d]/25 lg:px-0">
+          {copy.benefits.map((benefit, index) => {
+            const icons = [ShieldCheck, Zap, Users, LockKeyhole];
+            const Icon = icons[index];
+            return <div key={benefit} className="flex items-center justify-center gap-2 text-center lg:border-r lg:border-white/20 lg:last:border-0"><Icon size={19} className="shrink-0 text-orange-200" aria-hidden="true" />{benefit}</div>;
+          })}
+        </footer>
       </div>
     </main>
   );
