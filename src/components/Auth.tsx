@@ -83,7 +83,7 @@ const Auth = () => {
   return (
     <main className={`relative isolate min-h-screen overflow-hidden bg-[#11152e] text-white ${isKhmer ? 'font-khmer' : ''}`}>
       {reduceMotion ? (
-        <img src="/auth-cinematic-sharp.webp" alt="" fetchPriority="high" className="pointer-events-none absolute inset-0 h-full w-full object-cover object-[52%_center]" />
+        <img src="/auth-cinematic-sharp.webp" alt="" fetchPriority="high" className="pointer-events-none absolute inset-x-0 top-0 h-[100svh] w-full object-cover object-[52%_center] [mask-image:linear-gradient(to_bottom,black_0%,black_85%,transparent_100%)] lg:inset-0 lg:h-full lg:[mask-image:none]" />
       ) : (
         <video
           src="/auth-typing-loop.mp4"
@@ -94,7 +94,7 @@ const Auth = () => {
           playsInline
           aria-hidden="true"
           tabIndex={-1}
-          className="pointer-events-none absolute inset-0 h-full w-full object-cover object-[52%_center]"
+          className="pointer-events-none absolute inset-x-0 top-0 h-[100svh] w-full object-cover object-[52%_center] [mask-image:linear-gradient(to_bottom,black_0%,black_85%,transparent_100%)] lg:inset-0 lg:h-full lg:[mask-image:none]"
         />
       )}
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#10122c]/72 via-[#15142f]/10 to-transparent" />
@@ -108,7 +108,7 @@ const Auth = () => {
           </a>
         </header>
 
-        <div className="grid flex-1 items-center gap-8 py-9 lg:grid-cols-[minmax(0,1fr)_minmax(350px,430px)] lg:gap-10 xl:gap-16">
+        <div className="grid flex-1 items-center gap-8 py-9 lg:grid-cols-[minmax(0,1fr)_minmax(300px,350px)] lg:gap-10 xl:gap-16">
           <section className="min-w-0 max-w-[760px]">
             <p className="mb-5 inline-flex items-center gap-2 rounded-full border border-orange-300/60 bg-[#38243c]/65 px-4 py-2 text-[11px] font-bold tracking-[0.08em] text-orange-100 shadow-[0_0_28px_rgba(251,146,60,0.22)] backdrop-blur-sm sm:text-xs">
               <Sparkles size={16} aria-hidden="true" className="text-orange-300" /> {copy.eyebrow}
@@ -130,21 +130,22 @@ const Auth = () => {
             </motion.button>
           </section>
 
-          <section aria-label={copy.welcome} className="w-full max-w-[430px] justify-self-center lg:justify-self-end">
+          <section aria-label={copy.welcome} className="mt-36 w-full max-w-[350px] justify-self-center lg:mt-0 lg:self-end lg:justify-self-end lg:pb-7">
             <motion.div
               initial={reduceMotion ? false : { opacity: 0 }}
-              animate={reduceMotion ? { opacity: 1 } : { opacity: 1, boxShadow: ['0 30px 90px rgba(5,8,30,0.48)', '0 34px 105px rgba(237,107,17,0.29)', '0 30px 90px rgba(5,8,30,0.48)'] }}
+              animate={reduceMotion ? { opacity: 1 } : { opacity: 1, boxShadow: ['0 22px 55px rgba(5,8,30,0.42)', '0 28px 70px rgba(237,107,17,0.24)', '0 22px 55px rgba(5,8,30,0.42)'] }}
               transition={reduceMotion ? undefined : { opacity: { duration: 0.5 }, boxShadow: { duration: 7, ease: 'easeInOut', repeat: Infinity } }}
-              className="rounded-[2rem] border border-white/80 bg-[linear-gradient(160deg,rgba(255,255,255,0.98),rgba(255,246,234,0.97))] px-6 py-7 text-slate-900 shadow-[0_30px_90px_rgba(5,8,30,0.5)] backdrop-blur-xl sm:px-8 sm:py-9"
+              className="rounded-[1.75rem] border border-white/25 bg-[#17162c]/70 px-5 py-5 text-white shadow-[0_22px_55px_rgba(5,8,30,0.42)] backdrop-blur-md sm:px-6 sm:py-6"
             >
-              <div className="text-center">
-                <img src="/favicon.svg" alt="" className="mx-auto mb-4 h-14 w-14 rounded-full" />
-                <p className="font-display text-lg font-bold text-[#aa4a08]">aime<span className="text-orange-500">.</span>angkorgate</p>
-                <h2 className={`mt-5 text-3xl font-bold leading-tight text-[#171a36] ${isKhmer ? 'font-khmer' : 'font-display'}`}>{copy.welcome}</h2>
-                <p className="mt-2 text-sm leading-6 text-slate-600">{copy.signInDescription}</p>
+              <div className="flex items-center gap-3">
+                <img src="/favicon.svg" alt="" className="h-10 w-10 shrink-0 rounded-full" />
+                <div>
+                  <h2 className={`text-xl font-bold leading-tight text-white ${isKhmer ? 'font-khmer' : 'font-display'}`}>{copy.welcome}</h2>
+                  <p className="mt-0.5 text-xs leading-5 text-white/75">{copy.signInDescription}</p>
+                </div>
               </div>
 
-              {error && <div role="alert" className="mt-5 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700"><AlertCircle size={18} className="shrink-0" />{error}</div>}
+              {error && <div role="alert" className="mt-4 flex items-center gap-2 rounded-xl border border-red-300/40 bg-red-950/70 p-3 text-sm text-red-100"><AlertCircle size={18} className="shrink-0" />{error}</div>}
 
               <motion.button
                 whileHover={reduceMotion ? undefined : { scale: 1.02 }}
@@ -154,9 +155,9 @@ const Auth = () => {
                 type="button"
                 disabled={loading}
                 onClick={handleGoogleLogin}
-                className="mt-7 flex min-h-14 w-full items-center justify-center gap-3 rounded-full border border-orange-300 bg-gradient-to-r from-[#ffaf25] via-[#fc8510] to-[#ee6507] px-4 py-3 text-center text-sm font-bold text-white shadow-[0_10px_25px_rgba(238,103,6,0.4)] transition-[filter,box-shadow] hover:brightness-110 hover:shadow-[0_14px_28px_rgba(238,103,6,0.55)] disabled:cursor-not-allowed disabled:opacity-50 sm:text-base"
+                className="mt-5 flex min-h-12 w-full items-center justify-center gap-2.5 rounded-full border border-orange-300 bg-gradient-to-r from-[#ffaf25] via-[#fc8510] to-[#ee6507] px-4 py-2.5 text-center text-sm font-bold text-white shadow-[0_10px_25px_rgba(238,103,6,0.4)] transition-[filter,box-shadow] hover:brightness-110 hover:shadow-[0_14px_28px_rgba(238,103,6,0.55)] disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white shadow-sm"><svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white shadow-sm"><svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
                   <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
                   <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
                   <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/>
@@ -164,15 +165,14 @@ const Auth = () => {
                 </svg></span>
                 {t('continueWithGoogle')}
               </motion.button>
-              <p className="mt-3 flex items-center justify-center gap-1.5 text-center text-xs text-slate-500"><LockKeyhole size={13} aria-hidden="true" />{copy.secure}</p>
+              <p className="mt-3 flex items-center justify-center gap-1.5 text-center text-[11px] text-white/75"><LockKeyhole size={13} aria-hidden="true" />{copy.secure}</p>
 
-              <div className="mt-7 flex items-center gap-3 text-xs text-slate-500"><span className="h-px flex-1 bg-slate-200" />{copy.newHere}<span className="h-px flex-1 bg-slate-200" /></div>
-              <button type="button" disabled={loading} onClick={handleGoogleLogin} className="mt-4 min-h-11 w-full rounded-full border border-orange-500 px-4 py-2.5 text-sm font-semibold text-[#af4f0b] transition-colors hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-50">{copy.createAccount}</button>
+              <p className="mt-4 text-center text-xs text-white/70">{copy.newHere}{' '}<button type="button" disabled={loading} onClick={handleGoogleLogin} className="font-semibold text-orange-200 underline-offset-4 hover:underline disabled:cursor-not-allowed disabled:opacity-50">{copy.createAccount}</button></p>
 
-              <p className="mt-6 text-center text-[11px] leading-5 text-slate-500">
+              <p className="mt-4 border-t border-white/15 pt-3 text-center text-[11px] leading-4 text-white/75">
                 {t('termsAndPrivacyPrefix')}{' '}
-                <a href="/terms-of-service/" className="font-semibold text-[#a94d0b] underline-offset-4 hover:underline">{t('termsOfService')}</a> {t('and')}{' '}
-                <a href="/privacy-policy/" className="font-semibold text-[#a94d0b] underline-offset-4 hover:underline">{t('privacyPolicy')}</a>.
+                <a href="/terms-of-service/" className="font-semibold text-orange-200 underline-offset-4 hover:underline">{t('termsOfService')}</a> {t('and')}{' '}
+                <a href="/privacy-policy/" className="font-semibold text-orange-200 underline-offset-4 hover:underline">{t('privacyPolicy')}</a>.
               </p>
             </motion.div>
           </section>
