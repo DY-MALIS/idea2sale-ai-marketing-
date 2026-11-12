@@ -92,12 +92,6 @@ const Auth = () => {
             <img src="/favicon.svg" alt="" className="h-11 w-11 rounded-full shadow-[0_8px_26px_rgba(245,158,11,0.25)]" />
             <span className="font-display text-lg font-bold tracking-tight text-white max-[380px]:hidden sm:text-xl">aime<span className="text-[#ff933c]">.</span>angkorgate</span>
           </a>
-          <nav aria-label="Main navigation" className="ml-auto hidden items-center gap-7 text-sm font-semibold text-white/85 lg:flex xl:gap-10">
-            <a href="/" className="rounded-full border border-orange-300/60 bg-orange-500/25 px-5 py-2 text-white transition-colors hover:bg-orange-500/40">{isKhmer ? 'ទំព័រដើម' : 'Home'}</a>
-            <a href="/#features" className="transition-colors hover:text-orange-300">{isKhmer ? 'មុខងារ' : 'Features'}</a>
-            <a href="/#how-it-works" className="transition-colors hover:text-orange-300">{isKhmer ? 'របៀបប្រើ' : 'How it works'}</a>
-            <a href="mailto:dymalis88@gmail.com" className="transition-colors hover:text-orange-300">{isKhmer ? 'ជំនួយ' : 'Support'}</a>
-          </nav>
         </header>
 
         <div className="grid flex-1 items-center gap-8 py-9 lg:grid-cols-[minmax(0,1fr)_minmax(350px,430px)] lg:gap-10 xl:gap-16">
