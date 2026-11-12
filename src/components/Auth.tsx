@@ -128,7 +128,7 @@ const Auth = ({ isSignedIn = false }: { isSignedIn?: boolean }) => {
             </h1>
             <p className="mt-5 max-w-[570px] text-base leading-7 text-white/90 drop-shadow-[0_2px_9px_rgba(0,0,0,0.7)] sm:text-lg sm:leading-8">{copy.description}</p>
             <div className="mt-7 hidden lg:block"><AuthShowcase /></div>
-            <motion.button
+            {!isSignedIn && <motion.button
               whileHover={reduceMotion ? undefined : { y: -3 }}
               whileTap={reduceMotion ? undefined : { scale: 0.98 }}
               type="button"
@@ -136,9 +136,9 @@ const Auth = ({ isSignedIn = false }: { isSignedIn?: boolean }) => {
               onClick={handlePrimaryAction}
               className="mt-7 inline-flex min-h-13 items-center justify-center gap-3 rounded-full border border-orange-200/70 bg-gradient-to-r from-[#ffad23] to-[#f76807] px-7 py-3 text-sm font-bold text-white shadow-[0_10px_28px_rgba(242,98,5,0.45)] transition-[filter,box-shadow] hover:brightness-110 hover:shadow-[0_14px_32px_rgba(242,98,5,0.6)] disabled:cursor-not-allowed disabled:opacity-50 sm:text-base"
             >
-              <Sparkles size={19} aria-hidden="true" /> {isSignedIn ? (isKhmer ? 'បើក App' : 'Open App') : copy.getStarted} <ArrowRight size={18} aria-hidden="true" />
-            </motion.button>
-            <a href="#features" className="ml-4 inline-flex min-h-12 items-center text-sm font-semibold text-orange-100 underline-offset-4 hover:underline">
+              <Sparkles size={19} aria-hidden="true" /> {copy.getStarted} <ArrowRight size={18} aria-hidden="true" />
+            </motion.button>}
+            <a href="#features" className={`${isSignedIn ? 'mt-7' : 'ml-4'} inline-flex min-h-12 items-center text-sm font-semibold text-orange-100 underline-offset-4 hover:underline`}>
               {isKhmer ? 'ស្វែងយល់អំពីមុខងារ' : 'Explore the features'} <ArrowRight size={16} aria-hidden="true" className="ml-1.5" />
             </a>
           </section>
