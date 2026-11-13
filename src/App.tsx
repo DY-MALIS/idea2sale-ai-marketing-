@@ -184,7 +184,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex flex-col min-h-screen font-sans bg-mesh overflow-x-hidden">
+    <div className={`flex flex-col min-h-screen font-sans bg-mesh overflow-x-hidden ${effectivelyAuthenticated && !isPublicHome ? 'dark workspace-theme' : ''}`}>
       {/* Top Header with Language Switcher - Always Visible */}
       {effectivelyAuthenticated && !isPublicHome && (
         <motion.button
