@@ -5,7 +5,7 @@ export async function generateGeminiSpeech({ input, voice = 'alloy', performance
   if (!key) throw new Error('OPEN_ROUTER_API_KEY is not configured on the server.');
   const text = String(input || '').trim();
   if (!text || text.length > 5000) throw new Error('Speech text must contain 1–5000 characters.');
-  const model = process.env.OPEN_ROUTER_TTS_GEMINI_MODEL || 'google/gemini-3.1-flash-tts-preview';
+  const model = process.env.OPEN_ROUTER_TTS_GEMINI_MODEL || 'google/gemini-3.8-flash-tts';
   if (!/^google\/gemini-[\w.-]+-tts(?:-preview)?$/.test(model)) throw new Error('Invalid OpenRouter Gemini TTS model configuration.');
   const requestedVoice = String(voice || '').trim().toLowerCase();
   // voiceOverride bypasses the keyword heuristic below entirely -- used by the
