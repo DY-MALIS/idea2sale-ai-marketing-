@@ -106,7 +106,7 @@ const Auth = ({ isSignedIn = false }: { isSignedIn?: boolean }) => {
           className="pointer-events-none absolute inset-x-0 top-0 h-[100svh] w-full object-cover object-center [mask-image:linear-gradient(to_bottom,black_0%,black_85%,transparent_100%)] lg:inset-0 lg:h-full lg:[mask-image:none]"
         /> : <video
           ref={videoRef}
-          src="/auth-keyboard-loop.mp4"
+          src="/auth-original-face-loop.mp4"
           poster="/auth-keyboard-poster.webp"
           autoPlay
           muted
