@@ -1,6 +1,7 @@
 import { generateOpenRouterText, generateTranslateSpeech, normalizeForKhmerSpeech, transcribeAudioWithOpenRouter } from './_openrouter.js';
 import { synthesizeKhmerSpeechViaEdge } from './_edgeSpeech.js';
 import { generateGeminiSpeech } from './_geminiSpeech.js';
+import { generateDesignedKhmerSpeech, isDesignedKhmerSpeechConfigured } from './_designedKhmerSpeech.js';
 import { transcribeKhmerSpeechWithGemini } from './_geminiTranscription.js';
 import { parseBuffer } from 'music-metadata';
 import { compareKhmerTranscript, isKhmerOnlyNarration, KHMER_SCRIPT_ONLY_INSTRUCTION } from '../shared/videoSpeech.js';
@@ -182,8 +183,21 @@ export async function generateKhmerSpeech({
   // Edge's Khmer-only voice cannot reliably speak a deliberate Latin/other-script
   // word. Mixed narration needs Gemini even when Edge is the configured fallback.
   const useEdgeOnly = !mixedScript && (forceEdge || String(process.env.KHMER_TTS_PROVIDER || '').trim().toLowerCase() === 'edge');
-  // Video uses the warmer, smoother female preset selected against the Kiri
-  // public Maly demo. Live Agent conversation keeps its existing Aoede voice.
+  let designedFallbackReason = '';
+  if (!useEdgeOnly && Number.isFinite(targetSeconds) && targetSeconds >= 4 && targetSeconds <= 8 && isDesignedKhmerSpeechConfigured()) {
+    try {
+      const designed = await generateDesignedKhmerSpeech({ input: spokenInput, voice, performanceStyle });
+      if (await matchesKhmerScript(designed, spokenInput) === 'match') {
+        return { ...designed, spokenText: spokenInput };
+      }
+      designedFallbackReason = 'The natural Khmer voice could not be verified; a backup voice was used. Review the narration.';
+    } catch (error) {
+      console.warn('Designed Khmer speech unavailable:', error?.message || error);
+      designedFallbackReason = 'The natural Khmer voice was unavailable; a backup voice was used. Review the narration.';
+    }
+  }
+  // If the designed Cambodian voice is unavailable, use the smoother Gemini
+  // preset. Live Agent conversation keeps its existing Aoede voice.
   const voiceOverride = edgeKhmerVoice(voice) === 'km-KH-PisethNeural'
     ? 'Achird'
     : preferNaturalVoice ? 'Aoede' : 'Despina';
@@ -195,7 +209,10 @@ export async function generateKhmerSpeech({
     // preferNaturalVoice always skips verification so the conversation gets
     // the Gemini audio immediately.
     const generated = await generateVerifiedGeminiTake({ spokenInput, voice, performanceStyle: clearKhmerStyle, context, voiceOverride, targetSeconds });
-    if (generated && !generated.verificationInconclusive) return { ...generated, spokenText: spokenInput };
+    if (generated && !generated.verificationInconclusive) return {
+      ...generated, spokenText: spokenInput,
+      ...(designedFallbackReason ? { fallbackReason: designedFallbackReason } : {}),
+    };
     if (generated?.verificationInconclusive) unverifiedGemini = generated;
     if (mixedScript) {
       if (unverifiedGemini) return {

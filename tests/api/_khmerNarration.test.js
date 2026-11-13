@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ edge: vi.fn(), gemini: vi.fn(), transcribe: vi.fn(), geminiTranscribe: vi.fn(), translate: vi.fn(), text: vi.fn() }));
+const mocks = vi.hoisted(() => ({ edge: vi.fn(), gemini: vi.fn(), designed: vi.fn(), designedConfigured: vi.fn(), transcribe: vi.fn(), geminiTranscribe: vi.fn(), translate: vi.fn(), text: vi.fn() }));
 vi.mock('../../api/_edgeSpeech.js', () => ({ synthesizeKhmerSpeechViaEdge: mocks.edge }));
 vi.mock('../../api/_geminiSpeech.js', () => ({ generateGeminiSpeech: mocks.gemini }));
+vi.mock('../../api/_designedKhmerSpeech.js', () => ({ generateDesignedKhmerSpeech: mocks.designed, isDesignedKhmerSpeechConfigured: mocks.designedConfigured }));
 vi.mock('../../api/_geminiTranscription.js', () => ({ transcribeKhmerSpeechWithGemini: mocks.geminiTranscribe }));
 vi.mock('../../api/_openrouter.js', () => ({
   generateTranslateSpeech: mocks.translate,
@@ -13,6 +14,23 @@ import { createKhmerNarration, expandGeneratedKhmerNarration, generateKhmerConve
 afterEach(() => { vi.unstubAllEnvs(); vi.resetAllMocks(); });
 describe('Khmer narration', () => {
   beforeEach(() => { vi.stubEnv('KHMER_TTS_PROVIDER', 'gemini'); });
+  it('uses the verified designed Cambodian voice for a new video', async () => {
+    mocks.designedConfigured.mockReturnValue(true);
+    mocks.designed.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,YXVkaW8=', provider: 'gemini-designed', voice: 'voice_test', duration: 6 });
+    mocks.geminiTranscribe.mockResolvedValue('សួស្តី');
+    const result = await generateKhmerSpeech({ input: 'សួស្តី', voice: 'Female', targetDuration: 8 });
+    expect(result).toMatchObject({ provider: 'gemini-designed', spokenText: 'សួស្តី' });
+    expect(mocks.gemini).not.toHaveBeenCalled();
+    expect(mocks.edge).not.toHaveBeenCalled();
+  });
+  it('keeps a verified backup if the designed voice is unavailable', async () => {
+    mocks.designedConfigured.mockReturnValue(true);
+    mocks.designed.mockRejectedValue(new Error('voice unavailable'));
+    mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,YXVkaW8=', provider: 'gemini' });
+    mocks.geminiTranscribe.mockResolvedValue('សួស្តី');
+    const result = await generateKhmerSpeech({ input: 'សួស្តី', targetDuration: 8 });
+    expect(result).toMatchObject({ provider: 'gemini', fallbackReason: expect.stringContaining('backup voice') });
+  });
   it('uses Edge directly only with the explicit opt-out (KHMER_TTS_PROVIDER=edge)', async () => {
     vi.stubEnv('KHMER_TTS_PROVIDER', 'edge');
     mocks.edge.mockResolvedValue({ audioUrl: 'khmer', provider: 'edge' });
