@@ -1,8 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ edge: vi.fn(), gemini: vi.fn(), kiri: vi.fn(), kiriConfigured: vi.fn(), transcribe: vi.fn(), translate: vi.fn(), text: vi.fn() }));
+const mocks = vi.hoisted(() => ({ edge: vi.fn(), gemini: vi.fn(), transcribe: vi.fn(), translate: vi.fn(), text: vi.fn() }));
 vi.mock('../../api/_edgeSpeech.js', () => ({ synthesizeKhmerSpeechViaEdge: mocks.edge }));
 vi.mock('../../api/_geminiSpeech.js', () => ({ generateGeminiSpeech: mocks.gemini }));
-vi.mock('../../api/_kiriSpeech.js', () => ({ generateKiriSpeech: mocks.kiri, isKiriConfigured: mocks.kiriConfigured }));
 vi.mock('../../api/_openrouter.js', () => ({
   generateTranslateSpeech: mocks.translate,
   generateOpenRouterText: mocks.text,
@@ -13,30 +12,6 @@ import { createKhmerNarration, expandGeneratedKhmerNarration, generateKhmerConve
 afterEach(() => { vi.unstubAllEnvs(); vi.resetAllMocks(); });
 describe('Khmer narration', () => {
   beforeEach(() => { vi.stubEnv('KHMER_TTS_PROVIDER', 'gemini'); });
-  it('uses Kiri for a verified Khmer video narration when the key is configured', async () => {
-    mocks.kiriConfigured.mockReturnValue(true);
-    mocks.kiri.mockResolvedValue({ audioUrl: 'data:audio/mpeg;base64,YXVkaW8=', provider: 'kiri-tts', duration: 6 });
-    mocks.transcribe.mockResolvedValue('សួស្តី');
-    const result = await generateKhmerSpeech({ input: 'សួស្តី', voice: 'Female', targetDuration: 8 });
-    expect(result).toMatchObject({ provider: 'kiri-tts', spokenText: 'សួស្តី' });
-    expect(mocks.gemini).not.toHaveBeenCalled();
-    expect(mocks.edge).not.toHaveBeenCalled();
-  });
-  it('reports when Kiri fails and Gemini supplies the video voice', async () => {
-    mocks.kiriConfigured.mockReturnValue(true);
-    mocks.kiri.mockRejectedValue(new Error('service unavailable'));
-    mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,YXVkaW8=', provider: 'gemini' });
-    mocks.transcribe.mockResolvedValue('សួស្តី');
-    const result = await generateKhmerSpeech({ input: 'សួស្តី', targetDuration: 8 });
-    expect(result).toMatchObject({ provider: 'gemini', fallbackReason: expect.stringContaining('Kiri') });
-  });
-  it('leaves live conversation speech on its existing voice', async () => {
-    mocks.kiriConfigured.mockReturnValue(true);
-    mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,YXVkaW8=', provider: 'gemini' });
-    const result = await generateKhmerConversationSpeech({ input: 'សួស្តី' });
-    expect(result.provider).toBe('gemini');
-    expect(mocks.kiri).not.toHaveBeenCalled();
-  });
   it('uses Edge directly only with the explicit opt-out (KHMER_TTS_PROVIDER=edge)', async () => {
     vi.stubEnv('KHMER_TTS_PROVIDER', 'edge');
     mocks.edge.mockResolvedValue({ audioUrl: 'khmer', provider: 'edge' });

@@ -1,7 +1,6 @@
 import { generateOpenRouterText, generateTranslateSpeech, normalizeForKhmerSpeech, transcribeAudioWithOpenRouter } from './_openrouter.js';
 import { synthesizeKhmerSpeechViaEdge } from './_edgeSpeech.js';
 import { generateGeminiSpeech } from './_geminiSpeech.js';
-import { generateKiriSpeech, isKiriConfigured } from './_kiriSpeech.js';
 import { parseBuffer } from 'music-metadata';
 import { compareKhmerTranscript, isKhmerOnlyNarration, KHMER_SCRIPT_ONLY_INSTRUCTION } from '../shared/videoSpeech.js';
 
@@ -174,29 +173,6 @@ export async function generateKhmerSpeech({
   // Edge's Khmer-only voice cannot reliably speak a deliberate Latin/other-script
   // word. Mixed narration needs Gemini even when Edge is the configured fallback.
   const useEdgeOnly = !mixedScript && (forceEdge || String(process.env.KHMER_TTS_PROVIDER || '').trim().toLowerCase() === 'edge');
-  // Prefer the Kiri voice for new Khmer video narration whenever its
-  // server-side key is available. A failed or mismatched take can still fall
-  // back to the existing verified Gemini path before starting a paid video.
-  let kiriFallbackReason = '';
-  let unverifiedKiri;
-  if (!useEdgeOnly && Number.isFinite(targetSeconds) && targetSeconds >= 4 && targetSeconds <= 8 && isKiriConfigured()) {
-    try {
-      const generated = await generateKiriSpeech({
-        input: spokenInput,
-        voice,
-        instructions: 'Speak warmly and naturally to one person. Keep every Khmer word clear and complete.',
-      });
-      const verification = Number.isFinite(targetSeconds) && targetSeconds >= 4 && targetSeconds <= 8
-        ? await matchesKhmerScript(generated, spokenInput)
-        : 'match';
-      if (verification === 'match') return { ...generated, spokenText: spokenInput };
-      if (verification === 'unavailable') unverifiedKiri = generated;
-      kiriFallbackReason = 'Kiri speech could not be verified; another voice was used. Review the narration.';
-    } catch (error) {
-      console.warn('Kiri TTS unavailable:', error?.message || error);
-      kiriFallbackReason = 'Kiri speech was unavailable; another voice was used. Review the narration.';
-    }
-  }
   // Now that narration uses Gemini as its primary voice too (see above), it
   // should use the exact Aoede/Achird pair Live Voice/Agent conversations
   // use (chosen by ear against the alternatives -- see the comment on
@@ -213,14 +189,9 @@ export async function generateKhmerSpeech({
     // preferNaturalVoice always skips verification so the conversation gets
     // the Gemini audio immediately.
     const generated = await generateVerifiedGeminiTake({ spokenInput, voice, performanceStyle: clearKhmerStyle, context, voiceOverride, targetSeconds });
-    if (generated && !generated.verificationInconclusive) return { ...generated, spokenText: spokenInput, ...(kiriFallbackReason ? { fallbackReason: kiriFallbackReason } : {}) };
+    if (generated && !generated.verificationInconclusive) return { ...generated, spokenText: spokenInput };
     if (generated?.verificationInconclusive) unverifiedGemini = generated;
     if (mixedScript) {
-      if (unverifiedKiri) return {
-        ...unverifiedKiri,
-        spokenText: spokenInput,
-        fallbackReason: 'Kiri speech could not be verified automatically; review every spoken word before publishing.',
-      };
       if (unverifiedGemini) return {
         ...unverifiedGemini,
         spokenText: spokenInput,
@@ -263,11 +234,6 @@ export async function generateKhmerSpeech({
     // the primary Gemini path -- an unchecked take can mispronounce the
     // script, which is worse than surfacing the original Edge failure.
     console.error('Edge Khmer speech failed; trying Gemini as a verified last resort:', edgeError?.message || edgeError);
-    if (unverifiedKiri) return {
-      ...unverifiedKiri,
-      spokenText: spokenInput,
-      fallbackReason: 'Kiri speech could not be verified automatically; review every spoken word before publishing.',
-    };
     if (unverifiedGemini) {
       return {
         ...unverifiedGemini,
