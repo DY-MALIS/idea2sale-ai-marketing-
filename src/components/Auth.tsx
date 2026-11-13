@@ -19,7 +19,7 @@ const Auth = ({ isSignedIn = false }: { isSignedIn?: boolean }) => {
     const video = videoRef.current;
     if (!video) return;
     void video.play().catch(() => setVideoNeedsPlay(true));
-  }, []);
+  }, [reduceMotion]);
   const isKhmer = language === 'km';
   const copy = isKhmer ? {
     eyebrow: 'វេទិកាបង្កើតមាតិកាទីផ្សារដោយ AI',
@@ -100,10 +100,14 @@ const Auth = ({ isSignedIn = false }: { isSignedIn?: boolean }) => {
   return (
     <main className={`min-h-screen bg-[#11152e] text-white ${isKhmer ? 'font-khmer' : ''}`}>
       <div className="relative isolate min-h-screen overflow-hidden">
-        <video
+        {reduceMotion ? <img
+          src="/auth-keyboard-poster.webp"
+          alt=""
+          className="pointer-events-none absolute inset-x-0 top-0 h-[100svh] w-full object-cover object-center [mask-image:linear-gradient(to_bottom,black_0%,black_85%,transparent_100%)] lg:inset-0 lg:h-full lg:[mask-image:none]"
+        /> : <video
           ref={videoRef}
           src="/auth-keyboard-loop.mp4"
-          poster="/auth-natural-poster.webp"
+          poster="/auth-keyboard-poster.webp"
           autoPlay
           muted
           loop
@@ -115,7 +119,7 @@ const Auth = ({ isSignedIn = false }: { isSignedIn?: boolean }) => {
           aria-hidden="true"
           tabIndex={-1}
           className="pointer-events-none absolute inset-x-0 top-0 h-[100svh] w-full object-cover object-center [mask-image:linear-gradient(to_bottom,black_0%,black_85%,transparent_100%)] lg:inset-0 lg:h-full lg:[mask-image:none]"
-        />
+        />}
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#10122c]/72 via-[#15142f]/10 to-transparent" />
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#11142f]/35 via-transparent to-[#11142f]/10" />
       <AuthFloatingCards />
@@ -224,5 +228,3 @@ const Auth = ({ isSignedIn = false }: { isSignedIn?: boolean }) => {
 };
 
 export default Auth;
-
-
