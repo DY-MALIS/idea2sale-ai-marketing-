@@ -43,7 +43,10 @@ export async function preparePlanVideoSpeech(item) {
       `Video scene: ${prompt}. Intended spoken meaning: ${suppliedScript}`, duration, item.businessName,
     ));
   }
-  if (!isKhmerOnlyNarration(script)) throw new Error('Khmer dialogue must use Khmer script only. Please edit the narration before generating the video.');
+  // A user may deliberately mix Khmer with brand names, Latin words or digits.
+  // Gemini can read that script directly; keep the user's wording for the
+  // audio-driven video instead of rejecting it before narration is prepared.
+  if (!script || !/[\u1780-\u17ff]/u.test(script)) throw new Error('Khmer narration text is required.');
   // Do not reject a single short clip from Khmer code-point counts. Khmer
   // vowels and combining signs make visually short text look artificially long
   // to String.length, while startKhmerVideoJob measures the real synthesized

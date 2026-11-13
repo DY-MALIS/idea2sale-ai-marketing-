@@ -20,6 +20,21 @@ describe('Khmer narration', () => {
     expect(mocks.edge).toHaveBeenCalledWith({ input: 'សួស្តី', voice: 'km-KH-SreymomNeural', rate: '+6%' });
     expect(mocks.gemini).not.toHaveBeenCalled();
   });
+  it('keeps mixed-script narration on Gemini instead of a Khmer-only fallback', async () => {
+    vi.stubEnv('KHMER_TTS_PROVIDER', 'edge');
+    mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,YXVkaW8=', provider: 'gemini' });
+    mocks.transcribe.mockResolvedValue('សួស្តី Example');
+    const result = await generateKhmerSpeech({ input: 'សួស្តី Example', targetDuration: 8 });
+    expect(result).toMatchObject({ provider: 'gemini', spokenText: 'សួស្តី Example' });
+    expect(mocks.edge).not.toHaveBeenCalled();
+  });
+  it('does not substitute a Khmer-only voice when mixed-script speech is wrong', async () => {
+    mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,YXVkaW8=', provider: 'gemini' });
+    mocks.transcribe.mockResolvedValue('សួស្តី ខុស');
+    await expect(generateKhmerSpeech({ input: 'សួស្តី Example', targetDuration: 8 }))
+      .rejects.toThrow('mixed-script narration');
+    expect(mocks.edge).not.toHaveBeenCalled();
+  });
   it.each(['', 'unknown'])('defaults to the Gemini voice (same as Live Agent), not Edge, for ordinary narration (%s)', async (provider) => {
     vi.stubEnv('KHMER_TTS_PROVIDER', provider);
     mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,YXVkaW8=', provider: 'gemini' });

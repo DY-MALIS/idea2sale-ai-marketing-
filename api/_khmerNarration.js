@@ -153,6 +153,8 @@ export async function generateKhmerSpeech({
 }) {
   if (!/[\u1780-\u17ff]/.test(input)) throw new Error('Khmer narration text is required.');
   const spokenInput = normalizeForKhmerSpeech(input);
+  const mixedScript = [...spokenInput].some((character) =>
+    (/\p{L}/u.test(character) && !/\p{Script=Khmer}/u.test(character)) || /\p{N}/u.test(character));
   const targetSeconds = Number(targetDuration);
   const timingDirection = Number.isFinite(targetSeconds) && targetSeconds >= 4 && targetSeconds <= 8
     ? ` Complete the exact script within ${Math.max(3.5, targetSeconds - 0.15).toFixed(2)} seconds using a naturally brisk conversational pace and minimal pauses. Do not omit, abbreviate or cut off any word.`
@@ -168,7 +170,9 @@ export async function generateKhmerSpeech({
   // Edge remains available as a named opt-out (KHMER_TTS_PROVIDER=edge) in
   // case Gemini's reliability or quality regresses, and still runs as the
   // automatic fallback below when Gemini's take fails or doesn't verify.
-  const useEdgeOnly = forceEdge || String(process.env.KHMER_TTS_PROVIDER || '').trim().toLowerCase() === 'edge';
+  // Edge's Khmer-only voice cannot reliably speak a deliberate Latin/other-script
+  // word. Mixed narration needs Gemini even when Edge is the configured fallback.
+  const useEdgeOnly = !mixedScript && (forceEdge || String(process.env.KHMER_TTS_PROVIDER || '').trim().toLowerCase() === 'edge');
   // Now that narration uses Gemini as its primary voice too (see above), it
   // should use the exact Aoede/Achird pair Live Voice/Agent conversations
   // use (chosen by ear against the alternatives -- see the comment on
@@ -187,6 +191,14 @@ export async function generateKhmerSpeech({
     const generated = await generateVerifiedGeminiTake({ spokenInput, voice, performanceStyle: clearKhmerStyle, context, voiceOverride, targetSeconds });
     if (generated && !generated.verificationInconclusive) return { ...generated, spokenText: spokenInput };
     if (generated?.verificationInconclusive) unverifiedGemini = generated;
+    if (mixedScript) {
+      if (unverifiedGemini) return {
+        ...unverifiedGemini,
+        spokenText: spokenInput,
+        fallbackReason: 'Mixed-script speech could not be verified automatically; review every spoken word before publishing.',
+      };
+      throw new Error('Could not generate clear mixed-script narration. Please try again or shorten the narration.');
+    }
     console.error('Natural Khmer Gemini speech failed or did not clearly match the script; using Edge Khmer neural fallback.');
   }
 

@@ -184,6 +184,10 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
   // pitch-preserving neural speech-rate increase before any paid image/video
   // preparation starts.
   if (measuredDuration > MAX_KHMER_CLIP_DURATION) {
+    if ([...spokenScript].some((character) =>
+      (/\p{L}/u.test(character) && !/\p{Script=Khmer}/u.test(character)) || /\p{N}/u.test(character))) {
+      throw new Error('The mixed-script narration is longer than the 8-second video. Shorten the text and try again.');
+    }
     const currentRateFactor = /edge-/i.test(String(audio.provider || audio.model || '')) ? 1.04 : 1;
     const requiredRatePercent = Math.max(14,
       Math.ceil(((currentRateFactor * measuredDuration) / (MAX_KHMER_CLIP_DURATION - 0.15) - 1) * 100) + 2);

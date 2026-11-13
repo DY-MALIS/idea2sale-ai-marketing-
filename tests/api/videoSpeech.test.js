@@ -30,9 +30,9 @@ describe('native Khmer video speech', () => {
     expect(extractVideoDialogue(`says in Khmer: “${line}” (no subtitles)` ).script).toBe(line);
     expect(mocks.narration).toHaveBeenCalledWith(expect.stringContaining(line), 8, undefined);
   });
-  it('rejects a user-edited mixed script before a paid video starts', async () => {
-    await expect(preparePlanVideoSpeech({ prompt: 'Office', voiceOverText: 'សួស្តី Example', allowScriptShortening: false }))
-      .rejects.toThrow('Khmer script only');
+  it('preserves a user-edited mixed script for the speech track', async () => {
+    const script = 'សួស្តី Example 24';
+    expect((await preparePlanVideoSpeech({ prompt: 'Office', voiceOverText: script, allowScriptShortening: false })).script).toBe(script);
     expect(mocks.narration).not.toHaveBeenCalled();
   });
   it('distinguishes native speech without overdubbing from an actual silent request', () => {
