@@ -3042,7 +3042,7 @@ Return ONLY a single valid JSON object with this exact structure:
       // Falls back to the previously-default gpt-audio-mini path, then (Khmer only)
       // to the Google Translate voice, if each preceding tier fails.
       try {
-        const geminiModel = process.env.OPEN_ROUTER_TTS_GEMINI_MODEL || 'google/gemini-3.1-flash-tts-preview';
+        const geminiModel = process.env.OPEN_ROUTER_TTS_GEMINI_MODEL || 'google/gemini-3.8-flash-tts';
         // The AI Agent's conversation TTS always uses the Aoede/Achird pair
         // (picked by ear against the alternatives), regardless of the persona
         // voice name -- other callers keep the existing Kore/Puck mapping.

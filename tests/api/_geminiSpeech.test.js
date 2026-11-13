@@ -26,7 +26,7 @@ describe('OpenRouter Gemini TTS adapter (mocked network)', () => {
     // script verification twice in a row -- this instructs against exactly
     // that failure mode.
     expect(body.input).toContain('pronounce these exactly as the Khmer syllables are written');
-    expect(body).toMatchObject({model:'google/gemini-3.1-flash-tts-preview',voice:'Charon',response_format:'pcm'});
+    expect(body).toMatchObject({model:'google/gemini-3.8-flash-tts',voice:'Charon',response_format:'pcm'});
     const wav = Buffer.from(result.audioUrl.split(',')[1],'base64');
     expect(wav.toString('ascii',0,4)).toBe('RIFF');
     expect(wav.readUInt32LE(24)).toBe(24000);
