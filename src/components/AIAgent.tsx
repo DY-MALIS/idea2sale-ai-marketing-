@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Bot, CalendarClock, Check, ChevronDown, Copy, History, Image as ImageIcon, ImagePlus, Loader2, Mic, MicOff, RefreshCw, Send, Sparkles, Trash2, UserRound, Video, X, Zap } from 'lucide-react';
+import { Bot, CalendarClock, Check, ChevronDown, Copy, History, Image as ImageIcon, ImagePlus, Loader2, Mic, MicOff, PenLine, RefreshCw, Send, Sparkles, Trash2, TrendingUp, UserRound, Video, X, Zap } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { AnimatePresence, motion } from 'motion/react';
 import { collection, doc, getDoc, onSnapshot, query, setDoc, serverTimestamp, where } from 'firebase/firestore';
@@ -1575,24 +1575,36 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   }, [activeSessionId, conversationSessions, messages]);
 
   return (
-    <div className="max-w-7xl mx-auto space-y-8">
+    <div className="agent-dashboard max-w-7xl mx-auto space-y-5 pb-12">
       <ToastHost />
       {documentDialog && <AgentDocumentDialog document={documentDialog} language={language} onDownload={handleDocumentDownload} onClose={() => setDocumentDialog(null)} />}
-      <header className="flex flex-col gap-2">
-        <h2 className="text-4xl font-display font-bold text-brand-700 dark:text-brand-300 tracking-tight flex items-center gap-3">
+      <header className="agent-hero flex flex-col gap-2 rounded-[2rem] px-5 py-8 sm:px-9 sm:py-10">
+        <h2 className="flex max-w-3xl items-center gap-3 font-display text-3xl font-extrabold tracking-tight text-[#35180f] dark:text-white sm:text-4xl lg:text-5xl">
           {text.title}
-          <Sparkles className="text-brand-500" size={34} />
+          <Sparkles className="shrink-0 text-orange-500" size={34} />
         </h2>
-        <p className="text-slate-500 dark:text-slate-400 text-lg max-w-4xl">{text.subtitle}</p>
+        <p className="max-w-2xl text-base leading-relaxed text-[#49332e] dark:text-slate-200 sm:text-lg">{text.subtitle}</p>
+        <div className="mt-5 flex max-w-3xl flex-wrap gap-2.5">
+          {[
+            { icon: PenLine, label: language === 'km' ? 'បង្កើតអត្ថបទ' : 'Create Content', prompt: language === 'km' ? 'ជួយបង្កើតអត្ថបទផ្សព្វផ្សាយ' : 'Help me create marketing content' },
+            { icon: ImagePlus, label: language === 'km' ? 'បង្កើតរូបភាព' : 'Make Visuals', prompt: language === 'km' ? 'ជួយបង្កើតរូបភាពផ្សព្វផ្សាយ' : 'Help me plan a marketing visual' },
+            { icon: CalendarClock, label: language === 'km' ? 'រៀបចំផែនការ' : 'Plan & Schedule', prompt: language === 'km' ? 'ជួយរៀបចំផែនការមាតិកា' : 'Help me plan and schedule content' },
+            { icon: TrendingUp, label: language === 'km' ? 'វិភាគលទ្ធផល' : 'Analyze & Grow', prompt: language === 'km' ? 'ជួយវិភាគលទ្ធផលទីផ្សារ' : 'Help me analyze marketing performance' },
+          ].map(({ icon: Icon, label, prompt }) => (
+            <button key={label} type="button" onClick={() => { setInput(prompt); document.getElementById('agent-prompt')?.focus(); }} className="inline-flex min-h-10 items-center gap-2 rounded-full border border-[#efcfb2] bg-white/90 px-4 py-2 text-sm font-bold text-[#44241a] shadow-[0_5px_14px_rgba(98,48,14,0.08)] transition hover:border-orange-400 hover:bg-white hover:shadow-md">
+              <Icon size={17} className="text-orange-600" />{label}
+            </button>
+          ))}
+        </div>
       </header>
 
-      <div className="grid min-w-0 grid-cols-1 items-start gap-4 xl:grid-cols-2 xl:gap-5">
-      <section className={`glass min-w-0 rounded-2xl p-4 sm:p-5 ${historyOpen ? 'xl:col-span-2' : ''}`}>
+      <div className="grid min-w-0 grid-cols-1 items-start gap-3 xl:grid-cols-2 xl:gap-5">
+      <section className={`agent-summary-card glass min-w-0 rounded-[1.5rem] p-4 sm:p-5 ${historyOpen ? 'xl:col-span-2' : ''}`}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <button
             type="button"
             onClick={() => setHistoryOpen((open) => !open)}
-            className="flex items-center gap-2 text-lg font-bold text-brand-700 dark:text-brand-300"
+            className="flex min-w-0 flex-1 items-center gap-2 text-left text-lg font-bold text-[#482117] dark:text-brand-300"
           >
             <History size={20} />
             <span>{text.historyTitle}</span>
@@ -1601,7 +1613,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                 {conversationHistory.length}
               </span>
             )}
-            <motion.span animate={{ rotate: historyOpen ? 180 : 0 }} className="text-brand-400">
+            <motion.span animate={{ rotate: historyOpen ? 180 : 0 }} className="ml-auto text-orange-500">
               <ChevronDown size={18} />
             </motion.span>
           </button>
@@ -1663,11 +1675,11 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
         )}
       </section>
 
-      <section ref={planSectionRef} className={`glass min-w-0 rounded-2xl p-4 sm:p-5 ${planOpen ? 'xl:col-span-2' : ''}`}>
+      <section ref={planSectionRef} className={`agent-summary-card glass min-w-0 rounded-[1.5rem] p-4 sm:p-5 ${planOpen ? 'xl:col-span-2' : ''}`}>
         <button
           type="button"
           onClick={() => setPlanOpen((open) => !open)}
-          className="flex items-center gap-2 text-lg font-bold text-brand-700 dark:text-brand-300"
+          className="flex w-full items-center gap-2 text-left text-lg font-bold text-[#482117] dark:text-brand-300"
         >
           <CalendarClock size={20} />
           <span>{language === 'km' ? 'Content Plan របស់អ្នក' : 'Your Content Plan'}</span>
@@ -1676,7 +1688,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
               {language === 'km' ? 'វីដេអូបរាជ័យ' : 'Video failed'}
             </span>
           )}
-          <motion.span animate={{ rotate: planOpen ? 180 : 0 }} className="text-brand-400">
+          <motion.span animate={{ rotate: planOpen ? 180 : 0 }} className="ml-auto text-orange-500">
             <ChevronDown size={18} />
           </motion.span>
         </button>
@@ -2004,11 +2016,12 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       </section>
       </div>
 
-      <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-12 xl:gap-8">
-        <section className="xl:col-span-4 glass min-w-0 rounded-[2rem] p-4 space-y-5 self-start sm:p-7">
+      <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-12 xl:gap-5">
+        <section className="agent-panel xl:col-span-5 glass min-w-0 rounded-[2rem] p-4 space-y-5 self-start sm:p-7">
           <div className="space-y-2">
             <label className="text-[10px] font-bold text-brand-700 dark:text-brand-300 uppercase tracking-widest">{text.prompt}</label>
             <textarea
+              id="agent-prompt"
               disabled={liveVoiceEnabled}
               value={input}
               onChange={(event) => setInput(event.target.value)}
@@ -2019,7 +2032,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
                 }
               }}
               placeholder={text.placeholder}
-              className="w-full min-h-60 p-5 rounded-2xl bg-brand-50 border border-brand-200 focus:ring-2 focus:ring-brand-500 focus:bg-white dark:bg-slate-900/80 dark:text-slate-50 dark:border-brand-400/40 dark:placeholder:text-slate-300 dark:focus:bg-slate-800 outline-none transition-all resize-y font-medium"
+              className="w-full min-h-44 p-5 rounded-2xl bg-[#fffaf3] border border-[#efcfb2] focus:ring-2 focus:ring-orange-400/40 focus:bg-white dark:bg-slate-900/80 dark:text-slate-50 dark:border-brand-400/40 dark:placeholder:text-slate-300 dark:focus:bg-slate-800 outline-none transition-all resize-y font-medium"
             />
             <p className="text-xs text-slate-400 dark:text-slate-400">{text.inputHint}</p>
 
@@ -2190,7 +2203,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
 
         </section>
 
-        <section className="xl:col-span-8 glass min-w-0 rounded-[2rem] p-4 min-h-[420px] flex flex-col sm:min-h-[650px] sm:p-7">
+        <section className="agent-panel xl:col-span-7 glass min-w-0 rounded-[2rem] p-4 min-h-[420px] flex flex-col sm:min-h-[560px] sm:p-7">
           <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
             <h3 className="text-xl font-bold text-brand-700 dark:text-brand-300 flex items-center gap-2">
               <span className="w-2 h-6 bg-brand-500 rounded-full" />
@@ -2259,8 +2272,8 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
             ) : <>
             {!messages.length && !loading && (
               <div className="h-full min-h-[500px] flex flex-col items-center justify-center text-center">
-                <div className="w-20 h-20 bg-brand-50 rounded-3xl flex items-center justify-center border border-brand-100 shadow-inner mb-5">
-                  <Bot size={38} className="text-brand-400" />
+                <div className="mb-5 flex h-24 w-24 items-center justify-center rounded-full border border-orange-200 bg-gradient-to-br from-[#fff4db] to-[#ffd9a8] shadow-[0_0_0_10px_rgba(255,203,136,0.14),0_12px_28px_rgba(224,113,21,0.15)]">
+                  <Bot size={44} className="text-orange-600" />
                 </div>
                 <p className="text-lg font-bold text-brand-700 dark:text-brand-300">{text.emptyTitle}</p>
                 <p className="mt-2 max-w-md text-slate-500 dark:text-slate-400">{text.empty}</p>
@@ -2349,3 +2362,4 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
 };
 
 export default AIAgent;
+

@@ -303,7 +303,7 @@ export default function App() {
           
           <main className="min-w-0 flex-1 px-4 pb-6 pt-20 sm:px-6 lg:ml-72 lg:p-8">
             <div className="max-w-7xl mx-auto">
-              <div className="mb-5 flex items-center gap-3 rounded-2xl border border-brand-100 bg-white/80 px-4 py-3 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-800/80">
+              <div className="mb-5 flex items-center gap-3 rounded-[1.5rem] border border-white/80 bg-white/95 px-4 py-3 text-sm shadow-[0_10px_28px_rgba(127,63,28,0.09)] dark:border-slate-700 dark:bg-slate-800/90">
                 <img src={activeBusiness?.logoDataUrl || '/favicon.svg'} alt="" className="h-9 w-9 rounded-lg object-cover" />
                 <div className="min-w-0 flex-1">
                   <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">{language === 'km' ? 'ប្រវត្តិរូបអាជីវកម្មកំពុងប្រើ' : 'Active business profile'}</p>
@@ -364,3 +364,4 @@ export default function App() {
     </div>
   );
 }
+
