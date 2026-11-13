@@ -28,7 +28,7 @@ it('removes only outer TTS silence while preserving a pause inside speech', asyn
     });
     expect(result.duration).toBeGreaterThan(2.35);
     expect(result.duration).toBeLessThan(2.6);
-    expect(result.audioUrl).toMatch(/^data:audio\/mpeg;base64,/);
+    expect(result.audioUrl).toMatch(/^data:audio\/wav;base64,/);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

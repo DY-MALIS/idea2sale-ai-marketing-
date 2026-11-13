@@ -21,7 +21,7 @@ export async function trimVideoNarrationSilence(audio) {
   try {
     const source = join(directory, 'source.audio');
     const pcmPath = join(directory, 'decoded.pcm');
-    const outputPath = join(directory, 'trimmed.mp3');
+    const outputPath = join(directory, 'trimmed.wav');
     await writeFile(source, Buffer.from(match[1], 'base64'));
     await run(ffmpegPath, ['-v', 'error', '-nostdin', '-y', '-i', source,
       '-ac', '1', '-ar', String(SAMPLE_RATE), '-f', 's16le', pcmPath],
@@ -49,15 +49,15 @@ export async function trimVideoNarrationSilence(audio) {
     if (start < 0.08 && fullDuration - end < 0.18) return audio;
     await run(ffmpegPath, ['-v', 'error', '-nostdin', '-y', '-i', source,
       '-af', `atrim=start=${start.toFixed(3)}:end=${end.toFixed(3)},asetpts=PTS-STARTPTS`,
-      '-ac', '1', '-ar', String(SAMPLE_RATE), '-b:a', '96k', outputPath],
+      '-ac', '1', '-c:a', 'pcm_s16le', outputPath],
     { timeout: 30000, windowsHide: true });
     const trimmed = await readFile(outputPath);
-    const metadata = await parseBuffer(trimmed, { mimeType: 'audio/mpeg' }, { duration: true });
+    const metadata = await parseBuffer(trimmed, { mimeType: 'audio/wav' }, { duration: true });
     const duration = Number(metadata.format.duration);
     if (!trimmed.length || !Number.isFinite(duration) || duration <= 0) {
       throw new Error('Could not measure trimmed Khmer narration.');
     }
-    return { ...audio, audioUrl: `data:audio/mpeg;base64,${trimmed.toString('base64')}`, duration };
+    return { ...audio, audioUrl: `data:audio/wav;base64,${trimmed.toString('base64')}`, duration };
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
