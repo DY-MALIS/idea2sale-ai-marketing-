@@ -101,13 +101,13 @@ const Auth = ({ isSignedIn = false }: { isSignedIn?: boolean }) => {
     <main className={`min-h-screen bg-[#11152e] text-white ${isKhmer ? 'font-khmer' : ''}`}>
       <div className="relative isolate min-h-screen overflow-hidden">
         {reduceMotion ? <img
-          src="/auth-smile-blink-poster.webp"
+          src="/auth-keyboard-poster.webp"
           alt=""
           className="pointer-events-none absolute inset-x-0 top-0 h-[100svh] w-full object-cover object-center [mask-image:linear-gradient(to_bottom,black_0%,black_85%,transparent_100%)] lg:inset-0 lg:h-full lg:[mask-image:none]"
         /> : <video
           ref={videoRef}
-          src="/auth-smile-blink-loop.mp4"
-          poster="/auth-smile-blink-poster.webp"
+          src="/auth-keyboard-loop.mp4"
+          poster="/auth-keyboard-poster.webp"
           autoPlay
           muted
           loop
