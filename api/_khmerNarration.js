@@ -1,6 +1,7 @@
 import { generateOpenRouterText, generateTranslateSpeech, normalizeForKhmerSpeech, transcribeAudioWithOpenRouter } from './_openrouter.js';
 import { synthesizeKhmerSpeechViaEdge } from './_edgeSpeech.js';
 import { generateGeminiSpeech } from './_geminiSpeech.js';
+import { transcribeKhmerSpeechWithGemini } from './_geminiTranscription.js';
 import { parseBuffer } from 'music-metadata';
 import { compareKhmerTranscript, isKhmerOnlyNarration, KHMER_SCRIPT_ONLY_INSTRUCTION } from '../shared/videoSpeech.js';
 
@@ -36,6 +37,19 @@ const matchesKhmerScript = async (audio, expectedScript) => {
   const prefix = format === 'wav' ? WAV_PREFIX : MP3_PREFIX;
   let gotTranscript = false;
   let bestMismatch = null;
+  // Gemini is the faster and more reliable Khmer recognizer in the observed
+  // video pipeline. If it cannot confirm the script, ask Chirp independently.
+  try {
+    const transcript = await transcribeKhmerSpeechWithGemini(audio.audioUrl);
+    if (/[\u1780-\u17ff]/u.test(transcript)) {
+      const comparison = compareKhmerTranscript(expectedScript, transcript);
+      if (comparison.passed) return 'match';
+      gotTranscript = true;
+      bestMismatch = { transcript, similarity: comparison.similarity };
+    }
+  } catch (error) {
+    console.warn('Gemini Khmer transcription unavailable:', error?.message || error);
+  }
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const transcript = await transcribeAudioWithOpenRouter({
@@ -46,7 +60,7 @@ const matchesKhmerScript = async (audio, expectedScript) => {
       });
       if (isUnreliableKhmerTranscript(transcript)) {
         console.warn('Khmer speech transcription returned a numeric hallucination; treating this verification pass as unavailable.');
-        return 'unavailable';
+        break;
       }
       // Chirp can render a real Khmer waveform as a fluent French sentence.
       // A transcript without a Khmer character cannot prove what language the
@@ -162,25 +176,17 @@ export async function generateKhmerSpeech({
   const clearKhmerStyle = preferNaturalVoice
     ? `Speak like a young Cambodian adult talking to one person. Use relaxed phrasing, small natural breaths, and gentle changes in pitch that follow the meaning. Say every Khmer word clearly at a comfortable pace. ${String(performanceStyle || '').trim()}`.trim()
     : `Speak like a young Cambodian adult explaining this to one person in a friendly, everyday conversation. Let each phrase flow into the next, with a small breath only where the thought naturally ends. Give meaningful words gentle emphasis and finish the sentence calmly. Pronounce every Khmer syllable and word ending clearly without sounding rehearsed.${timingDirection} ${String(performanceStyle || '').trim()}`.trim();
-  // Video narration used to default to Edge's classic neural voice, with
-  // Gemini only as a verified fallback. The user compared both directly and
-  // asked for the warmer, more natural Gemini voice (the same one Live
-  // Voice/Agent conversations already use) to be the primary everywhere,
-  // not just a fallback -- matching preferNaturalVoice's existing choice.
-  // Edge remains available as a named opt-out (KHMER_TTS_PROVIDER=edge) in
-  // case Gemini's reliability or quality regresses, and still runs as the
-  // automatic fallback below when Gemini's take fails or doesn't verify.
+  // Gemini is the primary video voice. Edge remains a fallback if the audio
+  // cannot be generated or its spoken words do not match the script.
+  // KHMER_TTS_PROVIDER=edge remains an explicit opt-out.
   // Edge's Khmer-only voice cannot reliably speak a deliberate Latin/other-script
   // word. Mixed narration needs Gemini even when Edge is the configured fallback.
   const useEdgeOnly = !mixedScript && (forceEdge || String(process.env.KHMER_TTS_PROVIDER || '').trim().toLowerCase() === 'edge');
-  // Now that narration uses Gemini as its primary voice too (see above), it
-  // should use the exact Aoede/Achird pair Live Voice/Agent conversations
-  // use (chosen by ear against the alternatives -- see the comment on
-  // generateGeminiSpeech's voiceOverride param) rather than Gemini's default
-  // Kore/Charon pair -- "the same provider" is not "the same voice" unless
-  // this is set too, and the user specifically asked for narration to sound
-  // like the Live Agent voice they already compared and preferred.
-  const voiceOverride = edgeKhmerVoice(voice) === 'km-KH-PisethNeural' ? 'Achird' : 'Aoede';
+  // Video uses the warmer, smoother female preset selected against the Kiri
+  // public Maly demo. Live Agent conversation keeps its existing Aoede voice.
+  const voiceOverride = edgeKhmerVoice(voice) === 'km-KH-PisethNeural'
+    ? 'Achird'
+    : preferNaturalVoice ? 'Aoede' : 'Despina';
   let unverifiedGemini;
   if (!useEdgeOnly) {
     // Not awaited inside a try: generateVerifiedGeminiTake never throws, so a

@@ -16,14 +16,14 @@ export async function generateGeminiSpeech({ input, voice = 'alloy', performance
     ? 'Charon'
     : 'Kore');
   const style = String(performanceStyle).trim()
-    || 'Warm, clear conversational delivery at a normal, brisk everyday speaking speed -- like talking to a friend, not reciting slowly or dragging out words -- with crisp, distinct enunciation of every Khmer syllable so each word is still easy to make out.';
-  const prompt = `Read only the SCRIPT verbatim, in its original language. If Khmer, speak native Cambodian Khmer; do not translate or transliterate the text. Some Khmer words are a phonetic Khmer spelling of a foreign name or brand (for example "ឌីជីអាកាដឺមី" spells out "DG Academy" sound by sound) -- pronounce these exactly as the Khmer syllables are written; never recognize what foreign word they spell out and switch to saying that foreign word instead. Do not read the directions or context aloud. Sound like a real person talking directly to one customer: use spontaneous breath, varied intonation, gentle emphasis on meaningful words, and a clear settled ending. Give every Khmer initial consonant, vowel, final consonant and syllable its complete sound; keep neighboring words distinct and never swallow word endings. Use a natural everyday social-video tempo, never faster than clear pronunciation allows. Do not use a slow measured AI/announcer cadence, drag out words, pause after each word, or add long dramatic gaps; do not rush or garble words either. Follow the meaning of the script rather than exaggerating every phrase.\nVocal age: sound like a young Cambodian adult in their early-to-mid 20s -- a bright, light, energetic voice, not a deep, slow, gravelly, or aged/elderly-sounding one.\nDelivery direction: ${style.slice(0, 1500)}\nPlan context (context only, never spoken): ${JSON.stringify(String(context).slice(0, 3000))}\nSCRIPT:\n${text}`;
+    || 'Warm, relaxed Cambodian Khmer, as if speaking to one person. Natural phrasing, gentle emphasis, clear words.';
+  // Gemini 3.8 TTS treats input as the transcript. Keep delivery directions in
+  // instructions so they cannot become spoken words or distort pronunciation.
+  const instructions = `Speak the input exactly as written in its original language. For Khmer, use a native Cambodian accent and pronounce phonetic Khmer brand names as written. ${style.slice(0, 500)}${context ? ` Context: ${String(context).slice(0, 200)}. Do not speak the context.` : ''}`;
   const response = await fetch('https://openrouter.ai/api/v1/audio/speech', {
     method: 'POST', signal: AbortSignal.timeout(50000),
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-    // Gemini accepts delivery directions in its input prompt. Do not send
-    // OpenAI-only instructions parameters to the Google provider.
-    body: JSON.stringify({ model, input: prompt, voice: voiceName, response_format: 'pcm' }),
+    body: JSON.stringify({ model, input: text, instructions, voice: voiceName, response_format: 'pcm' }),
   });
   if (!response.ok) {
     const message = await response.text().catch(() => 'Provider error');
