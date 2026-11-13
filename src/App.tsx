@@ -278,7 +278,7 @@ export default function App() {
       ) : isPublicHome || !effectivelyAuthenticated ? (
         <Auth isSignedIn={effectivelyAuthenticated} />
       ) : (
-        <div key={accountKey} className="flex flex-1 relative">
+        <div key={accountKey} className="app-workspace flex flex-1 relative">
           <AnimatePresence>
             {isMobileNavOpen && (
               <motion.button
@@ -301,15 +301,24 @@ export default function App() {
             onClose={() => setIsMobileNavOpen(false)}
           />
           
-          <main className="min-w-0 flex-1 px-4 pb-6 pt-20 sm:px-6 lg:ml-72 lg:p-8">
+          <main className="min-w-0 flex-1 px-4 pb-8 pt-20 sm:px-6 lg:ml-72 lg:px-8 lg:pb-10 lg:pt-8">
             <div className="max-w-7xl mx-auto">
-              <div className="mb-5 flex items-center gap-3 rounded-[1.5rem] border border-white/80 bg-white/95 px-4 py-3 text-sm shadow-[0_10px_28px_rgba(127,63,28,0.09)] dark:border-slate-700 dark:bg-slate-800/90">
-                <img src={activeBusiness?.logoDataUrl || '/favicon.svg'} alt="" className="h-9 w-9 rounded-lg object-cover" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">{language === 'km' ? 'ប្រវត្តិរូបអាជីវកម្មកំពុងប្រើ' : 'Active business profile'}</p>
-                  <p className="truncate font-semibold text-brand-700 dark:text-brand-300">{activeBusiness?.businessName || (language === 'km' ? 'មិនទាន់កំណត់ឈ្មោះអាជីវកម្ម' : 'No business name saved')}</p>
+              <div className="relative mb-5 overflow-hidden rounded-[1.75rem] border border-[#ffb353]/30 bg-[#17162e] p-6 text-white shadow-[0_24px_55px_-32px_rgba(25,18,57,0.85)] sm:p-8">
+                <div className="pointer-events-none absolute inset-0 bg-[url('/auth-keyboard-poster.webp')] bg-cover bg-[center_35%] opacity-40" aria-hidden="true" />
+                <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#15132d] via-[#15132d]/95 to-[#15132d]/35" aria-hidden="true" />
+                <div className="relative max-w-xl">
+                  <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.2em] text-orange-200">Aime · Angkorgate</p>
+                  <h1 className="text-2xl font-bold leading-tight text-white sm:text-3xl">{language === 'km' ? 'កន្លែងច្នៃប្រឌិតរបស់អ្នក' : 'Your creative workspace'}</h1>
+                  <p className="mt-2 text-sm leading-6 text-white/80">{language === 'km' ? 'បង្កើត និងគ្រប់គ្រងមាតិកាសម្រាប់អាជីវកម្មរបស់អ្នកនៅកន្លែងតែមួយ។' : 'Create and manage content for your business in one place.'}</p>
+                  <div className="mt-5 flex max-w-md items-center gap-3 rounded-2xl border border-white/20 bg-white/10 p-3 backdrop-blur-md">
+                    <img src={activeBusiness?.logoDataUrl || '/favicon.svg'} alt="" className="h-10 w-10 rounded-xl border border-white/20 bg-white object-cover" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-orange-200">{language === 'km' ? 'ប្រវត្តិរូបអាជីវកម្មកំពុងប្រើ' : 'Active business profile'}</p>
+                      <p className="truncate text-sm font-semibold text-white">{activeBusiness?.businessName || (language === 'km' ? 'មិនទាន់កំណត់ឈ្មោះអាជីវកម្ម' : 'No business name saved')}</p>
+                    </div>
+                    <button type="button" onClick={() => setShowBusinessProfile(true)} className="rounded-full border border-orange-200/50 bg-orange-400/15 px-4 py-2 text-xs font-bold text-orange-100 hover:bg-orange-400/30">{language === 'km' ? 'កែប្រែ' : 'Edit'}</button>
+                  </div>
                 </div>
-                <button type="button" onClick={() => setShowBusinessProfile(true)} className="rounded-xl px-3 py-2 font-semibold text-brand-700 hover:bg-brand-50 dark:text-brand-300 dark:hover:bg-slate-700">{language === 'km' ? 'កែប្រែ' : 'Edit'}</button>
               </div>
               <Suspense fallback={<div className="min-h-64 animate-pulse rounded-xl bg-white/60 dark:bg-slate-800/60" aria-label="Loading section" />}>
                 <div key={activeTab}>
@@ -364,4 +373,3 @@ export default function App() {
     </div>
   );
 }
-

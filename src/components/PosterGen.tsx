@@ -802,7 +802,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
               disabled={loading || (activeTool === 'visual'
                 ? !visualPrompt.trim()
                 : !posterDetails.brand.trim() || !posterDetails.headline.trim() || !posterDetails.cta.trim())}
-              className="w-full bg-gradient-to-r from-brand-600 to-crab-shell hover:from-brand-700 hover:to-crab-shell/90 text-white font-bold py-5 rounded-2xl flex items-center justify-center gap-3 transition-all shadow-xl shadow-brand-500/20"
+              className="w-full bg-gradient-to-r from-[#f88b3e] to-[#e65d28] hover:from-[#ee7d33] hover:to-[#d94f1f] text-white font-bold py-5 rounded-2xl flex items-center justify-center gap-3 transition-all shadow-xl shadow-orange-500/20"
             >
               {loading ? <Loader2 className="animate-spin" /> : <Sparkles size={22} />}
               <span className="text-lg">{loading ? t('generatingMagic') : t('generateWithAi')}</span>
