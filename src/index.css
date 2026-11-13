@@ -148,6 +148,67 @@
       linear-gradient(180deg, #fffaf2 0%, #fff7ed 100%);
   }
 
+  .agent-dashboard {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .agent-dashboard::before {
+    content: '';
+    position: absolute;
+    z-index: -1;
+    inset: 15rem -2rem 0;
+    pointer-events: none;
+    background:
+      radial-gradient(ellipse at 10% 20%, rgba(255, 190, 99, 0.18), transparent 45%),
+      radial-gradient(ellipse at 95% 80%, rgba(241, 137, 79, 0.11), transparent 44%);
+  }
+
+  .agent-hero {
+    min-height: 250px;
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    background-color: #fff3e7;
+    background-image:
+      linear-gradient(90deg, #fff3e7 0%, #fff3e7 35%, rgba(255, 243, 231, 0.94) 48%, rgba(255, 243, 231, 0.35) 75%, rgba(255, 243, 231, 0.05) 100%),
+      url('/agent-angkor-banner.webp');
+    background-position: center, right center;
+    background-size: cover, auto 100%;
+    background-repeat: no-repeat;
+    box-shadow: 0 16px 40px rgba(136, 72, 28, 0.1);
+  }
+
+  .agent-summary-card,
+  .agent-panel {
+    border: 1px solid rgba(255, 230, 205, 0.92);
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: 0 14px 34px rgba(177, 91, 38, 0.11);
+  }
+
+  .agent-summary-card {
+    min-height: 76px;
+  }
+
+  @media (max-width: 767px) {
+    .agent-hero {
+      background-image:
+        linear-gradient(90deg, rgba(255, 243, 231, 0.98), rgba(255, 243, 231, 0.82)),
+        url('/agent-angkor-banner.webp');
+    }
+  }
+
+  .dark .agent-hero {
+    border-color: rgba(251, 191, 36, 0.2);
+    background-image:
+      linear-gradient(90deg, #1c1422 0%, #1c1422 35%, rgba(28, 20, 34, 0.93) 50%, rgba(28, 20, 34, 0.42) 80%),
+      url('/agent-angkor-banner.webp');
+  }
+
+  .dark .agent-summary-card,
+  .dark .agent-panel {
+    border-color: rgba(120, 78, 54, 0.6);
+    background: rgba(20, 24, 42, 0.94);
+  }
+
   .dark .bg-mesh {
     background-color: #080d1b;
     background-image:
@@ -182,3 +243,4 @@
     color: #fcd34d;
   }
 }
+
