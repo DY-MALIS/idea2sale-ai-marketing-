@@ -6,6 +6,7 @@ import { signInWithGoogle } from '../lib/firebase';
 import { useLanguage } from '../contexts/LanguageContext';
 import AuthShowcase from './AuthShowcase';
 import AuthInformation from './AuthInformation';
+import AuthFloatingCards from './AuthFloatingCards';
 
 const Auth = ({ isSignedIn = false }: { isSignedIn?: boolean }) => {
   const { t, language } = useLanguage();
@@ -101,8 +102,8 @@ const Auth = ({ isSignedIn = false }: { isSignedIn?: boolean }) => {
       <div className="relative isolate min-h-screen overflow-hidden">
         <video
           ref={videoRef}
-          src="/auth-full-scene-loop.mp4"
-          poster="/auth-full-scene-start.webp"
+          src="/auth-keyboard-loop.mp4"
+          poster="/auth-natural-poster.webp"
           autoPlay
           muted
           loop
@@ -117,6 +118,7 @@ const Auth = ({ isSignedIn = false }: { isSignedIn?: boolean }) => {
         />
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#10122c]/72 via-[#15142f]/10 to-transparent" />
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#11142f]/35 via-transparent to-[#11142f]/10" />
+      <AuthFloatingCards />
 
       <div className="relative mx-auto flex min-h-screen max-w-[1700px] flex-col px-5 pb-5 pt-6 sm:px-9 lg:px-14">
         {videoNeedsPlay && <button
@@ -222,4 +224,5 @@ const Auth = ({ isSignedIn = false }: { isSignedIn?: boolean }) => {
 };
 
 export default Auth;
+
 
