@@ -58,7 +58,7 @@ describe('Khmer narration', () => {
     const result = await generateKhmerSpeech({ input: script, preferNaturalVoice: true, edgeRate: '+0%' });
     expect(result).toMatchObject({ provider: 'gemini', spokenText: script });
     expect(mocks.transcribe).not.toHaveBeenCalled();
-    expect(mocks.gemini.mock.calls[0][0].performanceStyle).toContain('relaxed conversation');
+    expect(mocks.gemini.mock.calls[0][0].performanceStyle).toContain('relaxed phrasing');
     expect(mocks.edge).not.toHaveBeenCalled();
   });
   it('uses a clear Khmer voice if the Agent conversation call itself fails outright', async () => {
@@ -76,15 +76,15 @@ describe('Khmer narration', () => {
     expect(await generateKhmerSpeech({ input: 'សួស្តី', voice: 'onyx', performanceStyle: 'warm', context: 'training' }))
       .toMatchObject({ audioUrl: 'natural-khmer', provider: 'gemini', spokenText: 'សួស្តី' });
     expect(mocks.gemini).toHaveBeenCalledWith(expect.objectContaining({
-      input: 'សួស្តី', voice: 'onyx', performanceStyle: expect.stringContaining('crisp initial and final consonants'), context: 'training',
+      input: 'សួស្តី', voice: 'onyx', performanceStyle: expect.stringContaining('warm'), context: 'training',
     }));
     expect(mocks.edge).not.toHaveBeenCalled();
   });
 
-  it('asks narration for natural rising-and-falling intonation, not a flat monotone read', async () => {
+  it('asks narration for natural phrasing and gentle emphasis', async () => {
     mocks.gemini.mockResolvedValue({ audioUrl: 'natural-khmer', provider: 'gemini' });
     await generateKhmerSpeech({ input: 'សួស្តី' });
-    expect(mocks.gemini.mock.calls[0][0].performanceStyle).toContain('pitch genuinely rising and falling like a real person talking');
+    expect(mocks.gemini.mock.calls[0][0].performanceStyle).toContain('gentle emphasis');
   });
 
   it('uses the exact same Aoede/Achird Gemini voice pair as Live Agent for narration too, not Gemini\'s default Kore/Charon', async () => {
@@ -105,8 +105,8 @@ describe('Khmer narration', () => {
     mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,YXVkaW8=', provider: 'gemini' });
     mocks.transcribe.mockResolvedValue('សួស្តី');
     await generateKhmerSpeech({ input: 'សួស្តី', targetDuration: 6 });
-    expect(mocks.gemini.mock.calls[0][0].performanceStyle).toContain('within 5.85 seconds');
-    expect(mocks.gemini.mock.calls[0][0].performanceStyle).toContain('Do not omit, abbreviate or cut off any word');
+    expect(mocks.gemini.mock.calls[0][0].performanceStyle).toContain('about 5.85 seconds');
+    expect(mocks.gemini.mock.calls[0][0].performanceStyle).toContain('every word');
     expect(mocks.transcribe).toHaveBeenCalledTimes(1);
     expect(mocks.transcribe).toHaveBeenCalledWith(expect.objectContaining({ timeoutMs: 18_000 }));
   });

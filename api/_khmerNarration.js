@@ -157,11 +157,11 @@ export async function generateKhmerSpeech({
     (/\p{L}/u.test(character) && !/\p{Script=Khmer}/u.test(character)) || /\p{N}/u.test(character));
   const targetSeconds = Number(targetDuration);
   const timingDirection = Number.isFinite(targetSeconds) && targetSeconds >= 4 && targetSeconds <= 8
-    ? ` Complete the exact script within ${Math.max(3.5, targetSeconds - 0.15).toFixed(2)} seconds using a naturally brisk conversational pace and minimal pauses. Do not omit, abbreviate or cut off any word.`
+    ? ` Aim for about ${Math.max(3.5, targetSeconds - 0.15).toFixed(2)} seconds while keeping the natural rhythm and every word.`
     : '';
   const clearKhmerStyle = preferNaturalVoice
-    ? `Speak like a native Cambodian talking with one person in a relaxed conversation. Let the meaning guide the emphasis and intonation, with natural breaths and short pauses between thoughts. Keep every Khmer syllable clear and complete at a comfortable pace, without a stiff announcer rhythm, a foreign accent, or exaggerated emotion. ${String(performanceStyle || '').trim()}`.trim()
-    : `Native Cambodian Khmer with crisp initial and final consonants, complete syllables, correct vowel length and clearly separated words. Let the meaning guide natural emphasis and intonation -- pitch genuinely rising and falling like a real person talking, never a flat monotone reading the words out. Fully pronounce every word ending without merging adjacent words. Speak at a natural everyday social-video pace, never faster than clear articulation allows. Use at most one brief pause at a natural clause boundary; never use a measured announcer cadence, pause after each word, mumble, swallow endings, stretch vowels or use a foreign accent.${timingDirection} ${String(performanceStyle || '').trim()}`.trim();
+    ? `Speak like a young Cambodian adult talking to one person. Use relaxed phrasing, small natural breaths, and gentle changes in pitch that follow the meaning. Say every Khmer word clearly at a comfortable pace. ${String(performanceStyle || '').trim()}`.trim()
+    : `Speak like a young Cambodian adult explaining this to one person in a friendly, everyday conversation. Let each phrase flow into the next, with a small breath only where the thought naturally ends. Give meaningful words gentle emphasis and finish the sentence calmly. Pronounce every Khmer syllable and word ending clearly without sounding rehearsed.${timingDirection} ${String(performanceStyle || '').trim()}`.trim();
   // Video narration used to default to Edge's classic neural voice, with
   // Gemini only as a verified fallback. The user compared both directly and
   // asked for the warmer, more natural Gemini voice (the same one Live
