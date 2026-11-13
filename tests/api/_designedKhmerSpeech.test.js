@@ -26,7 +26,7 @@ describe('designed Cambodian Khmer speech', () => {
     const body = JSON.parse(request.body);
     expect(url).toContain('/v1beta/interactions');
     expect(body.input[0].content[0].text).toBe('សួស្តី');
-    expect(body.generation_config.speech_config[0].voice).toBe('voice_q7mab84kw5w8');
+    expect(body.generation_config.speech_config[0].voice).toBe('voice_3mngnu3sw8h0');
     expect(result).toMatchObject({ provider: 'gemini-designed', duration: 1 });
     expect(result.audioUrl).toMatch(/^data:audio\/wav;base64,/);
   });

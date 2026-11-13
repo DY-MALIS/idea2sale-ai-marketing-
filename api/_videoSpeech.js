@@ -52,7 +52,7 @@ export async function preparePlanVideoSpeech(item) {
   // to String.length, while startKhmerVideoJob measures the real synthesized
   // waveform and can safely expand a 4/6-second request up to the 8-second cost
   // ceiling. The measured audio duration is the authoritative fit check.
-  const performanceStyle = String(item.performanceStyle || 'Warm and trustworthy. Speak in a natural Cambodian conversational voice at an everyday social-video pace. Fully pronounce every Khmer consonant, vowel, syllable and word ending; keep neighboring words distinct. Use at most one brief clause-boundary pause, vary pitch naturally, and finish cleanly without an announcer tone or theatrical exaggeration.');
+  const performanceStyle = String(item.performanceStyle || 'Confident, warm Cambodian advertising presenter. Speak with lively natural rhythm, persuasive emphasis on the benefit, crisp complete Khmer words, and an inviting finish. Keep a clear social-video pace.');
   const visual = visualOnlyVideoPrompt(prompt);
   const presenter = item.voiceGender === 'Male' ? 'young adult Cambodian man, age 18 to 25' : 'young adult Cambodian woman, age 18 to 25';
   return {
