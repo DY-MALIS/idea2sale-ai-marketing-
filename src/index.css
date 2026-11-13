@@ -148,6 +148,20 @@
       linear-gradient(180deg, #fffaf2 0%, #fff7ed 100%);
   }
 
+  .app-workspace {
+    background-color: #fffaf2;
+    background-image:
+      radial-gradient(circle at 75% 0%, rgba(255, 164, 70, 0.14), transparent 38%),
+      linear-gradient(180deg, #f4e9e6 0%, #fffaf2 28rem);
+  }
+
+  .dark .app-workspace {
+    background-color: #0b1020;
+    background-image:
+      radial-gradient(circle at 75% 0%, rgba(245, 158, 11, 0.12), transparent 38%),
+      linear-gradient(180deg, #17152d 0%, #0b1020 28rem);
+  }
+
   .dark .bg-mesh {
     background-color: #080d1b;
     background-image:

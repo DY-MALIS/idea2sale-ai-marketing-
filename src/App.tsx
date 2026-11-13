@@ -278,7 +278,7 @@ export default function App() {
       ) : isPublicHome || !effectivelyAuthenticated ? (
         <Auth isSignedIn={effectivelyAuthenticated} />
       ) : (
-        <div key={accountKey} className="flex flex-1 relative">
+        <div key={accountKey} className="app-workspace flex flex-1 relative">
           <AnimatePresence>
             {isMobileNavOpen && (
               <motion.button
@@ -301,8 +301,17 @@ export default function App() {
             onClose={() => setIsMobileNavOpen(false)}
           />
           
-          <main className="min-w-0 flex-1 px-4 pb-6 pt-20 sm:px-6 lg:ml-72 lg:p-8">
+          <main className="min-w-0 flex-1 px-4 pb-8 pt-20 sm:px-6 lg:ml-72 lg:px-8 lg:pb-10 lg:pt-8">
             <div className="max-w-7xl mx-auto">
+              <div className="relative mb-5 overflow-hidden rounded-[1.75rem] border border-[#ffb353]/30 bg-[#17162e] p-6 text-white shadow-[0_24px_55px_-32px_rgba(25,18,57,0.85)] sm:p-8">
+                <div className="pointer-events-none absolute inset-0 bg-[url('/auth-keyboard-poster.webp')] bg-cover bg-[center_35%] opacity-40" aria-hidden="true" />
+                <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#15132d] via-[#15132d]/95 to-[#15132d]/35" aria-hidden="true" />
+                <div className="relative max-w-xl">
+                  <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.2em] text-orange-200">Aime · Angkorgate</p>
+                  <h1 className="text-2xl font-bold leading-tight text-white sm:text-3xl">{language === 'km' ? 'កន្លែងច្នៃប្រឌិតរបស់អ្នក' : 'Your creative workspace'}</h1>
+                  <p className="mt-2 text-sm leading-6 text-white/80">{language === 'km' ? 'បង្កើត និងគ្រប់គ្រងមាតិកាសម្រាប់អាជីវកម្មរបស់អ្នកនៅកន្លែងតែមួយ។' : 'Create and manage content for your business in one place.'}</p>
+                </div>
+              </div>
               <div className="mb-5 flex items-center gap-3 rounded-2xl border border-brand-100 bg-white/80 px-4 py-3 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-800/80">
                 <img src={activeBusiness?.logoDataUrl || '/favicon.svg'} alt="" className="h-9 w-9 rounded-lg object-cover" />
                 <div className="min-w-0 flex-1">

@@ -112,11 +112,11 @@ const Sidebar: React.FC<SidebarProps> = ({
       id="app-navigation"
       aria-label="Main navigation"
       className={cn(
-        "fixed inset-y-0 left-0 z-[120] flex h-[100dvh] w-[min(19rem,calc(100vw-4rem))] flex-col overflow-y-auto border-r border-brand-600/40 bg-brand-700 text-brand-100 shadow-2xl backdrop-blur-xl transition-transform duration-300 ease-out dark:border-slate-800 dark:bg-slate-950/95 dark:text-slate-300 dark:shadow-black/30 lg:z-50 lg:w-72 lg:translate-x-0",
+        "fixed inset-y-0 left-0 z-[120] flex h-[100dvh] w-[min(19rem,calc(100vw-4rem))] flex-col overflow-y-auto border-r border-orange-300/15 bg-[#15152d] text-white/85 shadow-2xl backdrop-blur-xl transition-transform duration-300 ease-out dark:border-orange-300/15 dark:bg-[#101327] dark:text-white/85 lg:z-50 lg:w-72 lg:translate-x-0",
         isOpen ? "translate-x-0" : "-translate-x-full"
       )}
     >
-      <div className="flex items-center justify-between gap-3 px-5 pb-5 pt-[max(1.25rem,env(safe-area-inset-top))] lg:p-8">
+      <div className="flex items-center justify-between gap-3 border-b border-white/10 px-5 pb-5 pt-[max(1.25rem,env(safe-area-inset-top))] lg:p-7">
         <h1 className="min-w-0 text-lg font-display font-bold text-white flex items-center gap-3 lg:text-2xl">
           <div className="h-10 w-10 shrink-0 overflow-hidden rounded-xl bg-white shadow-lg shadow-brand-500/20 ring-1 ring-white/40 lg:h-12 lg:w-12 lg:rounded-2xl">
             <img
@@ -141,7 +141,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         {sections.map((section) => (
           <div key={section.title} className="space-y-2">
             <div className="px-4 mb-2">
-              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-300/40 dark:text-slate-500">{section.title}</p>
+              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-orange-200/65">{section.title}</p>
             </div>
             {section.items.map((item) => (
               <motion.button
@@ -151,19 +151,19 @@ const Sidebar: React.FC<SidebarProps> = ({
                 className={cn(
                   "w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all duration-300 group relative overflow-hidden",
                   activeTab === item.id 
-                    ? "bg-white/10 text-white shadow-inner dark:bg-brand-500/15 dark:text-brand-100 dark:ring-1 dark:ring-inset dark:ring-brand-400/20" 
-                    : "text-brand-100 hover:bg-white/5 hover:text-white dark:text-slate-300 dark:hover:bg-slate-800/70"
+                    ? "bg-gradient-to-r from-orange-500/25 to-orange-500/5 text-white ring-1 ring-inset ring-orange-300/25"
+                    : "text-white/75 hover:bg-white/8 hover:text-white dark:text-white/75 dark:hover:bg-white/8"
                 )}
               >
                 {activeTab === item.id && (
                   <motion.div 
                     layoutId="active-pill"
-                    className="absolute left-0 w-1 h-6 bg-brand-400 rounded-r-full"
+                    className="absolute left-0 w-1 h-6 bg-orange-300 rounded-r-full"
                   />
                 )}
                 <div className={cn(
                   "transition-colors duration-300",
-                  activeTab === item.id ? "text-brand-300" : "text-brand-400/60 group-hover:text-brand-100 dark:text-slate-500 dark:group-hover:text-brand-300"
+                  activeTab === item.id ? "text-orange-300" : "text-orange-200/60 group-hover:text-orange-200 dark:text-orange-200/60 dark:group-hover:text-orange-200"
                 )}>
                   {item.id === 'tiktok' ? (
                     <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current" xmlns="http://www.w3.org/2000/svg">
@@ -181,7 +181,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       </nav>
 
       <div className="p-6 space-y-2">
-        <div className="bg-gradient-to-br from-brand-600 to-brand-800 dark:from-slate-900 dark:to-slate-800 p-4 rounded-2xl border border-white/10 dark:border-brand-400/20 mb-6 shadow-lg dark:shadow-black/20">
+        <div className="bg-gradient-to-br from-[#493047] to-[#241a39] p-4 rounded-2xl border border-orange-300/25 mb-6 shadow-lg shadow-black/20">
           <p className="text-xs font-bold text-brand-200 dark:text-brand-300 uppercase tracking-wider mb-1">Pro Plan</p>
           <p className="text-[10px] text-brand-100/70 dark:text-slate-400 mb-3">{t('planProSubtitle')}</p>
           <button className="w-full py-2 bg-crab-shell hover:bg-red-700 dark:bg-brand-600 dark:hover:bg-brand-500 text-white text-[10px] font-bold rounded-lg transition-all">
