@@ -1,6 +1,7 @@
 import { generateOpenRouterText, generateTranslateSpeech, normalizeForKhmerSpeech, transcribeAudioWithOpenRouter } from './_openrouter.js';
 import { synthesizeKhmerSpeechViaEdge } from './_edgeSpeech.js';
 import { generateGeminiSpeech } from './_geminiSpeech.js';
+import { generateKiriSpeech, isKiriConfigured } from './_kiriSpeech.js';
 import { parseBuffer } from 'music-metadata';
 import { compareKhmerTranscript, isKhmerOnlyNarration, KHMER_SCRIPT_ONLY_INSTRUCTION } from '../shared/videoSpeech.js';
 
@@ -169,6 +170,21 @@ export async function generateKhmerSpeech({
   // case Gemini's reliability or quality regresses, and still runs as the
   // automatic fallback below when Gemini's take fails or doesn't verify.
   const useEdgeOnly = forceEdge || String(process.env.KHMER_TTS_PROVIDER || '').trim().toLowerCase() === 'edge';
+  const useKiri = !useEdgeOnly && String(process.env.KHMER_TTS_PROVIDER || '').trim().toLowerCase() === 'kiri';
+  let unverifiedKiri;
+  if (useKiri && isKiriConfigured()) {
+    try {
+      const generated = await generateKiriSpeech({ input: spokenInput, voice, instructions: 'Read every Khmer word clearly with a warm, natural conversational rhythm.' });
+      const verification = Number.isFinite(targetSeconds) && targetSeconds >= 4 && targetSeconds <= 8
+        ? await matchesKhmerScript(generated, spokenInput)
+        : 'match';
+      if (verification === 'match') return { ...generated, spokenText: spokenInput };
+      if (verification === 'unavailable') unverifiedKiri = generated;
+      console.warn('Kiri TTS speech could not be verified; trying the existing Khmer voices.');
+    } catch (error) {
+      console.warn('Kiri TTS unavailable; trying the existing Khmer voices:', error?.message || error);
+    }
+  }
   // Now that narration uses Gemini as its primary voice too (see above), it
   // should use the exact Aoede/Achird pair Live Voice/Agent conversations
   // use (chosen by ear against the alternatives -- see the comment on
@@ -222,6 +238,13 @@ export async function generateKhmerSpeech({
     // the primary Gemini path -- an unchecked take can mispronounce the
     // script, which is worse than surfacing the original Edge failure.
     console.error('Edge Khmer speech failed; trying Gemini as a verified last resort:', edgeError?.message || edgeError);
+    if (unverifiedKiri) {
+      return {
+        ...unverifiedKiri,
+        spokenText: spokenInput,
+        fallbackReason: 'Kiri speech could not be verified because the checker was unavailable; listen before publishing.',
+      };
+    }
     if (unverifiedGemini) {
       return {
         ...unverifiedGemini,
