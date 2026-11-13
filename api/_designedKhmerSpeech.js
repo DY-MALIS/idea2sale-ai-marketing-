@@ -3,8 +3,8 @@ import { parseBuffer } from 'music-metadata';
 const MODEL = 'gemini-3.8-flash-tts';
 // Designed for this project's Cambodian Khmer narration. These IDs contain no
 // credentials; GEMINI_API_KEY stays on the server and can be changed there.
-const DEFAULT_FEMALE_VOICE = 'voice_3mngnu3sw8h0';
-const DEFAULT_MALE_VOICE = 'voice_ihzgs4v87qjm';
+const DEFAULT_FEMALE_VOICE = 'voice_q7mab84kw5w8';
+const DEFAULT_MALE_VOICE = 'voice_4ofizypr4id3';
 const MAX_AUDIO_BYTES = 12 * 1024 * 1024;
 
 export const isDesignedKhmerSpeechConfigured = () => Boolean(String(process.env.GEMINI_API_KEY || '').trim());

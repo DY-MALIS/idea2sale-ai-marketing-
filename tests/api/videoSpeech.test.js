@@ -111,8 +111,8 @@ describe('native Khmer video speech', () => {
     expect(prepared.motionPrompt).toContain('Vary the gestures');
     expect(prepared.motionPrompt).toContain('full, clear, natural mouth opening');
     expect(prepared.mode).toBe('edge-seedance');
-    expect(prepared.performanceStyle).toContain('Cambodian advertising presenter');
-    expect(prepared.performanceStyle).toContain('crisp complete Khmer words');
+    expect(prepared.performanceStyle).toContain('natural Cambodian conversational voice');
+    expect(prepared.performanceStyle).toContain('Fully pronounce every Khmer consonant');
     expect(prepared.motionPrompt).toContain('natural breathing');
     expect(prepared.motionPrompt).toContain('synchronized frame by frame');
     expect(prepared.motionPrompt).toContain('never a flat or mannequin-still stare');

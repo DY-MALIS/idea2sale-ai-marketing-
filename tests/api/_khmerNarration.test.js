@@ -100,10 +100,10 @@ describe('Khmer narration', () => {
     expect(mocks.edge).not.toHaveBeenCalled();
   });
 
-  it('asks video narration for confident promotional delivery', async () => {
+  it('asks narration for natural phrasing and gentle emphasis', async () => {
     mocks.gemini.mockResolvedValue({ audioUrl: 'natural-khmer', provider: 'gemini' });
     await generateKhmerSpeech({ input: 'សួស្តី' });
-    expect(mocks.gemini.mock.calls[0][0].performanceStyle).toContain('video advertisement');
+    expect(mocks.gemini.mock.calls[0][0].performanceStyle).toContain('gentle emphasis');
   });
 
   it('uses Despina for female video narration while keeping Live Agent on Aoede', async () => {

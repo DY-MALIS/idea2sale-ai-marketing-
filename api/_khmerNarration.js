@@ -144,7 +144,7 @@ const generateVerifiedGeminiTake = async ({ spokenInput, voice, performanceStyle
   try {
     generated = await generateGeminiSpeech({
       input: spokenInput, voice, voiceOverride, context: '',
-      performanceStyle: 'Clear Cambodian Khmer advertising presenter, confident and upbeat. Read only the exact script.',
+      performanceStyle: 'Speak clearly in natural Cambodian Khmer. Read only the exact script.',
     });
   } catch (error) {
     console.warn('Gemini Khmer retry failed:', error?.message || error);
@@ -176,7 +176,7 @@ export async function generateKhmerSpeech({
     : '';
   const clearKhmerStyle = preferNaturalVoice
     ? `Speak like a young Cambodian adult talking to one person. Use relaxed phrasing, small natural breaths, and gentle changes in pitch that follow the meaning. Say every Khmer word clearly at a comfortable pace. ${String(performanceStyle || '').trim()}`.trim()
-    : `Present this as a polished Cambodian Khmer video advertisement. Sound confident, upbeat and persuasive, with lively natural rhythm, crisp complete words, emphasis on the benefit and an inviting finish. Keep the delivery human and expressive.${timingDirection} ${String(performanceStyle || '').trim()}`.trim();
+    : `Speak like a young Cambodian adult explaining this to one person in a friendly, everyday conversation. Let each phrase flow into the next, with a small breath only where the thought naturally ends. Give meaningful words gentle emphasis and finish the sentence calmly. Pronounce every Khmer syllable and word ending clearly without sounding rehearsed.${timingDirection} ${String(performanceStyle || '').trim()}`.trim();
   // Gemini is the primary video voice. Edge remains a fallback if the audio
   // cannot be generated or its spoken words do not match the script.
   // KHMER_TTS_PROVIDER=edge remains an explicit opt-out.
@@ -186,8 +186,7 @@ export async function generateKhmerSpeech({
   let designedFallbackReason = '';
   if (!useEdgeOnly && Number.isFinite(targetSeconds) && targetSeconds >= 4 && targetSeconds <= 8 && isDesignedKhmerSpeechConfigured()) {
     try {
-      const designedStyle = `Confident, upbeat Khmer video advertisement; clear words, persuasive emphasis, inviting finish. ${String(performanceStyle || '').trim()}`.trim();
-      const designed = await generateDesignedKhmerSpeech({ input: spokenInput, voice, performanceStyle: designedStyle });
+      const designed = await generateDesignedKhmerSpeech({ input: spokenInput, voice, performanceStyle });
       if (await matchesKhmerScript(designed, spokenInput) === 'match') {
         return { ...designed, spokenText: spokenInput };
       }
