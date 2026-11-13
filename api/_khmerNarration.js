@@ -199,7 +199,7 @@ export async function generateKhmerSpeech({
       // correction without changing or truncating the script.
       rate: /^\+\d{1,2}%$/.test(String(edgeRate || ''))
         ? String(edgeRate)
-        : (timingDirection ? '+12%' : '+6%'),
+        : (timingDirection ? '+4%' : '+0%'),
     });
     return {
       ...fallback,

@@ -319,6 +319,26 @@ it('expands a short AI content-plan narration before paying for an eight-second 
   expect(result.narrationAudio).toMatchObject({ duration: 7.1, spokenText: expanded, mediaUrl: 'https://full-audio' });
 });
 
+it('keeps a clear six-second narration without stretching the script', async () => {
+  mocks.speech.mockResolvedValue({ audioUrl: 'audio', duration: 6.4, provider: 'gemini' });
+  mocks.video.mockResolvedValue({ jobId: 'job' });
+  await startKhmerVideoJob(
+    {}, { script: 'សួស្តី', prompt: 'Product' }, uploadStub(),
+    { duration: 8, images: [{ mimeType: 'image/png', base64: 'AAAA' }], allowScriptShortening: true },
+  );
+  expect(mocks.expand).not.toHaveBeenCalled();
+  expect(mocks.speech).toHaveBeenCalledTimes(1);
+});
+
+it('rejects a narration that would need an unclear speech rate before video submission', async () => {
+  mocks.speech.mockResolvedValue({ audioUrl: 'audio', duration: 10.2, provider: 'gemini' });
+  await expect(startKhmerVideoJob(
+    {}, { script: 'សួស្តី', prompt: 'Product' }, uploadStub(),
+    { duration: 8, images: [{ mimeType: 'image/png', base64: 'AAAA' }] },
+  )).rejects.toThrow('Shorten the spoken text');
+  expect(mocks.video).not.toHaveBeenCalled();
+});
+
 it('keeps the original content-plan narration when the expanded read exceeds eight seconds', async () => {
   mocks.expand.mockResolvedValue('វីដេអូនេះបង្ហាញផលិតផល និងព័ត៌មានលម្អិតបន្ថែមសម្រាប់អតិថិជន។');
   mocks.speech

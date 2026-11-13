@@ -81,6 +81,9 @@ describe('resolveOpenRouterImageModel', () => {
 });
 
 describe('normalizeForKhmerSpeech', () => {
+  it('preserves Khmer zero-width word boundaries as spoken word spacing', () => {
+    expect(normalizeForKhmerSpeech('សួស្តី\u200Bអ្នកទាំងអស់គ្នា')).toBe('សួស្តី អ្នកទាំងអស់គ្នា');
+  });
   it('prepares mixed Khmer text, acronyms and numbers for clear native speech', () => {
     const normalized = normalizeForKhmerSpeech('  សាកល្បង  AI 24 ម៉ោង ។  ');
     expect(normalized).toMatch(/[\u1780-\u17ff]/u);

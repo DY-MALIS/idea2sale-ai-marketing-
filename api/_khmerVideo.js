@@ -141,7 +141,7 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
   // well before an 8-second clip, try one fuller script before paying for the
   // video. Never rewrite manually supplied narration or replace a usable read
   // with a second take that is too long or no fuller than the first.
-  if (allowScriptShortening && duration === 8 && measuredDuration > 0 && measuredDuration < 7
+  if (allowScriptShortening && duration === 8 && measuredDuration > 0 && measuredDuration < 5.8
     && Date.now() - preparationStartedAt < 90_000) {
     try {
       const expandedScript = await expandGeneratedKhmerNarration(spokenScript, item.businessName, measuredDuration);
@@ -184,9 +184,12 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
   // pitch-preserving neural speech-rate increase before any paid image/video
   // preparation starts.
   if (measuredDuration > MAX_KHMER_CLIP_DURATION) {
-    const currentRateFactor = /edge-/i.test(String(audio.provider || audio.model || '')) ? 1.12 : 1;
-    const requiredRatePercent = Math.min(35, Math.max(14,
-      Math.ceil(((currentRateFactor * measuredDuration) / (MAX_KHMER_CLIP_DURATION - 0.15) - 1) * 100) + 2));
+    const currentRateFactor = /edge-/i.test(String(audio.provider || audio.model || '')) ? 1.04 : 1;
+    const requiredRatePercent = Math.max(14,
+      Math.ceil(((currentRateFactor * measuredDuration) / (MAX_KHMER_CLIP_DURATION - 0.15) - 1) * 100) + 2);
+    if (requiredRatePercent > 20) {
+      throw new Error('Khmer narration is too long for a clear 8-second video. Shorten the spoken text and try again.');
+    }
     audio = await trimVideoNarrationSilence(await generateKhmerSpeech({
       ...speechOptions,
       forceEdge: true,
