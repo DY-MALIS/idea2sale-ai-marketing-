@@ -11,7 +11,7 @@ const run = promisify(execFile);
 // CI runners can take longer than 20s for the fixture encodes, duration probes,
 // mux, and audio decode. The mux itself has a 60s process timeout.
 const MUX_TEST_TIMEOUT_MS = 90000;
-it('replaces generated audio while preserving the full video length', async () => {
+it('replaces generated audio and fills the speech-free tail with music', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'mux-test-'));
   const originalFetch = global.fetch;
   vi.stubEnv('IMAGEKIT_URL_ENDPOINT', 'https://ik.imagekit.io/test');
@@ -40,11 +40,11 @@ it('replaces generated audio while preserving the full video length', async () =
     for (let i = 801; i < 4800; i++) {
       if (stdout.readInt16LE((i - 1) * 2) <= 0 && stdout.readInt16LE(i * 2) > 0) crossings++;
     }
-    expect(crossings * 2).toBeGreaterThan(860);
+    expect(crossings * 2).toBeGreaterThan(780);
     expect(crossings * 2).toBeLessThan(900);
     let tailPeak = 0;
     for (let i = 11600; i < 12400; i++) tailPeak = Math.max(tailPeak, Math.abs(stdout.readInt16LE(i * 2)));
-    expect(tailPeak).toBeLessThan(10);
+    expect(tailPeak).toBeGreaterThan(100);
   } finally {
     global.fetch = originalFetch;
     vi.unstubAllEnvs();

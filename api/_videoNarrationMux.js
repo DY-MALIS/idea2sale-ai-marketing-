@@ -3,6 +3,7 @@ import { promisify } from 'node:util';
 import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import ffmpegPath from 'ffmpeg-static';
 import { isImageKitMediaUrl } from './_imagekitUpload.js';
 import { getOriginalImageKitUrl } from '../shared/imageKitUrl.js';
@@ -13,6 +14,7 @@ const MAX_BYTES = 48 * 1024 * 1024;
 // Duration is in the same header ffmpeg prints while opening any input) so
 // narration never gets silently cut off by the video duration.
 const DURATION_GUARD_TOLERANCE_SECONDS = 0.1;
+const BACKGROUND_MUSIC_PATH = fileURLToPath(new URL('../public/audio/video-background.mp3', import.meta.url));
 
 const parseFfmpegDurationSeconds = (output) => {
   const match = /Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(String(output || ''));
@@ -52,8 +54,8 @@ async function download(url) {
   return Buffer.concat(chunks);
 }
 
-// Map only the original video stream and the separately generated Khmer audio.
-// Keep the full video duration even when the narration ends earlier.
+// Keep the original video stream and mix the separately generated narration
+// with a quiet, original music bed that remains audible after speech ends.
 export async function replaceVideoNarration(videoUrl, audioUrl) {
   if (!ffmpegPath) throw new Error('Video narration assembly is unavailable on this platform.');
   const directory = await mkdtemp(join(tmpdir(), 'khmer-narration-'));
@@ -77,8 +79,10 @@ export async function replaceVideoNarration(videoUrl, audioUrl) {
       '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
       '-protocol_whitelist', 'file,pipe', '-i', videoPath,
       '-protocol_whitelist', 'file,pipe', '-i', audioPath,
-      '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy',
-      '-c:a', 'aac', '-b:a', '192k', '-af', `apad=whole_dur=${videoDuration}`,
+      '-stream_loop', '-1', '-protocol_whitelist', 'file,pipe', '-i', BACKGROUND_MUSIC_PATH,
+      '-filter_complex', `[1:a]apad=whole_dur=${videoDuration}[voice];[2:a]volume='if(lt(t,${Math.min(videoDuration, audioDuration + 0.15)}),0.12,0.45)':eval=frame[music];[voice][music]amix=inputs=2:duration=first:normalize=0[aout]`,
+      '-map', '0:v:0', '-map', '[aout]', '-c:v', 'copy',
+      '-c:a', 'aac', '-b:a', '192k',
       '-t', String(videoDuration),
       '-movflags', '+faststart', '-fs', String(MAX_BYTES), outputPath,
     ], { timeout: 60000, killSignal: 'SIGKILL', windowsHide: true, maxBuffer: 1024 * 1024 });

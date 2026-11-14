@@ -503,10 +503,12 @@ const applyVoiceOver = async (
   };
   let videoBytes: Uint8Array;
   let audioBytes: Uint8Array;
+  let musicBytes: Uint8Array;
   try {
-    [videoBytes, audioBytes] = await Promise.all([
+    [videoBytes, audioBytes, musicBytes] = await Promise.all([
       fetchMuxInput(videoDataUrl, 'Generated video'),
       fetchMuxInput(audioDataUrl, 'Narration audio'),
+      fetchMuxInput('/audio/video-background.mp3', 'Background music'),
     ]);
   } catch (error) {
     if (error instanceof Error && /unavailable|is empty/.test(error.message)) throw error;
@@ -532,6 +534,7 @@ const applyVoiceOver = async (
     let audioDuration = validDuration(knownDurations?.audio) ? knownDurations.audio : null;
     await ffmpeg.writeFile('vo_input.mp4', videoBytes.slice());
     await ffmpeg.writeFile(`vo_audio.${audioExt}`, audioBytes.slice());
+    await ffmpeg.writeFile('vo_music.mp3', musicBytes.slice());
     if (!validDuration(videoDuration)) {
       videoDuration = await ffprobeDurationSeconds(ffmpeg, 'vo_input.mp4', 'vo_video_duration.txt');
     }
@@ -551,14 +554,16 @@ const applyVoiceOver = async (
     // asking the model to "talk fast" did. atempo only accepts 0.5-2.0 per instance, which
     // covers every speed this app requests.
     const safeSpeed = Number.isFinite(speed) ? Math.min(2, Math.max(0.5, speed)) : 1;
+    const musicRiseAt = Math.min(videoDuration, audioDuration / safeSpeed + 0.15);
     const muxInputs = [
       '-y', '-i', 'vo_input.mp4',
       '-i', `vo_audio.${audioExt}`,
+      '-stream_loop', '-1', '-i', 'vo_music.mp3',
       '-map', '0:v:0',
-      '-map', '1:a:0',
+      '-filter_complex', `[1:a]atempo=${safeSpeed},apad[voice];[2:a]volume='if(lt(t,${musicRiseAt}),0.12,0.45)':eval=frame[music];[voice][music]amix=inputs=2:duration=first:normalize=0[aout]`,
+      '-map', '[aout]',
     ];
     const muxOutput = [
-      '-filter:a', `atempo=${safeSpeed},apad`,
       '-c:a', 'aac',
       '-b:a', '160k',
       '-ar', '48000',
@@ -591,7 +596,7 @@ const applyVoiceOver = async (
     console.error('Voice-over mux failed:', error);
     throw new Error('Could not merge narration into the video. Please resume the saved job.');
   } finally {
-    await cleanupFfmpegFiles(ffmpeg, ['vo_input.mp4', `vo_audio.${audioExt}`, 'vo_output.mp4', 'vo_video_duration.txt', 'vo_audio_duration.txt']);
+    await cleanupFfmpegFiles(ffmpeg, ['vo_input.mp4', `vo_audio.${audioExt}`, 'vo_music.mp3', 'vo_output.mp4', 'vo_video_duration.txt', 'vo_audio_duration.txt']);
   }
 };
 
