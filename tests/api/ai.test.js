@@ -14,6 +14,7 @@ import {
   isGenericOwnCustomerRequest,
   resolveCreativeImageMode,
   resolveAgentReplyLanguage,
+  ensureKhmerVoiceReply,
   isOwnBusinessNamedTarget,
   resolveAudienceResearchTarget,
   resolveProductAudienceTarget,
@@ -29,6 +30,19 @@ describe('resolveAgentReplyLanguage', () => {
     expect(resolveAgentReplyLanguage('Hello', 'km')).toBe('English');
     expect(resolveAgentReplyLanguage('សួស្តី Hello', 'km')).toBe('Mixed Khmer and English');
     expect(resolveAgentReplyLanguage('សូមបង្កើត content plan សម្រាប់ហាងកាហ្វេរបស់ខ្ញុំ', 'en')).toBe('Khmer');
+  });
+});
+
+describe('Khmer spoken reply', () => {
+  it('keeps Khmer and converts an English model answer before playback', async () => {
+    const translate = async () => 'ខ្ញុំមិនទាន់ស្តាប់ច្បាស់ទេ។ សូមប្រាប់ម្ដងទៀត។';
+    expect(await ensureKhmerVoiceReply('សួស្តី', translate)).toBe('សួស្តី');
+    expect(await ensureKhmerVoiceReply('I am not catching that.', translate)).toMatch(/[\u1780-\u17FF]/u);
+  });
+
+  it('uses a Khmer clarification when translation also fails', async () => {
+    expect(await ensureKhmerVoiceReply('I will step back.', async () => 'Still in English'))
+      .toMatch(/[\u1780-\u17FF]/u);
   });
 });
 

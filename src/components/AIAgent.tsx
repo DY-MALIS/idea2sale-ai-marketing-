@@ -1387,10 +1387,6 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       fallbackAudioRef.current = fallbackAudio;
       fallbackAudio.src = SILENT_WAV_DATA_URL;
       void fallbackAudio.play().catch(() => {});
-      if (voiceGenderRef.current === 'Female' && voiceInputLanguageRef.current !== 'en') {
-        startFallbackVoice(session, true);
-        return;
-      }
       if (Date.now() < voiceRetryAt) {
         startFallbackVoice(session);
         return;
@@ -1479,6 +1475,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
           platform: 'Auto',
           mode: 'auto',
           liveVoice: spoken,
+          voiceLanguage: spoken ? voiceInputLanguageRef.current : undefined,
           language,
           detectedLanguage: message ? detectMessageLanguage(message) : language,
           timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,

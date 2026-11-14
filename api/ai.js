@@ -90,6 +90,15 @@ export const resolveAgentReplyLanguage = (message, detectedLanguage = '') => {
   return detectedLanguage === 'mixed' ? 'Mixed Khmer and English' : detectedLanguage === 'km' ? 'Khmer' : 'English';
 };
 
+export const ensureKhmerVoiceReply = async (reply, translate) => {
+  if (/[\u1780-\u17FF]/u.test(reply || '')) return reply;
+  try {
+    const translated = await translate(reply || '');
+    if (/[\u1780-\u17FF]/u.test(translated || '')) return translated;
+  } catch { /* The spoken reply still must not switch to English. */ }
+  return 'សូមទោស ខ្ញុំស្តាប់មិនច្បាស់ទេ។ សូមនិយាយម្តងទៀត។';
+};
+
 export const getAiRateLimitPolicy = (action, { liveVoice = false } = {}) => {
   if (action === 'videoGenerate') {
     return {
@@ -1431,7 +1440,8 @@ export default async function handler(req, res) {
         : [];
       if (!message && !images.length) return res.status(400).json({ error: 'Please enter a question or content request.' });
       const detectedLanguage = String(req.body?.detectedLanguage || '').toLowerCase();
-      const responseLanguage = resolveAgentReplyLanguage(message, detectedLanguage);
+      const responseLanguage = liveVoice && req.body?.voiceLanguage === 'km'
+        ? 'Khmer' : resolveAgentReplyLanguage(message, detectedLanguage);
 
       const historyText = history
         .filter((item) => item?.role === 'assistant' || item?.role === 'user')
@@ -1706,8 +1716,21 @@ Response rules:
 - Do not end with a "next steps" suggestion, follow-up question, or offer to do more unless the user's request is still incomplete or they asked what comes next — a fully answered request can just end.`,
       });
 
+      let spokenText = text || '';
+      // A correct Khmer transcript can still yield an English answer. Keep
+      // the selected speech language authoritative on the recorded-turn path.
+      if (liveVoice && responseLanguage === 'Khmer' && spokenText) {
+        spokenText = await ensureKhmerVoiceReply(spokenText, (englishReply) => generateOpenRouterText({
+            model: textModel,
+            system: 'Translate the supplied assistant reply into natural Cambodian Khmer. Preserve its meaning and names. Return only the spoken Khmer reply.',
+            prompt: englishReply,
+            temperature: 0.2,
+            maxTokens: 400,
+          }));
+      }
+
       return res.status(200).json({
-        text: text || 'No response generated.',
+        text: spokenText || 'No response generated.',
         automation: automation?.ready ? automation : null,
       });
     }
