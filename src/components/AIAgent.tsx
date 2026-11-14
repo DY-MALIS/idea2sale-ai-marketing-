@@ -295,6 +295,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       audioElement,
       languageHint: () => voiceInputLanguageRef.current,
       voiceGenderHint: () => voiceGenderRef.current,
+      onUnclearSpeech: (message) => setVoiceCaption(message),
       onListening: () => { setVoiceConnecting(false); setVoiceProcessing(false); setIsSpeaking(false); },
       onThinking: () => setVoiceProcessing(true),
       onSpeaking: () => { setVoiceProcessing(false); setIsSpeaking(true); },
@@ -586,9 +587,9 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const voiceSessionRef = useRef(0);
   const voiceCommandMountedRef = useRef(true);
   const [businessContext, setBusinessContext] = useState<AgentBusinessContext | null>(null);
-  // Speech language is independent of the UI language. Auto allows Khmer,
-  // English, and mixed turns; explicit choices guide the live audio model.
-  const [voiceInputLanguage, setVoiceInputLanguage] = useState<'auto' | 'km' | 'en'>(language === 'km' ? 'km' : 'auto');
+  // Speech language is independent of the UI language. This Cambodian agent
+  // starts in Khmer even when the interface is displayed in English.
+  const [voiceInputLanguage, setVoiceInputLanguage] = useState<'auto' | 'km' | 'en'>('km');
   const voiceInputLanguageRef = useRef(voiceInputLanguage);
   // Picks both which Gemini voice speaks (Achird/Aoede) and the gendered
   // delivery style sent alongside it (firm for male, gentle for female) --

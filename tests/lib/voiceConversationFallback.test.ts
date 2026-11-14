@@ -39,6 +39,33 @@ it('listens again after each spoken answer until the caller ends the conversatio
   expect(onError).not.toHaveBeenCalled();
 });
 
+it('asks again in Khmer when Khmer audio was transcribed in the wrong script', async () => {
+  const controller = new AbortController();
+  const recordTurn = vi.fn()
+    .mockResolvedValueOnce({ audioBase64: 'bad', format: 'webm' })
+    .mockResolvedValueOnce({ audioBase64: 'good', format: 'webm' });
+  const requestJson = vi.fn(async (body: any) => body.action === 'sttTranscribe'
+    ? { transcript: body.audioBase64 === 'bad' ? 'I will step back.' : 'សួស្តី' }
+    : { audioUrl: 'data:audio/mpeg;base64,AAAA' });
+  const onTranscript = vi.fn(async () => 'សួស្តី!');
+  const onUnclearSpeech = vi.fn();
+  const playAudio = vi.fn(async () => {});
+
+  await runVoiceConversationFallback({
+    languageHint: () => 'km', audioElement: {} as HTMLAudioElement,
+    onListening: vi.fn(), onThinking: vi.fn(), onSpeaking: vi.fn(),
+    onReplyComplete: () => { if (onTranscript.mock.calls.length) controller.abort(); },
+    onTranscript, onUnclearSpeech, onError: vi.fn(),
+  }, controller.signal, { recordTurn, requestJson, playAudio });
+
+  expect(onUnclearSpeech).toHaveBeenCalledOnce();
+  expect(onTranscript).toHaveBeenCalledExactlyOnceWith('សួស្តី');
+  expect(requestJson).toHaveBeenCalledWith(expect.objectContaining({
+    action: 'sttTranscribe', languageHint: 'Khmer',
+  }), expect.any(AbortSignal));
+  expect(playAudio).toHaveBeenCalledTimes(2);
+});
+
 it('starts generating the next speech segment while the current one is still playing', async () => {
   const controller = new AbortController();
   const callOrder: string[] = [];

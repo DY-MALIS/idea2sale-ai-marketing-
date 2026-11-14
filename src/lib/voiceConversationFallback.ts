@@ -15,11 +15,13 @@ export interface FallbackOptions {
   onSpeaking: () => void;
   onReplyComplete: () => void;
   onTranscript: (text: string) => Promise<string>;
+  onUnclearSpeech?: (message: string) => void;
   onError: (error: Error) => void;
 }
 
 const recorderFormat = (mimeType: string) => mimeType.includes('mp4') ? 'm4a' : mimeType.includes('ogg') ? 'ogg' : 'webm';
 const abortError = () => new DOMException('Voice conversation stopped.', 'AbortError');
+const KHMER_UNCLEAR_SPEECH = 'សូមទោស ខ្ញុំស្តាប់មិនច្បាស់ទេ។ សូមនិយាយម្តងទៀត។';
 
 // Give up on a turn and quietly start listening again once this long has
 // passed without the mic ever crossing the speech-detected threshold --
@@ -166,6 +168,21 @@ export const runVoiceConversationFallback = async (
         }, signal);
         const spoken = String(transcript || '').trim();
         if (!spoken || signal.aborted) continue;
+        // Chirp may return a fluent English or Hindi sentence for Khmer audio.
+        // Never pass that mistaken transcript to the agent as an English turn.
+        if (options.languageHint() === 'km' && !/[\u1780-\u17FF]/u.test(spoken)) {
+          options.onUnclearSpeech?.(KHMER_UNCLEAR_SPEECH);
+          options.onSpeaking();
+          const { audioUrl } = await operations.requestJson({
+            action: 'ttsGenerate', input: KHMER_UNCLEAR_SPEECH,
+            languageHint: 'Khmer', conversation: true,
+            voice: options.voiceGenderHint?.() === 'Male' ? 'onyx' : undefined,
+          }, signal);
+          if (!audioUrl) throw new Error('Voice playback is unavailable.');
+          await operations.playAudio(options.audioElement, audioUrl, signal);
+          options.onReplyComplete();
+          continue;
+        }
         const reply = await options.onTranscript(spoken);
         if (!reply || signal.aborted) continue;
         options.onSpeaking();
