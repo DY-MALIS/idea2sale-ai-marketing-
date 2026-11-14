@@ -8,9 +8,32 @@ vi.mock('../../api/_openrouter.js', async (importOriginal) => ({
 vi.mock('../../api/_geminiSpeech.js', () => ({ generateGeminiSpeech: mocks.gemini }));
 vi.mock('../../api/_edgeSpeech.js', () => ({ synthesizeKhmerSpeechViaEdge: mocks.edge }));
 
-import { generateKhmerSpeech, isUnreliableKhmerTranscript } from '../../api/_khmerNarration.js';
+import { generateKhmerConversationSpeech, generateKhmerSpeech, isUnreliableKhmerTranscript } from '../../api/_khmerNarration.js';
 
 afterEach(() => { vi.resetAllMocks(); vi.unstubAllEnvs(); });
+
+it('uses the approved Aoede TTS voice and delivery for Khmer Agent replies', async () => {
+  mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,AAAA', provider: 'gemini', voice: 'Aoede' });
+
+  const audio = await generateKhmerConversationSpeech({ input: 'សួស្តី', voice: 'alloy' });
+
+  expect(mocks.gemini).toHaveBeenCalledWith(expect.objectContaining({
+    input: 'សួស្តី', voiceOverride: 'Aoede',
+    performanceStyle: expect.stringContaining('separate neighboring words'),
+  }));
+  expect(audio).toMatchObject({ provider: 'gemini', spokenText: 'សួស្តី' });
+  expect(mocks.edge).not.toHaveBeenCalled();
+});
+
+it('keeps a playable Khmer backup when the selected Gemini voice fails', async () => {
+  mocks.gemini.mockRejectedValue(new Error('provider unavailable'));
+  mocks.edge.mockResolvedValue({ audioUrl: 'data:audio/mpeg;base64,BBBB', provider: 'edge' });
+
+  const audio = await generateKhmerConversationSpeech({ input: 'សួស្តី', voice: 'alloy' });
+
+  expect(audio.provider).toBe('edge');
+  expect(audio.fallbackReason).toMatch(/backup Khmer voice/);
+});
 
 it('identifies numeric STT hallucinations without excusing coherent English speech', () => {
   expect(isUnreliableKhmerTranscript('song 2 100 400 200 200 100 200')).toBe(true);

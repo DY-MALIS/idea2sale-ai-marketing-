@@ -296,14 +296,30 @@ export async function generateKhmerSpeech({
 // video narration has separate quality and pronunciation requirements.
 export async function generateKhmerConversationSpeech(options) {
   try {
-    return await generateKhmerSpeech({ ...options, preferNaturalVoice: true, edgeRate: '+0%' });
+    // Match the Aoede sample approved for the Agent. Gemini Live's native
+    // audio uses the same voice name but produced a less intelligible read;
+    // this text-to-speech path uses the tested 3.8 TTS voice and style.
+    const spokenText = normalizeForKhmerSpeech(options.input);
+    const male = edgeKhmerVoice(options.voice) === 'km-KH-PisethNeural';
+    const performanceStyle = male
+      ? 'Clear native Cambodian Khmer male conversation. Speak at a normal pace and natural volume. Give every Khmer vowel and consonant its full sound; separate neighboring words without adding long pauses. Keep the tone warm, present, and direct.'
+      : 'Clear native Cambodian Khmer female conversation. Speak at a normal pace and natural volume. Give every Khmer vowel and consonant its full sound; separate neighboring words without adding long pauses. Keep the tone warm, present, and direct.';
+    const audio = await generateGeminiSpeech({
+      input: spokenText, voice: options.voice,
+      voiceOverride: male ? 'Achird' : 'Aoede', performanceStyle,
+    });
+    return { ...audio, spokenText };
   } catch (error) {
-    const audio = await generateTranslateSpeech({ input: options.input });
-    return {
-      ...audio,
-      spokenText: options.input,
-      fallbackReason: error?.message || 'Khmer conversation voices were unavailable.',
-    };
+    console.warn('Selected Gemini conversation voice unavailable:', error?.message || error);
+    try {
+      const audio = await synthesizeKhmerSpeechViaEdge({ input: normalizeForKhmerSpeech(options.input), voice: edgeKhmerVoice(options.voice), rate: '+0%' });
+      return { ...audio, spokenText: options.input,
+        fallbackReason: 'The selected Gemini voice was unavailable; a backup Khmer voice was used.' };
+    } catch {
+      const audio = await generateTranslateSpeech({ input: options.input });
+      return { ...audio, spokenText: options.input,
+        fallbackReason: 'The selected Gemini voice and Khmer backup were unavailable.' };
+    }
   }
 }
 

@@ -225,7 +225,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [voiceConnecting, setVoiceConnecting] = useState(false);
   const [voiceProcessing, setVoiceProcessing] = useState(false);
-  const [voiceTransport, setVoiceTransport] = useState<'connecting' | 'live' | 'fallback' | null>(null);
+  const [voiceTransport, setVoiceTransport] = useState<'connecting' | 'live' | 'clear' | 'fallback' | null>(null);
   // The voice orb UI replaces the chat transcript while a call is active, so
   // without this the user never sees what was just said or created -- only
   // hears it. Holds the latest reply text (and, when a content/plan/video
@@ -283,10 +283,10 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     return [headline, request.headline, request.voiceOverText, request.cta].filter((part) => part && part.trim()).join('\n\n');
   };
 
-  const startFallbackVoice = (session: number) => {
+  const startFallbackVoice = (session: number, approvedKhmerVoice = false) => {
     if (session !== voiceSessionRef.current || !voiceActiveRef.current) return;
     if (fallbackSessionRef.current) return;
-    setVoiceTransport('fallback');
+    setVoiceTransport(approvedKhmerVoice ? 'clear' : 'fallback');
     geminiLiveActiveRef.current = false;
     geminiLiveSessionRef.current = null;
     const audioElement = fallbackAudioRef.current || new Audio();
@@ -1386,6 +1386,10 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       fallbackAudioRef.current = fallbackAudio;
       fallbackAudio.src = SILENT_WAV_DATA_URL;
       void fallbackAudio.play().catch(() => {});
+      if (voiceGenderRef.current === 'Female' && voiceInputLanguageRef.current !== 'en') {
+        startFallbackVoice(session, true);
+        return;
+      }
       if (Date.now() < voiceRetryAt) {
         startFallbackVoice(session);
         return;
@@ -2114,7 +2118,11 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
             </div>
             {liveVoiceEnabled && (
               <p className="text-xs font-medium text-brand-600 dark:text-brand-300" role="status">
-                {voiceTransport === 'fallback'
+                {voiceTransport === 'clear'
+                  ? (language === 'km'
+                    ? 'កំពុងប្រើសំឡេងស្រី Aoede ដែលអ្នកបានជ្រើស។ ការឆ្លើយតបអាចចំណាយពេលបន្តិច។'
+                    : 'Using your selected Aoede voice. Replies may take a little longer.')
+                  : voiceTransport === 'fallback'
                   ? (language === 'km'
                     ? 'កំពុងប្រើសំឡេងបម្រុង ដែលឆ្លើយយឺតជាង Live។ បិទហើយបើកម្តងទៀតដើម្បីសាកភ្ជាប់ Live។'
                     : 'Using slower backup voice. Turn Live Voice off and on to retry the realtime connection.')
