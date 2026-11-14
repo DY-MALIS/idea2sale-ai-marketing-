@@ -2,6 +2,7 @@ import { generateOpenRouterText, generateTranslateSpeech, normalizeForKhmerSpeec
 import { synthesizeKhmerSpeechViaEdge } from './_edgeSpeech.js';
 import { generateGeminiSpeech } from './_geminiSpeech.js';
 import { generateDesignedKhmerSpeech, isDesignedKhmerSpeechConfigured } from './_designedKhmerSpeech.js';
+import { generateDoslarbSpeech, isDoslarbConfigured } from './_doslarbSpeech.js';
 import { transcribeKhmerSpeechWithGemini } from './_geminiTranscription.js';
 import { parseBuffer } from 'music-metadata';
 import { compareKhmerTranscript, isKhmerOnlyNarration, KHMER_SCRIPT_ONLY_INSTRUCTION } from '../shared/videoSpeech.js';
@@ -183,6 +184,18 @@ export async function generateKhmerSpeech({
   // Edge's Khmer-only voice cannot reliably speak a deliberate Latin/other-script
   // word. Mixed narration needs Gemini even when Edge is the configured fallback.
   const useEdgeOnly = !mixedScript && (forceEdge || String(process.env.KHMER_TTS_PROVIDER || '').trim().toLowerCase() === 'edge');
+  // Puthi is the female voice approved in the user preview. Generate each new
+  // script with the provider API; the sample MP3 is never reused as narration.
+  // Fail clearly when a configured provider cannot deliver the approved voice
+  // instead of quietly replacing it with a different speaker in a paid video.
+  if (!preferNaturalVoice && !useEdgeOnly && isDoslarbConfigured()) {
+    const generated = await generateDoslarbSpeech({ input: spokenInput, voice });
+    if (Number.isFinite(targetSeconds) && targetSeconds >= 4 && targetSeconds <= 8
+      && await matchesKhmerScript(generated, spokenInput) !== 'match') {
+      throw new Error('The approved Khmer voice did not clearly match the script. Review or shorten the text before generating a video.');
+    }
+    return { ...generated, spokenText: spokenInput };
+  }
   let designedFallbackReason = '';
   if (!useEdgeOnly && Number.isFinite(targetSeconds) && targetSeconds >= 4 && targetSeconds <= 8 && isDesignedKhmerSpeechConfigured()) {
     try {
