@@ -184,9 +184,6 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
   // pitch-preserving neural speech-rate increase before any paid image/video
   // preparation starts.
   if (measuredDuration > MAX_KHMER_CLIP_DURATION) {
-    if (audio.provider === 'doslarb') {
-      throw new Error('The approved Khmer voice is longer than the 8-second video. Shorten the script and preview it again.');
-    }
     if ([...spokenScript].some((character) =>
       (/\p{L}/u.test(character) && !/\p{Script=Khmer}/u.test(character)) || /\p{N}/u.test(character))) {
       throw new Error('The mixed-script narration is longer than the 8-second video. Shorten the text and try again.');

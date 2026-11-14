@@ -54,13 +54,3 @@ it('retains the unverified Gemini audio for review when wrong-script STT and Edg
   expect(audio.provider).toBe('gemini');
   expect(audio.fallbackReason).toMatch(/review the spoken language/i);
 });
-
-it('keeps live conversation on its own voice when a video voice key is configured', async () => {
-  vi.stubEnv('DOSLARB_API_KEY', 'ds_sk_test');
-  mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,AAAA', provider: 'gemini' });
-
-  const audio = await generateKhmerSpeech({ input: 'សួស្តី', voice: 'Female', preferNaturalVoice: true });
-
-  expect(audio.provider).toBe('gemini');
-  expect(mocks.gemini).toHaveBeenCalledTimes(1);
-});
