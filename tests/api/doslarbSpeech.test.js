@@ -48,7 +48,6 @@ it('routes Khmer narration to the approved female provider when configured', asy
 
 it('uses the clear Khmer voice for conversation when requested', async () => {
   vi.stubEnv('DOSLARB_API_KEY', 'ds_sk_test');
-  vi.stubEnv('DOSLARB_LIVE_VOICE_ENABLED', 'true');
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
     Uint8Array.from([0x49, 0x44, 0x33, 0x04, 0x00, 0x00]),
     { headers: { 'content-type': 'audio/mpeg', 'x-audio-duration-seconds': '2.5' } },
@@ -63,7 +62,6 @@ it('uses the clear Khmer voice for conversation when requested', async () => {
 
 it('does not substitute a weaker voice when clear Khmer speech fails', async () => {
   vi.stubEnv('DOSLARB_API_KEY', 'ds_sk_test');
-  vi.stubEnv('DOSLARB_LIVE_VOICE_ENABLED', 'true');
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 503 })));
 
   await expect(generateKhmerConversationSpeech({
@@ -73,18 +71,8 @@ it('does not substitute a weaker voice when clear Khmer speech fails', async () 
 
 it('reports when the clear voice was requested without a server key', async () => {
   vi.stubEnv('DOSLARB_API_KEY', '');
-  vi.stubEnv('DOSLARB_LIVE_VOICE_ENABLED', 'true');
 
   await expect(generateKhmerConversationSpeech({
     input: 'សួស្តី', voice: 'Female', clearKhmerVoice: true,
-  })).rejects.toThrow('Clear Khmer Live Voice is not enabled on the server.');
-});
-
-it('does not switch all live users when a video voice key alone is configured', async () => {
-  vi.stubEnv('DOSLARB_API_KEY', 'ds_sk_test');
-  vi.stubEnv('DOSLARB_LIVE_VOICE_ENABLED', 'false');
-
-  await expect(generateKhmerConversationSpeech({
-    input: 'សួស្តី', voice: 'Female', clearKhmerVoice: true,
-  })).rejects.toThrow('Clear Khmer Live Voice is not enabled on the server.');
+  })).rejects.toThrow('Clear Khmer voice is not configured on the server.');
 });

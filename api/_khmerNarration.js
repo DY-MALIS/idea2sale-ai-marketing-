@@ -2,7 +2,7 @@ import { generateOpenRouterText, generateTranslateSpeech, normalizeForKhmerSpeec
 import { synthesizeKhmerSpeechViaEdge } from './_edgeSpeech.js';
 import { generateGeminiSpeech } from './_geminiSpeech.js';
 import { generateDesignedKhmerSpeech, isDesignedKhmerSpeechConfigured } from './_designedKhmerSpeech.js';
-import { generateDoslarbSpeech, isDoslarbConfigured, isDoslarbLiveEnabled } from './_doslarbSpeech.js';
+import { generateDoslarbSpeech, isDoslarbConfigured } from './_doslarbSpeech.js';
 import { transcribeKhmerSpeechWithGemini } from './_geminiTranscription.js';
 import { parseBuffer } from 'music-metadata';
 import { compareKhmerTranscript, isKhmerOnlyNarration, KHMER_SCRIPT_ONLY_INSTRUCTION } from '../shared/videoSpeech.js';
@@ -309,7 +309,7 @@ export async function generateKhmerSpeech({
 // video narration has separate quality and pronunciation requirements.
 export async function generateKhmerConversationSpeech(options) {
   if (options.clearKhmerVoice) {
-    if (!isDoslarbLiveEnabled()) throw new Error('Clear Khmer Live Voice is not enabled on the server.');
+    if (!isDoslarbConfigured()) throw new Error('Clear Khmer voice is not configured on the server.');
     const spokenText = normalizeForKhmerSpeech(options.input);
     const audio = await generateDoslarbSpeech({ input: spokenText, voice: options.voice });
     return { ...audio, spokenText };
