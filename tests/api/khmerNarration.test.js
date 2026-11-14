@@ -21,6 +21,7 @@ it('uses the approved Battambang-style Aoede voice for Khmer Agent replies', asy
     input: 'សួស្តី', voiceOverride: 'Aoede',
     performanceStyle: expect.stringContaining('woman from Battambang'),
   }));
+  expect(mocks.gemini.mock.calls[0][0].performanceStyle).toContain('spontaneous, helpful reply');
   expect(audio).toMatchObject({ provider: 'gemini', spokenText: 'សួស្តី' });
   expect(mocks.edge).not.toHaveBeenCalled();
 });
