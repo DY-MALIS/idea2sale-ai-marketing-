@@ -4,6 +4,10 @@ const ENDPOINT = 'https://doslarb.cloud/api/v1/tts';
 const MAX_AUDIO_BYTES = 12 * 1024 * 1024;
 
 export const isDoslarbConfigured = () => Boolean(String(process.env.DOSLARB_API_KEY || '').trim());
+// A video key alone must not switch every Live Voice user onto a shared TTS
+// quota. The operator enables that rollout separately after choosing a plan.
+export const isDoslarbLiveEnabled = () => isDoslarbConfigured()
+  && String(process.env.DOSLARB_LIVE_VOICE_ENABLED || '').trim().toLowerCase() === 'true';
 
 export async function generateDoslarbSpeech({ input, voice = 'Female' }) {
   const key = String(process.env.DOSLARB_API_KEY || '').trim();

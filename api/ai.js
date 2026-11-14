@@ -11,7 +11,7 @@ import {
   redactSecrets,
 } from './_openrouter.js';
 import { createKhmerNarration, generateKhmerConversationSpeech, generateKhmerSpeech } from './_khmerNarration.js';
-import { isDoslarbConfigured } from './_doslarbSpeech.js';
+import { isDoslarbLiveEnabled } from './_doslarbSpeech.js';
 import { createGeminiLiveEphemeralToken } from './_geminiLive.js';
 import { liveVoiceLanguageInstruction } from './_liveVoiceInstruction.js';
 import { preparePlanVideoSpeech } from './_videoSpeech.js';
@@ -3083,7 +3083,7 @@ Return ONLY a single valid JSON object with this exact structure:
     }
 
     if (action === 'voiceCapabilities') {
-      return res.status(200).json({ clearKhmerVoiceAvailable: isDoslarbConfigured() });
+      return res.status(200).json({ clearKhmerVoiceAvailable: isDoslarbLiveEnabled() });
     }
 
     if (action === 'ttsSynthesize') {
