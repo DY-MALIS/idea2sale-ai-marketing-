@@ -12,14 +12,14 @@ import { generateKhmerConversationSpeech, generateKhmerSpeech, isUnreliableKhmer
 
 afterEach(() => { vi.resetAllMocks(); vi.unstubAllEnvs(); });
 
-it('uses the approved Aoede TTS voice and delivery for Khmer Agent replies', async () => {
+it('uses the approved Battambang-style Aoede voice for Khmer Agent replies', async () => {
   mocks.gemini.mockResolvedValue({ audioUrl: 'data:audio/wav;base64,AAAA', provider: 'gemini', voice: 'Aoede' });
 
   const audio = await generateKhmerConversationSpeech({ input: 'សួស្តី', voice: 'alloy' });
 
   expect(mocks.gemini).toHaveBeenCalledWith(expect.objectContaining({
     input: 'សួស្តី', voiceOverride: 'Aoede',
-    performanceStyle: expect.stringContaining('separate neighboring words'),
+    performanceStyle: expect.stringContaining('woman from Battambang'),
   }));
   expect(audio).toMatchObject({ provider: 'gemini', spokenText: 'សួស្តី' });
   expect(mocks.edge).not.toHaveBeenCalled();

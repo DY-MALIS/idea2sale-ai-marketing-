@@ -303,7 +303,7 @@ export async function generateKhmerConversationSpeech(options) {
     const male = edgeKhmerVoice(options.voice) === 'km-KH-PisethNeural';
     const performanceStyle = male
       ? 'Clear native Cambodian Khmer male conversation. Speak at a normal pace and natural volume. Give every Khmer vowel and consonant its full sound; separate neighboring words without adding long pauses. Keep the tone warm, present, and direct.'
-      : 'Clear native Cambodian Khmer female conversation. Speak at a normal pace and natural volume. Give every Khmer vowel and consonant its full sound; separate neighboring words without adding long pauses. Keep the tone warm, present, and direct.';
+      : 'Speak as a Cambodian woman from Battambang chatting naturally with one person. Keep the gentle regional cadence subtle and authentic, without exaggerating it. Use a clear full voice and normal pace. Pronounce each Khmer word completely, including question words when present. Give a short natural pause between sentences and avoid robotic rhythm.';
     const audio = await generateGeminiSpeech({
       input: spokenText, voice: options.voice,
       voiceOverride: male ? 'Achird' : 'Aoede', performanceStyle,

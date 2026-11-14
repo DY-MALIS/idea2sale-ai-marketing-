@@ -2120,8 +2120,8 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
               <p className="text-xs font-medium text-brand-600 dark:text-brand-300" role="status">
                 {voiceTransport === 'clear'
                   ? (language === 'km'
-                    ? 'កំពុងប្រើសំឡេងស្រី Aoede ដែលអ្នកបានជ្រើស។ ការឆ្លើយតបអាចចំណាយពេលបន្តិច។'
-                    : 'Using your selected Aoede voice. Replies may take a little longer.')
+                    ? 'កំពុងប្រើសំឡេងស្រី Aoede ចង្វាក់បែបអ្នកបាត់ដំបង។ ការឆ្លើយតបអាចចំណាយពេលបន្តិច។'
+                    : 'Using Aoede with a Battambang-style cadence. Replies may take a little longer.')
                   : voiceTransport === 'fallback'
                   ? (language === 'km'
                     ? 'កំពុងប្រើសំឡេងបម្រុង ដែលឆ្លើយយឺតជាង Live។ បិទហើយបើកម្តងទៀតដើម្បីសាកភ្ជាប់ Live។'
