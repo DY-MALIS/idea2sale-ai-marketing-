@@ -308,6 +308,12 @@ export async function generateKhmerSpeech({
 // and Edge's neural endpoint fail. Keep this last resort scoped to conversations;
 // video narration has separate quality and pronunciation requirements.
 export async function generateKhmerConversationSpeech(options) {
+  if (options.clearKhmerVoice) {
+    if (!isDoslarbConfigured()) throw new Error('Clear Khmer voice is not configured on the server.');
+    const spokenText = normalizeForKhmerSpeech(options.input);
+    const audio = await generateDoslarbSpeech({ input: spokenText, voice: options.voice });
+    return { ...audio, spokenText };
+  }
   try {
     return await generateKhmerSpeech({ ...options, preferNaturalVoice: true, edgeRate: '+0%' });
   } catch (error) {

@@ -59,6 +59,7 @@ it('starts generating the next speech segment while the current one is still pla
 
   const run = runVoiceConversationFallback({
     languageHint: () => 'auto',
+    clearKhmerVoice: true,
     audioElement: {} as HTMLAudioElement,
     onListening: () => {},
     onThinking: () => {},
@@ -73,6 +74,8 @@ it('starts generating the next speech segment while the current one is still pla
   // segment's audio is in hand -- before (not after) that audio finishes
   // playing, which is the dead-air gap this pipelining removes.
   expect(callOrder).toEqual(['generate:Khmer', 'generate:English', 'play:data:audio/mpeg;base64,Khmer']);
+  const speechRequests = requestJson.mock.calls.map(([body]) => body).filter((body) => body.action === 'ttsGenerate');
+  expect(speechRequests.map((body) => body.clearKhmerVoice)).toEqual([true, false]);
   resolveFirstPlay();
   await run;
 });

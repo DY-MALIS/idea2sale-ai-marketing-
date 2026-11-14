@@ -9,6 +9,7 @@ export interface VoiceConversationFallback {
 export interface FallbackOptions {
   languageHint: () => 'auto' | 'km' | 'en';
   voiceGenderHint?: () => 'Female' | 'Male';
+  clearKhmerVoice?: boolean;
   audioElement: HTMLAudioElement;
   onListening: () => void;
   onThinking: () => void;
@@ -175,6 +176,7 @@ export const runVoiceConversationFallback = async (
         const generateSegment = (segment: { text: string; language: string }) => operations.requestJson({
           action: 'ttsGenerate', input: segment.text,
           languageHint: segment.language === 'km' ? 'Khmer' : 'English', conversation: true,
+          clearKhmerVoice: options.clearKhmerVoice === true && segment.language === 'km',
           voice: options.voiceGenderHint?.() === 'Male' ? 'onyx' : undefined,
         }, signal);
         // Start generating the next segment's audio as soon as the current

@@ -11,6 +11,7 @@ import {
   redactSecrets,
 } from './_openrouter.js';
 import { createKhmerNarration, generateKhmerConversationSpeech, generateKhmerSpeech } from './_khmerNarration.js';
+import { isDoslarbConfigured } from './_doslarbSpeech.js';
 import { createGeminiLiveEphemeralToken } from './_geminiLive.js';
 import { liveVoiceLanguageInstruction } from './_liveVoiceInstruction.js';
 import { preparePlanVideoSpeech } from './_videoSpeech.js';
@@ -3026,6 +3027,7 @@ Return ONLY a single valid JSON object with this exact structure:
         const speechOptions = {
           input,
           voice,
+          clearKhmerVoice: req.body?.conversation === true && req.body?.clearKhmerVoice === true,
           performanceStyle: req.body?.conversation
             ? `${conversationPerformanceStyle} Speak with native Cambodian pronunciation, never a foreign accent: crisp initial and final consonants, correct vowel length, and clearly separated words with no merging or slurring between them. Fully pronounce every syllable, including word endings -- never rush or swallow them.`
             : performanceStyle,
@@ -3078,6 +3080,10 @@ Return ONLY a single valid JSON object with this exact structure:
         }
         throw error;
       }
+    }
+
+    if (action === 'voiceCapabilities') {
+      return res.status(200).json({ clearKhmerVoiceAvailable: isDoslarbConfigured() });
     }
 
     if (action === 'ttsSynthesize') {

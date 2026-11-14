@@ -225,7 +225,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [voiceConnecting, setVoiceConnecting] = useState(false);
   const [voiceProcessing, setVoiceProcessing] = useState(false);
-  const [voiceTransport, setVoiceTransport] = useState<'connecting' | 'live' | 'fallback' | null>(null);
+  const [voiceTransport, setVoiceTransport] = useState<'connecting' | 'live' | 'clear' | 'fallback' | null>(null);
   // The voice orb UI replaces the chat transcript while a call is active, so
   // without this the user never sees what was just said or created -- only
   // hears it. Holds the latest reply text (and, when a content/plan/video
@@ -283,10 +283,10 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
     return [headline, request.headline, request.voiceOverText, request.cta].filter((part) => part && part.trim()).join('\n\n');
   };
 
-  const startFallbackVoice = (session: number) => {
+  const startFallbackVoice = (session: number, clearKhmerVoice = false) => {
     if (session !== voiceSessionRef.current || !voiceActiveRef.current) return;
     if (fallbackSessionRef.current) return;
-    setVoiceTransport('fallback');
+    setVoiceTransport(clearKhmerVoice ? 'clear' : 'fallback');
     geminiLiveActiveRef.current = false;
     geminiLiveSessionRef.current = null;
     const audioElement = fallbackAudioRef.current || new Audio();
@@ -295,6 +295,7 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       audioElement,
       languageHint: () => voiceInputLanguageRef.current,
       voiceGenderHint: () => voiceGenderRef.current,
+      clearKhmerVoice,
       onListening: () => { setVoiceConnecting(false); setVoiceProcessing(false); setIsSpeaking(false); },
       onThinking: () => setVoiceProcessing(true),
       onSpeaking: () => { setVoiceProcessing(false); setIsSpeaking(true); },
@@ -1386,15 +1387,43 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       fallbackAudioRef.current = fallbackAudio;
       fallbackAudio.src = SILENT_WAV_DATA_URL;
       void fallbackAudio.play().catch(() => {});
-      if (Date.now() < voiceRetryAt) {
-        startFallbackVoice(session);
-        return;
-      }
-      const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioContextCtor) throw new Error('Live audio is not supported by this browser.');
-      const playbackContext: AudioContext = new AudioContextCtor({ sampleRate: 24000 });
-      void playbackContext.resume().catch(() => {});
-      void startGeminiLive(session, playbackContext);
+      void (async () => {
+        // When the approved Khmer voice is configured, favor its clearer
+        // turn-based speech over low-latency Gemini Live for Khmer calls.
+        // English calls retain the realtime path.
+        if (voiceInputLanguageRef.current !== 'en') {
+          try {
+            const capabilities = await fetch('/api/ai', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'voiceCapabilities' }),
+              signal: AbortSignal.timeout(5000),
+            });
+            const data = capabilities.ok ? await capabilities.json() : {};
+            if (session !== voiceSessionRef.current || !voiceActiveRef.current) return;
+            if (data.clearKhmerVoiceAvailable) {
+              startFallbackVoice(session, true);
+              return;
+            }
+          } catch (error) {
+            console.warn('Could not check clear Khmer voice availability:', error);
+          }
+        }
+        if (session !== voiceSessionRef.current || !voiceActiveRef.current) return;
+        if (Date.now() < voiceRetryAt) {
+          startFallbackVoice(session);
+          return;
+        }
+        const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
+        if (!AudioContextCtor) throw new Error('Live audio is not supported by this browser.');
+        const playbackContext: AudioContext = new AudioContextCtor({ sampleRate: 24000 });
+        void playbackContext.resume().catch(() => {});
+        void startGeminiLive(session, playbackContext);
+      })().catch((error) => {
+        if (session !== voiceSessionRef.current || !voiceActiveRef.current) return;
+        stopLiveVoice();
+        notify(error instanceof Error ? error.message : 'Live audio is unavailable.', 'error');
+      });
     } catch (error) {
       stopLiveVoice();
       notify(error instanceof Error ? error.message : 'Live audio is unavailable.', 'error');
@@ -2114,7 +2143,11 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
             </div>
             {liveVoiceEnabled && (
               <p className="text-xs font-medium text-brand-600 dark:text-brand-300" role="status">
-                {voiceTransport === 'fallback'
+                {voiceTransport === 'clear'
+                  ? (language === 'km'
+                    ? 'សំឡេងខ្មែរច្បាស់កំពុងដំណើរការ។ ការឆ្លើយតបអាចយឺតជាងសន្ទនាផ្ទាល់បន្តិច។'
+                    : 'Clear Khmer voice is active. Replies may take a little longer than realtime voice.')
+                  : voiceTransport === 'fallback'
                   ? (language === 'km'
                     ? 'កំពុងប្រើសំឡេងបម្រុង ដែលឆ្លើយយឺតជាង Live។ បិទហើយបើកម្តងទៀតដើម្បីសាកភ្ជាប់ Live។'
                     : 'Using slower backup voice. Turn Live Voice off and on to retry the realtime connection.')
