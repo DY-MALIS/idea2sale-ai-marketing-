@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { generateDoslarbSpeech } from '../../api/_doslarbSpeech.js';
-import { generateKhmerConversationSpeech, generateKhmerSpeech } from '../../api/_khmerNarration.js';
+import { generateKhmerSpeech } from '../../api/_khmerNarration.js';
 
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
@@ -44,35 +44,4 @@ it('routes Khmer narration to the approved female provider when configured', asy
   const result = await generateKhmerSpeech({ input: 'សូមស្វាគមន៍', voice: 'Female' });
 
   expect(result).toMatchObject({ provider: 'doslarb', voice: 'puthi', spokenText: 'សូមស្វាគមន៍' });
-});
-
-it('uses the clear Khmer voice for conversation when requested', async () => {
-  vi.stubEnv('DOSLARB_API_KEY', 'ds_sk_test');
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
-    Uint8Array.from([0x49, 0x44, 0x33, 0x04, 0x00, 0x00]),
-    { headers: { 'content-type': 'audio/mpeg', 'x-audio-duration-seconds': '2.5' } },
-  )));
-
-  const result = await generateKhmerConversationSpeech({
-    input: 'សួស្តី', voice: 'onyx', clearKhmerVoice: true,
-  });
-
-  expect(result).toMatchObject({ provider: 'doslarb', voice: 'sovann', spokenText: 'សួស្តី' });
-});
-
-it('does not substitute a weaker voice when clear Khmer speech fails', async () => {
-  vi.stubEnv('DOSLARB_API_KEY', 'ds_sk_test');
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 503 })));
-
-  await expect(generateKhmerConversationSpeech({
-    input: 'សួស្តី', voice: 'Female', clearKhmerVoice: true,
-  })).rejects.toThrow('Doslarb Khmer speech failed (HTTP 503)');
-});
-
-it('reports when the clear voice was requested without a server key', async () => {
-  vi.stubEnv('DOSLARB_API_KEY', '');
-
-  await expect(generateKhmerConversationSpeech({
-    input: 'សួស្តី', voice: 'Female', clearKhmerVoice: true,
-  })).rejects.toThrow('Clear Khmer voice is not configured on the server.');
 });
