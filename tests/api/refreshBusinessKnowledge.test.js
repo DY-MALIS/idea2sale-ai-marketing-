@@ -73,7 +73,7 @@ it('reads only the signed-in profile links and uses verified Facebook Page evide
     facebookPageUrl: 'https://www.facebook.com/profile.php?id=61512345678901',
   };
   mocks.extractWebsite.mockResolvedValue({ text: 'Other Company offers accounting and payroll services to businesses in Phnom Penh, with monthly reporting and consultations.', title: 'Other Company' });
-  mocks.facebookRead.mockResolvedValue({ pageName: 'Other Company', pageUrl: mocks.profiles['other-company'].facebookPageUrl, text: 'Other Company shares payroll guidance and tax reminders for local businesses.', posts: [{ message: 'New payroll reporting service is available this month.' }] });
+  mocks.facebookRead.mockResolvedValue({ pageName: 'Other Company', pageUrl: mocks.profiles['other-company'].facebookPageUrl, text: 'Other Company shares payroll guidance and tax reminders for local businesses.', posts: [{ text: 'New payroll reporting service is available this month.' }] });
   mocks.text.mockResolvedValue('Other Company offers accounting and payroll services.');
   const res = responseRecorder();
   await handler({ method: 'POST', headers: { authorization: 'Bearer company-token' }, body: {

@@ -11,6 +11,7 @@ import { recordAuditEvent } from '../lib/auditClient';
 import { withUploadTimeout } from '../lib/withUploadTimeout';
 import { notifyBusinessProfileUpdated } from '../lib/businessBranding';
 import { channelUsernameFromProfile } from '../../shared/telegramDestination.js';
+import { knowledgeForSavedLinks } from '../../shared/businessKnowledgeSources.js';
 
 const DEMO_STORAGE_KEY = 'demo_business_profile';
 const LOGO_MAX_DIMENSION = 256;
@@ -440,9 +441,10 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
       const knowledgeBase = String(data.businessKnowledgeBase || '');
       const updatedAt = Date.now();
       setBusinessKnowledgeBase(knowledgeBase);
-      setBusinessKnowledgeBaseSources(links);
+      const readableSources = Array.isArray(data.sources) ? data.sources.filter((url: unknown) => typeof url === 'string' && links.includes(url)) : [];
+      setBusinessKnowledgeBaseSources(readableSources);
       setBusinessKnowledgeBaseUpdatedAt(updatedAt);
-      const persisted = { businessKnowledgeBase: knowledgeBase, businessKnowledgeBaseSources: links, businessKnowledgeBaseUpdatedAt: updatedAt };
+      const persisted = { businessKnowledgeBase: knowledgeBase, businessKnowledgeBaseSources: readableSources, businessKnowledgeBaseUpdatedAt: updatedAt };
       if (isDemoMode || !user) {
         localStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify({ ...getLocalProfile(), ...persisted }));
       } else {
@@ -515,6 +517,8 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
     setSaving(true);
     setError(null);
     setSaved(false);
+    const savedLinks = [siteUrl, pageUrl, linkedInPageUrl].filter(Boolean);
+    const knowledgeState = knowledgeForSavedLinks(businessKnowledgeBase, businessKnowledgeBaseSources, savedLinks);
     const profile: BusinessProfileData = {
       businessName: editedBusinessName.trim(),
       businessDescription: businessDescription.trim().slice(0, 1000),
@@ -523,9 +527,8 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
       // prior automatic link refresh) so a normal Save Profile never wipes
       // them out -- the demo-mode branch below replaces the whole stored
       // object rather than merging it.
-      businessKnowledgeBase,
-      businessKnowledgeBaseSources,
-      businessKnowledgeBaseUpdatedAt,
+      ...knowledgeState,
+      businessKnowledgeBaseUpdatedAt: knowledgeState.businessKnowledgeBase ? businessKnowledgeBaseUpdatedAt : 0,
       logoDataUrl,
       directory: directory.map((entry) => ({ ...entry, name: entry.name.trim() })),
       productImages: productImages.map((image) => ({ ...image, label: image.label.trim().slice(0, 60) })),
@@ -593,6 +596,9 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
         });
       }
       setSavedTelegramBotToken(profile.telegramBotToken);
+      setBusinessKnowledgeBase(knowledgeState.businessKnowledgeBase);
+      setBusinessKnowledgeBaseSources(knowledgeState.businessKnowledgeBaseSources);
+      setBusinessKnowledgeBaseUpdatedAt(profile.businessKnowledgeBaseUpdatedAt || 0);
       setBusinessName(profile.businessName);
       setTelegramChannelUrl(channelUsername);
       if (user && !isDemoMode) setSavedBusinessName(profile.businessName);
@@ -602,7 +608,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
       // Fire-and-forget: Save Profile itself is already done, so a slow or
       // unreachable link reads this knowledge base in the background rather
       // than holding up the Save button or its confirmation.
-      void refreshBusinessKnowledgeIfNeeded([siteUrl, pageUrl, linkedInPageUrl].filter(Boolean));
+      void refreshBusinessKnowledgeIfNeeded(savedLinks);
     } catch (err: any) {
       console.error('Failed to save business profile:', err);
       setError(err.message || t('businessProfileSaveError'));

@@ -22,4 +22,11 @@ describe('business profile source grounding', () => {
     expect(result.sources).toEqual([{ label: 'Facebook', url: 'https://facebook.com/cafe', readable: false }]);
     expect(result.evidence).toBe('');
   });
+
+  it('does not present a social login wall as business evidence', async () => {
+    const extract = vi.fn(async () => ({ title: 'Log in to Facebook', text: 'Log in to Facebook to see this Page. '.repeat(6) }));
+    const result = await readBusinessProfileSources({ facebookPageUrl: 'https://facebook.com/cafe' }, extract);
+    expect(result.sources[0].readable).toBe(false);
+    expect(result.evidence).toBe('');
+  });
 });

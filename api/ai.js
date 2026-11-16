@@ -32,6 +32,7 @@ import { sendOutreachEmail } from './_email.js';
 import { extractDocumentText } from './_documentExtract.js';
 import profileFilesHandler from './_profileFiles.js';
 import { isFacebookLink, readFacebookLink, readProfileFacebookPage } from './_facebook.js';
+import { facebookPageKnowledgeContent } from './_facebookKnowledge.js';
 import { extractWebsiteText } from './_websiteExtract.js';
 import { readBusinessProfileSources } from './_businessProfileGrounding.js';
 import { generateAgentDocument, requestedAgentDocumentFormat } from './_agentDocument.js';
@@ -1988,10 +1989,11 @@ Response rules:
             ? await (async () => {
                 const owner = await requireAiUser(req);
                 const page = await readProfileFacebookPage(initFirebaseAdmin(), owner.uid);
-                return { title: page.pageName, text: [page.text, ...(page.posts || []).map((post) => post.message || '')].filter(Boolean).join('\n'), url: page.pageUrl };
+                return { title: page.pageName, text: facebookPageKnowledgeContent(page), url: page.pageUrl };
               })()
             : await extractWebsiteText({ url });
-          if (extracted.text.length < MIN_USEFUL_CHARS) return null;
+          const minimumChars = label === 'Facebook Page' && signedIn ? 40 : MIN_USEFUL_CHARS;
+          if (extracted.text.length < minimumChars) return null;
           return { label, url, title: extracted.title || url, text: extracted.text };
         } catch (error) {
           console.warn(`Could not read ${label} link for business knowledge:`, error?.message || error);

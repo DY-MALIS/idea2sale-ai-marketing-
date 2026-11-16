@@ -19,8 +19,11 @@ export async function readBusinessProfileSources(profile, extract = extractWebsi
     try {
       const page = await extract({ url });
       const content = String(page?.text || '').replace(/\s+/g, ' ').trim();
-      if (content.length < 80) return { label, url, readable: false };
-      return { label, url, readable: true, title: String(page?.title || '').slice(0, 160), excerpt: content.slice(0, 900) };
+      const title = String(page?.title || '').trim();
+      const loginWall = /(?:facebook|linkedin).*(?:log in|sign up)|(?:log in|sign up).*(?:facebook|linkedin)/i.test(title)
+        || (content.length < 500 && /(?:log in to|sign in to|join) (?:facebook|linkedin)/i.test(content));
+      if (content.length < 80 || loginWall) return { label, url, readable: false };
+      return { label, url, readable: true, title: title.slice(0, 160), excerpt: content.slice(0, 900) };
     } catch {
       return { label, url, readable: false };
     }
