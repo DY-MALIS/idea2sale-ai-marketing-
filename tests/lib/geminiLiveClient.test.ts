@@ -17,6 +17,7 @@ describe('Gemini Live browser connection', () => {
     const onAudioStart = vi.fn();
     const onPlaybackComplete = vi.fn();
     const onWebsiteLookup = vi.fn().mockResolvedValue({ url: 'https://example.com/', text: 'Opening hours: 9–5' });
+    const onFacebookLookup = vi.fn().mockResolvedValue({ pageUrl: 'https://facebook.com/own/posts/1', text: 'New course.' });
     const track = { stop: vi.fn() };
     const FakeWebSocket = class {
       static OPEN = 1;
@@ -49,7 +50,7 @@ describe('Gemini Live browser connection', () => {
       close: vi.fn().mockResolvedValue(undefined),
     } as unknown as AudioContext;
 
-    const pending = connectGeminiLive('ephemeral-token', 'gemini-3.8-live', playbackContext, { onAudioStart, onPlaybackComplete, onWebsiteLookup }, {
+    const pending = connectGeminiLive('ephemeral-token', 'gemini-3.8-live', playbackContext, { onAudioStart, onPlaybackComplete, onWebsiteLookup, onFacebookLookup }, {
       voiceName: 'Aoede', systemInstruction: 'Speak Khmer for Khmer input.',
     });
     await vi.waitFor(() => expect(socket).toBeDefined());
@@ -70,7 +71,7 @@ describe('Gemini Live browser connection', () => {
       }, {
         name: 'read_connected_facebook_page',
         description: expect.any(String),
-        parameters: { type: 'OBJECT', properties: {} },
+        parameters: { type: 'OBJECT', properties: { url: { type: 'STRING', description: expect.any(String) } } },
       }] }],
       inputAudioTranscription: {},
       realtimeInputConfig: {
@@ -110,6 +111,8 @@ describe('Gemini Live browser connection', () => {
       count + Buffer.from(message.realtimeInput.audio.data, 'base64').byteLength / 2
     ), 0);
     expect(streamedSamples).toBe(1365);
+    socket.onmessage({ data: JSON.stringify({ toolCall: { functionCalls: [{ name: 'read_connected_facebook_page', id: 'facebook-1', args: { url: 'https://facebook.com/own/posts/1' } }] } }) });
+    await vi.waitFor(() => expect(onFacebookLookup).toHaveBeenCalledWith('https://facebook.com/own/posts/1'));
     expect(socket.readyState).toBe(FakeWebSocket.OPEN);
     socket.onmessage({ data: JSON.stringify({ serverContent: { modelTurn: { parts: [{ inlineData: { mimeType: 'audio/pcm;rate=24000', data: audioData } }] } } }) });
     await Promise.resolve();

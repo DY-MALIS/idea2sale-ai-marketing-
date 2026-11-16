@@ -515,14 +515,14 @@ const AIAgent: React.FC<AIAgentProps> = ({ onCreativeAutomation }) => {
       }
 
       const geminiSession = await connectGeminiLive(data.token, data.model, playbackContext, {
-        onFacebookLookup: async () => {
-          if (!user) throw new Error('Sign in to read your Facebook Page.');
-          const idToken = await user.getIdToken();
+        onFacebookLookup: async (url) => {
+          if (!user && !url) throw new Error('Sign in to read your saved Facebook Page.');
+          const idToken = user ? await user.getIdToken() : '';
           const lookup = await fetch('/api/ai', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+            headers: { 'Content-Type': 'application/json', ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}) },
             signal: controller.signal,
-            body: JSON.stringify({ action: 'liveFacebookRead' }),
+            body: JSON.stringify({ action: 'liveFacebookRead', url: url || undefined }),
           });
           const page = await lookup.json().catch(() => ({}));
           if (!lookup.ok) throw new Error(page.error || 'Could not read the Facebook Page saved in Business Profile.');

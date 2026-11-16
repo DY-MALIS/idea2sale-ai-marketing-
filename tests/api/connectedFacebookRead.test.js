@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { readConnectedFacebookPage, readProfileFacebookPage } from '../../api/_facebook.js';
+import { isFacebookLink, readConnectedFacebookPage, readFacebookLink, readProfileFacebookPage } from '../../api/_facebook.js';
 
 it('reads only the signed-in owner selected Facebook Page and returns no token', async () => {
   const get = vi.fn().mockResolvedValue({ exists: true, data: () => ({
@@ -143,4 +143,38 @@ it('rejects a numeric profile link redirected outside Facebook', async () => {
     readConnected: async () => { throw new Error('Not connected'); },
     extract: async () => ({ url: 'https://unrelated.example/', title: 'Company B', text: 'Company B text. '.repeat(10) }),
   })).rejects.toThrow(/did not expose readable Page content/);
+});
+
+it('reads the Business Profile Facebook Page when Live Agent omits a URL', async () => {
+  const readProfile = vi.fn().mockResolvedValue({ pageUrl: 'https://facebook.com/own', text: 'Our courses.' });
+  const result = await readFacebookLink({}, 'owner-1', '', { readProfile });
+  expect(readProfile).toHaveBeenCalledWith({}, 'owner-1');
+  expect(result.text).toBe('Our courses.');
+});
+
+it('uses a matching connected post but never returns unrelated connected posts', async () => {
+  const connected = { pageUrl: 'https://facebook.com/own', posts: [
+    { url: 'https://facebook.com/own/posts/1', text: 'Matching post' },
+    { url: 'https://facebook.com/own/posts/2', text: 'Other post' },
+  ], postsReadable: true };
+  const readConnected = vi.fn().mockResolvedValue(connected);
+  const result = await readFacebookLink({}, 'owner-1', 'https://www.facebook.com/own/posts/1', { readConnected });
+  expect(result.posts).toEqual([connected.posts[0]]);
+  expect(JSON.stringify(result)).not.toContain('Other post');
+});
+
+it('reads the public text of a supplied Facebook post without a connected Page', async () => {
+  const fetchEmbed = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ html: '<p>New evening marketing course &amp; enrollment information.</p>' }) });
+  const result = await readFacebookLink({}, null, 'https://facebook.com/public/posts/12', { fetchEmbed });
+  expect(result.text).toBe('New evening marketing course & enrollment information.');
+  expect(result.postsReadable).toBe(false);
+});
+
+it('rejects a Facebook login wall and lookalike hosts', async () => {
+  expect(isFacebookLink('https://facebook.com.evil.example/posts/1')).toBe(false);
+  await expect(readFacebookLink({}, null, 'https://facebook.com.evil.example/posts/1')).rejects.toMatchObject({ status: 400 });
+  await expect(readFacebookLink({}, null, 'https://facebook.com/public/posts/1', {
+    fetchEmbed: async () => ({ ok: false }),
+    extract: async () => ({ url: 'https://facebook.com/public/posts/1', title: 'Facebook - Log in or sign up', text: 'Log in to Facebook. '.repeat(10) }),
+  })).rejects.toMatchObject({ status: 502 });
 });

@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   liveToken: vi.fn(),
   extractWebsite: vi.fn(),
   facebookRead: vi.fn(),
+  facebookLinkRead: vi.fn(),
   profiles: {},
 }));
 
@@ -39,7 +40,14 @@ vi.mock('../../api/_marketTrendResearch.js', () => ({ researchMarketTrends: vi.f
 vi.mock('../../api/_imagekitUpload.js', () => ({ uploadMediaDataUrl: vi.fn() }));
 vi.mock('../../api/_email.js', () => ({ sendOutreachEmail: vi.fn() }));
 vi.mock('../../api/_websiteExtract.js', () => ({ extractWebsiteText: mocks.extractWebsite }));
-vi.mock('../../api/_facebook.js', () => ({ readProfileFacebookPage: mocks.facebookRead }));
+vi.mock('../../api/_facebook.js', () => ({
+  readProfileFacebookPage: mocks.facebookRead,
+  readFacebookLink: mocks.facebookLinkRead,
+  isFacebookLink: (value) => {
+    try { return ['facebook.com', 'www.facebook.com', 'm.facebook.com', 'fb.watch'].includes(new URL(value).hostname); }
+    catch { return false; }
+  },
+}));
 vi.mock('../../api/_geminiLive.js', () => ({ createGeminiLiveEphemeralToken: mocks.liveToken }));
 
 import handler from '../../api/ai.js';
@@ -67,6 +75,7 @@ beforeEach(() => {
   mocks.profiles = {};
   mocks.checkRateLimit.mockResolvedValue({ allowed: true });
   mocks.liveToken.mockResolvedValue({ token: 'test-token', model: 'gemini-test', voiceName: 'Aoede', systemInstruction: '' });
+  mocks.facebookLinkRead.mockImplementation((db, uid, url) => mocks.facebookRead(db, uid, url));
 });
 
 it('folds the saved business knowledge base into the Live Voice system instruction', async () => {
@@ -140,6 +149,33 @@ it('uses the saved website when a Live Voice tool call omits a URL', async () =>
   expect(res.statusCode).toBe(200);
 });
 
+it('reads an explicit Facebook link for Live Voice without requiring a saved profile link', async () => {
+  const url = 'https://www.facebook.com/company_b/posts/123';
+  mocks.facebookLinkRead.mockResolvedValue({ pageUrl: url, text: 'Public post about a new course.', postsReadable: false });
+  const res = responseRecorder();
+  await handler({ method: 'POST', headers: {}, body: { action: 'liveFacebookRead', url } }, res);
+  expect(res.statusCode).toBe(200);
+  expect(mocks.facebookLinkRead).toHaveBeenCalledWith(expect.any(Object), null, url);
+  expect(res.body.text).toContain('new course');
+});
+
+it('routes a Facebook link through the Facebook reader when Live Voice calls the website tool', async () => {
+  const url = 'https://www.facebook.com/company_b/posts/123';
+  mocks.facebookLinkRead.mockResolvedValue({ pageUrl: url, text: 'A course announcement.', postsReadable: false });
+  const res = responseRecorder();
+  await handler({ method: 'POST', headers: {}, body: { action: 'liveWebsiteRead', url } }, res);
+  expect(res.statusCode).toBe(200);
+  expect(mocks.facebookLinkRead).toHaveBeenCalledWith(expect.any(Object), null, url);
+  expect(mocks.extractWebsite).not.toHaveBeenCalled();
+});
+
+it('requires sign-in for the saved Facebook Page but reads explicit public links anonymously', async () => {
+  const res = responseRecorder();
+  await handler({ method: 'POST', headers: {}, body: { action: 'liveFacebookRead' } }, res);
+  expect(res.statusCode).toBe(401);
+  expect(mocks.facebookLinkRead).not.toHaveBeenCalled();
+});
+
 it('uses the signed-in company website instead of a stale browser link for Live Voice', async () => {
   admin.auth.mockReturnValue({ verifyIdToken: vi.fn().mockResolvedValue({ uid: 'company_b' }) });
   mocks.profiles.company_b = { websiteUrl: 'https://company-b.example/' };
@@ -150,6 +186,19 @@ it('uses the signed-in company website instead of a stale browser link for Live 
   } }, res);
   expect(res.statusCode).toBe(200);
   expect(mocks.extractWebsite).toHaveBeenCalledWith({ url: 'https://company-b.example/' });
+});
+
+it('opens the website saved in Business Profile when Live Voice omits a URL', async () => {
+  admin.auth.mockReturnValue({ verifyIdToken: vi.fn().mockResolvedValue({ uid: 'company_b' }) });
+  mocks.profiles.company_b = { websiteUrl: 'https://company-b.example/' };
+  mocks.extractWebsite.mockResolvedValue({ url: 'https://company-b.example/', title: 'Company B', text: 'Open every weekday.', links: [] });
+  const res = responseRecorder();
+  await handler({ method: 'POST', headers: { authorization: 'Bearer company-b-token' }, body: {
+    action: 'liveWebsiteRead', websiteUrl: 'https://stale-browser.example/',
+  } }, res);
+  expect(res.statusCode).toBe(200);
+  expect(mocks.extractWebsite).toHaveBeenCalledWith({ url: 'https://company-b.example/' });
+  expect(res.body.text).toBe('Open every weekday.');
 });
 
 it('puts the signed-in company links into the Live Agent instruction', async () => {
@@ -201,7 +250,7 @@ it('reads this Google account’s Facebook posts and website for a Chat Agent co
     businessContext: { businessName: 'Company B', facebookPageUrl: 'https://facebook.com/old_company', websiteUrl: 'https://old-company.example/' },
   } }, res);
   expect(res.statusCode).toBe(200);
-  expect(mocks.facebookRead).toHaveBeenCalledWith(expect.any(Object), 'company_b');
+  expect(mocks.facebookLinkRead).toHaveBeenCalledWith(expect.any(Object), 'company_b', '');
   expect(mocks.text.mock.calls.at(-1)[0].prompt).toContain('New coffee offer');
   expect(mocks.text.mock.calls.at(-1)[0].prompt).toContain('We sell coffee.');
   expect(mocks.text.mock.calls.at(-1)[0].prompt).not.toContain('old-company.example');
@@ -218,7 +267,7 @@ it('reads the signed-in business Facebook Page before its saved link reaches the
     businessContext: { businessName: 'Company E' },
   } }, res);
   expect(res.statusCode).toBe(200);
-  expect(mocks.facebookRead).toHaveBeenCalledWith(expect.any(Object), 'company_e');
+  expect(mocks.facebookLinkRead).toHaveBeenCalledWith(expect.any(Object), 'company_e', '');
   expect(mocks.text.mock.calls.at(-1)[0].prompt).toContain('New course this week');
 });
 
@@ -233,7 +282,7 @@ it('does not invent Facebook posts when the Page cannot be read', async () => {
     businessContext: { businessName: 'Company C', facebookPageUrl: 'https://facebook.com/company_c' },
   } }, res);
   expect(res.statusCode).toBe(200);
-  expect(mocks.text.mock.calls.at(-1)[0].prompt).toContain('FACEBOOK PAGE COULD NOT BE VERIFIED');
+  expect(mocks.text.mock.calls.at(-1)[0].prompt).toContain('FACEBOOK LINK COULD NOT BE VERIFIED');
   expect(mocks.text.mock.calls.at(-1)[0].prompt).toContain('Do not claim to have seen its current posts');
 });
 

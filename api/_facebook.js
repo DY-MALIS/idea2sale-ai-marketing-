@@ -220,6 +220,105 @@ export async function readProfileFacebookPage(db, ownerId, { extract = extractWe
   };
 }
 
+export function isFacebookLink(value) {
+  try {
+    const parsed = new URL(String(value || '').trim());
+    const host = parsed.hostname.toLowerCase();
+    return /^https?:$/.test(parsed.protocol)
+      && ['facebook.com', 'www.facebook.com', 'm.facebook.com', 'web.facebook.com', 'fb.com', 'www.fb.com', 'fb.watch'].includes(host);
+  } catch { return false; }
+}
+
+const comparableFacebookUrl = (value) => {
+  try {
+    const parsed = new URL(value);
+    return `${parsed.pathname.replace(/\/$/, '').toLowerCase()}${parsed.pathname.toLowerCase() === '/profile.php' ? `?id=${parsed.searchParams.get('id') || ''}` : ''}`;
+  } catch { return ''; }
+};
+
+const facebookPostLink = (value) => {
+  const path = new URL(value).pathname.toLowerCase();
+  return /\/(?:posts|videos|reel|watch|photo\.php|permalink\.php|story\.php)(?:\/|$)/.test(path)
+    || /^\/share\/(?:p|v|r)\//.test(path)
+    || new URL(value).hostname.toLowerCase() === 'fb.watch';
+};
+
+const decodePublicText = (html) => String(html || '')
+  .replace(/<[^>]*>/g, ' ')
+  .replace(/&#(\d+);/g, (_, value) => String.fromCodePoint(Number(value)))
+  .replace(/&#x([0-9a-f]+);/gi, (_, value) => String.fromCodePoint(parseInt(value, 16)))
+  .replace(/&(?:amp|nbsp|quot|lt|gt);/gi, (value) => ({ '&amp;': '&', '&nbsp;': ' ', '&quot;': '"', '&lt;': '<', '&gt;': '>' })[value.toLowerCase()] || value)
+  .replace(/\s+/g, ' ').trim();
+
+// An explicit Facebook link must be read as that link, not silently replaced
+// with the owner's saved Page. Connected Page posts are available only when
+// the requested permalink matches a post returned for that Page.
+export async function readFacebookLink(db, ownerId, requestedUrl = '', {
+  readProfile = readProfileFacebookPage,
+  readConnected = readConnectedFacebookPage,
+  extract = extractWebsiteText,
+  fetchEmbed = fetch,
+} = {}) {
+  const raw = String(requestedUrl || '').trim();
+  if (!raw) {
+    if (!ownerId) throw Object.assign(new Error('Sign in to read your saved or connected Facebook Page.'), { status: 401 });
+    return readProfile(db, ownerId);
+  }
+  if (!isFacebookLink(raw)) throw Object.assign(new Error('Enter a valid Facebook Page, post, or video link.'), { status: 400 });
+  const parsed = new URL(raw);
+  parsed.protocol = 'https:';
+  parsed.hash = '';
+  const url = parsed.toString();
+  const isPost = facebookPostLink(url);
+
+  let connected = null;
+  if (ownerId) {
+    try { connected = await readConnected(db, ownerId); } catch { /* Public links may still be readable. */ }
+  }
+  const targetKey = facebookBusinessPageKey(url);
+  const connectedKey = facebookBusinessPageKey(connected?.pageUrl);
+  if (connected && isPost) {
+    const post = (connected.posts || []).find((item) => comparableFacebookUrl(item.url) === comparableFacebookUrl(url));
+    if (post) return { ...connected, posts: [post], source: 'Connected Facebook Page (requested post)' };
+  }
+  if (connected && !isPost && targetKey && connectedKey === targetKey) return connected;
+
+  if (!isPost && ownerId) {
+    const profileSnapshot = await db.collection('business_profiles').doc(ownerId).get();
+    const savedUrl = String(profileSnapshot.data()?.facebookPageUrl || '');
+    if (savedUrl && (comparableFacebookUrl(savedUrl) === comparableFacebookUrl(url)
+      || (targetKey && targetKey === facebookBusinessPageKey(savedUrl)))) {
+      return readProfile(db, ownerId);
+    }
+  }
+
+  if (isPost) {
+    const type = /\/(?:reel|videos|watch)\b|^\/share\/(?:v|r)\//.test(parsed.pathname.toLowerCase()) || parsed.hostname === 'fb.watch'
+      ? 'oembed_video' : 'oembed_post';
+    try {
+      const response = await fetchEmbed(`${GRAPH}/${type}?${new URLSearchParams({ url, omitscript: 'true' })}`, { signal: AbortSignal.timeout(8000) });
+      const embed = response.ok ? await response.json() : null;
+      const paragraphs = [...String(embed?.html || '').matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)]
+        .map((match) => decodePublicText(match[1])).filter(Boolean);
+      const text = paragraphs.join(' ').slice(0, 6000);
+      if (text.length >= 25) return { pageUrl: url, text, posts: [], postsReadable: false, source: 'Public Facebook post embed' };
+    } catch { /* Try the publicly visible web page next. */ }
+  }
+
+  try {
+    const page = await extract({ url });
+    if (!isFacebookLink(page.url)) throw new Error('Facebook redirected to another site.');
+    const text = String(page.text || '').replace(/\s+/g, ' ').trim();
+    const title = String(page.title || '').trim();
+    const loginWall = /facebook.*(?:log in|sign up)|(?:log in|sign up).*facebook/i.test(title)
+      || (text.length < 500 && /log in to facebook|log into facebook|you must log in/i.test(text));
+    if (loginWall || text.length < (page.metadataOnly ? 40 : 80)) throw new Error('No readable Facebook content.');
+    return { pageName: title.slice(0, 180), pageUrl: url, text: text.slice(0, 12000), posts: [], postsReadable: false, source: 'Public Facebook link' };
+  } catch {
+    throw Object.assign(new Error('Facebook did not expose readable content at this link. Connect the Page in Social Automation if you manage it, or use a public post link.'), { status: 502 });
+  }
+}
+
 export async function publishFacebookReel(pageToken, videoUrl, caption) {
   if (!/^https:\/\//.test(videoUrl || '')) throw new Error('Facebook needs a publicly accessible HTTPS video URL.');
   const start = await graphJson(`${GRAPH}/me/video_reels?${new URLSearchParams({ access_token: pageToken, upload_phase: 'start' })}`, { method: 'POST' });

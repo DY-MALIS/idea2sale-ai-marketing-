@@ -35,7 +35,7 @@ const END_OF_SPEECH_SILENCE_MS = 300;
 
 export interface GeminiLiveHandlers {
   onWebsiteLookup?: (url: string) => Promise<unknown>;
-  onFacebookLookup?: () => Promise<unknown>;
+  onFacebookLookup?: (url?: string) => Promise<unknown>;
   onOpen?: () => void;
   onAudioStart?: () => void;
   onInterrupted?: () => void;
@@ -88,8 +88,8 @@ const WEBSITE_TOOL = {
     },
   }, {
     name: 'read_connected_facebook_page',
-    description: 'Read the Facebook Page link saved in this signed-in account\'s Business Profile, or its connected Page if no link is saved. A public link may provide limited content; recent posts require a matching connected Page. This does not access private messages or follower/customer identities. If unreadable, explain in Khmer that Facebook may require login and the Page can be connected in Social Automation.',
-    parameters: { type: 'OBJECT', properties: {} },
+    description: 'Read a Facebook Page, post, reel, or video link to answer the caller\'s question. Pass the exact Facebook URL as url when the caller gives one. Omit url to read this signed-in account\'s saved or connected Page. Connected Page posts are available when authorized; other links provide only publicly readable content. Never infer private posts, messages, or viewer identities. If unreadable, explain that Facebook requires access or the Page must be connected in Social Automation.',
+    parameters: { type: 'OBJECT', properties: { url: { type: 'STRING', description: 'Exact public Facebook Page, post, reel, or video URL from the caller. Omit for the saved or connected Page.' } } },
   }],
 };
 
@@ -415,7 +415,7 @@ export async function connectGeminiLive(
               if (call.name === 'read_public_website' && handlers.onWebsiteLookup) {
                 response = await handlers.onWebsiteLookup(String(call.args?.url || ''));
               } else if (call.name === 'read_connected_facebook_page' && handlers.onFacebookLookup) {
-                response = await handlers.onFacebookLookup();
+                response = await handlers.onFacebookLookup(String(call.args?.url || ''));
               } else {
                 throw new Error('This data source is unavailable.');
               }
