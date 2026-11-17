@@ -1017,9 +1017,9 @@ interface PosterGenerationOptions {
 const KEY_VISUAL_DIRECTION = 'Cinematic, award-winning commercial key visual like a global brand campaign. For a product: the product is the large, perfectly lit hero on a natural podium (mossy rock, wooden slice, stone) or emerging from a dreamy landscape that matches its ingredients (jungle, misty mountains, waterfalls, plantations, sunlit clouds), with splashes, droplets and floating ingredients frozen in motion. For people, a class, a service or a place: a cinematic brand-campaign photo with confident, attractive Cambodian people, genuine emotion, a beautiful modern setting with big sunlit windows or atmospheric views, and a heroic movie-still composition. Always golden sun rays or warm window light, volumetric haze, rim light, rich deep color grading and creamy background blur. Photorealistic high-budget look.';
 // Every other look still has to be beautiful: premium campaign photography,
 // not the plain "everyday snapshot" the old instructions produced.
-const PREMIUM_PHOTO_DIRECTION = 'Premium advertising photography for a top brand: professional soft key light with gentle rim light and a warm glow, cinematic color grading with rich harmonious tones, one clear focal point, layered depth with creamy background blur, and a clean, bright, beautifully styled setting. People look like attractive real Cambodians with natural skin, warm genuine expressions and stylish clothes. Real photo, never flat, dull, grey or cluttered.';
+const PREMIUM_PHOTO_DIRECTION = 'Premium advertising photography for a top brand: professional soft key light with gentle rim light and a warm glow, cinematic color grading with rich harmonious tones, one clear focal point, layered depth with creamy background blur, and a clean, bright, beautifully styled setting. People look like beautiful, elegant real Cambodians with faces clearly visible and in sharp focus, well-groomed hair, natural polished makeup, warm genuine expressions and stylish modern outfits, like a magazine photoshoot. Real photo, never flat, dull, grey or cluttered.';
 
-const FUTURISTIC_DIRECTION = 'Futuristic high-tech AI marketing visual: a modern glass office or tech space with a city skyline at dusk through large windows, glowing blue and cyan holographic dashboards, floating transparent data screens, charts and circuit-line graphics, a glowing interactive glass table, dramatic teal-and-orange cinematic lighting with neon accents, polished and vibrant, high-end tech advertising look. Real-looking people (photorealistic faces and hands) interacting with the holograms.';
+const FUTURISTIC_DIRECTION = 'Futuristic high-tech AI marketing visual: a modern glass office or tech space with a city skyline at dusk through large windows, glowing blue and cyan holographic dashboards, floating transparent data screens, charts and circuit-line graphics, a glowing interactive glass table, dramatic teal-and-orange cinematic lighting with neon accents, polished and vibrant, high-end tech advertising look. One to three attractive, photorealistic people large in the foreground (waist-up), faces clearly visible and softly lit by a warm key light and the glow of the screens, interacting with the holograms.';
 
 // Styles with their own server template ("look") and client direction. Any
 // other style uses premium photography.
@@ -1323,8 +1323,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
 
       CRITICAL INSTRUCTION:
       - The current UI language is: ${language === 'km' ? 'Khmer' : 'English'}.
-      - If the UI language is Khmer, ensure the visual style and mood reflect a Cambodian/Khmer aesthetic.
-      - If the brand/headline/visual description is in Khmer, prioritize the Khmer aesthetic.
+      - Set it in modern, contemporary Cambodia (stylish Phnom Penh): people look Cambodian and wear fashionable modern clothes with modern hairstyles and contemporary accessories; traditional dress only if the visual description asks for it.
       - Do NOT render the brand name, headline, or call-to-action as literal on-image text -- treat them only as creative direction for the mood, subject, and styling of the photo.`;
 
       const aspectRatio = normalizeImageAspectRatio(options.aspectRatio, posterAspectRatio);

@@ -634,12 +634,17 @@ const NO_FOREIGN_TEXT_CONSTRAINT = 'HARD CONSTRAINT, highest priority: this imag
 // Keep this short and affirmative. Long negative lists that repeatedly name a
 // foreign hat or costume can "seed" that object in diffusion/image models even
 // when the surrounding instruction says not to draw it.
-const KHMER_ATTIRE_GUIDANCE = `CULTURAL AUTHENTICITY IS REQUIRED:
-- This application creates Cambodian/Khmer-first imagery. In every era and setting, every person must look recognizably Khmer/Cambodian, with natural Cambodian facial features, skin tone, hair, body proportions, and build. Never substitute a generic, ambiguous, or neighboring-country stock-model appearance.
-- Match authentic Khmer clothing to the requested era and context. Modern scenes require clothing and styling genuinely worn by Cambodians today. Traditional or ceremonial scenes require accurate Khmer garments such as sampot, av pak, sbai, silk weaving, fine checked krama, jewelry, footwear, and headwear appropriate to that exact ceremony and social role. Ancient or Angkorian scenes require historically grounded Khmer clothing, crowns/headpieces, jewelry, hairstyles, tools, and materials from the depicted period.
-- Any hat, headwear, hairstyle, makeup, accessory, jewelry, footwear, uniform, or textile pattern that appears must be authentically Cambodian and appropriate to the era, setting, occupation, gender presentation, and occasion. Do not invent culture-mixing costumes or borrow another country's iconic attire.
-- Apply the same Khmer specificity to posture and gestures, architecture, temples, homes, shops, furniture, crafts, food presentation, landscape, plants, vehicles, props, and decor. The complete image must read immediately and consistently as Cambodia—not as a generic Southeast-Asian tourism scene.
-- Preserve the user's actual subject and requested modern/ancient style, but express every human and cultural detail through a coherent Khmer/Cambodian visual identity.`;
+// Modern-first. The old wording ("every hat, textile and prop must be
+// authentically Khmer") made the model add traditional palm-leaf hats and
+// folk props to modern offices and cafes, which users found old-fashioned.
+// People must still look Cambodian; traditional dress only when asked for.
+const KHMER_ATTIRE_GUIDANCE = `CAMBODIAN PEOPLE, MODERN STYLE:
+- Every person looks recognizably Cambodian/Khmer, with natural Cambodian facial features, skin tone and hair -- never a generic or neighboring-country stock model.
+- Default to contemporary, cosmopolitan Cambodia (modern Phnom Penh): people wear stylish, fashionable, well-fitting modern clothes that suit the setting -- smart casual or business wear in offices and tech scenes, trendy streetwear or chic outfits in cafes and lifestyle scenes, polished styling for luxury and beauty. Settings, interiors and props are modern, clean and international-standard.
+- People are the clear, beautiful focus (in photographic styles): faces fully visible and in crisp, sharp focus with clear eyes; attractive, beautiful or handsome, well-groomed hair, natural polished makeup, elegant modern outfits (tailored blazers, silk blouses, fine knitwear, smart shirts) and graceful, confident, relaxed poses -- like a premium lifestyle or corporate magazine photoshoot. Never blurry, distorted, half-hidden or awkward faces.
+- Frame people large (in photographic styles): one or two main people in the foreground, waist-up or closer, filling a good part of the frame, with faces lit by a soft, flattering key light even in night or dusk scenes; never tiny distant figures or dark silhouettes, and at most three people unless more are requested.
+- Heads are bare or styled with modern hairstyles, and accessories are contemporary (a watch, minimal jewelry, a modern bag, glasses). Traditional dress and rural or village props appear only when the Scene itself asks for traditional, heritage, ceremony, Khmer New Year, wedding, Angkor or countryside imagery.
+- When the Scene does ask for traditional, ceremonial or ancient Cambodia, use accurate Khmer garments, textiles, jewelry, headwear and architecture appropriate to that era and occasion -- not a mixed pan-Asian costume.`;
 
 const containsKhmerScript = (value) => /[\u1780-\u17FF]/.test(String(value || ''));
 
@@ -782,7 +787,7 @@ HARD CONSTRAINT: Render every subject, person, and action explicitly named in th
 Futuristic tech advertising visual requirements:
 - High-end, vibrant AI/technology marketing image: modern glass office or tech space, city skyline at dusk or night through large windows, glowing blue/cyan holographic interfaces, floating transparent data panels, glowing interactive glass surfaces, light trails and subtle circuit patterns.
 - Dramatic cinematic lighting with teal-and-orange contrast, neon rim light, soft glow and reflections on glass and desks, shallow depth of field.
-- People look photorealistic and attractive in modern business-casual clothing, engaged and smiling as they interact with the holograms; faces, hands, and eyes anatomically correct.
+- One to three photorealistic, attractive people in stylish modern business clothing, large in the foreground (waist-up), engaged and smiling as they interact with the holograms; their faces are clearly visible, sharply focused and softly lit by the warm key light and the glow of the screens, never in shadow; faces, hands, and eyes anatomically correct.
 - Polished, clean, premium composition with one clear focal point, ready for social media advertising.
 - Avoid garbled text artifacts, extra logos, fake watermarks, malformed objects, and duplicated limbs.`;
 
@@ -888,7 +893,7 @@ Request:
 ${prompt}
 
 Describe concretely: the hero subject and exactly where it sits in the frame; the setting and background story; supporting props, ingredients or motion elements; lighting (direction, quality, time of day); camera (lens in mm, angle, depth of field); color palette; mood.
-Rules: keep every concrete detail from the request (people, actions, products, places, and any composition instruction such as empty space for a title); people are Cambodian; never ask for any text, letters, numbers, logos, labels or signs; do not add extra people who were not requested.`,
+Rules: keep every concrete detail from the request (people, actions, products, places, and any composition instruction such as empty space for a title); people look Cambodian, attractive and elegant, framed large (waist-up or closer, at most three people unless more are requested) with faces clearly visible, softly lit and in sharp focus, styled modern, fashionable and cosmopolitan (modern hairstyles, contemporary accessories) in a contemporary setting, with traditional dress only if the request asks for it; never ask for any text, letters, numbers, logos, labels or signs; do not add extra people who were not requested.`,
     });
     const cleaned = String(text || '').trim();
     return cleaned.length >= 60 ? cleaned : prompt;
@@ -917,7 +922,9 @@ ${imageToVideo ? `- IMAGE-TO-VIDEO: Treat the supplied first-frame image as the 
 - Begin visible but gentle motion immediately, build one continuous action through the middle, and settle naturally near the end. Do not keep the subject frozen for most of the clip.` : ''}
 - Product, people, hands, faces, and environment must stay consistent between frames with no warping or sudden identity changes.
 - No readable text, lettering, or signage anywhere (see hard constraint above) — also avoid distorted/garbled text artifacts, melted objects, duplicated limbs, flickering, excessive saturation, impossible motion, and fantasy effects.
-- Create a premium marketing-video style suitable for the requested platform and aspect ratio, with a realistic product-demo feeling.`;
+- Look like a high-end brand commercial: cinematic lighting with a soft key light and warm rim light, rich color grading, shallow depth of field and a beautifully styled, modern setting -- never flat, dull or grey.
+- People are attractive, elegant and well-groomed in stylish modern clothes, framed large (waist-up or closer) with faces clearly visible, softly lit and in sharp focus throughout the clip.
+- Create a premium marketing-video style suitable for the requested platform and aspect ratio.`;
 
 const agentSystemPrompt = `You are aime.angkorgate AI Agent, an intelligent conversational assistant for creators, sellers, and small businesses.
 Your job is to understand the user's actual goal, preserve useful conversational context, and answer like a capable human expert who can explain, create, troubleshoot, plan, compare, rewrite, translate, advise, and see and analyze images the user attaches (product photos, screenshots, references — describe exactly what is in them, never say you can't see an attached image).
@@ -3072,13 +3079,16 @@ Return ONLY a single valid JSON object with this exact structure:
       const mode = ['image', 'poster', 'video'].includes(req.body?.mode) ? req.body.mode : 'image';
       const look = String(req.body?.look || '').trim().slice(0, 60);
       const outputLanguage = mode !== 'video' && req.body?.language === 'km' ? 'Khmer' : 'English';
-      if (!subject && !details) return res.status(400).json({ error: 'Describe your product or idea first.' });
       const businessContext = businessContextFromBody(req.body);
+      // Empty idea: never block the user -- AI picks something appealing,
+      // preferring the saved business when one was sent.
       const kind = mode === 'video' ? 'an 8-second advertising video' : mode === 'poster' ? 'the photo for a marketing poster' : 'an advertising image';
       const text = await generateOpenRouterText({
         system: `You are a world-class creative director who writes prompts for AI image and video generators, like ChatGPT does for its best marketing visuals.\n\n${CAMBODIA_MARKET_CONTEXT}${businessContentInstruction(businessContext)}`,
         prompt: `Write one ready-to-use prompt for ${kind}.
-Product / idea: ${subject || '(not given)'}
+Product / idea: ${subject || (businessContext.businessName || businessContext.businessDescription
+  ? '(not given -- choose the most appealing product or scene for the business described above)'
+  : '(not given -- choose a popular, eye-catching product or lifestyle scene for a modern Cambodian small business, e.g. iced coffee, bubble tea, skincare, fashion or street food)')}
 ${details ? `Extra wishes: ${details}\n` : ''}${look ? `Visual style: ${look}\n` : ''}
 Choose the best setting, action, mood, lighting, ${mode === 'video' ? 'camera movement' : 'camera angle'} and color palette yourself so the result looks stunning and sells the product to a Cambodian audience. People must look Cambodian.
 Rules:

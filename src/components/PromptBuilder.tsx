@@ -84,7 +84,7 @@ const CATEGORIES: Category[] = [
     id: 'tech', icon: '🤖', en: 'Tech & AI', km: 'បច្ចេកវិទ្យា', text: '', textKm: '',
     role: 'high-end tech advertising art director', roleKm: 'អ្នកដឹកនាំសិល្បៈពាណិជ្ជកម្មបច្ចេកវិទ្យាកម្រិតខ្ពស់',
     context: 'promoting an AI course or tech service to young professionals', contextKm: 'ការផ្សព្វផ្សាយវគ្គសិក្សា AI ឬសេវាបច្ចេកវិទ្យាដល់យុវជនអ្នកជំនាញ',
-    subject: 'a team of young Cambodian professionals', subjectKm: 'ក្រុមយុវជនអ្នកជំនាញខ្មែរ',
+    subject: 'two stylish young Cambodian professionals in the foreground', subjectKm: 'យុវជនអ្នកជំនាញខ្មែរពីរនាក់ ស្លៀកពាក់ទាន់សម័យ នៅខាងមុខ',
     action: 'exploring glowing holographic dashboards and charts together', actionKm: 'កំពុងមើលផ្ទាំងទិន្នន័យ និងក្រាហ្វហូឡូក្រាមដែលភ្លឺចែងចាំងជាមួយគ្នា',
     setting: 'in a modern glass office with a city skyline at dusk', settingKm: 'នៅក្នុងការិយាល័យកញ្ចក់ទំនើប មើលឃើញទេសភាពទីក្រុងពេលព្រលប់',
   },
@@ -92,7 +92,7 @@ const CATEGORIES: Category[] = [
     id: 'education', icon: '🎓', en: 'Class', km: 'ថ្នាក់រៀន', text: '', textKm: '',
     role: 'brand photographer for an education academy', roleKm: 'អ្នកថតរូបម៉ាកយីហោសម្រាប់សាលាបណ្ដុះបណ្ដាល',
     context: 'an enrollment campaign for a new course', contextKm: 'យុទ្ធនាការចុះឈ្មោះចូលរៀនវគ្គថ្មី',
-    subject: 'a friendly teacher with engaged Cambodian students', subjectKm: 'គ្រូរួសរាយរាក់ទាក់ជាមួយសិស្សខ្មែរដែលចាប់អារម្មណ៍រៀន',
+    subject: 'a friendly, elegant teacher with two engaged Cambodian students in the foreground', subjectKm: 'គ្រូរួសរាយ ស្អាតបាត ជាមួយសិស្សខ្មែរពីរនាក់នៅខាងមុខ',
     action: 'discussing ideas with laptops open and hands raised', actionKm: 'កំពុងពិភាក្សា បើកកុំព្យូទ័រយួរដៃ និងលើកដៃសួរ',
     setting: 'in a bright modern classroom', settingKm: 'នៅក្នុងថ្នាក់រៀនទំនើប និងភ្លឺស្រឡះ',
   },
@@ -138,7 +138,7 @@ const LIGHTING: Choice[] = [
 
 const CAMERA: Choice[] = [
   { id: 'closeup', en: 'Close-up', km: 'ថតជិត', text: 'a close-up at eye level with a shallow depth of field', textKm: 'ថតជិតកម្រិតភ្នែក ផ្ទៃខាងក្រោយព្រិល', videoText: 'a slow push-in from a medium shot to a close-up', videoTextKm: 'កាមេរ៉ារំកិលចូលយឺតៗ ពីថតកណ្ដាលទៅថតជិត' },
-  { id: 'wide', en: 'Wide shot', km: 'ថតឆ្ងាយ', text: 'a wide shot that shows the whole scene', textKm: 'ថតឆ្ងាយឃើញទិដ្ឋភាពទាំងមូល', videoText: 'a slow, smooth dolly across the whole scene', videoTextKm: 'កាមេរ៉ារំកិលរលូនយឺតៗ កាត់ទិដ្ឋភាពទាំងមូល' },
+  { id: 'wide', en: 'Wide shot', km: 'ថតឆ្ងាយ', text: 'a medium-wide shot that shows the setting while the main people stay large and clearly visible', textKm: 'ថតឆ្ងាយឃើញទិដ្ឋភាពទាំងមូល', videoText: 'a slow, smooth dolly across the whole scene', videoTextKm: 'កាមេរ៉ារំកិលរលូនយឺតៗ កាត់ទិដ្ឋភាពទាំងមូល' },
   { id: 'topdown', en: 'Top-down', km: 'ពីលើចុះ', text: 'a top-down flat-lay view', textKm: 'ថតពីលើចុះក្រោមត្រង់', videoText: 'a top-down shot slowly rotating over the subject', videoTextKm: 'ថតពីលើចុះក្រោម ហើយបង្វិលយឺតៗពីលើប្រធានបទ' },
   { id: 'hero', en: 'Low angle', km: 'ពីក្រោមឡើង', text: 'a low-angle hero shot that makes the subject look powerful', textKm: 'ថតពីក្រោមឡើង ធ្វើឲ្យប្រធានបទមើលទៅខ្លាំងក្លា', videoText: 'a low-angle orbit around the subject', videoTextKm: 'ថតពីក្រោមឡើង ហើយវិលជុំវិញប្រធានបទ' },
   { id: 'tracking', en: 'Following', km: 'តាមដាន', text: 'a candid, documentary-style angle', textKm: 'មុំថតធម្មជាតិ បែបឯកសារ', videoText: 'a smooth tracking shot following the subject', videoTextKm: 'កាមេរ៉ាដើរតាមប្រធានបទយ៉ាងរលូន' },
@@ -318,13 +318,13 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({ mode, language, onPromptC
   const chooseCategory = (id: string) => {
     // Sensible defaults per category so one tap already gives a good result.
     const presets: Record<string, Partial<Selection>> = {
-      tech: { look: 'Futuristic tech', mood: 'inspiring', lighting: 'cinematic', camera: 'wide', colors: 'brand' },
+      tech: { look: 'Futuristic tech', mood: 'inspiring', lighting: 'cinematic', camera: 'closeup', colors: 'brand' },
       // Every topic except Tech keeps the beautiful Cinematic look; the plainer
       // looks produced dull results when a topic switched to them silently.
       food: { look: 'Cinematic key visual', mood: 'warm', lighting: 'golden', camera: 'closeup', colors: 'vibrant' },
       cafe: { look: 'Cinematic key visual', mood: 'warm', lighting: 'golden', camera: 'closeup', colors: 'vibrant' },
       fashion: { look: 'Cinematic key visual', mood: 'premium', lighting: 'golden', camera: 'hero', colors: 'soft' },
-      education: { look: 'Cinematic key visual', mood: 'inspiring', lighting: 'golden', camera: 'wide', colors: 'brand' },
+      education: { look: 'Cinematic key visual', mood: 'inspiring', lighting: 'golden', camera: 'closeup', colors: 'brand' },
       event: { look: 'Cinematic key visual', mood: 'fun', lighting: 'cinematic', camera: 'wide', colors: 'vibrant' },
       ai: { look: 'Cinematic key visual' },
       product: { look: 'Cinematic key visual', mood: 'premium', lighting: 'golden', camera: 'hero', colors: 'vibrant' },
@@ -361,10 +361,7 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({ mode, language, onPromptC
 
   // AI writes the whole prompt from the user's idea (server action promptWrite).
   const buildWithAi = async (lang: PromptLang = promptLang): Promise<string | null> => {
-    if (!selection.subject.trim() && !selection.details.trim()) {
-      setAiError(km ? 'សូមវាយផលិតផល ឬគំនិតរបស់អ្នកជាមុនសិន។' : 'Type your product or idea first.');
-      return null;
-    }
+    // An empty idea is fine: the server lets AI choose an appealing subject.
     setAiBusy(true);
     setAiError('');
     try {
@@ -448,7 +445,7 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({ mode, language, onPromptC
           value={selection.subject}
           onChange={(event) => update({ subject: event.target.value })}
           placeholder={aiMode
-            ? (km ? 'ប្រាប់ AI ពីផលិតផល ឬគំនិត ឧ. កាហ្វេទឹកកក' : 'Tell AI your product or idea, e.g. iced latte')
+            ? (km ? 'ផលិតផល ឬគំនិត (មិនចាំបាច់ — ទុកទទេ AI ជ្រើសឲ្យ)' : 'Product or idea (optional — leave empty and AI picks)')
             : (km ? 'ឈ្មោះផលិតផល (មិនចាំបាច់)' : 'Product name (optional)')}
           className={cn(inputClass, aiMode && 'border-brand-500 ring-1 ring-brand-500')}
         />
