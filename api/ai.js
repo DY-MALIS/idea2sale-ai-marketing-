@@ -760,12 +760,31 @@ HARD CONSTRAINT, highest priority: ${KHMER_ATTIRE_GUIDANCE}
 HARD CONSTRAINT: Render every subject, person, and action explicitly named in the Scene above -- if the Scene describes a person doing something (e.g. holding an item, smiling, standing somewhere), that person must actually appear performing that action, not be replaced with a people-free product/still-life shot. Do not invent extra decorative props, furniture, books, framed art, or figurines that were not mentioned in the Scene, especially text-bearing objects (books, magazines, menus, signs) -- these are exactly where foreign-script text keeps leaking in when the model adds them unprompted.
 
 Photorealistic commercial image requirements:
-- Make it look like a real camera photo, not an illustration, cartoon, 3D render, or plastic-looking AI image.
-- Use natural realistic lighting, detailed shadows, accurate reflections, real material texture, sharp product edges, and believable depth of field.
-- Use a premium product photography style with a real environment, realistic scale, natural imperfections, and lifelike color grading.
-- If people appear, faces, hands, eyes, and skin must look anatomically correct and natural.
-- No readable text, lettering, or signage anywhere (see hard constraint above) — also avoid distorted/garbled text artifacts, extra logos, malformed objects, duplicated limbs, fake watermarks, blurry details, oversaturated colors, and fantasy styling.
-- Output should be high-detail, clean, professional, TikTok/e-commerce ready, and visually convincing.`;
+- It must look like a genuine, unedited-feeling photo taken on location with a real camera or a good smartphone — not an illustration, cartoon, 3D render, or glossy "AI-generated" image.
+- Use natural, slightly uneven real-world light, soft true-to-life shadows, real material texture, and believable depth of field. Keep colors natural and true to life, not oversaturated, glowing, or HDR.
+- Show a real, lived-in environment with realistic scale and small everyday imperfections (dust, wear, creases, slightly messy backgrounds) instead of a perfect, sterile studio look.
+- If people appear, they must look like real everyday people: natural skin texture with pores and small blemishes (no airbrushed or waxy skin), relaxed candid expressions and poses, anatomically correct faces, hands, and eyes.
+- No readable text, lettering, or signage anywhere (see hard constraint above) — also avoid distorted/garbled text artifacts, extra logos, malformed objects, duplicated limbs, fake watermarks, over-sharpening, plastic smoothness, symmetrical "perfect" faces, and fantasy or sci-fi styling.
+- The result should be convincing enough that a viewer believes it is a real photo shared by a local business.`;
+
+// Opt-in "Futuristic tech" look (glowing holograms, neon, high-tech office) --
+// the style users compare against ChatGPT's AI-marketing images. Keeps the
+// no-text and Khmer-people constraints, but drops the "real candid photo,
+// no neon/CGI" rules that photorealImagePrompt enforces.
+const futuristicImagePrompt = (prompt) => `Scene: ${prompt}${khmerReferenceGuidance(prompt)}
+
+${NO_FOREIGN_TEXT_CONSTRAINT} Holographic screens, dashboards, and charts are welcome, but fill them only with abstract glowing shapes, icons, graphs, and circuit lines -- no words or letters.
+
+HARD CONSTRAINT, highest priority: ${KHMER_ATTIRE_GUIDANCE}
+
+HARD CONSTRAINT: Render every subject, person, and action explicitly named in the Scene above.
+
+Futuristic tech advertising visual requirements:
+- High-end, vibrant AI/technology marketing image: modern glass office or tech space, city skyline at dusk or night through large windows, glowing blue/cyan holographic interfaces, floating transparent data panels, glowing interactive glass surfaces, light trails and subtle circuit patterns.
+- Dramatic cinematic lighting with teal-and-orange contrast, neon rim light, soft glow and reflections on glass and desks, shallow depth of field.
+- People look photorealistic and attractive in modern business-casual clothing, engaged and smiling as they interact with the holograms; faces, hands, and eyes anatomically correct.
+- Polished, clean, premium composition with one clear focal point, ready for social media advertising.
+- Avoid garbled text artifacts, extra logos, fake watermarks, malformed objects, and duplicated limbs.`;
 
 const photorealVideoPrompt = (prompt, imageToVideo = false) => `Scene: ${prompt}${khmerReferenceGuidance(prompt)}
 
@@ -2924,7 +2943,8 @@ Return ONLY a single valid JSON object with this exact structure:
       const aspectRatio = String(req.body?.aspectRatio || '1:1');
       if (!prompt) return res.status(400).json({ error: 'Image prompt is required.' });
       const normalizedPrompt = await normalizeMediaPrompt(prompt, 'image');
-      const image = await generateOpenRouterImage({ prompt: photorealImagePrompt(normalizedPrompt), aspectRatio });
+      const buildPrompt = req.body?.look === 'futuristic' ? futuristicImagePrompt : photorealImagePrompt;
+      const image = await generateOpenRouterImage({ prompt: buildPrompt(normalizedPrompt), aspectRatio });
       return res.status(200).json(image);
     }
 

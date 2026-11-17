@@ -34,6 +34,7 @@ import { audioShiftFilter, lastAudibleSpeechSecond, speechTailCutSecond } from '
 import { deleteGenerationHistory, GenerationHistoryEntry, saveGenerationHistory, useGenerationHistory } from '../lib/generationHistory';
 import HistoryPanel from './HistoryPanel';
 import StartingImageCrop from './StartingImageCrop';
+import PromptBuilder from './PromptBuilder';
 import { estimateVideoGenerationCostUsd, KHMER_VIDEO_MODEL, MAX_VIDEO_DURATION_SECONDS, MAX_VIDEO_GENERATION_COST_USD } from '../../shared/videoCost.js';
 import { videoOptionsFromRecoveredStart } from '../lib/videoRecoveryState';
 import { videoRequestFingerprint } from '../lib/videoRequestFingerprint';
@@ -2532,6 +2533,13 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                     </div>
                   </div>
                 )}
+                <PromptBuilder
+                  mode="video"
+                  language={language}
+                  onPromptChange={setVideoPrompt}
+                  onGenerate={(prompt) => void handleGenerateVideo(prompt)}
+                  busy={loading || audioLoading}
+                />
                 <div className="space-y-2">
                   <div className="flex justify-between items-center">
                     <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">{t('sceneDescriptionLabel')}</label>
@@ -2547,7 +2555,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                     placeholder={captionPlatform === 'YouTube'
                       ? 'Describe a realistic YouTube video: subject, location, camera movement, action, lighting, mood...'
                       : 'Describe a realistic TikTok ad: product, location, camera movement, action, lighting, mood...'}
-                    className="w-full h-32 p-5 rounded-2xl bg-brand-50 border border-brand-200 outline-none transition-all resize-none shadow-inner dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
+                    className="w-full h-40 p-5 text-sm rounded-2xl bg-brand-50 border border-brand-200 outline-none transition-all resize-none shadow-inner dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
                   />
                 </div>
 

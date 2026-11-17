@@ -8,6 +8,7 @@ import {
   Calendar
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import PromptBuilder from './PromptBuilder';
 import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -272,6 +273,12 @@ interface PosterGenerationOptions {
   aspectRatio?: string;
 }
 
+// Style values come from PromptBuilder's Style chips.
+// "Futuristic tech" deliberately drops the real-photo rules: glowing holograms,
+// neon light and high-tech offices, like ChatGPT-style AI marketing visuals.
+const isFuturisticStyle = (style: string) => style === 'Futuristic tech';
+const FUTURISTIC_DIRECTION = 'Futuristic high-tech AI marketing visual: a modern glass office or tech space with a city skyline at dusk through large windows, glowing blue and cyan holographic dashboards, floating transparent data screens, charts and circuit-line graphics, a glowing interactive glass table, dramatic teal-and-orange cinematic lighting with neon accents, polished and vibrant, high-end tech advertising look. Real-looking people (photorealistic faces and hands) interacting with the holograms.';
+
 interface PosterGenProps {
   automationRequest?: CreativeAutomationRequest | null;
   onAutomationConsumed?: (requestId: string) => void;
@@ -283,16 +290,16 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
   const { user, isDemoMode } = useAuth();
   const { notify, ToastHost } = useToast();
   const [activeTool, setActiveTool] = useState<ToolType>('poster');
-  const [posterPrompt, setPosterPrompt] = useState('A real product photo in a Cambodian cafe setting, warm sunlight, premium commercial photography, natural shadows, realistic texture, lifestyle background');
-  const [visualPrompt, setVisualPrompt] = useState('A photorealistic product advertisement scene, real camera photo, premium lighting, natural shadows, detailed texture, cinematic depth of field, TikTok-ready composition');
+  const [posterPrompt, setPosterPrompt] = useState('A glass of iced coffee on a wooden table in a small Phnom Penh cafe, morning light from the window');
+  const [visualPrompt, setVisualPrompt] = useState('A young Cambodian woman smiling while holding our product at a local market');
   const [posterAspectRatio, setPosterAspectRatio] = useState<ImageAspectRatio>('9:16');
   const [visualAspectRatio, setVisualAspectRatio] = useState<ImageAspectRatio>('1:1');
-  const [visualStyle, setVisualStyle] = useState('Cinematic');
+  const [visualStyle, setVisualStyle] = useState('Natural real photo');
   const [posterDetails, setPosterDetails] = useState({
     brand: 'aime.angkorgate',
     headline: 'Premium AI Marketing',
     cta: 'Try Now',
-    style: 'Modern'
+    style: 'Natural real photo'
   });
   const [loading, setLoading] = useState(false);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
@@ -502,9 +509,12 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
       // through despite that constraint.
       const headlineNote = requestedDetails.headline.trim() ? ` The creative concept/theme is "${requestedDetails.headline.trim()}".` : '';
       const ctaNote = requestedDetails.cta.trim() ? ` The call-to-action mood is "${requestedDetails.cta.trim()}".` : '';
+      const posterFuturistic = isFuturisticStyle(requestedDetails.style);
       const fullPrompt = `Create the photographic background for a professionally designed marketing poster for a brand named "${effectiveBrand}".${headlineNote}${ctaNote} Style: ${requestedDetails.style}.
       Visual description: ${requestedPrompt}.
-      Compose a credible real-camera photograph with one clear, relevant focal subject. Keep the important subject within the central 80% so the app can crop it into a smaller rounded photo frame. The app places the headline and call-to-action in a separate panel below the photo, so do not reserve text space or draw a poster layout inside the image. Use a real setting, natural light, realistic surfaces, and premium camera quality; avoid CGI, futuristic cityscapes, neon trails, fantasy, and generic posed stock-photo models unless specifically requested.
+      ${posterFuturistic
+        ? `${FUTURISTIC_DIRECTION} Keep the important subject within the central 80% so the app can crop it into a smaller rounded photo frame. The app places the headline and call-to-action in a separate panel below the image, so do not draw a poster layout or text inside the image.`
+        : 'Compose a believable, everyday real-camera photograph with one clear, relevant focal subject, as if a skilled local photographer shot it on location. Keep the important subject within the central 80% so the app can crop it into a smaller rounded photo frame. The app places the headline and call-to-action in a separate panel below the photo, so do not reserve text space or draw a poster layout inside the image. Use a real lived-in setting, natural light, true-to-life colors, realistic surfaces with small natural imperfections, and real people with natural skin texture; avoid CGI, glossy over-retouched "AI look", glowing HDR, neon, futuristic or fantasy elements, and generic posed stock-photo models unless specifically requested.'}
 
       CRITICAL INSTRUCTION:
       - The current UI language is: ${language === 'km' ? 'Khmer' : 'English'}.
@@ -513,7 +523,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
       - Do NOT render the brand name, headline, or call-to-action as literal on-image text -- treat them only as creative direction for the mood, subject, and styling of the photo.`;
 
       const aspectRatio = normalizeImageAspectRatio(options.aspectRatio, posterAspectRatio);
-      const response = await fetchImageGenerate({ action: 'imageGenerate', prompt: fullPrompt, aspectRatio });
+      const response = await fetchImageGenerate({ action: 'imageGenerate', prompt: fullPrompt, aspectRatio, look: posterFuturistic ? 'futuristic' : 'photo' });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Image generation failed.');
       const posterImage = await overlayPosterText(data.imageUrl, requestedDetails.headline, requestedDetails.cta);
@@ -557,11 +567,12 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
     setGeneratedImage(null);
     try {
       const businessContext = await getLatestBusinessBranding(user, isDemoMode);
-      const styleDirection = `${visualStyle} visual style. Photorealistic, professional production quality, natural lighting, balanced exposure, realistic shadows, detailed background, authentic expressions when people are present, elegant composition, and refined cinematic color grading.`;
+      const visualFuturistic = isFuturisticStyle(visualStyle);
+      const styleDirection = visualFuturistic ? FUTURISTIC_DIRECTION : `${visualStyle} visual style. It must look like a genuine photo taken with a real camera or a good phone in a real place: natural light, true-to-life colors, real skin texture and natural expressions when people are present, small everyday imperfections, and a lived-in background. Avoid the glossy, over-smooth, over-saturated "AI/digital" look, glowing HDR, and 3D-render feel.`;
       const brandedPrompt = `${prompt}\n${styleDirection}${businessContext.businessName
         ? `\nThis visual is for ${businessContext.businessName}; do not render the name as generated text because the saved logo is applied afterward.`
         : ''}`;
-      const response = await fetchImageGenerate({ action: 'imageGenerate', prompt: brandedPrompt, aspectRatio });
+      const response = await fetchImageGenerate({ action: 'imageGenerate', prompt: brandedPrompt, aspectRatio, look: visualFuturistic ? 'futuristic' : 'photo' });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Image generation failed.');
       const finalImage = await applyLogoWatermark(data.imageUrl, businessContext.logoDataUrl);
@@ -746,39 +757,23 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
               <div className="space-y-5">
                 <div className="rounded-2xl border border-brand-100 bg-brand-50/70 p-4 dark:border-slate-700 dark:bg-slate-800/70">
                   <p className="text-sm font-bold text-brand-700 dark:text-brand-300">
-                    {language === 'km' ? 'សរសេរគំនិត Poster របស់អ្នក' : 'Write your poster idea'}
+                    {language === 'km' ? 'បង្កើត Poster ក្នុង ៣ ជំហាន' : 'Create a poster in 3 steps'}
                   </p>
                   <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
                     {language === 'km'
-                      ? 'បញ្ចូលចំណងជើង ប៊ូតុងអំពាវនាវ និងពិពណ៌នារូបភាពដែលអ្នកចង់បាន។'
-                      : 'Add your headline, call to action, and describe the exact scene you want AI to create.'}
+                      ? 'សរសេរចំណងជើង និងប៊ូតុង → ចុចជ្រើសជម្រើស → ចុចបង្កើត។ មិនចាំបាច់ចេះសរសេរ prompt ទេ។'
+                      : 'Type your headline and button text → tap your choices → press create. No prompt writing skills needed.'}
                   </p>
                 </div>
-                <div className="grid grid-cols-2 gap-5">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">{t('brandName')}</label>
-                    <input 
-                      type="text" 
-                      value={posterDetails.brand}
-                      onChange={(e) => setPosterDetails({...posterDetails, brand: e.target.value})}
-                      placeholder="e.g., Brown Coffee"
-                      className="w-full p-4 rounded-2xl bg-brand-50 border border-brand-200 text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">{t('style')}</label>
-                    <select 
-                      value={posterDetails.style}
-                      onChange={(e) => setPosterDetails({...posterDetails, style: e.target.value})}
-                      className="w-full p-4 rounded-2xl bg-brand-50 border border-brand-200 text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
-                    >
-                      <option>Modern</option>
-                      <option>Vintage</option>
-                      <option>Minimalist</option>
-                      <option>Luxury</option>
-                      <option>Cyberpunk</option>
-                    </select>
-                  </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">{t('brandName')}</label>
+                  <input
+                    type="text"
+                    value={posterDetails.brand}
+                    onChange={(e) => setPosterDetails({...posterDetails, brand: e.target.value})}
+                    placeholder="e.g., Brown Coffee"
+                    className="w-full p-4 rounded-2xl bg-brand-50 border border-brand-200 text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
+                  />
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">{t('mainHeadline')}</label>
@@ -798,15 +793,6 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
                     onChange={(e) => setPosterDetails({...posterDetails, cta: e.target.value})}
                     placeholder="e.g., Order Now"
                     className="w-full p-4 rounded-2xl bg-brand-50 border border-brand-200 text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">{t('visualTheme')}</label>
-                  <textarea
-                    value={posterPrompt}
-                    onChange={(e) => setPosterPrompt(e.target.value)}
-                    placeholder="Describe the real product, location, lighting, camera angle, and mood..."
-                    className="w-full h-28 p-4 rounded-2xl bg-brand-50 border border-brand-200 text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all resize-none dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
                   />
                 </div>
                 <div className="space-y-2">
@@ -835,44 +821,38 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
                     ))}
                   </div>
                 </div>
+                <PromptBuilder
+                  mode="poster"
+                  language={language}
+                  onPromptChange={setPosterPrompt}
+                  look={posterDetails.style}
+                  onLookChange={(style) => setPosterDetails((prev) => ({ ...prev, style }))}
+                  onGenerate={(prompt) => void handleGeneratePoster({ prompt })}
+                  busy={loading}
+                />
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">
+                    {language === 'km' ? 'Prompt របស់អ្នក (អាចកែបាន)' : 'Your prompt (you can edit it)'}
+                  </label>
+                  <textarea
+                    value={posterPrompt}
+                    onChange={(e) => setPosterPrompt(e.target.value)}
+                    placeholder={language === 'km' ? 'ចុច «បង្កើត Prompt» ខាងលើ ឬសរសេរដោយខ្លួនឯង' : 'Press “Create prompt” above, or write your own'}
+                    className="w-full h-44 p-4 rounded-2xl bg-brand-50 border border-brand-200 text-sm leading-6 focus:ring-2 focus:ring-brand-500 outline-none transition-all resize-y dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
+                  />
+                </div>
               </div>
             ) : (
               <div className="space-y-5">
                 <div className="rounded-2xl border border-brand-100 bg-brand-50/70 p-4 dark:border-slate-700 dark:bg-slate-800/70">
                   <p className="text-sm font-bold text-brand-700 dark:text-brand-300">
-                    {language === 'km' ? 'សរសេររូបភាពដែលអ្នកចង់បង្កើត' : 'Write what you want to create'}
+                    {language === 'km' ? 'បង្កើតរូបភាពក្នុង ៣ ជំហាន' : 'Create an image in 3 steps'}
                   </p>
                   <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
                     {language === 'km'
-                      ? 'ពិពណ៌នាប្រធានបទ ទីតាំង សកម្មភាព ពន្លឺ មុំកាមេរ៉ា និងអារម្មណ៍។'
-                      : 'Describe the subject, environment, action, lighting, camera angle, and mood in your own words.'}
+                      ? 'ជ្រើសទំហំ → ចុចជ្រើសជម្រើស → ចុចបង្កើត។ មិនចាំបាច់ចេះសរសេរ prompt ទេ។'
+                      : 'Pick a size → tap your choices → press create. No prompt writing skills needed.'}
                   </p>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">
-                    {language === 'km' ? 'រចនាប័ទ្មរូបភាព' : 'Image style'}
-                  </label>
-                  <select
-                    value={visualStyle}
-                    onChange={(event) => setVisualStyle(event.target.value)}
-                    className="w-full p-4 rounded-2xl bg-brand-50 border border-brand-200 text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
-                  >
-                    <option>Cinematic</option>
-                    <option>Professional promotional</option>
-                    <option>Inspirational</option>
-                    <option>Educational</option>
-                    <option>Modern minimalist</option>
-                    <option>Luxury editorial</option>
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">{t('visualConcept')}</label>
-                  <textarea
-                    value={visualPrompt}
-                    onChange={(e) => setVisualPrompt(e.target.value)}
-                    placeholder="Describe a realistic image: subject, setting, activity, camera angle, natural lighting, background, and mood..."
-                    className="w-full h-40 p-5 rounded-2xl bg-brand-50 border border-brand-200 focus:ring-2 focus:ring-brand-500 outline-none transition-all resize-none dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
-                  />
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">
@@ -899,6 +879,26 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
                       </button>
                     ))}
                   </div>
+                </div>
+                <PromptBuilder
+                  mode="image"
+                  language={language}
+                  onPromptChange={setVisualPrompt}
+                  look={visualStyle}
+                  onLookChange={setVisualStyle}
+                  onGenerate={(prompt) => void handleGenerateImage(prompt)}
+                  busy={loading}
+                />
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">
+                    {language === 'km' ? 'Prompt របស់អ្នក (អាចកែបាន)' : 'Your prompt (you can edit it)'}
+                  </label>
+                  <textarea
+                    value={visualPrompt}
+                    onChange={(e) => setVisualPrompt(e.target.value)}
+                    placeholder={language === 'km' ? 'ចុច «បង្កើត Prompt» ខាងលើ ឬសរសេរដោយខ្លួនឯង' : 'Press “Create prompt” above, or write your own'}
+                    className="w-full h-44 p-4 rounded-2xl bg-brand-50 border border-brand-200 text-sm leading-6 focus:ring-2 focus:ring-brand-500 outline-none transition-all resize-y dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
+                  />
                 </div>
               </div>
             )}
