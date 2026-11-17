@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Check, Copy, Loader2, Sparkles, Zap } from 'lucide-react';
+import { Check, ChevronDown, Copy, Loader2, Sparkles, Zap } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 // PromptGen-style builder for people who don't know how to write prompts:
@@ -30,6 +30,7 @@ interface Choice {
 }
 
 interface Category extends Choice {
+  icon: string;
   role: string; roleKm: string;
   context: string; contextKm: string;
   subject: string; subjectKm: string;
@@ -43,12 +44,12 @@ const AI_CATEGORY_ID = 'ai';
 
 const CATEGORIES: Category[] = [
   {
-    id: AI_CATEGORY_ID, en: '✨ Let AI choose', km: '✨ ឲ្យ AI ជ្រើសឲ្យ', text: '', textKm: '',
+    id: AI_CATEGORY_ID, icon: '✨', en: 'Let AI', km: 'AI ជ្រើស', text: '', textKm: '',
     tipEn: 'Type your idea, AI does the rest', tipKm: 'វាយគំនិត AI ធ្វើនៅសល់',
     role: '', roleKm: '', context: '', contextKm: '', subject: '', subjectKm: '', action: '', actionKm: '', setting: '', settingKm: '',
   },
   {
-    id: 'product', en: '📦 Product', km: '📦 ផលិតផល', text: '', textKm: '',
+    id: 'product', icon: '📦', en: 'Product', km: 'ផលិតផល', text: '', textKm: '',
     role: 'professional commercial product photographer', roleKm: 'អ្នកថតរូបផលិតផលអាជីព',
     context: 'a social media ad that makes people want to buy', contextKm: 'ការផ្សាយពាណិជ្ជកម្មលើបណ្ដាញសង្គម ដែលធ្វើឲ្យអ្នកមើលចង់ទិញ',
     subject: 'the product as the clear hero', subjectKm: 'ផលិតផលជាតួឯកច្បាស់លាស់',
@@ -56,7 +57,7 @@ const CATEGORIES: Category[] = [
     setting: 'on a clean wooden table in a bright, modern Cambodian home', settingKm: 'នៅលើតុឈើស្អាត ក្នុងផ្ទះខ្មែរទំនើប និងភ្លឺស្រឡះ',
   },
   {
-    id: 'food', en: '🍜 Food & drink', km: '🍜 ម្ហូប និងភេសជ្ជៈ', text: '', textKm: '',
+    id: 'food', icon: '🍜', en: 'Food', km: 'ម្ហូប', text: '', textKm: '',
     role: 'food photographer for a popular restaurant', roleKm: 'អ្នកថតរូបម្ហូបសម្រាប់ភោជនីយដ្ឋានល្បី',
     context: 'a menu promotion that makes viewers hungry', contextKm: 'ការផ្សព្វផ្សាយមុខម្ហូប ដែលធ្វើឲ្យអ្នកមើលឃ្លាន',
     subject: 'a fresh signature dish or drink', subjectKm: 'ម្ហូប ឬភេសជ្ជៈពិសេសដែលទើបធ្វើរួចថ្មីៗ',
@@ -64,7 +65,7 @@ const CATEGORIES: Category[] = [
     setting: 'on a cozy local restaurant table in Phnom Penh', settingKm: 'នៅលើតុក្នុងភោជនីយដ្ឋានកក់ក្ដៅមួយនៅភ្នំពេញ',
   },
   {
-    id: 'cafe', en: '☕ Cafe', km: '☕ ហាងកាហ្វេ', text: '', textKm: '',
+    id: 'cafe', icon: '☕', en: 'Cafe', km: 'កាហ្វេ', text: '', textKm: '',
     role: 'lifestyle photographer for a specialty coffee brand', roleKm: 'អ្នកថតរូបរបៀបរស់នៅសម្រាប់ម៉ាកកាហ្វេពិសេស',
     context: 'a post that invites people to visit the cafe', contextKm: 'ការបង្ហោះដែលអញ្ជើញមនុស្សឲ្យមកលេងហាងកាហ្វេ',
     subject: 'a beautifully made coffee drink', subjectKm: 'កាហ្វេមួយកែវដែលឆុងយ៉ាងស្អាត',
@@ -72,7 +73,7 @@ const CATEGORIES: Category[] = [
     setting: 'inside a stylish modern cafe in Phnom Penh', settingKm: 'នៅក្នុងហាងកាហ្វេទំនើប និងស្អាតមួយនៅភ្នំពេញ',
   },
   {
-    id: 'fashion', en: '👗 Fashion & beauty', km: '👗 ម៉ូដ និងសម្រស់', text: '', textKm: '',
+    id: 'fashion', icon: '👗', en: 'Fashion', km: 'ម៉ូដ', text: '', textKm: '',
     role: 'fashion editorial photographer', roleKm: 'អ្នកថតរូបម៉ូដសម្រាប់ទស្សនាវដ្ដី',
     context: 'a new collection launch for an online shop', contextKm: 'ការដាក់លក់ម៉ូដថ្មីសម្រាប់ហាងអនឡាញ',
     subject: 'a young Cambodian model wearing the outfit or product', subjectKm: 'តារាម៉ូដែលខ្មែរវ័យក្មេងស្លៀកពាក់ ឬប្រើផលិតផល',
@@ -80,7 +81,7 @@ const CATEGORIES: Category[] = [
     setting: 'on a stylish street in Phnom Penh with a softly blurred background', settingKm: 'នៅលើផ្លូវដ៏ស្អាតមួយនៅភ្នំពេញ ផ្ទៃខាងក្រោយព្រិលស្រាលៗ',
   },
   {
-    id: 'tech', en: '🤖 AI & technology', km: '🤖 AI និងបច្ចេកវិទ្យា', text: '', textKm: '',
+    id: 'tech', icon: '🤖', en: 'Tech & AI', km: 'បច្ចេកវិទ្យា', text: '', textKm: '',
     role: 'high-end tech advertising art director', roleKm: 'អ្នកដឹកនាំសិល្បៈពាណិជ្ជកម្មបច្ចេកវិទ្យាកម្រិតខ្ពស់',
     context: 'promoting an AI course or tech service to young professionals', contextKm: 'ការផ្សព្វផ្សាយវគ្គសិក្សា AI ឬសេវាបច្ចេកវិទ្យាដល់យុវជនអ្នកជំនាញ',
     subject: 'a team of young Cambodian professionals', subjectKm: 'ក្រុមយុវជនអ្នកជំនាញខ្មែរ',
@@ -88,7 +89,7 @@ const CATEGORIES: Category[] = [
     setting: 'in a modern glass office with a city skyline at dusk', settingKm: 'នៅក្នុងការិយាល័យកញ្ចក់ទំនើប មើលឃើញទេសភាពទីក្រុងពេលព្រលប់',
   },
   {
-    id: 'education', en: '🎓 Class & training', km: '🎓 ថ្នាក់រៀន', text: '', textKm: '',
+    id: 'education', icon: '🎓', en: 'Class', km: 'ថ្នាក់រៀន', text: '', textKm: '',
     role: 'brand photographer for an education academy', roleKm: 'អ្នកថតរូបម៉ាកយីហោសម្រាប់សាលាបណ្ដុះបណ្ដាល',
     context: 'an enrollment campaign for a new course', contextKm: 'យុទ្ធនាការចុះឈ្មោះចូលរៀនវគ្គថ្មី',
     subject: 'a friendly teacher with engaged Cambodian students', subjectKm: 'គ្រូរួសរាយរាក់ទាក់ជាមួយសិស្សខ្មែរដែលចាប់អារម្មណ៍រៀន',
@@ -96,7 +97,7 @@ const CATEGORIES: Category[] = [
     setting: 'in a bright modern classroom', settingKm: 'នៅក្នុងថ្នាក់រៀនទំនើប និងភ្លឺស្រឡះ',
   },
   {
-    id: 'event', en: '🎉 Event & sale', km: '🎉 ព្រឹត្តិការណ៍ / ប្រូម៉ូសិន', text: '', textKm: '',
+    id: 'event', icon: '🎉', en: 'Event', km: 'ព្រឹត្តិការណ៍', text: '', textKm: '',
     role: 'event marketing photographer', roleKm: 'អ្នកថតរូបទីផ្សារព្រឹត្តិការណ៍',
     context: 'announcing a special sale or grand opening', contextKm: 'ការប្រកាសប្រូម៉ូសិនពិសេស ឬពិធីបើកហាង',
     subject: 'happy customers', subjectKm: 'អតិថិជនសប្បាយរីករាយ',
@@ -215,34 +216,63 @@ interface ChipGroupProps {
   km: boolean;
 }
 
+// Compact single-line pills; the tip moves to a tooltip to keep rows tidy.
 const ChipGroup: React.FC<ChipGroupProps> = ({ label, options, value, onChange, km }) => (
   <div className="space-y-2">
-    {label && <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">{label}</p>}
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3" role="radiogroup" aria-label={label || undefined}>
+    {label && <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">{label}</p>}
+    <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={label || undefined}>
       {options.map((option) => {
         const selected = value === option.id;
-        const tip = km ? option.tipKm : option.tipEn;
         return (
           <button
             key={option.id}
             type="button"
             role="radio"
             aria-checked={selected}
-            title={tip}
+            title={km ? option.tipKm : option.tipEn}
             onClick={() => onChange(option.id)}
             className={cn(
-              'min-h-[44px] rounded-xl border px-3 py-2 text-sm font-medium transition-all',
+              'min-h-[36px] whitespace-nowrap rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors',
               selected
-                ? 'border-brand-500 bg-brand-500/10 text-brand-700 ring-1 ring-brand-500 dark:text-brand-300'
+                ? 'border-brand-500 bg-brand-500 text-white shadow-sm'
                 : 'border-brand-200 bg-brand-50 text-slate-700 hover:border-brand-400 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200',
             )}
           >
             {km ? option.km : option.en}
-            {tip && <span className="mt-0.5 block text-[10px] font-normal text-slate-400">{tip}</span>}
           </button>
         );
       })}
     </div>
+  </div>
+);
+
+// Topic picker: even 4-column icon tiles with short one-line labels.
+const CategoryTiles: React.FC<{ value: string; onChange: (id: string) => void; km: boolean; label: string }> = ({ value, onChange, km, label }) => (
+  <div className="grid grid-cols-4 gap-2" role="radiogroup" aria-label={label}>
+    {CATEGORIES.map((category) => {
+      const selected = value === category.id;
+      return (
+        <button
+          key={category.id}
+          type="button"
+          role="radio"
+          aria-checked={selected}
+          title={km ? category.tipKm : category.tipEn}
+          onClick={() => onChange(category.id)}
+          className={cn(
+            'flex min-h-[64px] flex-col items-center justify-center gap-1 rounded-xl border px-1 py-2 transition-colors',
+            selected
+              ? 'border-brand-500 bg-brand-500/10 ring-1 ring-brand-500'
+              : 'border-brand-200 bg-brand-50 hover:border-brand-400 dark:border-slate-600 dark:bg-slate-800',
+          )}
+        >
+          <span className="text-xl leading-none" aria-hidden="true">{category.icon}</span>
+          <span className={cn('w-full truncate text-center text-[11px] font-semibold', selected ? 'text-brand-700 dark:text-brand-300' : 'text-slate-600 dark:text-slate-300')}>
+            {km ? category.km : category.en}
+          </span>
+        </button>
+      );
+    })}
   </div>
 );
 
@@ -384,8 +414,10 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({ mode, language, onPromptC
 
   const inputClass = 'w-full rounded-xl border border-brand-200 bg-brand-50 p-3 text-sm outline-none transition-all focus:ring-2 focus:ring-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100';
 
+  const sectionLabel = 'text-[11px] font-bold uppercase tracking-wider text-brand-500 dark:text-brand-400';
+
   return (
-    <div className="space-y-5 rounded-2xl border border-brand-200 bg-white/60 p-4 dark:border-slate-600 dark:bg-slate-900/40">
+    <div className="space-y-5 rounded-2xl border border-brand-200 bg-white/60 p-4 sm:p-5 dark:border-slate-600 dark:bg-slate-900/40">
       <div>
         <p className="text-base font-bold text-brand-700 dark:text-brand-300">
           {compact
@@ -393,95 +425,103 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({ mode, language, onPromptC
             : (km ? 'បង្កើត Prompt ដោយមិនចាំបាច់សរសេរ' : 'Create your prompt — no writing needed')}
         </p>
         <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
-          {compact
-            ? (km ? 'ជ្រើសប្រធានបទ និងរចនាប័ទ្មរូបថត។ ពន្លឺ មុំថត និងពណ៌ ត្រូវបានជ្រើសឲ្យដោយស្វ័យប្រវត្តិ។' : 'Pick the topic and photo style. Lighting, camera and colors are chosen for you.')
-            : (km ? 'ចុចជ្រើសជម្រើស រួចចុច «បង្កើត Prompt»។ យើងសរសេរ prompt ល្អៗដូច ChatGPT ជូន។' : 'Tap your choices, then press “Create prompt”. We write a pro, ChatGPT-quality prompt for you.')}
+          {km ? 'ជ្រើសប្រធានបទ និងរចនាប័ទ្ម រួចចុចបង្កើត។' : 'Pick a topic and a style, then press create.'}
         </p>
       </div>
 
-      <div className="space-y-2">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-brand-400">
+      {/* Topic + product */}
+      <div className="space-y-3">
+        <p className={sectionLabel}>
           {compact
-            ? (km ? 'Poster នេះនិយាយពីអ្វី?' : 'What is the poster about?')
-            : (km ? '១. តើអ្នកផ្សព្វផ្សាយអ្វី?' : '1. What are you promoting?')}
+            ? (km ? 'Poster និយាយពីអ្វី?' : 'What is it about?')
+            : (km ? '១. ផ្សព្វផ្សាយអ្វី?' : '1. What are you promoting?')}
         </p>
-        <ChipGroup label="" options={CATEGORIES} value={selection.category} onChange={chooseCategory} km={km} />
+        <CategoryTiles value={selection.category} onChange={chooseCategory} km={km} label={km ? 'ប្រធានបទ' : 'Topic'} />
         <input
           type="text"
           value={selection.subject}
           onChange={(event) => update({ subject: event.target.value })}
           placeholder={aiMode
-            ? (km ? 'ប្រាប់ AI ពីផលិតផល ឬគំនិតរបស់អ្នក ឧ. កាហ្វេទឹកដោះគោទឹកកក សម្រាប់យុវជន' : 'Tell AI your product or idea, e.g. iced latte for students')
-            : (km ? 'ឈ្មោះផលិតផល/សេវាកម្ម (មិនចាំបាច់) ឧ. កាហ្វេទឹកដោះគោទឹកកក' : 'Your product or service (optional), e.g. iced latte')}
+            ? (km ? 'ប្រាប់ AI ពីផលិតផល ឬគំនិត ឧ. កាហ្វេទឹកកក' : 'Tell AI your product or idea, e.g. iced latte')
+            : (km ? 'ឈ្មោះផលិតផល (មិនចាំបាច់)' : 'Product name (optional)')}
           className={cn(inputClass, aiMode && 'border-brand-500 ring-1 ring-brand-500')}
         />
         {aiMode && (
           <p className="text-[11px] leading-5 text-slate-500 dark:text-slate-400">
-            {km
-              ? '✨ AI នឹងជ្រើសទីតាំង អារម្មណ៍ ពន្លឺ មុំថត និងពណ៌ដែលល្អបំផុត ហើយសរសេរ prompt ពេញលេញឲ្យ។'
-              : '✨ AI picks the best setting, mood, lighting, camera and colors, and writes the full prompt for you.'}
+            {km ? '✨ AI ជ្រើសអ្វីៗដែលល្អបំផុត ហើយសរសេរ prompt ពេញលេញឲ្យ។' : '✨ AI picks the best options and writes the full prompt.'}
           </p>
         )}
       </div>
 
-      <div className="space-y-4">
-        {!compact && (
-          <p className="text-[10px] font-bold uppercase tracking-widest text-brand-400">
-            {km ? '២. ជ្រើសរចនាប័ទ្ម' : '2. Fine-tune the look'}
-          </p>
-        )}
-        <ChipGroup label={compact ? (km ? 'រចនាប័ទ្មរូបថត' : 'Photo style') : (km ? 'រចនាប័ទ្ម' : 'Style')} options={LOOKS} value={currentLook} onChange={chooseLook} km={km} />
-        {!compact && !aiMode && (
-          <>
-            <ChipGroup label={km ? 'អារម្មណ៍' : 'Mood'} options={MOODS} value={selection.mood} onChange={(id) => update({ mood: id })} km={km} />
-            <ChipGroup label={km ? 'ពន្លឺ' : 'Lighting'} options={LIGHTING} value={selection.lighting} onChange={(id) => update({ lighting: id })} km={km} />
-            <ChipGroup label={mode === 'video' ? (km ? 'ចលនាកាមេរ៉ា' : 'Camera movement') : (km ? 'មុំថត' : 'Camera angle')} options={CAMERA} value={selection.camera} onChange={(id) => update({ camera: id })} km={km} />
-            <ChipGroup label={km ? 'ពណ៌' : 'Color tone'} options={COLORS} value={selection.colors} onChange={(id) => update({ colors: id })} km={km} />
-          </>
-        )}
-        <input
-          type="text"
-          value={selection.details}
-          onChange={(event) => update({ details: event.target.value })}
-          placeholder={km ? 'ព័ត៌មានបន្ថែម (មិនចាំបាច់) ឧ. មានស្លឹកឈើពណ៌បៃតងនៅខាងក្រោយ' : 'Extra details (optional), e.g. green plants in the background'}
-          className={inputClass}
-        />
-      </div>
-
+      {/* Style */}
       <div className="space-y-3">
-        {!isVideo && <div className="space-y-2">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-brand-400">
-            {compact ? (km ? 'ភាសារបស់ Prompt' : 'Prompt language') : (km ? '៣. ភាសារបស់ Prompt' : '3. Prompt language')}
-          </p>
-          <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label={km ? 'ភាសារបស់ Prompt' : 'Prompt language'}>
-            {([
-              { id: 'km', label: 'ខ្មែរ', hint: km ? 'អានងាយ សម្រាប់អ្នកមិនចេះអង់គ្លេស' : 'Easy to read for Khmer speakers' },
-              { id: 'en', label: 'English', hint: km ? 'សម្រាប់អ្នកចេះអង់គ្លេស' : 'For English readers' },
-            ] as { id: PromptLang; label: string; hint: string }[]).map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                role="radio"
-                aria-checked={promptLang === option.id}
-                onClick={() => choosePromptLang(option.id)}
-                className={cn(
-                  'min-h-[44px] rounded-xl border px-3 py-2 text-sm font-semibold transition-all',
-                  promptLang === option.id
-                    ? 'border-brand-500 bg-brand-500/10 text-brand-700 ring-1 ring-brand-500 dark:text-brand-300'
-                    : 'border-brand-200 bg-brand-50 text-slate-700 hover:border-brand-400 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200',
-                )}
-              >
-                {option.label}
-                <span className="mt-0.5 block text-[10px] font-normal text-slate-400">{option.hint}</span>
-              </button>
-            ))}
+        <p className={sectionLabel}>
+          {compact ? (km ? 'រចនាប័ទ្មរូបថត' : 'Photo style') : (km ? '២. រចនាប័ទ្ម' : '2. Style')}
+        </p>
+        <ChipGroup label="" options={LOOKS} value={currentLook} onChange={chooseLook} km={km} />
+      </div>
+
+      {/* Optional fine-tuning, closed by default to keep the form calm */}
+      <details className="group rounded-xl border border-brand-100 dark:border-slate-700">
+        <summary className="flex min-h-[44px] cursor-pointer list-none items-center justify-between px-3 text-xs font-semibold text-slate-600 dark:text-slate-300">
+          <span>
+            {km ? 'ជម្រើសបន្ថែម' : 'More options'}
+            <span className="ml-1 font-normal text-slate-400">
+              {compact || aiMode
+                ? (km ? '(ព័ត៌មានបន្ថែម)' : '(extra details)')
+                : (km ? '(អារម្មណ៍ ពន្លឺ មុំថត ពណ៌)' : '(mood, light, camera, color)')}
+            </span>
+          </span>
+          <ChevronDown size={16} className="text-slate-400 transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="space-y-4 border-t border-brand-100 p-3 dark:border-slate-700">
+          {!compact && !aiMode && (
+            <>
+              <ChipGroup label={km ? 'អារម្មណ៍' : 'Mood'} options={MOODS} value={selection.mood} onChange={(id) => update({ mood: id })} km={km} />
+              <ChipGroup label={km ? 'ពន្លឺ' : 'Lighting'} options={LIGHTING} value={selection.lighting} onChange={(id) => update({ lighting: id })} km={km} />
+              <ChipGroup label={mode === 'video' ? (km ? 'ចលនាកាមេរ៉ា' : 'Camera movement') : (km ? 'មុំថត' : 'Camera angle')} options={CAMERA} value={selection.camera} onChange={(id) => update({ camera: id })} km={km} />
+              <ChipGroup label={km ? 'ពណ៌' : 'Color tone'} options={COLORS} value={selection.colors} onChange={(id) => update({ colors: id })} km={km} />
+            </>
+          )}
+          <input
+            type="text"
+            value={selection.details}
+            onChange={(event) => update({ details: event.target.value })}
+            placeholder={km ? 'ព័ត៌មានបន្ថែម ឧ. មានស្លឹកឈើនៅខាងក្រោយ' : 'Extra details, e.g. green leaves in the background'}
+            className={inputClass}
+          />
+        </div>
+      </details>
+
+      {/* Actions */}
+      <div className="space-y-3 border-t border-brand-100 pt-4 dark:border-slate-700">
+        {!isVideo && (
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+              {km ? 'ភាសា Prompt' : 'Prompt language'}
+            </span>
+            <div className="flex rounded-full border border-brand-200 bg-brand-50 p-0.5 dark:border-slate-600 dark:bg-slate-800" role="radiogroup" aria-label={km ? 'ភាសា Prompt' : 'Prompt language'}>
+              {([
+                { id: 'km', label: 'ខ្មែរ' },
+                { id: 'en', label: 'EN' },
+              ] as { id: PromptLang; label: string }[]).map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={promptLang === option.id}
+                  onClick={() => choosePromptLang(option.id)}
+                  className={cn(
+                    'min-h-[32px] min-w-[56px] rounded-full px-3 text-xs font-bold transition-colors',
+                    promptLang === option.id ? 'bg-brand-500 text-white shadow-sm' : 'text-slate-600 dark:text-slate-300',
+                  )}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
           </div>
-          <p className="text-[11px] leading-5 text-slate-500 dark:text-slate-400">
-            {km
-              ? 'ទោះជ្រើសភាសាណាក៏ដោយ លទ្ធផលស្អាតដូចគ្នា — ប្រព័ន្ធបកប្រែជាអង់គ្លេសដោយស្វ័យប្រវត្តិពេលបង្កើត។'
-              : 'Either language gives the same quality — Khmer prompts are translated automatically when generating.'}
-          </p>
-        </div>}
+        )}
 
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <button
@@ -494,7 +534,7 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({ mode, language, onPromptC
             {aiBusy
               ? (km ? 'AI កំពុងសរសេរ...' : 'AI is writing...')
               : aiMode
-                ? (km ? '✨ ឲ្យ AI សរសេរ Prompt' : '✨ AI writes the prompt')
+                ? (km ? 'ឲ្យ AI សរសេរ Prompt' : 'AI writes the prompt')
                 : (km ? 'បង្កើត Prompt' : 'Create prompt')}
           </button>
           {onGenerate && (
@@ -509,8 +549,8 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({ mode, language, onPromptC
             >
               <Sparkles size={16} />
               {mode === 'video'
-                ? (km ? 'បង្កើត Prompt + វីដេអូ' : 'Prompt + create video')
-                : (km ? 'បង្កើត Prompt + រូបភាព' : 'Prompt + create image')}
+                ? (km ? 'Prompt + វីដេអូ' : 'Prompt + video')
+                : (km ? 'Prompt + រូបភាព' : 'Prompt + image')}
             </button>
           )}
         </div>
@@ -520,12 +560,12 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({ mode, language, onPromptC
         {lastPrompt && (
           <div className="flex items-center justify-between gap-2">
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              {km ? 'Prompt នៅក្នុងប្រអប់ខាងក្រោម — អាចកែបាន។' : 'Your prompt is in the box below — you can edit it.'}
+              {km ? 'Prompt នៅប្រអប់ខាងក្រោម — អាចកែបាន។' : 'Your prompt is in the box below — edit if you like.'}
             </p>
             <button
               type="button"
               onClick={copy}
-              className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-brand-600 hover:bg-brand-50 dark:text-brand-300 dark:hover:bg-slate-800"
+              className="flex min-h-[32px] shrink-0 items-center gap-1 rounded-lg px-2 text-xs font-semibold text-brand-600 hover:bg-brand-50 dark:text-brand-300 dark:hover:bg-slate-800"
             >
               {copied ? <Check size={14} /> : <Copy size={14} />}
               {copied ? (km ? 'បានចម្លង' : 'Copied') : (km ? 'ចម្លង' : 'Copy')}
@@ -534,14 +574,12 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({ mode, language, onPromptC
         )}
         {isVideo && khmerMeaning && (
           <div className="rounded-xl border border-brand-100 bg-brand-50/70 p-3 dark:border-slate-700 dark:bg-slate-800/70">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-brand-400">
-              {km ? 'អត្ថន័យជាភាសាខ្មែរ' : 'Meaning in Khmer'}
-            </p>
+            <p className={sectionLabel}>{km ? 'អត្ថន័យជាភាសាខ្មែរ' : 'Meaning in Khmer'}</p>
             <p className="mt-1 whitespace-pre-line text-xs leading-6 text-slate-600 dark:text-slate-300">{khmerMeaning}</p>
             <p className="mt-2 text-[11px] text-slate-400">
               {km
-                ? 'Prompt វីដេអូត្រូវតែជាអង់គ្លេស ដើម្បីកុំឲ្យ AI យល់ច្រឡំថាជាពាក្យនិយាយ។ ខាងលើនេះគឺជាការបកប្រែឲ្យអ្នកយល់។'
-                : 'Video prompts stay in English so the AI does not mistake Khmer text for spoken lines. This is a translation for reference.'}
+                ? 'Prompt វីដេអូត្រូវតែជាអង់គ្លេស ដើម្បីកុំឲ្យ AI យល់ច្រឡំថាជាពាក្យនិយាយ។'
+                : 'Video prompts stay in English so the AI does not mistake Khmer text for spoken lines.'}
             </p>
           </div>
         )}

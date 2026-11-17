@@ -1,7 +1,9 @@
 import { isContentPlanCreationRequest, isVideoCreationFromPlanRequest } from './agentIntent.js';
 
-const formatPattern = /\b(word|docx|excel|xlsx)\b|ឯកសារ\s*វើដ|(?:សន្លឹក\s*)?អ៊?ិចសែល|អេចសែល/iu;
-const excelPattern = /\b(excel|xlsx)\b|(?:សន្លឹក\s*)?អ៊?ិចសែល|អេចសែល/iu;
+// Khmer speech-to-text spells "Word"/"Excel" several ways (វើដ, វឺដ, វើត;
+// អ៊ិចសែល, អិកសែល, អេចសែល...).
+const excelPattern = /\b(excel|xlsx|spreadsheet)\b|(?:អ៊|អ)?[ិីេ][ចកគ]សែល/iu;
+const formatPattern = /\b(word|docx|excel|xlsx|spreadsheet)\b|(?:ឯកសារ|ហ្វាល់|ហ្វាល)\s*វ[ើឺ][ដត]|វ[ើឺ][ដត]\s*(?:ហ្វាល់|ហ្វាល|ឯកសារ)|(?:អ៊|អ)?[ិីេ][ចកគ]សែល/iu;
 const commandPattern = /\b(create|make|generate|prepare|write|export|download|convert|turn|send|give me|want|need)\b|បង្កើត|រៀបចំ|សរសេរ|ធ្វើ|ផ្ញើ|យក|ទាញយក|ចេញជា|ចង់បាន|ត្រូវការ/iu;
 const planPattern = /\b(?:content\s*)?plan\b|\bcalendar\b|ផែនការ|កាលវិភាគ/iu;
 const monthPattern = /\b(?:a|one|1)\s*month\b|\bmonthly\b|\b(?:30|31)\s*days?\b|មួយ\s*ខែ|[១1]\s*ខែ|៣០\s*ថ្ងៃ|៣១\s*ថ្ងៃ|ខែនេះ|ខែក្រោយ/iu;

@@ -1386,7 +1386,9 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
       const automatedDetails: Partial<PosterDetails> = {
         headline: automationRequest.headline?.trim() || (language === 'km' ? 'បង្កើតអនាគតជាមួយគ្នា' : 'Build What Comes Next'),
         cta: automationRequest.cta?.trim() || (language === 'km' ? 'ស្វែងយល់បន្ថែម' : 'Learn More'),
-        style: automationRequest.posterStyle?.trim() || 'Modern',
+        // The agent's posterStyle ("Modern", "Bold"...) isn't one of the
+        // poster tool's looks; agent posters use the cinematic default.
+        style: 'Cinematic key visual',
       };
       setPosterPrompt(automationRequest.prompt);
       setPosterAspectRatio(normalizeImageAspectRatio(automationRequest.aspectRatio, '9:16'));

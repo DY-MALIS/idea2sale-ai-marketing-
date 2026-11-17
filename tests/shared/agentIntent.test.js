@@ -38,6 +38,33 @@ it('routes spoken audio separately from video generation', () => {
   expect(isStandaloneAudioRequest('Create a video with voiceover')).toBe(false);
 });
 
+it('recognizes spoken poster/picture requests in the spellings Khmer speech-to-text produces', () => {
+  for (const command of [
+    'បង្កើតប៉ូស្ទ័រមួយសម្រាប់ហាងកាហ្វេ',
+    'បង្កើតផូស្ទ័រមួយ',
+    'ខ្ញុំចង់បានប៉ុស្ទ័រលក់នំ',
+    'ជួយធ្វើពូសទ័រផ្សព្វផ្សាយ',
+    'បង្កើតរូប មួយសម្រាប់ផលិតផល',
+    'make me a poster for my shop',
+    'Draw a picture of iced coffee',
+  ]) {
+    expect(shouldClassifyCreativeMedia(command)).toBe(true);
+  }
+  expect(shouldClassifyCreativeMedia('តើប៉ូស្ទ័របែបណាល្អ?')).toBe(false);
+  // "post to Facebook" must not be read as a poster.
+  expect(shouldClassifyCreativeMedia('ជួយផុសទៅ Facebook')).toBe(false);
+  expect(shouldClassifyCreativeMedia('បង្កើតវិដេអូមួយអំពីកាហ្វេ')).toBe(true);
+});
+
+it('recognizes spoken content-plan and caption commands in Khmer transliterations', () => {
+  expect(isContentPlanCreationRequest('បង្កើតខនថេនផ្លែន ៧ ថ្ងៃ')).toBe(true);
+  expect(isContentPlanCreationRequest('សូមរៀបចំផែនការប៉ុស្ត៍សម្រាប់ហាង')).toBe(true);
+  expect(isContentPlanCreationRequest('បង្កើតផែនការ 7 ថ្ងៃ សម្រាប់ Facebook')).toBe(true);
+  expect(isContentPlanCreationRequest('Create a 7 day posting plan')).toBe(true);
+  expect(isTextContentCreationRequest('សរសេរខេបសិនសម្រាប់ហាងកាហ្វេ')).toBe(true);
+  expect(isTextContentCreationRequest('បង្កើតប៉ុស្ត៍មួយសម្រាប់ Facebook')).toBe(true);
+});
+
 it('does not run the media classifier for ordinary follow-ups after a past video', () => {
   const history = 'User: Create a video of coffee\nAssistant: Do you want Khmer narration?';
   expect(shouldClassifyCreativeMedia('How can I sell more coffee?', history)).toBe(false);

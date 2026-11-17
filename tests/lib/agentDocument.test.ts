@@ -29,6 +29,13 @@ describe('agent document requests', () => {
     expect(requestedAgentDocumentFormat('How do I create a plan for one month?')).toBeNull();
   });
 
+  it('recognizes the Khmer speech-to-text spellings of Word and Excel', () => {
+    expect(requestedAgentDocumentFormat('សូមបង្កើតឯកសារវឺដ អំពីហាងកាហ្វេ')).toBe('docx');
+    expect(requestedAgentDocumentFormat('ធ្វើហ្វាល់វើដមួយ')).toBe('docx');
+    expect(requestedAgentDocumentFormat('ខ្ញុំចង់បានតារាងជាអិកសែល')).toBe('xlsx');
+    expect(requestedAgentDocumentFormat('ផ្ញើជាអ៊ិចសែលមក')).toBe('xlsx');
+  });
+
   it('turns a monthly plan into 30 dated rows for Bangkok time', () => {
     const dates = nextThirtyBangkokDates(new Date('2026-10-02T18:00:00Z'));
     expect(dates).toHaveLength(30);

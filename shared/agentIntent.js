@@ -1,10 +1,19 @@
-const creationVerb = /\b(?:create|make|generate|produce|draft|build|prepare|design|write)\b|បង្កើត|ធ្វើ|រៀបចំ|សរសេរ|ផលិត|សូមបង្កើត/iu;
+const creationVerb = /\b(?:create|make|generate|produce|draft|build|prepare|design|write|draw)\b|បង្កើត|ធ្វើ|រៀបចំ|សរសេរ|ផលិត|សូមបង្កើត|ចង់បាន|គូរ|ជួយ/iu;
 const adviceQuestion = /^(?:how|why|what|which|should|can you explain|របៀប|ហេតុអ្វី|យ៉ាងដូចម្តេច|តើ.+(?:អ្វី|យ៉ាងណា))/iu;
-const planNoun = /\b(?:content\s*plan(?:ner)?|content\s*calendar|posting\s*calendar|plan\s+for\s+content)\b|ផែនការ\s*(?:មាតិកា|ខ្លឹមសារ|បង្ហោះ|content)|កាលវិភាគបង្ហោះ/iu;
+// Includes how Khmer speech-to-text writes the spoken loanwords
+// ("ខនថេនផ្លែន" for "content plan", "ប៉ុស្ត៍" for "post").
+const planNoun = /\b(?:content\s*plan(?:ner)?|content\s*calendar|posting\s*(?:calendar|plan|schedule)|plan\s+for\s+content|\d{1,2}[- ]?days?\s+(?:content\s+|post(?:ing)?\s+)?plan|weekly\s+(?:content\s+|post(?:ing)?\s+)?plan)\b|ផែនការ\s*(?:មាតិកា|ខ្លឹមសារ|បង្ហោះ|content|ប៉ុស្ត៍|ប៉ុស្តិ៍|ប៉ុស|ផុស|ប្រកាស|ផ្សព្វផ្សាយ|[០-៩0-9]{1,2}\s*ថ្ងៃ)|(?:ខន|ខុន)[ថធ][េិីើ]ន\s*(?:ផ្លែន|ផ្លេន|ផ្លាន)|កាលវិភាគបង្ហោះ/iu;
 const audioNoun = /\b(?:audio|voice[ -]?over|narration|spoken audio|speech|voice recording)\b|សំឡេង|សម្លេង|សូរសំឡេង/iu;
-const mediaNoun = /\b(?:image|photo|poster|visual|logo|flyer|banner|video|reel|short film)\b|រូបភាព|រូបថត|ប៉ូស្ទ័រ|ឡូហ្គោ|វីដេអូ/iu;
-const videoNoun = /\b(?:video|reel|short film)s?\b|វីដេអូ/iu;
-const textContentNoun = /\b(?:content|caption|post|copy|script)\b|មាតិកា|ខ្លឹមសារ|ចំណងជើង|អត្ថបទ/iu;
+// Khmer speech-to-text spells loanwords inconsistently ("poster" arrives as
+// ប៉ូស្ទ័រ, ផូស្ទ័រ, ប៉ុស្ទ័រ, ពូសទ័រ...), and people say just "រូប" (picture).
+// Missing those meant a spoken poster request never reached the generator.
+// The poster spelling must end in ័/៍/រ so "ផុសទៅ Facebook" (post to
+// Facebook) is not mistaken for a poster.
+export const posterKhmerSpelling = /(?:ប៉|ផ|ព)[ូុោ]?(?:ស្ទ|សទ|ស្ធ|សធ)(?:[័៍]រ?|រ)/u;
+const videoKhmerSpelling = /វីដេអូ|វិដេអូ|វីឌីអូ|វិឌីអូ|វីដីអូ/u;
+export const mediaNoun = new RegExp(`\\b(?:image|photo|picture|poster|visual|logo|flyer|banner|video|reel|short film)\\b|រូបភាព|រូបថត|រូប(?=\\s|មួយ|$)|${posterKhmerSpelling.source}|ផ្ទាំងផ្សព្វផ្សាយ|ខិត្តប័ណ្ណ|បដា|ឡូហ្គោ|ឡូហ្កូ|${videoKhmerSpelling.source}`, 'iu');
+const videoNoun = new RegExp(`\\b(?:video|reel|short film)s?\\b|${videoKhmerSpelling.source}`, 'iu');
+const textContentNoun = /\b(?:content|caption|post|copy|script|hashtags?)\b|មាតិកា|ខ្លឹមសារ|ចំណងជើង|អត្ថបទ|ប៉ុស្ត៍|ប៉ុស្តិ៍|ផុស|ខេបសិន|ឃេបសិន|ខាប់សិន|ហាសថេក|ហាស់ថេក|ស្គ្រីប|ការប្រកាស/iu;
 const goAhead = /^(?:yes|ok(?:ay)?|go ahead|do it|make it|create it|generate it|please do|ចាស|បាទ|យល់ព្រម|ធ្វើទៅ|បង្កើតទៅ|បង្កើតមក|សូមធ្វើ|សូមបង្កើត)[.!។\s]*$/iu;
 const briefAnswer = /\b(?:voice|narration|silent|no sound|no voice|khmer|english|seconds?|tiktok|facebook|youtube)\b|\b\d\s*:\s*\d\b|សំឡេង|សម្លេង|ភាសាខ្មែរ|ភាសាអង់គ្លេស|មិនបាច់សំឡេង|វិនាទី/iu;
 
