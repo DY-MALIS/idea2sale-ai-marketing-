@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Check, Copy, Sparkles, Zap } from 'lucide-react';
+import { Check, Copy, Loader2, Sparkles, Zap } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 // PromptGen-style builder for people who don't know how to write prompts:
@@ -37,7 +37,16 @@ interface Category extends Choice {
   setting: string; settingKm: string;
 }
 
+// "Let AI choose": no preset -- the server (action 'promptWrite') picks the
+// setting, mood, lighting, camera and colors and writes the prompt itself.
+const AI_CATEGORY_ID = 'ai';
+
 const CATEGORIES: Category[] = [
+  {
+    id: AI_CATEGORY_ID, en: '✨ Let AI choose', km: '✨ ឲ្យ AI ជ្រើសឲ្យ', text: '', textKm: '',
+    tipEn: 'Type your idea, AI does the rest', tipKm: 'វាយគំនិត AI ធ្វើនៅសល់',
+    role: '', roleKm: '', context: '', contextKm: '', subject: '', subjectKm: '', action: '', actionKm: '', setting: '', settingKm: '',
+  },
   {
     id: 'product', en: '📦 Product', km: '📦 ផលិតផល', text: '', textKm: '',
     role: 'professional commercial product photographer', roleKm: 'អ្នកថតរូបផលិតផលអាជីព',
@@ -99,6 +108,7 @@ const CATEGORIES: Category[] = [
 // Ids match the style values PosterGen sends, so the choice also drives the
 // server-side look (e.g. "Futuristic tech" switches to the hologram template).
 const LOOKS: Choice[] = [
+  { id: 'Cinematic key visual', en: 'Cinematic ad', km: 'ពាណិជ្ជកម្មបែបភាពយន្ត', text: 'cinematic, award-winning commercial key-visual', textKm: 'បែបពាណិជ្ជកម្មម៉ាកល្បី ស្អាតដូចភាពយន្ត', tipEn: 'Like big-brand ads', tipKm: 'ដូចពាណិជ្ជកម្មម៉ាកធំៗ' },
   { id: 'Natural real photo', en: 'Natural photo', km: 'រូបថតធម្មជាតិ', text: 'natural, true-to-life photographic', textKm: 'បែបរូបថតធម្មជាតិ ដូចពិត', tipEn: 'Looks like a real photo', tipKm: 'មើលទៅដូចរូបថតពិត' },
   { id: 'Clean minimal', en: 'Minimal', km: 'សាមញ្ញ', text: 'clean, minimal', textKm: 'បែបសាមញ្ញ ស្អាត', tipEn: 'Simple and uncluttered', tipKm: 'សាមញ្ញ ស្អាត' },
   { id: 'Bright and cheerful', en: 'Bright & fun', km: 'ភ្លឺ រីករាយ', text: 'bright, cheerful', textKm: 'បែបភ្លឺស្រឡះ និងរីករាយ', tipEn: 'Colorful and happy', tipKm: 'ពណ៌ភ្លឺ សប្បាយ' },
@@ -157,6 +167,8 @@ const QUALITY: Record<PromptLang, Record<PromptBuilderMode, string>> = {
 };
 
 const findChoice = <T extends Choice>(list: T[], id: string) => list.find((item) => item.id === id) || list[0];
+// Local (non-AI) composition falls back to the first real preset.
+const findCategory = (id: string) => CATEGORIES.find((item) => item.id === id && item.id !== AI_CATEGORY_ID) || CATEGORIES[1];
 
 interface Selection {
   category: string;
@@ -170,7 +182,7 @@ interface Selection {
 }
 
 export const composePrompt = (s: Selection, mode: PromptBuilderMode, lang: PromptLang = 'en') => {
-  const category = findChoice(CATEGORIES, s.category);
+  const category = findCategory(s.category);
   const look = findChoice(LOOKS, s.look);
   const mood = findChoice(MOODS, s.mood);
   const lighting = findChoice(LIGHTING, s.lighting);
@@ -244,14 +256,19 @@ interface PromptBuilderProps {
   look?: string;
   onLookChange?: (look: string) => void;
   busy?: boolean;
+  /**
+   * Poster form: show only topic, product, photo style and language. Mood,
+   * lighting, camera and colors still apply, chosen automatically per topic.
+   */
+  compact?: boolean;
 }
 
-const PromptBuilder: React.FC<PromptBuilderProps> = ({ mode, language, onPromptChange, onGenerate, look, onLookChange, busy }) => {
+const PromptBuilder: React.FC<PromptBuilderProps> = ({ mode, language, onPromptChange, onGenerate, look, onLookChange, busy, compact }) => {
   const km = language === 'km';
   const [promptLang, setPromptLang] = useState<PromptLang>(km ? 'km' : 'en');
   const [selection, setSelection] = useState<Selection>({
     category: 'product',
-    look: 'Natural real photo',
+    look: 'Cinematic key visual',
     mood: 'premium',
     lighting: 'daylight',
     camera: 'closeup',
@@ -274,7 +291,7 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({ mode, language, onPromptC
       fashion: { look: 'Luxury editorial', mood: 'premium', lighting: 'golden', camera: 'hero', colors: 'soft' },
       education: { look: 'Bright and cheerful', mood: 'inspiring', lighting: 'daylight', camera: 'wide', colors: 'brand' },
       event: { look: 'Bright and cheerful', mood: 'fun', lighting: 'golden', camera: 'wide', colors: 'vibrant' },
-      product: { look: 'Natural real photo', mood: 'premium', lighting: 'studio', camera: 'closeup', colors: 'natural' },
+      product: { look: 'Cinematic key visual', mood: 'premium', lighting: 'golden', camera: 'hero', colors: 'vibrant' },
     };
     const preset = presets[id] || {};
     update({ category: id, ...preset });
@@ -302,14 +319,60 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({ mode, language, onPromptC
     return prompt;
   };
 
+  const aiMode = selection.category === AI_CATEGORY_ID;
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState('');
+
+  // AI writes the whole prompt from the user's idea (server action promptWrite).
+  const buildWithAi = async (lang: PromptLang = promptLang): Promise<string | null> => {
+    if (!selection.subject.trim() && !selection.details.trim()) {
+      setAiError(km ? 'សូមវាយផលិតផល ឬគំនិតរបស់អ្នកជាមុនសិន។' : 'Type your product or idea first.');
+      return null;
+    }
+    setAiBusy(true);
+    setAiError('');
+    try {
+      const response = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'promptWrite',
+          mode,
+          subject: selection.subject,
+          details: selection.details,
+          look: findChoice(LOOKS, currentLook).text,
+          language: lang,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.text) throw new Error(data.error || 'AI could not write the prompt.');
+      const prompt = String(data.text);
+      setKhmerMeaning('');
+      setLastPrompt(prompt);
+      onPromptChange(prompt);
+      return prompt;
+    } catch (error) {
+      console.error('AI prompt writing failed:', error);
+      setAiError(km ? 'AI មិនអាចសរសេរ prompt បានទេ។ សូមសាកម្ដងទៀត ឬជ្រើសប្រធានបទផ្សេង។' : 'AI could not write the prompt. Try again, or pick a topic instead.');
+      return null;
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
+  const create = async (lang: PromptLang = promptLang): Promise<string | null> => (aiMode ? buildWithAi(lang) : build(lang));
+
   const choosePromptLang = (lang: PromptLang) => {
     setPromptLang(lang);
-    // Re-write an already-created prompt in the newly chosen language.
-    if (lastPrompt) build(lang);
+    // Re-write an already-created local prompt in the newly chosen language.
+    // (AI mode applies the language to the next "Create prompt" instead of
+    // silently making another AI call.)
+    if (lastPrompt && !aiMode) build(lang);
   };
 
   const copy = async () => {
-    const prompt = lastPrompt || build();
+    const prompt = lastPrompt || await create();
+    if (!prompt) return;
     try {
       await navigator.clipboard.writeText(prompt);
       setCopied(true);
@@ -325,36 +388,57 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({ mode, language, onPromptC
     <div className="space-y-5 rounded-2xl border border-brand-200 bg-white/60 p-4 dark:border-slate-600 dark:bg-slate-900/40">
       <div>
         <p className="text-base font-bold text-brand-700 dark:text-brand-300">
-          {km ? 'បង្កើត Prompt ដោយមិនចាំបាច់សរសេរ' : 'Create your prompt — no writing needed'}
+          {compact
+            ? (km ? '③ រូបថតសម្រាប់ Poster' : '③ Poster photo')
+            : (km ? 'បង្កើត Prompt ដោយមិនចាំបាច់សរសេរ' : 'Create your prompt — no writing needed')}
         </p>
         <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
-          {km ? 'ចុចជ្រើសជម្រើស រួចចុច «បង្កើត Prompt»។ យើងសរសេរ prompt ល្អៗដូច ChatGPT ជូន។' : 'Tap your choices, then press “Create prompt”. We write a pro, ChatGPT-quality prompt for you.'}
+          {compact
+            ? (km ? 'ជ្រើសប្រធានបទ និងរចនាប័ទ្មរូបថត។ ពន្លឺ មុំថត និងពណ៌ ត្រូវបានជ្រើសឲ្យដោយស្វ័យប្រវត្តិ។' : 'Pick the topic and photo style. Lighting, camera and colors are chosen for you.')
+            : (km ? 'ចុចជ្រើសជម្រើស រួចចុច «បង្កើត Prompt»។ យើងសរសេរ prompt ល្អៗដូច ChatGPT ជូន។' : 'Tap your choices, then press “Create prompt”. We write a pro, ChatGPT-quality prompt for you.')}
         </p>
       </div>
 
       <div className="space-y-2">
         <p className="text-[10px] font-bold uppercase tracking-widest text-brand-400">
-          {km ? '១. តើអ្នកផ្សព្វផ្សាយអ្វី?' : '1. What are you promoting?'}
+          {compact
+            ? (km ? 'Poster នេះនិយាយពីអ្វី?' : 'What is the poster about?')
+            : (km ? '១. តើអ្នកផ្សព្វផ្សាយអ្វី?' : '1. What are you promoting?')}
         </p>
         <ChipGroup label="" options={CATEGORIES} value={selection.category} onChange={chooseCategory} km={km} />
         <input
           type="text"
           value={selection.subject}
           onChange={(event) => update({ subject: event.target.value })}
-          placeholder={km ? 'ឈ្មោះផលិតផល/សេវាកម្ម (មិនចាំបាច់) ឧ. កាហ្វេទឹកដោះគោទឹកកក' : 'Your product or service (optional), e.g. iced latte'}
-          className={inputClass}
+          placeholder={aiMode
+            ? (km ? 'ប្រាប់ AI ពីផលិតផល ឬគំនិតរបស់អ្នក ឧ. កាហ្វេទឹកដោះគោទឹកកក សម្រាប់យុវជន' : 'Tell AI your product or idea, e.g. iced latte for students')
+            : (km ? 'ឈ្មោះផលិតផល/សេវាកម្ម (មិនចាំបាច់) ឧ. កាហ្វេទឹកដោះគោទឹកកក' : 'Your product or service (optional), e.g. iced latte')}
+          className={cn(inputClass, aiMode && 'border-brand-500 ring-1 ring-brand-500')}
         />
+        {aiMode && (
+          <p className="text-[11px] leading-5 text-slate-500 dark:text-slate-400">
+            {km
+              ? '✨ AI នឹងជ្រើសទីតាំង អារម្មណ៍ ពន្លឺ មុំថត និងពណ៌ដែលល្អបំផុត ហើយសរសេរ prompt ពេញលេញឲ្យ។'
+              : '✨ AI picks the best setting, mood, lighting, camera and colors, and writes the full prompt for you.'}
+          </p>
+        )}
       </div>
 
       <div className="space-y-4">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-brand-400">
-          {km ? '២. ជ្រើសរចនាប័ទ្ម' : '2. Fine-tune the look'}
-        </p>
-        <ChipGroup label={km ? 'រចនាប័ទ្ម' : 'Style'} options={LOOKS} value={currentLook} onChange={chooseLook} km={km} />
-        <ChipGroup label={km ? 'អារម្មណ៍' : 'Mood'} options={MOODS} value={selection.mood} onChange={(id) => update({ mood: id })} km={km} />
-        <ChipGroup label={km ? 'ពន្លឺ' : 'Lighting'} options={LIGHTING} value={selection.lighting} onChange={(id) => update({ lighting: id })} km={km} />
-        <ChipGroup label={mode === 'video' ? (km ? 'ចលនាកាមេរ៉ា' : 'Camera movement') : (km ? 'មុំថត' : 'Camera angle')} options={CAMERA} value={selection.camera} onChange={(id) => update({ camera: id })} km={km} />
-        <ChipGroup label={km ? 'ពណ៌' : 'Color tone'} options={COLORS} value={selection.colors} onChange={(id) => update({ colors: id })} km={km} />
+        {!compact && (
+          <p className="text-[10px] font-bold uppercase tracking-widest text-brand-400">
+            {km ? '២. ជ្រើសរចនាប័ទ្ម' : '2. Fine-tune the look'}
+          </p>
+        )}
+        <ChipGroup label={compact ? (km ? 'រចនាប័ទ្មរូបថត' : 'Photo style') : (km ? 'រចនាប័ទ្ម' : 'Style')} options={LOOKS} value={currentLook} onChange={chooseLook} km={km} />
+        {!compact && !aiMode && (
+          <>
+            <ChipGroup label={km ? 'អារម្មណ៍' : 'Mood'} options={MOODS} value={selection.mood} onChange={(id) => update({ mood: id })} km={km} />
+            <ChipGroup label={km ? 'ពន្លឺ' : 'Lighting'} options={LIGHTING} value={selection.lighting} onChange={(id) => update({ lighting: id })} km={km} />
+            <ChipGroup label={mode === 'video' ? (km ? 'ចលនាកាមេរ៉ា' : 'Camera movement') : (km ? 'មុំថត' : 'Camera angle')} options={CAMERA} value={selection.camera} onChange={(id) => update({ camera: id })} km={km} />
+            <ChipGroup label={km ? 'ពណ៌' : 'Color tone'} options={COLORS} value={selection.colors} onChange={(id) => update({ colors: id })} km={km} />
+          </>
+        )}
         <input
           type="text"
           value={selection.details}
@@ -367,7 +451,7 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({ mode, language, onPromptC
       <div className="space-y-3">
         {!isVideo && <div className="space-y-2">
           <p className="text-[10px] font-bold uppercase tracking-widest text-brand-400">
-            {km ? '៣. ភាសារបស់ Prompt' : '3. Prompt language'}
+            {compact ? (km ? 'ភាសារបស់ Prompt' : 'Prompt language') : (km ? '៣. ភាសារបស់ Prompt' : '3. Prompt language')}
           </p>
           <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label={km ? 'ភាសារបស់ Prompt' : 'Prompt language'}>
             {([
@@ -402,17 +486,25 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({ mode, language, onPromptC
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <button
             type="button"
-            onClick={() => build()}
-            className="flex min-h-[48px] items-center justify-center gap-2 rounded-xl border border-brand-500 bg-brand-50 px-4 text-sm font-bold text-brand-700 transition-colors hover:bg-brand-100 dark:bg-slate-800 dark:text-brand-300"
+            disabled={aiBusy}
+            onClick={() => void create()}
+            className="flex min-h-[48px] items-center justify-center gap-2 rounded-xl border border-brand-500 bg-brand-50 px-4 text-sm font-bold text-brand-700 transition-colors hover:bg-brand-100 disabled:opacity-60 dark:bg-slate-800 dark:text-brand-300"
           >
-            <Zap size={16} />
-            {km ? 'បង្កើត Prompt' : 'Create prompt'}
+            {aiBusy ? <Loader2 size={16} className="animate-spin" /> : <Zap size={16} />}
+            {aiBusy
+              ? (km ? 'AI កំពុងសរសេរ...' : 'AI is writing...')
+              : aiMode
+                ? (km ? '✨ ឲ្យ AI សរសេរ Prompt' : '✨ AI writes the prompt')
+                : (km ? 'បង្កើត Prompt' : 'Create prompt')}
           </button>
           {onGenerate && (
             <button
               type="button"
-              disabled={busy}
-              onClick={() => onGenerate(build())}
+              disabled={busy || aiBusy}
+              onClick={async () => {
+                const prompt = await create();
+                if (prompt) onGenerate(prompt);
+              }}
               className="flex min-h-[48px] items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#f88b3e] to-[#e65d28] px-4 text-sm font-bold text-white shadow-md transition-opacity disabled:opacity-60"
             >
               <Sparkles size={16} />
@@ -422,6 +514,9 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({ mode, language, onPromptC
             </button>
           )}
         </div>
+        {aiError && (
+          <p role="alert" className="text-xs font-semibold text-red-500">{aiError}</p>
+        )}
         {lastPrompt && (
           <div className="flex items-center justify-between gap-2">
             <p className="text-xs text-slate-500 dark:text-slate-400">

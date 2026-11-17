@@ -290,6 +290,28 @@ const getVideoSegments = (): number[] => [8];
 const FFMPEG_CORE_BASE_URL = 'https://unpkg.com/@ffmpeg/core@0.12.9/dist/esm';
 let ffmpegLoadPromise: Promise<any> | null = null;
 
+// Shows how long the current video generation has been running, so a
+// multi-minute provider render doesn't look frozen.
+const ElapsedTimer: React.FC<{ km: boolean }> = ({ km }) => {
+  const [seconds, setSeconds] = useState(0);
+  React.useEffect(() => {
+    const startedAt = Date.now();
+    const id = window.setInterval(() => setSeconds(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+  const clock = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+  return (
+    <div className="space-y-1">
+      <p className="font-mono text-2xl font-black tabular-nums text-brand-600 dark:text-brand-300">{clock}</p>
+      <p className="text-xs text-slate-500 dark:text-slate-400">
+        {km
+          ? 'វីដេអូ AI ជាធម្មតាចំណាយពេលពីរបីនាទី។ សូមកុំបិទទំព័រនេះ។'
+          : 'AI video usually takes a few minutes. Please keep this page open.'}
+      </p>
+    </div>
+  );
+};
+
 const getFFmpeg = async () => {
   if (!ffmpegLoadPromise) {
     ffmpegLoadPromise = (async () => {
@@ -1695,6 +1717,12 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         user.getIdToken(),
         resetFFmpeg(),
       ]);
+      // Download/compile ffmpeg.wasm (~30 MB) while the provider renders the
+      // clip, instead of only after it finishes -- the logo watermark, voice-over
+      // and speech-check steps all need it, so this removes that wait from the
+      // end of every generation. A load failure here is ignored; the later
+      // steps call getFFmpeg() again and handle errors there.
+      void getFFmpeg().catch(() => { ffmpegLoadPromise = null; });
       // Resolved from this fresh read, not the mount-cached picker list, for
       // the same staleness guarantee every other business-context field here
       // already relies on. Automation-triggered calls never set
@@ -2892,6 +2920,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                             ? `${t('generatingSegmentPrefix')} ${segmentProgress.current} ${t('generatingSegmentJoiner')} ${segmentProgress.total}`
                             : t('craftingContent')}
                   </p>
+                  {activeTool === 'video' && loading && <ElapsedTimer km={language === 'km'} />}
                 </div>
               ) : activeTool === 'video' && generatedVideo ? (
                 <div className="w-full space-y-6">

@@ -786,6 +786,46 @@ Futuristic tech advertising visual requirements:
 - Polished, clean, premium composition with one clear focal point, ready for social media advertising.
 - Avoid garbled text artifacts, extra logos, fake watermarks, malformed objects, and duplicated limbs.`;
 
+// Opt-in studio product look for the poster "Product hero" layout: the
+// product on a seamless solid-color background, like food/drink ad posters.
+// photorealImagePrompt asks for lived-in, imperfect real places, which would
+// fight this, so it gets its own template (same text/people constraints).
+const studioProductImagePrompt = (prompt) => `Scene: ${prompt}${khmerReferenceGuidance(prompt)}
+
+${NO_FOREIGN_TEXT_CONSTRAINT} This also applies to product packaging: show cups, bottles, bags and boxes plain or with simple color shapes only, never readable labels or brand names.
+
+HARD CONSTRAINT, highest priority: ${KHMER_ATTIRE_GUIDANCE}
+
+HARD CONSTRAINT: Render every subject and action explicitly named in the Scene above.
+
+Studio product advertising requirements:
+- A premium commercial product photograph, like a top food/beverage/brand advertising poster: the product is the clear hero, sharp, perfectly lit, with appetizing, true texture.
+- Seamless solid-color studio background as described in the Scene, with a soft shadow or reflection under the product.
+- Dynamic energy where it suits the product: fresh ingredients, fruit slices, ice, water or sauce splashes, steam, crumbs, frozen in motion.
+- Bold, punchy, saturated commercial color grading and crisp studio lighting with gentle highlights.
+- It must look photographic and real, not an illustration, cartoon, or 3D render. Avoid garbled text artifacts, fake logos, watermarks, and malformed objects.`;
+
+// Default look for images and posters ("Cinematic ad"): a premium, surreal
+// commercial key visual like top brand campaigns -- the product as a hero on
+// a natural podium in a dramatic landscape, splashes and floating
+// ingredients, cinematic light. Same text/people constraints as the others.
+const keyVisualImagePrompt = (prompt) => `Scene: ${prompt}${khmerReferenceGuidance(prompt)}
+
+${NO_FOREIGN_TEXT_CONSTRAINT} This also applies to product packaging: show bottles, cans, jars and bags with plain surfaces or simple color shapes only, never readable labels or brand names.
+
+HARD CONSTRAINT, highest priority: ${KHMER_ATTIRE_GUIDANCE}
+
+HARD CONSTRAINT: Render every subject, person, and action explicitly named in the Scene above. Do not invent extra people.
+
+Cinematic commercial key-visual requirements:
+- An award-winning, high-end advertising key visual, like a global brand campaign poster: breathtaking, polished, emotionally striking and instantly eye-catching.
+- The product or main subject is the hero, large, sharp and perfectly lit, often standing on a natural podium (mossy rock, wooden slice, stone pedestal, water surface) or emerging from the scenery.
+- A dreamy, larger-than-life setting that tells the product's story: lush jungle, misty mountains, waterfalls, tea or coffee plantations, sunlit clouds, ocean, or fields -- chosen to match the product's ingredients and mood.
+- Dynamic motion frozen in time: water or juice splashes, droplets, floating fruit, leaves, beans, petals or ingredients around the hero.
+- Dramatic cinematic lighting: golden sun rays, volumetric light and mist, rim light on the product, deep rich color grading, shallow depth of field.
+- Photorealistic materials and textures (it should look like a real high-budget photo composite), not a cartoon or flat illustration. People, if present, have natural Cambodian faces and correct hands.
+- Avoid garbled text artifacts, fake logos, watermarks, and malformed objects.`;
+
 const photorealVideoPrompt = (prompt, imageToVideo = false) => `Scene: ${prompt}${khmerReferenceGuidance(prompt)}
 
 ${NO_FOREIGN_TEXT_CONSTRAINT}
@@ -2938,12 +2978,48 @@ Return ONLY a single valid JSON object with this exact structure:
       return res.status(200).json({ text });
     }
 
+    // "✨ Let AI choose" in the prompt builder: the user gives only a product /
+    // idea, and the model picks the setting, mood, lighting, camera and colors
+    // and writes one polished ChatGPT-style prompt. Video prompts are always
+    // English because Khmer text in a video prompt is treated as spoken
+    // dialogue (preserveKhmerDuringTranslation); image/poster prompts may be
+    // Khmer since imageGenerate translates them.
+    if (action === 'promptWrite') {
+      const subject = String(req.body?.subject || '').trim().slice(0, 300);
+      const details = String(req.body?.details || '').trim().slice(0, 500);
+      const mode = ['image', 'poster', 'video'].includes(req.body?.mode) ? req.body.mode : 'image';
+      const look = String(req.body?.look || '').trim().slice(0, 60);
+      const outputLanguage = mode !== 'video' && req.body?.language === 'km' ? 'Khmer' : 'English';
+      if (!subject && !details) return res.status(400).json({ error: 'Describe your product or idea first.' });
+      const businessContext = businessContextFromBody(req.body);
+      const kind = mode === 'video' ? 'an 8-second advertising video' : mode === 'poster' ? 'the photo for a marketing poster' : 'an advertising image';
+      const text = await generateOpenRouterText({
+        system: `You are a world-class creative director who writes prompts for AI image and video generators, like ChatGPT does for its best marketing visuals.\n\n${CAMBODIA_MARKET_CONTEXT}${businessContentInstruction(businessContext)}`,
+        prompt: `Write one ready-to-use prompt for ${kind}.
+Product / idea: ${subject || '(not given)'}
+${details ? `Extra wishes: ${details}\n` : ''}${look ? `Visual style: ${look}\n` : ''}
+Choose the best setting, action, mood, lighting, ${mode === 'video' ? 'camera movement' : 'camera angle'} and color palette yourself so the result looks stunning and sells the product to a Cambodian audience. People must look Cambodian.
+Rules:
+- Write 2-3 short paragraphs of flowing prose (no headings, no bullet points, no quotes around it).
+- Never ask the generator to write any text, letters, logos or signs in the image.
+- ${mode === 'video' ? 'Describe motion and camera movement over the 8 seconds. Do not include any spoken lines.' : 'Describe one single frame with one clear focal subject.'}
+- Write entirely in ${outputLanguage}. Output only the prompt.`,
+        temperature: 0.7,
+        maxTokens: 700,
+      });
+      return res.status(200).json({ text: String(text || '').trim() });
+    }
+
     if (action === 'imageGenerate') {
       const prompt = String(req.body?.prompt || '').trim();
       const aspectRatio = String(req.body?.aspectRatio || '1:1');
       if (!prompt) return res.status(400).json({ error: 'Image prompt is required.' });
       const normalizedPrompt = await normalizeMediaPrompt(prompt, 'image');
-      const buildPrompt = req.body?.look === 'futuristic' ? futuristicImagePrompt : photorealImagePrompt;
+      const look = req.body?.look;
+      const buildPrompt = look === 'futuristic' ? futuristicImagePrompt
+        : look === 'keyvisual' ? keyVisualImagePrompt
+          : look === 'studio' ? studioProductImagePrompt
+            : photorealImagePrompt;
       const image = await generateOpenRouterImage({ prompt: buildPrompt(normalizedPrompt), aspectRatio });
       return res.status(200).json(image);
     }
