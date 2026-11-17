@@ -7,8 +7,8 @@ const validId = (value) => /^[A-Za-z0-9_-]{1,128}$/.test(String(value || ''));
 export const validContentPlanPost = (postId, post, source) => Boolean(post?.sourcePlanItemId && source
   && postId === `plan-${post.sourcePlanItemId}-${String(post.platform || '').toLowerCase()}`
   && post.groupId === `plan-${post.sourcePlanItemId}`
-  && post.aiSuggested === true && post.approvalRequired === true
-  && source.userId === post.userId && source.approvalRequired === true
+  && post.aiSuggested === true
+  && source.userId === post.userId
   && source.autoPublishDestinations === true
   && ['PROCESSING', 'DONE'].includes(source.status)
   && source.resultMediaUrl

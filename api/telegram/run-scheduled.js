@@ -6,8 +6,7 @@ import { Client as QStashClient } from '@upstash/qstash';
 import sharp from 'sharp';
 import { logAudit } from '../_audit.js';
 import { claimPendingPost, findRecentDuplicateTelegramPost } from '../_telegramClaim.js';
-import { ensureApprovalRequest, reconcilePendingApprovalGroups } from '../_telegramApproval.js';
-import { cleanupExpiredGoogleLinks } from '../_telegramGoogleLink.js';
+import { releaseApprovalHeldPosts } from '../_directPublishingMigration.js';
 import { getScheduledCallbackBaseUrl } from '../_callbackUrl.js';
 import { notifyAdmins } from '../_alert.js';
 import { runUsageChecks } from '../_usageMonitor.js';
@@ -351,7 +350,7 @@ const createScheduledTelegramPost = async (req, res) => {
   const db = initFirebaseAdmin();
   const destination = await resolveTelegramDestination(db, decoded.uid);
   if (!destination.token || !destination.chatId) {
-    return res.status(409).json({ error: 'Connect your Google account to @dgacademy_official_bot using /login before scheduling.' });
+    return res.status(409).json({ error: 'Check the Telegram bot and channel in Business Profile before scheduling.' });
   }
   let uploaded;
   if (mediaUrl) {
@@ -385,8 +384,6 @@ const createScheduledTelegramPost = async (req, res) => {
     platform: 'TELEGRAM',
     scheduledTime: scheduledDate.toISOString(),
     status: 'PENDING',
-    approvalRequired: true,
-    approvalStatus: 'AWAITING_DUE',
     userId: decoded.uid,
     ...(groupId ? { groupId } : {}),
     aiSuggested: false,
@@ -438,7 +435,7 @@ export const postTelegramMessage = async (req, res) => {
 
   if (!token || !chatId) {
     return res.status(503).json({
-      error: 'Connect your own Telegram bot and channel in Business Profile before publishing.'
+      error: 'Check the Telegram bot and channel in Business Profile before publishing.'
     });
   }
 
@@ -553,7 +550,7 @@ export const resolveTelegramDestination = async (db, userId, allowShared = true)
 };
 
 export const sendTelegram = async (post, db) => {
-  const { token, chatId } = await resolveTelegramDestination(db, post.userId, post.approvalRequired === true);
+  const { token, chatId } = await resolveTelegramDestination(db, post.userId);
 
   if (!token || !chatId) {
     throw new Error('Connect Telegram and save a channel in Business Profile before publishing.');
@@ -623,6 +620,22 @@ export default async function handler(req, res) {
     return res.status(410).json({ ok: false, error: 'Guest migration is no longer available. Refresh the app to continue with your existing session.' });
   }
 
+  if (req.method === 'POST' && req.query?.action === 'publishing-status') {
+    try {
+      const decoded = await verifyUser(req);
+      const destination = await resolveTelegramDestination(initFirebaseAdmin(), decoded.uid);
+      res.setHeader('Cache-Control', 'no-store');
+      const sharedChannelId = String(process.env.TELEGRAM_SHARED_CHANNEL_ID || '').trim();
+      return res.status(200).json({
+        ready: Boolean(destination.token && destination.chatId),
+        channelLabel: sharedChannelId && destination.chatId === sharedChannelId
+          ? '@aimarketingengine' : destination.chatId || '',
+      });
+    } catch (error) {
+      return res.status(error?.statusCode || 500).json({ error: error?.message || 'Could not check Telegram publishing.' });
+    }
+  }
+
   if (req.method === 'POST' && req.query?.action === 'create') {
     try {
       initFirebaseAdmin();
@@ -677,9 +690,8 @@ export default async function handler(req, res) {
 
   try {
     const db = initFirebaseAdmin();
-    if (!requestedPlanStartId) await cleanupExpiredGoogleLinks(db).catch((error) => console.error('Telegram login link cleanup failed:', error?.message || error));
     if (!requestedPlanStartId && !req.query?.planVideoId) {
-      await reconcilePendingApprovalGroups(db).catch((error) => console.error('Approval group reconciliation failed:', error?.message || error));
+      await releaseApprovalHeldPosts(db).catch((error) => console.error('Could not release legacy approval holds:', error?.message || error));
       for (const status of ['DELETING', 'DELETE_FAILED']) {
         const pendingDeletion = await db.collection('content_plan_items').where('status', '==', status).limit(100).get();
         for (const item of pendingDeletion.docs.filter((doc) => status !== 'DELETE_FAILED'
@@ -696,32 +708,6 @@ export default async function handler(req, res) {
         for (const notice of notices.docs) await sendQuotaNotice(db, notice.ref);
       }
     }
-    // Pending bot requests have their own status so an unanswered request
-    // cannot occupy every slot in the platform delivery queues.
-    for (const approvalStatus of (req.query?.planVideoId || requestedPlanStartId ? [] : ['AWAITING_LINK', 'SEND_FAILED'])) {
-      const waiting = await db.collection('scheduled_posts').where('approvalStatus', '==', approvalStatus).get();
-      const retryable = waiting.docs
-        .filter((doc) => doc.data()?.status === 'AWAITING_APPROVAL'
-          && (approvalStatus === 'AWAITING_LINK'
-            ? true : Number(doc.data()?.nextApprovalRetryAt || 0) <= Date.now()))
-        .sort((a, b) => Number(a.data()?.nextApprovalRetryAt || 0) - Number(b.data()?.nextApprovalRetryAt || 0))
-        .slice(0, 10);
-      for (const waitingPost of retryable) await ensureApprovalRequest(db, waitingPost.ref, waitingPost.data());
-    }
-    // A process that died around sendMessage has an unknown delivery outcome.
-    // Do not blindly retry it and create another Yes/No message.
-    if (!requestedPlanStartId && !req.query?.planVideoId) {
-      const uncertain = await db.collection('scheduled_posts').where('approvalStatus', '==', 'REQUESTING').limit(20).get();
-      for (const doc of uncertain.docs) {
-        const started = doc.data()?.approvalRequestStartedAt?.toMillis?.() || 0;
-        if (doc.data()?.status === 'AWAITING_APPROVAL' && Date.now() - started >= 5 * 60_000) {
-          await doc.ref.update({ approvalStatus: 'SEND_UNCERTAIN', approvalError: 'Telegram delivery outcome is unknown; manual recovery is required.' });
-          console.error(`Approval prompt ${doc.id} has an uncertain Telegram send outcome.`);
-          await notifyAdmins(`Content Plan approval ${doc.id}: Telegram send outcome is unknown. Check the owner's chat before retrying.`);
-        }
-      }
-    }
-
     // Authenticated one-item trigger for an explicitly approved plan video.
     // It returns before the normal cron loops, so no other due content runs.
     const requestedPlanVideoId = String(req.query?.planVideoId || '').trim();
@@ -1095,12 +1081,12 @@ export default async function handler(req, res) {
           await updateActivePlanItem(db, planDoc.ref, { publishDestinationsQueued: fanout.queued, publishDestinationsSkipped: fanout.skipped });
         }
 
-        if (item.approvalRequired === true) {
+        if (item.autoPublishDestinations === true) {
           await updateActivePlanItem(db, planDoc.ref, {
             status: 'DONE', resultMediaUrl: uploaded.mediaUrl,
             completedAt: FieldValue.serverTimestamp(), errorMessage: null,
           });
-          results.push({ id: planDoc.id, ok: true, contentPlan: true, awaitingApproval: true });
+          results.push({ id: planDoc.id, ok: true, contentPlan: true, destinationsQueued: true });
           continue;
         }
 

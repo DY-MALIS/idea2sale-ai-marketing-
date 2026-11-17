@@ -38,21 +38,21 @@ const callback = (choice, postId, actor = 100, chat = 200, message = 7) => ({
 });
 
 describe('Telegram post approval', () => {
-  it('requires approval before a scheduled post can be claimed', async () => {
+  it('holds a legacy approval post until migration releases it', async () => {
     const posts = { p1: { userId: 'owner', platform: 'FACEBOOK', status: 'PENDING', approvalRequired: true, approvalStatus: 'AWAITING_DUE', scheduledTime: new Date(Date.now() + 60_000).toISOString() } };
     const db = fakeDb(posts);
-    expect(await claimPendingPost(db, db.collection('scheduled_posts').doc('p1'))).toEqual({ skipped: 'awaiting_approval' });
+    expect(await claimPendingPost(db, db.collection('scheduled_posts').doc('p1'))).toEqual({ skipped: 'legacy_approval_hold' });
     expect(posts.p1.status).toBe('PENDING');
     posts.p1.approvalStatus = 'APPROVED';
     expect((await claimPendingPost(db, db.collection('scheduled_posts').doc('p1'))).post.id).toBe('p1');
     expect(posts.p1.status).toBe('PROCESSING');
   });
 
-  it('moves a due unlinked post out of the publish queue without sending it', async () => {
+  it('does not send a new approval prompt for a due legacy post', async () => {
     const posts = { p1: { userId: 'owner', platform: 'YOUTUBE', status: 'PENDING', approvalRequired: true, approvalStatus: 'AWAITING_DUE', scheduledTime: new Date(Date.now() - 1000).toISOString() } };
     const db = fakeDb(posts);
-    expect(await claimPendingPost(db, db.collection('scheduled_posts').doc('p1'))).toEqual({ skipped: 'awaiting_approval' });
-    expect(posts.p1).toMatchObject({ status: 'AWAITING_APPROVAL', approvalStatus: 'AWAITING_LINK' });
+    expect(await claimPendingPost(db, db.collection('scheduled_posts').doc('p1'))).toEqual({ skipped: 'legacy_approval_hold' });
+    expect(posts.p1).toMatchObject({ status: 'PENDING', approvalStatus: 'AWAITING_DUE' });
   });
 
   it('accepts one platform while rejecting another and refuses repeated taps', async () => {
@@ -120,38 +120,6 @@ describe('Telegram post approval', () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(JSON.parse(fetchMock.mock.calls[0][1].body).text).toContain('TELEGRAM, FACEBOOK');
       expect(posts['plan-item-facebook'].approvalStatus).toBe('AWAITING_DUE');
-    } finally { vi.unstubAllGlobals(); }
-  });
-
-  it('warns about a finished plan video and waits for Yes before publishing any destination', async () => {
-    const mediaUrl = 'https://example.com/review.mp4';
-    const base = { userId: 'owner', groupId: 'plan-item', sourcePlanItemId: 'item', content: 'Video',
-      status: 'PENDING', approvalRequired: true, aiSuggested: true, approvalStatus: 'AWAITING_DUE',
-      scheduledTime: new Date(Date.now() - 1000).toISOString(), mediaType: 'video' };
-    const posts = {
-      'plan-item-telegram': { ...base, platform: 'TELEGRAM', mediaUrl, videoUrl: '' },
-      'plan-item-youtube': { ...base, platform: 'YOUTUBE', mediaUrl: '', videoUrl: mediaUrl },
-      item: { userId: 'owner', type: 'video', status: 'DONE', approvalFanoutReady: true,
-        resultMediaUrl: mediaUrl, approvalRequired: true, autoPublishDestinations: true,
-        approvalReviewWarnings: ['The Khmer speech did not pass automatic verification. Listen before approving.'] },
-      'bot-owner': { telegramBotToken: 'shared-token', telegramBotActive: true },
-    };
-    const links = { owner: { botOwnerId: 'bot-owner', telegramUserId: '100', chatId: '200' } };
-    const db = fakeDb(posts, { uid: 'owner', botOwnerId: 'bot-owner', chatId: '200' }, links);
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, result: { message_id: 77 } }) });
-    vi.stubGlobal('fetch', fetchMock);
-    try {
-      expect(await claimPendingPost(db, db.collection('scheduled_posts').doc('plan-item-youtube')))
-        .toMatchObject({ skipped: 'awaiting_approval' });
-      expect(posts['plan-item-youtube'].status).not.toBe('PROCESSING');
-      expect(await ensureApprovalRequest(db, db.collection('scheduled_posts').doc('plan-item-telegram'))).toBe(true);
-      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-      expect(body.text).toContain('VIDEO NEEDS YOUR REVIEW');
-      expect(body.text).toContain(mediaUrl);
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-      expect((await decideApproval(db, callback('y', 'plan-item-telegram', 100, 200, 77), 'bot-owner')).approved).toBe(true);
-      expect(posts['plan-item-telegram']).toMatchObject({ status: 'PENDING', approvalStatus: 'APPROVED' });
-      expect(posts['plan-item-youtube']).toMatchObject({ status: 'PENDING', approvalStatus: 'APPROVED' });
     } finally { vi.unstubAllGlobals(); }
   });
 

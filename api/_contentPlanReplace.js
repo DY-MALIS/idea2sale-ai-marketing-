@@ -44,10 +44,9 @@ export default async function replaceContentPlan(req, res) {
       const existingPosts = await tx.get(db.collection('scheduled_posts').where('userId', '==', owner.uid));
       const retainIds = new Set(existingPosts.docs.filter((snapshot) => {
         const post = snapshot.data();
-        return post.sourcePlanItemId && post.approvalRequired === true
-          && (post.status === 'PUBLISHED' || (
-            ['PENDING', 'AWAITING_APPROVAL', 'PROCESSING'].includes(post.status)
-            && ['REQUESTED', 'REQUESTING', 'SEND_UNCERTAIN', 'APPROVED'].includes(post.approvalStatus)));
+        return post.sourcePlanItemId && (['PUBLISHED', 'PROCESSING'].includes(post.status) || (
+          post.approvalRequired === true && ['PENDING', 'AWAITING_APPROVAL'].includes(post.status)
+          && ['REQUESTED', 'REQUESTING', 'SEND_UNCERTAIN', 'APPROVED'].includes(post.approvalStatus)));
       }).map((snapshot) => snapshot.data().sourcePlanItemId));
       const activeOld = old.docs;
       cancelledTriggers = activeOld.filter((snapshot) => snapshot.data()?.status === 'PENDING')
@@ -56,12 +55,15 @@ export default async function replaceContentPlan(req, res) {
       // anything rather than deleting only part of a customer's old plan.
       const unsentPosts = existingPosts.docs.filter((snapshot) => snapshot.data()?.sourcePlanItemId
         && ['PENDING', 'AWAITING_APPROVAL'].includes(snapshot.data()?.status)
-        && ['AWAITING_DUE', 'AWAITING_LINK', 'SEND_FAILED'].includes(snapshot.data()?.approvalStatus));
+        && (snapshot.data()?.approvalRequired !== true
+          || ['AWAITING_DUE', 'AWAITING_LINK', 'SEND_FAILED'].includes(snapshot.data()?.approvalStatus)));
       const oldWrites = activeOld.length + unsentPosts.length;
       if (oldWrites + items.length > 450) throw Object.assign(new Error('Too many existing plan items to replace at once.'), { statusCode: 409 });
       replacedCount = activeOld.filter((snapshot) => !snapshot.data()?.archivedAt).length;
       unsentPosts.forEach((snapshot) => tx.update(snapshot.ref, {
-        status: 'CANCELLED', approvalStatus: 'REJECTED', cancelledReason: 'Content Plan was replaced.',
+        status: 'CANCELLED',
+        ...(snapshot.data()?.approvalRequired === true ? { approvalStatus: 'REJECTED' } : {}),
+        cancelledReason: 'Content Plan was replaced.',
       }));
       activeOld.forEach((snapshot) => {
         if (retainIds.has(snapshot.id) || ['DELETING', 'DELETE_FAILED'].includes(snapshot.data()?.status)) {
@@ -90,7 +92,7 @@ export default async function replaceContentPlan(req, res) {
           prompt: String(item.prompt).trim(),
           businessName: String(req.body?.businessName || '').slice(0, 200),
           autoPublishDestinations: true,
-          approvalRequired: true,
+          approvalRequired: false,
           ...(item.type === 'image' ? {
             headline: String(item.headline || '').slice(0, 80),
             cta: String(item.cta || '').slice(0, 30),

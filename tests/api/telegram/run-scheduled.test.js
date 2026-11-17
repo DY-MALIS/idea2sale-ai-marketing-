@@ -127,6 +127,24 @@ it('keeps Telegram in the same one-upload schedule group as the other platforms'
     groupId: 'schedule-group-123',
     scheduledTime,
   }));
+  expect(addPost.mock.calls[0][0]).not.toHaveProperty('approvalRequired');
+  expect(addPost.mock.calls[0][0]).not.toHaveProperty('approvalStatus');
+});
+
+it('reports a saved Telegram channel as ready without bot login or webhook approval', async () => {
+  mockVerifyIdToken.mockResolvedValue({ uid: 'owner' });
+  planMocks.db = {
+    collection: (name) => name === 'business_profiles'
+      ? { doc: () => ({ get: async () => ({ data: () => ({ telegramBotToken: 'bot-token', telegramChannelUrl: '@mychannel' }) }) }) }
+      : { doc: () => ({ get: async () => ({ data: () => null }) }) },
+  };
+  const res = createMockRes();
+  await scheduledHandler({
+    method: 'POST', query: { action: 'publishing-status' },
+    headers: { authorization: 'Bearer owner-token' },
+  }, res);
+  expect(res.statusCode).toBe(200);
+  expect(res.body).toEqual({ ready: true, channelLabel: '@mychannel' });
 });
 
 it.each(['photo', 'video'])('saves a scheduled Telegram %s for the owner username', async (mediaType) => {
@@ -645,6 +663,25 @@ describe('formatTelegramHtml', () => {
 });
 
 describe('sendTelegram destination resolution', () => {
+  it('publishes a direct schedule to the linked shared channel without approval login', async () => {
+    process.env.TELEGRAM_SHARED_CHANNEL_ID = '-1004495121549';
+    process.env.TELEGRAM_SHARED_BOT_OWNER_UID = 'bot-owner';
+    const db = { collection: (name) => ({ doc: (id) => ({ get: async () => ({ data: () => {
+      if (name === 'business_profiles') return id === 'customer'
+        ? { businessName: 'Customer', telegramChannelUrl: '@aimarketingengine' }
+        : { telegramBotToken: 'shared-token', telegramBotActive: true, telegramBotUsername: 'dgacademy_official_bot' };
+      if (name === 'telegram_approval_links') return { botOwnerId: 'bot-owner', telegramUserId: '123', chatId: '123' };
+      return { uid: 'customer', botOwnerId: 'bot-owner', chatId: '123' };
+    } }) }) }) };
+    const fetchSpy = vi.fn().mockResolvedValue(okTelegramResponse());
+    global.fetch = fetchSpy;
+
+    await sendTelegram({ userId: 'customer', content: 'hello' }, db);
+
+    expect(fetchSpy.mock.calls[0][0]).toContain('botshared-token');
+    expect(JSON.parse(fetchSpy.mock.calls[0][1].body).chat_id).toBe('-1004495121549');
+  });
+
   it('requires the owner profile instead of using a shared channel', async () => {
     process.env.TELEGRAM_BOT_TOKEN = 'shared-token';
     process.env.TELEGRAM_CHAT_ID = 'shared-chat';

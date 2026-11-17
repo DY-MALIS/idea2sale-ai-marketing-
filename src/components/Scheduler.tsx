@@ -325,7 +325,7 @@ const Scheduler: React.FC = () => {
 
   const sendTelegramPost = async (post: SchedulePost) => {
     if (!post.localOnly && post.approvalRequired === true && post.approvalStatus !== 'APPROVED') {
-      setErrorMsg('Waiting for approval in Telegram. Open @dgacademy_official_bot and sign in with /login.');
+      setErrorMsg('This existing post is still waiting for Telegram approval. New Telegram schedules publish without that step.');
       return;
     }
     if (!user) {
@@ -667,7 +667,7 @@ const Scheduler: React.FC = () => {
                         </p>
                       )}
                       {['PENDING', 'AWAITING_APPROVAL'].includes(post.status) && post.approvalRequired && post.approvalStatus !== 'APPROVED' && (
-                        <p className="mt-2 text-xs text-sky-700 dark:text-sky-300">{post.approvalStatus === 'AWAITING_LINK' ? 'Open @dgacademy_official_bot and send /login to receive approval requests.' : post.approvalStatus === 'SEND_FAILED' ? 'The bot could not send this request. Delivery will retry; the post remains on hold.' : 'This destination will publish only after you tap Yes in @dgacademy_official_bot.'}</p>
+                        <p className="mt-2 text-xs text-sky-700 dark:text-sky-300">{post.approvalStatus === 'AWAITING_LINK' ? 'This existing post is waiting for a Telegram approval connection. New Telegram schedules publish without this step.' : post.approvalStatus === 'SEND_FAILED' ? 'The bot could not send this request. Delivery will retry; the post remains on hold.' : 'This destination will publish only after you tap Yes in @dgacademy_official_bot.'}</p>
                       )}
                       {post.platform === 'TELEGRAM' && post.status === 'PENDING' && !post.localOnly && !post.approvalRequired && (
                         <p className="mt-2 text-xs text-sky-700 dark:text-sky-300">

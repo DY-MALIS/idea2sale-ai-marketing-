@@ -78,7 +78,7 @@ describe('QStash raw request body', () => {
 });
 
 describe('processContentPlanVideo', () => {
-  it('queues a verified saved-plan video for bot approval without sending it to a channel', async () => {
+  it('queues a verified saved-plan video for direct publishing', async () => {
     const updates = [];
     const item = { status: 'PROCESSING', videoJobId: 'job', type: 'video', userId: 'owner',
       approvalRequired: true, autoPublishDestinations: true, resultMediaUrl: 'https://ik.imagekit.io/test/finished.mp4',
@@ -86,7 +86,7 @@ describe('processContentPlanVideo', () => {
     mockQueueDestinations.mockResolvedValueOnce({ queued: ['TELEGRAM'], skipped: ['TIKTOK: consent missing'] });
     global.fetch = vi.fn();
     const result = await processContentPlanVideo(statefulDb(item, updates), 'item', {});
-    expect(result).toMatchObject({ ok: true, awaitingApproval: true });
+    expect(result).toMatchObject({ ok: true, videoReady: true, destinationsQueued: true });
     expect(item).toMatchObject({ status: 'DONE', approvalReviewWarnings: [] });
     expect(mockQueueDestinations).toHaveBeenCalledWith(expect.anything(), 'item', item.resultMediaUrl, {});
     expect(mockPollOpenRouterVideo).not.toHaveBeenCalled();
@@ -101,7 +101,7 @@ describe('processContentPlanVideo', () => {
     mockVerifySpeech.mockRejectedValueOnce(Object.assign(new Error('Mismatch'), { speechVerification: { passed: false } }));
     mockQueueDestinations.mockResolvedValueOnce({ queued: ['TELEGRAM'], skipped: [] });
     const result = await processContentPlanVideo(statefulDb(item, updates), 'item', {});
-    expect(result).toMatchObject({ ok: true, awaitingApproval: true });
+    expect(result).toMatchObject({ ok: true, videoReady: true, destinationsQueued: true });
     expect(item.status).toBe('DONE');
     expect(item.approvalReviewWarnings).toEqual([expect.stringMatching(/speech.*verification/i)]);
     expect(mockQueueDestinations).toHaveBeenCalledOnce();
@@ -116,12 +116,12 @@ describe('processContentPlanVideo', () => {
       speechVerification: { passed: true }, imageFallbackReason: 'Review lip sync before publishing.' };
     mockQueueDestinations.mockResolvedValueOnce({ queued: ['TELEGRAM'], skipped: [] });
     const result = await processContentPlanVideo(statefulDb(item, updates), 'item', {});
-    expect(result).toMatchObject({ ok: true, awaitingApproval: true });
+    expect(result).toMatchObject({ ok: true, videoReady: true, destinationsQueued: true });
     expect(item.approvalReviewWarnings).toEqual(['Visual review: Review lip sync before publishing.']);
     expect(item.status).toBe('DONE');
   });
 
-  it('retries saved-plan approval setup from stored media without a second paid generation', async () => {
+  it('retries saved-plan destination setup from stored media without a second paid generation', async () => {
     const updates = [];
     const item = { status: 'PROCESSING', videoJobId: 'job', type: 'video', userId: 'owner',
       approvalRequired: true, autoPublishDestinations: true, resultMediaUrl: 'https://ik.imagekit.io/test/finished.mp4',
@@ -132,7 +132,7 @@ describe('processContentPlanVideo', () => {
     expect(await processContentPlanVideo(db, 'item', {})).toMatchObject({ approvalQueuePending: true });
     expect(item).toMatchObject({ status: 'PROCESSING', approvalQueueError: 'Temporary fanout failure' });
     expect(mockScheduleContentPlanPoll).toHaveBeenCalledOnce();
-    expect(await processContentPlanVideo(db, 'item', {})).toMatchObject({ awaitingApproval: true });
+    expect(await processContentPlanVideo(db, 'item', {})).toMatchObject({ ok: true, videoReady: true, destinationsQueued: true });
     expect(await processContentPlanVideo(db, 'item', {})).toMatchObject({ skipped: 'not-processing' });
     expect(mockPollOpenRouterVideo).not.toHaveBeenCalled();
     expect(mockQueueDestinations).toHaveBeenCalledTimes(2);

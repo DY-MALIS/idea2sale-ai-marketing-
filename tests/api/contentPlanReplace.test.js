@@ -70,7 +70,7 @@ describe('replace content plan', () => {
     expect(mocks.db.collection).not.toHaveBeenCalled();
   });
 
-  it('saves a scheduled video without TikTok consent for Telegram approval', async () => {
+  it('saves a scheduled video without TikTok consent for direct publishing', async () => {
     const created = [];
     mocks.db = {
       collection: (name) => ({ doc: () => ({ id: 'saved-video' }), where: () => ({ name }) }),
@@ -86,7 +86,7 @@ describe('replace content plan', () => {
     } }, res);
     expect(res.statusCode, JSON.stringify(res.body)).toBe(200);
     expect(created[0].fields).toMatchObject({ type: 'video', status: 'PENDING',
-      approvalRequired: true, autoPublishDestinations: true, tiktokDirectPostConsent: false });
+      approvalRequired: false, autoPublishDestinations: true, tiktokDirectPostConsent: false });
     expect(mocks.schedule).toHaveBeenCalledWith('saved-video', expect.any(String), mocks.db);
   });
 

@@ -15,7 +15,6 @@ const CRM = lazy(() => import('./components/CRM'));
 const SavedLeads = lazy(() => import('./components/SavedLeads'));
 const Automation = lazy(() => import('./components/Automation'));
 import Auth from './components/Auth';
-import TelegramConnect from './components/TelegramConnect';
 import LegalPage from './components/LegalPage';
 const SecurityCenter = lazy(() => import('./components/SecurityCenter'));
 const FacebookScanner = lazy(() => import('./components/FacebookScanner'));
@@ -179,9 +178,6 @@ export default function App() {
     return <LegalPage type="privacy" />;
   }
 
-  if (pathname === '/telegram-connect') {
-    return <TelegramConnect />;
-  }
 
   return (
     <div className={`flex flex-col min-h-screen font-sans bg-mesh overflow-x-hidden ${effectivelyAuthenticated && !isPublicHome ? 'dark workspace-theme' : ''}`}>

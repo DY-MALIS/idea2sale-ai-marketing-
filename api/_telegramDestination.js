@@ -1,4 +1,6 @@
-import { telegramDestinationFromProfile } from '../shared/telegramDestination.js';
+import { channelUsernameFromProfile, telegramDestinationFromProfile } from '../shared/telegramDestination.js';
+
+const SHARED_CHANNEL_USERNAME = '@aimarketingengine';
 
 export const sharedBotCanPublishToChannel = (administrators, telegramUserId) => {
   if (!Array.isArray(administrators)) return false;
@@ -9,8 +11,8 @@ export const sharedBotCanPublishToChannel = (administrators, telegramUserId) => 
 };
 
 // A linked account uses its own saved channel when the shared bot can post
-// there. The configured shared channel is a fallback only when no channel was
-// saved. The reciprocal chat binding prevents token borrowing.
+// there. The configured shared channel also handles profiles that explicitly
+// saved its username. The reciprocal chat binding prevents token borrowing.
 export async function resolveTelegramDestination(db, userId, allowShared = true) {
   if (!db || !userId) return { token: '', chatId: '' };
   const [profileSnap, linkSnap] = await Promise.all([
@@ -21,10 +23,16 @@ export async function resolveTelegramDestination(db, userId, allowShared = true)
   const link = linkSnap.data();
   const sharedChannelId = String(process.env.TELEGRAM_SHARED_CHANNEL_ID || '').trim();
   const sharedOwnerId = String(process.env.TELEGRAM_SHARED_BOT_OWNER_UID || '').trim();
+  const savedChannel = String(profile.telegramChannelUrl || profile.telegramChatId || '').trim();
+  const usesSharedChannel = !savedChannel
+    || channelUsernameFromProfile(savedChannel).toLowerCase() === SHARED_CHANNEL_USERNAME
+    || savedChannel === sharedChannelId;
+  const own = telegramDestinationFromProfile(profile);
+  // The original publishing flow uses the Bot Token and channel saved in this
+  // account's Business Profile. Chatbot activation is only needed for replies.
+  if (own.token && own.chatId) return own;
   if (!link?.botOwnerId) {
-    const own = telegramDestinationFromProfile(profile);
-    if (own.token && own.chatId) return own;
-    return allowShared && !String(profile.telegramChannelUrl || profile.telegramChatId || '').trim()
+    return allowShared && usesSharedChannel
       && sharedChannelId && userId === sharedOwnerId && profile.telegramBotActive === true
       && String(profile.telegramBotUsername || '').toLowerCase() === 'dgacademy_official_bot'
       && String(profile.businessName || '').trim()
@@ -45,13 +53,18 @@ export async function resolveTelegramDestination(db, userId, allowShared = true)
     || String(botProfile.telegramBotUsername || '').toLowerCase() !== 'dgacademy_official_bot') {
     return { token: '', chatId: '' };
   }
-  const destination = telegramDestinationFromProfile({ ...profile, telegramBotToken: botProfile.telegramBotToken });
   if (!String(botProfile.telegramBotToken || '').trim()) return { token: '', chatId: '' };
+  // A saved @aimarketingengine is the same destination as the configured
+  // shared channel ID. Treat it like an empty channel field so older profiles
+  // do not need a personal admin grant for the shared channel.
+  if (allowShared && usesSharedChannel && sharedChannelId && link.botOwnerId === sharedOwnerId
+    && String(profile.businessName || '').trim()) {
+    return { token: String(botProfile.telegramBotToken || '').trim(), chatId: sharedChannelId };
+  }
+  if (usesSharedChannel) return { token: '', chatId: '' };
+  const destination = telegramDestinationFromProfile({ ...profile, telegramBotToken: botProfile.telegramBotToken });
   if (!destination.chatId) {
-    return allowShared && !String(profile.telegramChannelUrl || profile.telegramChatId || '').trim()
-      && sharedChannelId && link.botOwnerId === sharedOwnerId && String(profile.businessName || '').trim()
-      ? { token: String(botProfile.telegramBotToken || '').trim(), chatId: sharedChannelId }
-      : { token: '', chatId: '' };
+    return { token: '', chatId: '' };
   }
   try {
     const response = await fetch(`https://api.telegram.org/bot${destination.token}/getChatAdministrators`, {

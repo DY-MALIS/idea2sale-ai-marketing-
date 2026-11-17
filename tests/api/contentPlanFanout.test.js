@@ -29,6 +29,7 @@ const fakeDb = (item, profile = {}, link = null, botProfile = {}) => {
         ? { exists: true, data: () => item }
         : { exists: posts.has(ref.id), data: () => posts.get(ref.id) },
       create: (ref, data) => posts.set(ref.id, data),
+      update: (ref, patch) => Object.assign(posts.get(ref.id), patch),
     }),
   };
   return { db, posts, item };
@@ -47,11 +48,13 @@ describe('Content Plan publishing', () => {
     mock.telegramQueue.mockReset().mockResolvedValue(true);
   });
 
-  it('queues an image only for Facebook, leaving Telegram to its existing sender', async () => {
+  it('queues an image for Telegram and Facebook without approval', async () => {
     const { db, posts } = fakeDb({ userId: 'owner', type: 'image', status: 'PROCESSING', autoPublishDestinations: true, topic: 'Photo' });
     const result = await queueContentPlanDestinations(db, 'image-1', 'https://example.com/photo.jpg', {});
-    expect(result.queued).toEqual(['FACEBOOK']);
-    expect([...posts.values()][0]).toMatchObject({ platform: 'FACEBOOK', mediaType: 'photo', publishMode: 'FACEBOOK_PHOTO_AUTO_POST' });
+    expect(result.queued).toEqual(['TELEGRAM', 'FACEBOOK']);
+    expect(posts.get('plan-image-1-telegram')).toMatchObject({ platform: 'TELEGRAM', mediaType: 'photo', publishMode: 'TELEGRAM_AUTO_POST' });
+    expect(posts.get('plan-image-1-facebook')).toMatchObject({ platform: 'FACEBOOK', mediaType: 'photo', publishMode: 'FACEBOOK_PHOTO_AUTO_POST' });
+    expect(posts.get('plan-image-1-telegram')).not.toHaveProperty('approvalRequired');
     expect(mock.youtubeQueue).not.toHaveBeenCalled();
     expect(mock.tiktokQueue).not.toHaveBeenCalled();
   });
@@ -70,31 +73,44 @@ describe('Content Plan publishing', () => {
     });
     const first = await queueContentPlanDestinations(db, 'video-2', 'https://example.com/video.mp4', {});
     const second = await queueContentPlanDestinations(db, 'video-2', 'https://example.com/video.mp4', {});
-    expect(first.queued).toEqual(['YOUTUBE', 'FACEBOOK', 'TIKTOK']);
+    expect(first.queued).toEqual(['TELEGRAM', 'YOUTUBE', 'FACEBOOK', 'TIKTOK']);
     expect(second.queued).toEqual([]);
-    expect(posts.size).toBe(3);
+    expect(posts.size).toBe(4);
     expect(posts.get('plan-video-2-tiktok').directPostOptions).toMatchObject({ consent: true, privacyLevel: 'PUBLIC_TO_EVERYONE', ownBrand: true });
   });
 
-  it('queues a new plan image separately for Telegram and Facebook, both awaiting approval', async () => {
-    const { db, posts, item } = fakeDb(
+  it('releases a matching legacy plan post from Telegram approval on retry', async () => {
+    const { db, posts } = fakeDb({ userId: 'owner', type: 'image', status: 'PROCESSING', autoPublishDestinations: true, topic: 'Photo' });
+    posts.set('plan-image-legacy-telegram', {
+      userId: 'owner', content: 'Photo', platform: 'TELEGRAM', groupId: 'plan-image-legacy',
+      sourcePlanItemId: 'image-legacy', mediaUrl: 'https://example.com/photo.jpg',
+      status: 'AWAITING_APPROVAL', approvalRequired: true, approvalStatus: 'AWAITING_LINK',
+    });
+    await queueContentPlanDestinations(db, 'image-legacy', 'https://example.com/photo.jpg', {});
+    expect(posts.get('plan-image-legacy-telegram')).toMatchObject({
+      status: 'PENDING', approvalRequired: false, approvalStatus: 'BYPASSED',
+    });
+  });
+
+  it('queues a new plan image for Telegram and Facebook without approval', async () => {
+    const { db, posts } = fakeDb(
       { userId: 'owner', type: 'image', status: 'PROCESSING', autoPublishDestinations: true, approvalRequired: true, topic: 'Photo' },
       { telegramBotToken: 'owner-token', telegramChannelUrl: '@ownerchannel' },
     );
     mock.telegramQueue.mockImplementation(async () => {
       expect(posts.size).toBe(2);
-      expect(item.approvalFanoutReady).toBe(true);
       return true;
     });
     const result = await queueContentPlanDestinations(db, 'image-2', 'https://example.com/photo.jpg', {});
     expect(result.queued).toEqual(['TELEGRAM', 'FACEBOOK']);
-    expect(posts.get('plan-image-2-telegram')).toMatchObject({ approvalRequired: true, approvalStatus: 'AWAITING_DUE', platform: 'TELEGRAM', mediaUrl: 'https://example.com/photo.jpg' });
-    expect(posts.get('plan-image-2-facebook')).toMatchObject({ approvalRequired: true, approvalStatus: 'AWAITING_DUE' });
-    expect(item.approvalFanoutReady).toBe(true);
+    expect(posts.get('plan-image-2-telegram')).toMatchObject({ platform: 'TELEGRAM', mediaUrl: 'https://example.com/photo.jpg' });
+    expect(posts.get('plan-image-2-facebook')).toMatchObject({ platform: 'FACEBOOK' });
+    expect(posts.get('plan-image-2-telegram')).not.toHaveProperty('approvalRequired');
+    expect(posts.get('plan-image-2-facebook')).not.toHaveProperty('approvalRequired');
     expect(mock.telegramQueue).toHaveBeenCalledOnce();
   });
 
-  it('holds an early image approval until the scheduled time', async () => {
+  it('holds an early image post until the scheduled time', async () => {
     vi.useFakeTimers().setSystemTime('2026-11-09T05:56:00Z');
     const due = '2026-11-09T06:00:00.000Z';
     const { db, posts } = fakeDb({
@@ -107,7 +123,7 @@ describe('Content Plan publishing', () => {
     expect(mock.facebookQueue.mock.calls[0][1].toISOString()).toBe(due);
   });
 
-  it('queues a slow video approval immediately after media is ready', async () => {
+  it('queues a slow video post immediately after media is ready', async () => {
     vi.useFakeTimers().setSystemTime('2026-11-09T06:03:00Z');
     const due = '2026-11-09T06:00:00.000Z';
     const { db, posts } = fakeDb({
@@ -119,41 +135,7 @@ describe('Content Plan publishing', () => {
     expect(mock.telegramQueue.mock.calls[0][2].toISOString()).toBe('2026-11-09T06:03:01.000Z');
   });
 
-  it('queues a warned plan video for Telegram approval without TikTok consent', async () => {
-    const mediaUrl = 'https://example.com/review.mp4';
-    const { db, posts } = fakeDb({
-      userId: 'owner', type: 'video', status: 'PROCESSING', autoPublishDestinations: true,
-      approvalRequired: true, topic: 'Review clip', resultMediaUrl: mediaUrl,
-      speechVerification: { passed: false }, imageFallbackReason: 'Presenter fallback',
-      approvalReviewWarnings: [
-        'Speech verification: the Khmer speech did not match the requested narration.',
-        'Visual review: Presenter fallback',
-      ],
-      tiktokDirectPostConsent: false,
-    });
-    const result = await queueContentPlanDestinations(db, 'warned-video', mediaUrl, {});
-    expect(result.queued).toContain('TELEGRAM');
-    expect(result.skipped).toContain('TIKTOK: consent missing');
-    expect(posts.get('plan-warned-video-telegram')).toMatchObject({
-      approvalRequired: true, approvalStatus: 'AWAITING_DUE', mediaType: 'video', mediaUrl,
-    });
-    expect(posts.has('plan-warned-video-tiktok')).toBe(false);
-    expect(mock.tiktokQueue).not.toHaveBeenCalled();
-  });
-
-  it('does not queue an unverified video without a matching final-media warning', async () => {
-    const mediaUrl = 'https://example.com/review.mp4';
-    const { db, posts } = fakeDb({
-      userId: 'owner', type: 'video', status: 'PROCESSING', autoPublishDestinations: true,
-      approvalRequired: true, resultMediaUrl: 'https://example.com/another.mp4',
-      speechVerification: { passed: false },
-      approvalReviewWarnings: ['Speech verification: the Khmer speech did not match the requested narration.'],
-    });
-    expect(await queueContentPlanDestinations(db, 'unsafe-video', mediaUrl, {})).toMatchObject({ skipped: 'speech_not_verified' });
-    expect(posts.size).toBe(0);
-  });
-
-  it('queues a linked account photo for Telegram approval', async () => {
+  it('queues a linked account photo for Telegram publishing', async () => {
     const { db, posts } = fakeDb(
       { userId: 'customer', type: 'image', status: 'PROCESSING', autoPublishDestinations: true, approvalRequired: true, topic: 'Photo' },
       { telegramBotToken: 'invalid-customer-token', telegramChannelUrl: '@customerchannel' },
@@ -162,15 +144,17 @@ describe('Content Plan publishing', () => {
     );
     const result = await queueContentPlanDestinations(db, 'image-3', 'https://example.com/photo.jpg', {});
     expect(result.queued).toContain('TELEGRAM');
-    expect(posts.get('plan-image-3-telegram')).toMatchObject({ userId: 'customer', platform: 'TELEGRAM', approvalRequired: true });
+    expect(posts.get('plan-image-3-telegram')).toMatchObject({ userId: 'customer', platform: 'TELEGRAM' });
+    expect(posts.get('plan-image-3-telegram')).not.toHaveProperty('approvalRequired');
   });
 
-  it('keeps a new Telegram destination queued while its owner has not linked the bot', async () => {
+  it('queues a Telegram destination without a bot login', async () => {
     const { db, posts } = fakeDb(
       { userId: 'customer', type: 'image', status: 'PROCESSING', autoPublishDestinations: true, approvalRequired: true, topic: 'Photo' },
     );
     const result = await queueContentPlanDestinations(db, 'image-4', 'https://example.com/photo.jpg', {});
     expect(result.queued).toContain('TELEGRAM');
-    expect(posts.get('plan-image-4-telegram')).toMatchObject({ status: 'PENDING', approvalRequired: true });
+    expect(posts.get('plan-image-4-telegram')).toMatchObject({ status: 'PENDING' });
+    expect(posts.get('plan-image-4-telegram')).not.toHaveProperty('approvalRequired');
   });
 });

@@ -24,17 +24,12 @@ export async function queueContentPlanDestinations(db, itemId, mediaUrl, req) {
 
   const isVideo = item.type === 'video';
   const targets = isVideo
-    ? (item.approvalRequired === true ? ['TELEGRAM', 'YOUTUBE', 'FACEBOOK', 'TIKTOK'] : ['YOUTUBE', 'FACEBOOK', 'TIKTOK'])
-    : (item.approvalRequired === true ? ['TELEGRAM', 'FACEBOOK'] : ['FACEBOOK']);
+    ? ['TELEGRAM', 'YOUTUBE', 'FACEBOOK', 'TIKTOK']
+    : ['TELEGRAM', 'FACEBOOK'];
   const connection = await getFacebookPages(db, item.userId).catch(() => null);
   const facebookPageId = connection?.selectedPageId || connection?.pages?.[0]?.id;
   const queued = [];
   const skipped = [];
-  if (item.approvalRequired === true) {
-    // Cron may see the Telegram post while the remaining destinations are
-    // still being created. No prompt may leave until the group is complete.
-    await itemRef.update({ approvalFanoutReady: false });
-  }
   const deliveryJobs = [];
   for (const platform of targets) {
     if (platform === 'FACEBOOK' && !facebookPageId) { skipped.push('FACEBOOK: no connected Page'); continue; }
@@ -49,7 +44,6 @@ export async function queueContentPlanDestinations(db, itemId, mediaUrl, req) {
       sourcePlanItemId: itemId,
       scheduledTime,
       status: 'PENDING',
-      ...(item.approvalRequired === true ? { approvalRequired: true, approvalStatus: 'AWAITING_DUE' } : {}),
       aiSuggested: true,
       videoUrl: isVideo && platform !== 'TELEGRAM' ? mediaUrl : '',
       mediaUrl: platform === 'TELEGRAM' || !isVideo ? mediaUrl : '',
@@ -82,10 +76,15 @@ export async function queueContentPlanDestinations(db, itemId, mediaUrl, req) {
         && !hasPlanVideoWarning(freshItem.data(), mediaUrl, (warning) => warning.startsWith('Visual review:'))) return 'inactive';
       if (existing.exists) {
         const previous = existing.data();
-        return previous?.userId === item.userId && previous?.groupId === `plan-${itemId}`
+        const matches = previous?.userId === item.userId && previous?.groupId === `plan-${itemId}`
           && previous?.content === data.content && previous?.platform === platform
           && String(previous?.videoUrl || previous?.mediaUrl || '') === mediaUrl
-          && !['PUBLISHED', 'CANCELLED'].includes(previous?.status) ? 'existing' : 'conflict';
+          && !['PUBLISHED', 'CANCELLED'].includes(previous?.status);
+        if (!matches) return 'conflict';
+        if (previous.approvalRequired === true && ['PENDING', 'AWAITING_APPROVAL'].includes(previous.status)) {
+          tx.update(ref, { status: 'PENDING', approvalRequired: false, approvalStatus: 'BYPASSED' });
+        }
+        return 'existing';
       }
       tx.create(ref, data);
       return 'created';
@@ -96,11 +95,6 @@ export async function queueContentPlanDestinations(db, itemId, mediaUrl, req) {
     // An interrupted fanout may have created some deterministic posts already.
     // Re-arm those jobs as well when a later invocation completes the group.
     deliveryJobs.push({ platform, postId: ref.id });
-  }
-  if (item.approvalRequired === true) {
-    const fresh = await itemRef.get();
-    if (!fresh.exists || fresh.data()?.status !== 'PROCESSING' || fresh.data()?.supersededBy) return { skipped: 'inactive', queued };
-    await itemRef.update({ approvalFanoutReady: true });
   }
   for (const { platform, postId } of deliveryJobs) {
     try {

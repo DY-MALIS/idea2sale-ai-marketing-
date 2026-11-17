@@ -98,15 +98,8 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [telegramBotActive, setTelegramBotActive] = useState(false);
-  const [telegramBotUsername, setTelegramBotUsername] = useState('');
   const [activatingBot, setActivatingBot] = useState(false);
   const [botStatusMessage, setBotStatusMessage] = useState<string | null>(null);
-  const [approvalLoginCode, setApprovalLoginCode] = useState('');
-  const [approvalLoginStatus, setApprovalLoginStatus] = useState('');
-  const [creatingApprovalLoginCode, setCreatingApprovalLoginCode] = useState(false);
-  const [approvalConnection, setApprovalConnection] = useState<{ active: boolean; linked: boolean; webhookReady: boolean; sharedBot: boolean; channelReady: boolean; channelLabel?: string } | null>(null);
-  const [approvalConnectionError, setApprovalConnectionError] = useState('');
-  const [checkingApprovalConnection, setCheckingApprovalConnection] = useState(false);
 
   const [businessName, setBusinessName] = useState('');
   const [savedBusinessName, setSavedBusinessName] = useState('');
@@ -158,7 +151,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
       setSavedBusinessName('');
       setTelegramBotToken(''); setTelegramChatId(''); setTelegramChannelUrl('');
       setSavedTelegramBotToken('');
-      setTiktokHandle(''); setFacebookPageUrl(''); setWebsiteUrl(''); setLinkedinUrl(''); setTelegramBotActive(false); setTelegramBotUsername('');
+      setTiktokHandle(''); setFacebookPageUrl(''); setWebsiteUrl(''); setLinkedinUrl(''); setTelegramBotActive(false);
       setBusinessKnowledgeBase(''); setBusinessKnowledgeBaseSources([]); setBusinessKnowledgeBaseUpdatedAt(0); setKnowledgeRefreshError(null);
       setBusinessDocumentKnowledge('');
       setProfileFiles([]);
@@ -211,7 +204,6 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
             setWebsiteUrl(data.websiteUrl || '');
             setLinkedinUrl(data.linkedinUrl || '');
             setTelegramBotActive(Boolean(data.telegramBotActive));
-            setTelegramBotUsername(String(data.telegramBotUsername || ''));
             setBusinessKnowledgeBase(data.businessKnowledgeBase || '');
             setBusinessKnowledgeBaseSources(Array.isArray(data.businessKnowledgeBaseSources) ? data.businessKnowledgeBaseSources : []);
             setBusinessKnowledgeBaseUpdatedAt(data.businessKnowledgeBaseUpdatedAt || 0);
@@ -638,59 +630,11 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
         throw new Error(data.error || 'Could not update your bot.');
       }
       setTelegramBotActive(Boolean(data.active));
-      if (data.botUsername) setTelegramBotUsername(String(data.botUsername));
       setBotStatusMessage(data.message || null);
-      setApprovalConnection(null);
     } catch (err: any) {
       setBotStatusMessage(err.message || 'Could not update your bot.');
     } finally {
       setActivatingBot(false);
-    }
-  };
-
-  const checkApprovalConnection = async () => {
-    if (!user || isDemoMode) return;
-    setCheckingApprovalConnection(true);
-    setApprovalConnectionError('');
-    try {
-      const idToken = await user.getIdToken();
-      const response = await fetch('/api/telegram/webhook?action=approval-status', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${idToken}` },
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || 'Could not check the Telegram connection.');
-      setApprovalConnection({ active: data.active === true, linked: data.linked === true, webhookReady: data.webhookReady === true, sharedBot: data.sharedBot === true, channelReady: data.channelReady === true });
-    } catch (error: any) {
-      setApprovalConnectionError(error?.message || 'Could not check the Telegram connection.');
-    } finally {
-      setCheckingApprovalConnection(false);
-    }
-  };
-
-  useEffect(() => {
-    if (!authLoading && user && !isDemoMode) void checkApprovalConnection();
-  }, [authLoading, user?.uid, isDemoMode]);
-
-  const createApprovalCode = async () => {
-    if (!user || !telegramBotActive) return;
-    setCreatingApprovalLoginCode(true);
-    setApprovalLoginCode('');
-    setApprovalLoginStatus('');
-    try {
-      const idToken = await user.getIdToken();
-      const response = await fetch('/api/telegram/webhook?action=login-code', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${idToken}` },
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data.code) throw new Error(data.error || 'Could not create a login code.');
-      setApprovalLoginCode(data.code);
-      setApprovalLoginStatus(`Send /login ${data.code} in a private chat with ${data.botUsername ? `@${data.botUsername}` : 'your activated bot'}. This code expires in 10 minutes and works once.`);
-    } catch (error: any) {
-      setApprovalLoginStatus(error?.message || 'Could not create a login code.');
-    } finally {
-      setCreatingApprovalLoginCode(false);
     }
   };
 
@@ -1032,9 +976,8 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
                 {t('myTelegramChannelTitle')}
               </label>
               <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">{t('myTelegramChannelDesc')}</p>
-              {approvalConnection?.sharedBot && <p className="mb-3 text-xs text-slate-600 dark:text-slate-300">Your account uses @dgacademy_official_bot for approvals. Save your own channel below and add the bot as a posting admin to publish there. Leave the channel empty to use @aimarketingengine.</p>}
               <div className="space-y-3">
-                {!approvalConnection?.sharedBot && <div>
+                <div>
                   <label htmlFor="telegram-bot-token" className="mb-1 block text-[10px] font-bold text-slate-500 dark:text-slate-400">{t('telegramBotTokenLabel')}</label>
                   <input
                     id="telegram-bot-token"
@@ -1045,7 +988,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
                     autoComplete="off"
                     className="w-full px-4 py-3 bg-brand-50 border border-brand-100 dark:bg-slate-800 dark:border-slate-700 rounded-2xl text-sm text-brand-700 dark:text-slate-100 focus:outline-none focus:ring-2 ring-brand-500/20"
                   />
-                </div>}
+                </div>
                 <div>
                   {/* This is the field the Sidebar's "Open Telegram Channel"
                       link and publishing destination actually read -- placed
@@ -1071,7 +1014,7 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
                     </p>
                   )}
                 </div>
-                {!approvalConnection?.sharedBot && <div>
+                <div>
                   <label htmlFor="telegram-chat-id" className="mb-1 block text-[10px] font-bold text-slate-500 dark:text-slate-400">{t('telegramChatIdLabel')}</label>
                   <input
                     id="telegram-chat-id"
@@ -1081,11 +1024,11 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
                     placeholder={t('telegramChatIdPlaceholder')}
                     className="w-full px-4 py-3 bg-brand-50 border border-brand-100 dark:bg-slate-800 dark:border-slate-700 rounded-2xl text-sm text-brand-700 dark:text-slate-100 focus:outline-none focus:ring-2 ring-brand-500/20"
                   />
-                </div>}
+                </div>
               </div>
             </div>
 
-            {!isDemoMode && user && !approvalConnection?.sharedBot && (
+            {!isDemoMode && user && (
               <div>
                 <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
                   <Bot size={12} />
@@ -1118,30 +1061,6 @@ const BusinessProfile: React.FC<BusinessProfileProps> = ({ onClose }) => {
                   <p className="text-[11px] text-amber-600 mt-2">{t('saveBotTokenFirst')}</p>
                 )}
                 {botStatusMessage && <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">{botStatusMessage}</p>}
-              </div>
-            )}
-
-            {!isDemoMode && user && (approvalConnectionError || (approvalConnection && !(approvalConnection.webhookReady && approvalConnection.linked && approvalConnection.channelReady))) && (
-              <div className="rounded-2xl border border-slate-200 p-5 dark:border-slate-700">
-                <h3 className="mb-2 font-bold text-slate-900 dark:text-slate-100">Approval bot sign-in</h3>
-                <p className="mb-3 text-xs text-slate-600 dark:text-slate-300">To connect this website account to @dgacademy_official_bot, send /login to the bot in a private chat, open its link, and continue with Google. Your website password stays with Firebase Authentication.</p>
-                {approvalConnection && (
-                  <p className={`mb-2 text-xs font-semibold ${approvalConnection.webhookReady && approvalConnection.linked && approvalConnection.channelReady ? 'text-emerald-700' : 'text-amber-700'}`}>
-                    {approvalConnection.webhookReady
-                      ? (approvalConnection.linked
-                        ? (approvalConnection.channelReady ? `Bot and ${approvalConnection.channelLabel || 'channel'} ready for approvals and publishing.` : 'Bot connected. Check your saved channel and the bot’s posting permission.')
-                        : 'Bot webhook ready. Send /login in a private chat to connect.')
-                      : 'Bot webhook is not ready for approval buttons. Activate your bot again above.'}
-                  </p>
-                )}
-                {approvalConnectionError && <p className="mb-2 text-xs text-rose-600">{approvalConnectionError}</p>}
-                <button type="button" onClick={checkApprovalConnection} disabled={checkingApprovalConnection} className="mb-3 text-xs font-semibold text-brand-700 underline disabled:opacity-50">{checkingApprovalConnection ? 'Checking connection…' : 'Check connection'}</button>
-                {telegramBotActive && telegramBotUsername.toLowerCase() !== 'dgacademy_official_bot' && <>
-                  <p className="mb-3 text-xs text-slate-600 dark:text-slate-300">For your own separate bot, generate a one-time code:</p>
-                  <button type="button" onClick={createApprovalCode} disabled={creatingApprovalLoginCode} className="mb-3 rounded-xl bg-brand-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{creatingApprovalLoginCode ? 'Creating code…' : 'Generate own-bot login code'}</button>
-                  {approvalLoginCode && <p className="mb-2 font-mono text-lg font-bold tracking-wider text-slate-900 dark:text-slate-100">{approvalLoginCode}</p>}
-                  {approvalLoginStatus && <p className="mb-4 text-xs text-slate-600 dark:text-slate-300">{approvalLoginStatus}</p>}
-                </>}
               </div>
             )}
 

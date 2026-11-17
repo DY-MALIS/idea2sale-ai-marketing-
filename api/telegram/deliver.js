@@ -252,12 +252,12 @@ export const processContentPlanVideo = async (db, itemId, req) => {
     if (Array.isArray(fanout.skipped) && (fanout.queued.length || fanout.skipped.length)) {
       await ref.update({ publishDestinationsQueued: fanout.queued, publishDestinationsSkipped: fanout.skipped });
     }
-    if (item.approvalRequired === true) {
+    if (item.autoPublishDestinations === true) {
       if (!(await updateActivePlanItem(db, ref, {
         status: 'DONE', resultMediaUrl: uploaded.mediaUrl, completedAt: FieldValue.serverTimestamp(),
         errorMessage: null, approvalQueueError: null, approvalProcessingClaimedAt: null,
       }))) return { ok: true, skipped: 'superseded' };
-      return { ok: true, videoReady: true, awaitingApproval: true };
+      return { ok: true, videoReady: true, destinationsQueued: true };
     }
     // Speech verification is the automated quality gate. Once it passes, send
     // the video immediately instead of pausing in REVIEW for a manual approval.

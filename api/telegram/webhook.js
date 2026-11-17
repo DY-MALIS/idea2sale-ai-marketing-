@@ -4,9 +4,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { logAudit } from '../_audit.js';
 import { botCall, decideApproval } from '../_telegramApproval.js';
 import { deleteRejectedPlanMedia } from '../_contentPlanMedia.js';
-import { handleApprovalBotLogin, issueApprovalLoginCode } from '../_telegramBotAuth.js';
-import { createGoogleLink, completeGoogleLink, disconnectGoogleLink, linkedWebsiteUid } from '../_telegramGoogleLink.js';
-import { resolveTelegramDestination } from '../_telegramDestination.js';
+import { linkedWebsiteUid } from '../_telegramGoogleLink.js';
 
 const TELEGRAM_LIMIT = 3900;
 
@@ -800,6 +798,16 @@ const activateOwnBot = async (req, res) => {
   const secret = (process.env.TELEGRAM_WEBHOOK_SECRET || '').trim();
 
   try {
+    const meResponse = await fetch(`https://api.telegram.org/bot${ownToken}/getMe`);
+    const meData = await meResponse.json().catch(() => ({}));
+    if (!meResponse.ok || meData.ok !== true || !meData.result?.username) {
+      return res.status(502).json({ ok: false, error: meData.description || 'Could not verify this Bot Token.' });
+    }
+    const botUsername = String(meData.result.username);
+    if (botUsername.toLowerCase() === 'dgacademy_official_bot'
+      && decoded.uid !== String(process.env.TELEGRAM_SHARED_BOT_OWNER_UID || '').trim()) {
+      return res.status(403).json({ ok: false, error: 'The shared bot webhook is managed by its owner. You can still use its token for channel publishing.' });
+    }
     const response = await fetch(`https://api.telegram.org/bot${ownToken}/setWebhook`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -815,16 +823,6 @@ const activateOwnBot = async (req, res) => {
     const data = await response.json().catch(() => ({}));
     if (!response.ok || !data.ok) {
       return res.status(502).json({ ok: false, error: data?.description || 'Telegram setWebhook failed.' });
-    }
-
-    // The bot's @username is never entered by the user (only the token is) --
-    // fetching it here, once, at activation time is what lets the frontend
-    // build a t.me/<username>?start=<id> deep link later without ever
-    // touching the token itself.
-    let botUsername = '';
-    if (!deactivate) {
-      const meData = await fetch(`https://api.telegram.org/bot${ownToken}/getMe`).then((result) => result.json()).catch(() => ({}));
-      botUsername = meData?.result?.username || '';
     }
 
     // Business Profile's own doc, not a separate collection, so the UI can
@@ -845,94 +843,6 @@ const activateOwnBot = async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ ok: false, error: error?.message || 'Could not update your bot webhook.' });
-  }
-};
-
-const createApprovalLoginCode = async (req, res) => {
-  const idToken = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
-  if (!idToken) return res.status(401).json({ error: 'Sign in on the website first.' });
-  try {
-    const db = initFirebaseAdmin();
-    const decoded = await admin.auth().verifyIdToken(idToken, true);
-    const profile = (await db.collection('business_profiles').doc(decoded.uid).get()).data() || {};
-    if (profile.telegramBotActive !== true || !profile.telegramBotToken) {
-      return res.status(409).json({ error: 'Activate your Telegram bot in Business Profile first.' });
-    }
-    const code = await issueApprovalLoginCode(db, decoded.uid);
-    res.setHeader('Cache-Control', 'no-store');
-    return res.status(200).json({ code, expiresInSeconds: 600, botUsername: profile.telegramBotUsername || '' });
-  } catch {
-    return res.status(401).json({ error: 'Could not verify your website session.' });
-  }
-};
-
-const completeGoogleBotLogin = async (req, res) => {
-  const idToken = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
-  if (!idToken) return res.status(401).json({ error: 'Sign in with Google first.' });
-  try {
-    const db = initFirebaseAdmin();
-    const decoded = await admin.auth().verifyIdToken(idToken, true);
-    if (decoded.firebase?.sign_in_provider !== 'google.com') {
-      return res.status(403).json({ error: 'Use Google sign-in to connect Telegram.' });
-    }
-    const user = await admin.auth().getUser(decoded.uid);
-    const result = await completeGoogleLink(db, req.body?.state, user);
-    res.setHeader('Cache-Control', 'no-store');
-    return res.status(result.ok ? 200 : 400).json(result);
-  } catch (error) {
-    console.error('Telegram Google link failed:', error?.message || error);
-    return res.status(500).json({ error: 'Could not connect the Telegram chat.' });
-  }
-};
-
-const getApprovalConnectionStatus = async (req, res) => {
-  const idToken = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
-  if (!idToken) return res.status(401).json({ error: 'Sign in on the website first.' });
-  let db;
-  try {
-    db = initFirebaseAdmin();
-  } catch {
-    return res.status(503).json({ error: 'Telegram approval connection is unavailable.' });
-  }
-  let decoded;
-  try {
-    decoded = await admin.auth().verifyIdToken(idToken, true);
-  } catch {
-    return res.status(401).json({ error: 'Sign-in verification failed.' });
-  }
-  try {
-    const [profileSnap, linkSnap] = await Promise.all([
-      db.collection('business_profiles').doc(decoded.uid).get(),
-      db.collection('telegram_approval_links').doc(decoded.uid).get(),
-    ]);
-    const link = linkSnap.data();
-    const sharedBot = Boolean(link?.botOwnerId);
-    const botOwnerId = sharedBot ? link.botOwnerId : decoded.uid;
-    const botProfile = sharedBot
-      ? (await db.collection('business_profiles').doc(botOwnerId).get()).data() || {}
-      : profileSnap.data() || {};
-    const token = String(botProfile.telegramBotToken || '').trim();
-    let linked = linkSnap.exists;
-    if (sharedBot) {
-      const binding = (await db.collection('telegram_approval_chats').doc(`${botOwnerId}_${link.telegramUserId}`).get()).data();
-      linked = binding?.uid === decoded.uid && binding.botOwnerId === botOwnerId
-        && String(binding.chatId) === String(link.chatId)
-        && String(botProfile.telegramBotUsername || '').toLowerCase() === 'dgacademy_official_bot';
-    }
-    let webhookReady = false;
-    if (botProfile.telegramBotActive === true && token) {
-      const response = await fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`, { signal: AbortSignal.timeout(5000) });
-      const data = await response.json();
-      const expectedUrl = `${getBaseUrl(req)}/api/telegram/webhook?uid=${encodeURIComponent(botOwnerId)}`;
-      webhookReady = response.ok && data.ok === true && data.result?.url === expectedUrl
-        && Array.isArray(data.result?.allowed_updates) && data.result.allowed_updates.includes('callback_query');
-    }
-    const destination = await resolveTelegramDestination(db, decoded.uid);
-    res.setHeader('Cache-Control', 'no-store');
-    const sharedChannelId = String(process.env.TELEGRAM_SHARED_CHANNEL_ID || '').trim();
-    return res.status(200).json({ active: botProfile.telegramBotActive === true, linked, webhookReady, sharedBot, channelReady: Boolean(destination.token && destination.chatId), channelLabel: sharedChannelId && destination.chatId === sharedChannelId ? '@aimarketingengine' : destination.chatId });
-  } catch (error) {
-    return res.status(503).json({ error: 'Could not check the Telegram approval connection.' });
   }
 };
 
@@ -958,21 +868,8 @@ export default async function handler(req, res) {
     return activateOwnBot(req, res);
   }
 
-  if (req.query?.action === 'login-code') {
-    return createApprovalLoginCode(req, res);
-  }
-
-  if (req.query?.action === 'complete-google-link') {
-    return completeGoogleBotLogin(req, res);
-  }
-
-  if (req.query?.action === 'approval-status') {
-    return getApprovalConnectionStatus(req, res);
-  }
-
-  // Owner bots use a uid-specific webhook. The DGACADEMY owner bot also serves
-  // other website accounts after a verified Google link. The legacy deployment
-  // bot uses the URL without a uid.
+  // Owner bots use a uid-specific webhook. The legacy deployment bot uses
+  // the URL without a uid.
   const ownerId = String(req.query?.uid || '').trim() || null;
   if (ownerId && req.query?.bot === 'comments') {
     return res.status(400).json({ error: 'Comment bot and owner bot routes cannot be combined.' });
@@ -1024,7 +921,7 @@ export default async function handler(req, res) {
       ? await linkedWebsiteUid(db, ownerId, String(callback.from?.id || ''), String(callback.message?.chat?.id || ''))
       : null;
     const result = sharedApprovalBot && !linkedUid
-      ? { ok: false, text: 'Sign in with Google using /login before approving.' }
+      ? { ok: false, text: 'This approval request is no longer active.' }
       : await decideApproval(db, callback, ownerId).catch(() => ({ ok: false, text: 'Could not process this decision. Try again.' }));
     await botCall('answerCallbackQuery', { callback_query_id: callback.id, text: result.text, show_alert: !result.ok }, token).catch(() => {});
     if (result.ok) {
@@ -1059,38 +956,6 @@ export default async function handler(req, res) {
     }
     return res.status(200).json({ ok: result.ok });
   }
-  if (approvalBotRequest && db && update.message?.chat?.type === 'private' && update.message?.from?.id) {
-    if (sharedApprovalBot) {
-      const message = update.message;
-      const command = String(message.text || '').trim();
-      if (/^\/login(?:\s|$)/i.test(command) || /^\/start$/i.test(command)) {
-        if (!String(process.env.APP_URL || process.env.PUBLIC_APP_URL || process.env.VERCEL_PROJECT_PRODUCTION_URL || '').trim()) {
-          return res.status(503).json({ error: 'APP_URL is required for Telegram Google sign-in links.' });
-        }
-        const url = await createGoogleLink(db, {
-          botOwnerId: ownerId, actorId: message.from.id, chatId: message.chat.id, baseUrl: getBaseUrl(req),
-        });
-        await botCall('sendMessage', { chat_id: message.chat.id, text: `Open this link and sign in with your existing website Google account:\n${url}\n\nThis link expires in 10 minutes and works once.` }, token);
-        return res.status(200).json({ ok: true, googleLogin: true });
-      }
-      if (/^\/logout(?:\s|$)/i.test(command)) {
-        await disconnectGoogleLink(db, ownerId, String(message.from.id), String(message.chat.id));
-        await db.collection('telegram_business_chats').doc(`${ownerId}_${message.chat.id}`).delete().catch(() => {});
-        await botCall('sendMessage', { chat_id: message.chat.id, text: 'Disconnected from your website account. Send /login to connect again.' }, token);
-        return res.status(200).json({ ok: true, googleLogout: true });
-      }
-      const oldLoginState = await db.collection('telegram_approval_login_states').doc(`${ownerId}_${message.from.id}`).get();
-      if (oldLoginState.exists) {
-        await oldLoginState.ref.delete();
-        await botCall('deleteMessage', { chat_id: message.chat.id, message_id: message.message_id }, token).catch(() => {});
-        await botCall('sendMessage', { chat_id: message.chat.id, text: 'Bot sign-in now uses Google on the website. Send /login to get a secure link.' }, token);
-        return res.status(200).json({ ok: true, oldLoginCleared: true });
-      }
-    } else {
-      if (await handleApprovalBotLogin(db, update.message, ownerId, token)) return res.status(200).json({ ok: true, approvalLogin: true });
-    }
-  }
-
   if (update.message_reaction || update.message_reaction_count) {
     try {
       await recordReactionUpdate(db, update);
@@ -1151,7 +1016,7 @@ export default async function handler(req, res) {
       const businessChat = (await businessChatRef.get()).data();
       conversationOwnerId = businessChat?.uid || linkedUid;
       if (!conversationOwnerId) {
-        await botCall('sendMessage', { chat_id: chatId, text: 'To ask a business a question, open its Chat link in @aimarketingengine. Business owners can send /login to connect their website account.' }, token);
+        await botCall('sendMessage', { chat_id: chatId, text: 'To ask a business a question, open its Chat link in @aimarketingengine.' }, token);
         return res.status(200).json({ ok: true, businessLinkRequired: true });
       }
     }

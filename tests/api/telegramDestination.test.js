@@ -37,6 +37,32 @@ describe('shared Telegram publishing destination', () => {
     expect(await resolveTelegramDestination(db, 'customer', false)).toEqual({ token: '', chatId: '' });
   });
 
+  it('uses the shared channel ID when an older profile saved @aimarketingengine', async () => {
+    process.env.TELEGRAM_SHARED_CHANNEL_ID = '-1004495121549';
+    process.env.TELEGRAM_SHARED_BOT_OWNER_UID = 'bot-owner';
+    const db = fakeDb({
+      account: { businessName: 'Customer Business', telegramChannelUrl: '@aimarketingengine' },
+      link: { botOwnerId: 'bot-owner', telegramUserId: '123', chatId: '123' },
+      binding: { uid: 'customer', botOwnerId: 'bot-owner', chatId: '123' },
+      owner: { telegramBotToken: 'shared-token', telegramBotActive: true, telegramBotUsername: 'dgacademy_official_bot' },
+    });
+    expect(await resolveTelegramDestination(db, 'customer')).toEqual({ token: 'shared-token', chatId: '-1004495121549' });
+    expect(await resolveTelegramDestination(db, 'customer', false)).toEqual({ token: '', chatId: '' });
+  });
+
+  it('uses the saved Bot Token for @aimarketingengine when one is present', async () => {
+    process.env.TELEGRAM_SHARED_CHANNEL_ID = '-1004495121549';
+    process.env.TELEGRAM_SHARED_BOT_OWNER_UID = 'bot-owner';
+    const db = fakeDb({
+      account: { businessName: 'Customer Business', telegramBotToken: 'own-token', telegramBotActive: true, telegramBotUsername: 'customer_bot', telegramChannelUrl: '@aimarketingengine' },
+      link: { botOwnerId: 'bot-owner', telegramUserId: '123', chatId: '123' },
+      binding: { uid: 'customer', botOwnerId: 'bot-owner', chatId: '123' },
+      owner: { telegramBotToken: 'shared-token', telegramBotActive: true, telegramBotUsername: 'dgacademy_official_bot' },
+    });
+    expect(await resolveTelegramDestination(db, 'customer')).toEqual({ token: 'own-token', chatId: '@aimarketingengine' });
+    expect(await resolveTelegramDestination(db, 'customer', false)).toEqual({ token: 'own-token', chatId: '@aimarketingengine' });
+  });
+
   it('lets the shared bot owner use the configured channel while approvals still require a private chat link', async () => {
     process.env.TELEGRAM_SHARED_CHANNEL_ID = '-1004495121549';
     process.env.TELEGRAM_SHARED_BOT_OWNER_UID = 'bot-owner';
@@ -44,17 +70,30 @@ describe('shared Telegram publishing destination', () => {
     expect(await resolveTelegramDestination(db, 'bot-owner')).toEqual({ token: 'shared-token', chatId: '-1004495121549' });
   });
 
-  it('uses the shared bot token with the linked website account channel', async () => {
+  it('uses the saved Bot Token with a linked website account channel', async () => {
     process.env.TELEGRAM_SHARED_CHANNEL_ID = '-1004495121549';
     process.env.TELEGRAM_SHARED_BOT_OWNER_UID = 'bot-owner';
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, result: admins }) }));
     const db = fakeDb({
-      account: { telegramBotToken: 'stale-token', telegramChannelUrl: '@customerchannel' },
+      account: { telegramBotToken: 'own-token', telegramChannelUrl: '@customerchannel' },
       link: { botOwnerId: 'bot-owner', telegramUserId: '123', chatId: '123' },
       binding: { uid: 'customer', botOwnerId: 'bot-owner', chatId: '123' },
       owner: { telegramBotToken: 'shared-token', telegramBotActive: true, telegramBotUsername: 'dgacademy_official_bot' },
     });
-    expect(await resolveTelegramDestination(db, 'customer')).toEqual({ token: 'shared-token', chatId: '@customerchannel' });
+    expect(await resolveTelegramDestination(db, 'customer')).toEqual({ token: 'own-token', chatId: '@customerchannel' });
+  });
+
+  it('publishes with an active personal bot while keeping a shared approval link', async () => {
+    process.env.TELEGRAM_SHARED_CHANNEL_ID = '-1004495121549';
+    process.env.TELEGRAM_SHARED_BOT_OWNER_UID = 'bot-owner';
+    const db = fakeDb({
+      account: { businessName: 'Customer Business', telegramBotToken: 'own-token', telegramBotActive: true, telegramBotUsername: 'customer_bot', telegramChannelUrl: '@malis_contents' },
+      link: { botOwnerId: 'bot-owner', telegramUserId: '123', chatId: '123' },
+      binding: { uid: 'customer', botOwnerId: 'bot-owner', chatId: '123' },
+      owner: { telegramBotToken: 'shared-token', telegramBotActive: true, telegramBotUsername: 'dgacademy_official_bot' },
+    });
+    expect(await resolveTelegramDestination(db, 'customer')).toEqual({ token: 'own-token', chatId: '@malis_contents' });
+    expect(await resolveTelegramDestination(db, 'customer', false)).toEqual({ token: 'own-token', chatId: '@malis_contents' });
   });
 
   it('requires the linked user and shared bot to be channel posting admins', () => {
@@ -66,12 +105,22 @@ describe('shared Telegram publishing destination', () => {
 
   it('rejects a stale or mismatched shared bot link', async () => {
     const db = fakeDb({
-      account: { telegramBotToken: 'stale-token', telegramChannelUrl: '@customerchannel' },
+      account: { telegramChannelUrl: '@customerchannel' },
       link: { botOwnerId: 'bot-owner', telegramUserId: '123', chatId: '123' },
       binding: { uid: 'someone-else', botOwnerId: 'bot-owner', chatId: '123' },
       owner: { telegramBotToken: 'shared-token', telegramBotActive: true, telegramBotUsername: 'dgacademy_official_bot' },
     });
     expect(await resolveTelegramDestination(db, 'customer')).toEqual({ token: '', chatId: '' });
+  });
+
+  it('uses an activated personal bot when an old shared link no longer works', async () => {
+    const db = fakeDb({
+      account: { telegramBotToken: 'owner-token', telegramBotActive: true, telegramBotUsername: 'customer_bot', telegramChannelUrl: '@aimarketingengine' },
+      link: { botOwnerId: 'bot-owner', telegramUserId: '123', chatId: '123' },
+      binding: { uid: 'someone-else', botOwnerId: 'bot-owner', chatId: '123' },
+      owner: { telegramBotToken: 'shared-token', telegramBotActive: true, telegramBotUsername: 'dgacademy_official_bot' },
+    });
+    expect(await resolveTelegramDestination(db, 'customer')).toEqual({ token: 'owner-token', chatId: '@aimarketingengine' });
   });
 
   it('refuses a channel where the linked user is not an administrator', async () => {

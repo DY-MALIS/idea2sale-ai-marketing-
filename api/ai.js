@@ -1522,7 +1522,7 @@ export default async function handler(req, res) {
             userId: owner.uid,
             businessName: String(req.body?.businessName || '').slice(0, 200),
             autoPublishDestinations: true,
-            approvalRequired: true,
+            approvalRequired: false,
             ...(item.type === 'video' && items.some((entry) => entry?.tiktokDirectPostConsent === true)
               ? { tiktokDirectPostConsent: true,
                   tiktokCommercialDisclosure: items.some((entry) => entry?.tiktokCommercialDisclosure === true),

@@ -277,10 +277,12 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     let active = true;
     const loadDestination = async () => {
       try {
-        const response = await fetch('/api/telegram/webhook?action=approval-status', { headers: { Authorization: `Bearer ${await user.getIdToken()}` } });
+        const response = await fetch('/api/telegram/run-scheduled?action=publishing-status', {
+          method: 'POST', headers: { Authorization: `Bearer ${await user.getIdToken()}` },
+        });
         const destination = await response.json();
         if (!response.ok) throw new Error(destination.error || 'Could not check Telegram.');
-        if (active) setTelegramDestination({ ready: Boolean(destination.linked && destination.webhookReady && destination.channelReady), label: destination.channelLabel || '' });
+        if (active) setTelegramDestination({ ready: destination.ready === true, label: destination.channelLabel || '' });
       } catch {
         if (active) setTelegramDestination({ ready: false, label: '' });
       }
@@ -750,8 +752,8 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
 
     if (platforms.includes('TELEGRAM') && !isDemoMode && !telegramDestination?.ready) {
       setFormError(language === 'km'
-        ? 'សូមកំណត់ Bot Token និង Channel របស់អ្នកក្នុង Business Profile មុនកំណត់ Telegram។'
-        : 'Set up your own Telegram bot and channel in Business Profile before scheduling Telegram.');
+        ? 'សូមពិនិត្យ Telegram bot និង channel ក្នុង Business Profile មុនកំណត់ពេលផុស។'
+        : 'Check the Telegram bot and channel in Business Profile before scheduling.');
       return;
     }
 
@@ -983,7 +985,6 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
             groupId,
             scheduledTime: scheduledDate.toISOString(),
             status: 'PENDING',
-            ...(['TIKTOK', 'YOUTUBE', 'FACEBOOK'].includes(platform) ? { approvalRequired: true, approvalStatus: 'AWAITING_DUE' } : {}),
             userId: userToUse.uid,
             aiSuggested: false,
             videoUrl: ['TIKTOK', 'YOUTUBE', 'FACEBOOK'].includes(platform) && !imageFile ? videoUrl : '',
@@ -1573,7 +1574,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                             ? (language === 'km' ? 'កំពុងពិនិត្យ Telegram channel…' : 'Checking Telegram channel…')
                             : telegramDestination.ready
                               ? `${language === 'km' ? 'ផុសទៅ Telegram channel របស់គណនីនេះ៖' : 'Posting to this account’s Telegram channel:'} ${telegramDestination.label}`
-                              : (language === 'km' ? 'មិនទាន់ភ្ជាប់ Telegram ទេ។ សូមផ្ញើ /login ទៅ @dgacademy_official_bot ហើយភ្ជាប់គណនី Google។' : 'Connect your Google account with /login in @dgacademy_official_bot before scheduling.')}
+                              : (language === 'km' ? 'សូមពិនិត្យ Telegram bot និង channel ក្នុង Business Profile។' : 'Check the Telegram bot and channel in Business Profile.')}
                         </div>
                       )}
                       {!hasSharedVideoField && sharedVideoName && !telegramMediaFile && (
