@@ -110,10 +110,13 @@ const CATEGORIES: Category[] = [
 // server-side look (e.g. "Futuristic tech" switches to the hologram template).
 const LOOKS: Choice[] = [
   { id: 'Cinematic key visual', en: 'Cinematic ad', km: 'ពាណិជ្ជកម្មបែបភាពយន្ត', text: 'cinematic, award-winning commercial key-visual', textKm: 'បែបពាណិជ្ជកម្មម៉ាកល្បី ស្អាតដូចភាពយន្ត', tipEn: 'Like big-brand ads', tipKm: 'ដូចពាណិជ្ជកម្មម៉ាកធំៗ' },
-  { id: 'Natural real photo', en: 'Natural photo', km: 'រូបថតធម្មជាតិ', text: 'natural, true-to-life photographic', textKm: 'បែបរូបថតធម្មជាតិ ដូចពិត', tipEn: 'Looks like a real photo', tipKm: 'មើលទៅដូចរូបថតពិត' },
+  { id: 'Natural real photo', en: 'Lifestyle photo', km: 'រូបថតជីវិតពិត', text: 'premium lifestyle editorial photographic', textKm: 'បែបរូបថតជីវិតពិត ស្អាតកក់ក្ដៅ', tipEn: 'People working, cafes, everyday moments', tipKm: 'មនុស្សធ្វើការ ហាងកាហ្វេ ជីវិតប្រចាំថ្ងៃ' },
   { id: 'Clean minimal', en: 'Minimal', km: 'សាមញ្ញ', text: 'clean, minimal', textKm: 'បែបសាមញ្ញ ស្អាត', tipEn: 'Simple and uncluttered', tipKm: 'សាមញ្ញ ស្អាត' },
   { id: 'Bright and cheerful', en: 'Bright & fun', km: 'ភ្លឺ រីករាយ', text: 'bright, cheerful', textKm: 'បែបភ្លឺស្រឡះ និងរីករាយ', tipEn: 'Colorful and happy', tipKm: 'ពណ៌ភ្លឺ សប្បាយ' },
   { id: 'Luxury editorial', en: 'Luxury', km: 'ប្រណីត', text: 'luxury editorial', textKm: 'បែបប្រណីតដូចទស្សនាវដ្ដី', tipEn: 'High-end magazine look', tipKm: 'ដូចទស្សនាវដ្ដីប្រណីត' },
+  { id: 'Pop model studio', en: 'Model + product', km: 'តារា + ផលិតផល', text: 'trendy pop-studio model-and-product', textKm: 'បែបតារាកាន់ផលិតផល ផ្ទៃពណ៌ដិតទាន់សម័យ', tipEn: 'Model holding the product on bold color', tipKm: 'តារាកាន់ផលិតផល លើផ្ទៃពណ៌ដិត' },
+  { id: '3D cartoon', en: '3D cartoon', km: 'តុក្កតា 3D', text: 'cute polished 3D cartoon', textKm: 'បែបតុក្កតា 3D គួរឲ្យស្រឡាញ់', tipEn: 'Cute 3D characters and robots', tipKm: 'តួអង្គ និងរ៉ូបូត 3D' },
+  { id: 'Flat illustration', en: 'Illustration', km: 'គំនូរ', text: 'modern flat vector illustration', textKm: 'បែបគំនូរវ៉ិចទ័រទំនើប', tipEn: 'Clean modern drawing', tipKm: 'គំនូរទំនើប ស្អាត' },
   { id: 'Futuristic tech', en: 'Futuristic', km: 'ទំនើប Futuristic', text: 'futuristic high-tech', textKm: 'បែបបច្ចេកវិទ្យាទំនើបនាពេលអនាគត', tipEn: 'Holograms and neon, like ChatGPT AI ads', tipKm: 'ហូឡូក្រាម និងពន្លឺនីអុង' },
   { id: 'Vintage film', en: 'Vintage', km: 'បុរាណ', text: 'vintage film-style', textKm: 'បែបហ្វីលបុរាណ', tipEn: 'Warm retro film look', tipKm: 'បែបហ្វីលចាស់' },
 ];
@@ -316,11 +319,14 @@ const PromptBuilder: React.FC<PromptBuilderProps> = ({ mode, language, onPromptC
     // Sensible defaults per category so one tap already gives a good result.
     const presets: Record<string, Partial<Selection>> = {
       tech: { look: 'Futuristic tech', mood: 'inspiring', lighting: 'cinematic', camera: 'wide', colors: 'brand' },
-      food: { mood: 'warm', lighting: 'golden', camera: 'closeup', colors: 'vibrant' },
-      cafe: { mood: 'warm', lighting: 'daylight', camera: 'closeup', colors: 'natural' },
-      fashion: { look: 'Luxury editorial', mood: 'premium', lighting: 'golden', camera: 'hero', colors: 'soft' },
-      education: { look: 'Bright and cheerful', mood: 'inspiring', lighting: 'daylight', camera: 'wide', colors: 'brand' },
-      event: { look: 'Bright and cheerful', mood: 'fun', lighting: 'golden', camera: 'wide', colors: 'vibrant' },
+      // Every topic except Tech keeps the beautiful Cinematic look; the plainer
+      // looks produced dull results when a topic switched to them silently.
+      food: { look: 'Cinematic key visual', mood: 'warm', lighting: 'golden', camera: 'closeup', colors: 'vibrant' },
+      cafe: { look: 'Cinematic key visual', mood: 'warm', lighting: 'golden', camera: 'closeup', colors: 'vibrant' },
+      fashion: { look: 'Cinematic key visual', mood: 'premium', lighting: 'golden', camera: 'hero', colors: 'soft' },
+      education: { look: 'Cinematic key visual', mood: 'inspiring', lighting: 'golden', camera: 'wide', colors: 'brand' },
+      event: { look: 'Cinematic key visual', mood: 'fun', lighting: 'cinematic', camera: 'wide', colors: 'vibrant' },
+      ai: { look: 'Cinematic key visual' },
       product: { look: 'Cinematic key visual', mood: 'premium', lighting: 'golden', camera: 'hero', colors: 'vibrant' },
     };
     const preset = presets[id] || {};

@@ -1012,12 +1012,25 @@ interface PosterGenerationOptions {
 // Style values come from PromptBuilder's Style chips.
 // "Futuristic tech" deliberately drops the real-photo rules: glowing holograms,
 // neon light and high-tech offices, like ChatGPT-style AI marketing visuals.
-const isFuturisticStyle = (style: string) => style === 'Futuristic tech';
 // Default "Cinematic ad" look: big-brand product key visuals (product on a
 // natural podium in a dramatic landscape, splashes, cinematic light).
-const isKeyVisualStyle = (style: string) => style === 'Cinematic key visual';
-const KEY_VISUAL_DIRECTION = 'Cinematic, award-winning commercial key visual like a global brand campaign: the product or subject is the large, perfectly lit hero, standing on a natural podium (mossy rock, wooden slice, stone) or emerging from a dreamy landscape that matches its ingredients (jungle, misty mountains, waterfalls, plantations, sunlit clouds), with splashes, droplets and floating ingredients frozen in motion, golden sun rays, volumetric mist, rim light and rich, deep color grading. Photorealistic high-budget look.';
+const KEY_VISUAL_DIRECTION = 'Cinematic, award-winning commercial key visual like a global brand campaign. For a product: the product is the large, perfectly lit hero on a natural podium (mossy rock, wooden slice, stone) or emerging from a dreamy landscape that matches its ingredients (jungle, misty mountains, waterfalls, plantations, sunlit clouds), with splashes, droplets and floating ingredients frozen in motion. For people, a class, a service or a place: a cinematic brand-campaign photo with confident, attractive Cambodian people, genuine emotion, a beautiful modern setting with big sunlit windows or atmospheric views, and a heroic movie-still composition. Always golden sun rays or warm window light, volumetric haze, rim light, rich deep color grading and creamy background blur. Photorealistic high-budget look.';
+// Every other look still has to be beautiful: premium campaign photography,
+// not the plain "everyday snapshot" the old instructions produced.
+const PREMIUM_PHOTO_DIRECTION = 'Premium advertising photography for a top brand: professional soft key light with gentle rim light and a warm glow, cinematic color grading with rich harmonious tones, one clear focal point, layered depth with creamy background blur, and a clean, bright, beautifully styled setting. People look like attractive real Cambodians with natural skin, warm genuine expressions and stylish clothes. Real photo, never flat, dull, grey or cluttered.';
+
 const FUTURISTIC_DIRECTION = 'Futuristic high-tech AI marketing visual: a modern glass office or tech space with a city skyline at dusk through large windows, glowing blue and cyan holographic dashboards, floating transparent data screens, charts and circuit-line graphics, a glowing interactive glass table, dramatic teal-and-orange cinematic lighting with neon accents, polished and vibrant, high-end tech advertising look. Real-looking people (photorealistic faces and hands) interacting with the holograms.';
+
+// Styles with their own server template ("look") and client direction. Any
+// other style uses premium photography.
+const STYLE_LOOKS: Record<string, { look: string; direction: string }> = {
+  'Cinematic key visual': { look: 'keyvisual', direction: KEY_VISUAL_DIRECTION },
+  'Futuristic tech': { look: 'futuristic', direction: FUTURISTIC_DIRECTION },
+  'Natural real photo': { look: 'photo', direction: 'Premium lifestyle editorial photography: real, candid-feeling moments of stylish Cambodian people (working on a laptop, enjoying coffee, chatting, shopping) in a cozy, beautifully designed cafe, office, home or street, with warm golden window light, soft ambient lamps, plants and wood textures, natural relaxed poses, creamy background blur and a warm, film-like color grade.' },
+  'Pop model studio': { look: 'popmodel', direction: 'Trendy pop-studio brand ad: an attractive, stylish young Cambodian model confidently showing or using the product, which is large and pushed toward a wide-angle lens, on a bold seamless solid-color background with playful geometric props, dynamic pose, crisp studio light and punchy saturated color.' },
+  '3D cartoon': { look: 'render3d', direction: 'Polished, adorable 3D cartoon render like a modern animated film: soft rounded shapes, glossy materials, cute expressive characters or friendly robots, bright appealing scene, soft global illumination and harmonious colors.' },
+  'Flat illustration': { look: 'illustration', direction: 'Modern flat vector illustration like a top tech company marketing artwork: clean shapes, smooth gradients, limited brand color palette, friendly characters with Cambodian features and simple devices or icons drawn without any text.' },
+};
 
 interface PosterGenProps {
   automationRequest?: CreativeAutomationRequest | null;
@@ -1236,21 +1249,41 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
     }
   };
 
+  // AI-written poster headline + CTA (server action posterCopy).
+  const [writingPosterCopy, setWritingPosterCopy] = useState(false);
+  const fetchPosterCopy = async (idea: string, brand: string): Promise<{ headline: string; cta: string } | null> => {
+    try {
+      const response = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'posterCopy', idea, brand, language }),
+      });
+      const data = await response.json().catch(() => ({}));
+      return response.ok && data.headline ? { headline: String(data.headline), cta: String(data.cta || '') } : null;
+    } catch (error) {
+      console.error('Poster copy request failed:', error);
+      return null;
+    }
+  };
+
+  const handleWritePosterCopy = async () => {
+    if (writingPosterCopy) return;
+    setWritingPosterCopy(true);
+    const copy = await fetchPosterCopy(posterPrompt.trim(), posterDetails.brand);
+    setWritingPosterCopy(false);
+    if (!copy) {
+      notify(language === 'km' ? 'AI មិនអាចសរសេរបានទេ។ សូមសាកម្ដងទៀត។' : 'AI could not write it. Please try again.', 'error');
+      return;
+    }
+    setPosterDetails((prev) => ({ ...prev, headline: copy.headline, cta: copy.cta || prev.cta }));
+  };
+
   const handleGeneratePoster = async (options: PosterGenerationOptions = {}) => {
     // Without this, a manual click while an automation-triggered generation (or
     // another manual click) is still in flight starts a second concurrent
     // request; whichever resolves last silently wins setGeneratedImage, with no
     // indication the other request was superseded.
     if (loading) return;
-    // A poster without a headline is just a photo. The builder's
-    // "Prompt + create" button bypasses the main button's disabled check, so
-    // guard here too (automation requests bring their own details).
-    if (!options.details && !posterDetails.headline.trim()) {
-      notify(language === 'km'
-        ? 'សូមសរសេរចំណងជើង Poster ជាមុនសិន (ផ្នែក ① អក្សរលើ Poster)។'
-        : 'Add a poster headline first (section ① Poster text).', 'error');
-      return;
-    }
     const profileVersion = profileVersionRef.current;
     setLoading(true);
     setGeneratedImage(null);
@@ -1258,6 +1291,16 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
       const businessContext = await getLatestBusinessBranding(user, isDemoMode);
       const requestedPrompt = options.prompt?.trim() || posterPrompt.trim();
       const requestedDetails: PosterDetails = { ...posterDetails, ...options.details };
+      // A poster without a headline is just a photo. Instead of blocking
+      // users who don't know what to write, let AI write the headline (and the
+      // button text if that is empty too) from the poster idea.
+      if (!requestedDetails.headline.trim()) {
+        const copy = await fetchPosterCopy(requestedPrompt, requestedDetails.brand || businessContext.businessName);
+        if (!copy) throw new Error('POSTER_COPY_FAILED');
+        requestedDetails.headline = copy.headline;
+        if (!requestedDetails.cta.trim()) requestedDetails.cta = copy.cta;
+        setPosterDetails((prev) => ({ ...prev, headline: copy.headline, cta: prev.cta.trim() ? prev.cta : copy.cta }));
+      }
       const effectiveBrand = businessContext.businessName || requestedDetails.brand;
       // Only mention headline/CTA when actually filled in -- sending literal
       // `The main headline is ""` noise for an empty field confuses the prompt.
@@ -1269,17 +1312,14 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
       // through despite that constraint.
       const headlineNote = requestedDetails.headline.trim() ? ` The creative concept/theme is "${requestedDetails.headline.trim()}".` : '';
       const ctaNote = requestedDetails.cta.trim() ? ` The call-to-action mood is "${requestedDetails.cta.trim()}".` : '';
-      const posterFuturistic = isFuturisticStyle(requestedDetails.style);
-      const posterKeyVisual = isKeyVisualStyle(requestedDetails.style);
+      const posterStyleLook = STYLE_LOOKS[requestedDetails.style];
       const fullPrompt = `Create the photographic background for a professionally designed marketing poster for a brand named "${effectiveBrand}".${headlineNote}${ctaNote} Style: ${requestedDetails.style}.
       Visual description: ${requestedPrompt}.
-      ${posterKeyVisual
-        ? `${KEY_VISUAL_DIRECTION} ${POSTER_COMPOSITION[requestedDetails.layout] || POSTER_COMPOSITION.product} The app adds the headline and call-to-action itself afterwards, so do not draw a poster layout or any text inside the image.`
-        : requestedDetails.layout === 'product' && !posterFuturistic
+      ${posterStyleLook
+        ? `${posterStyleLook.direction} ${POSTER_COMPOSITION[requestedDetails.layout] || POSTER_COMPOSITION.product} The app adds the headline and call-to-action itself afterwards, so do not draw a poster layout or any text inside the image.`
+        : requestedDetails.layout === 'product'
         ? `High-end studio product advertising photograph. ${POSTER_COMPOSITION.product} Plain, seamless solid ${findPosterTheme(requestedDetails.theme).photoColor} background filling the whole frame. Make the product look irresistible: crisp detail, appetizing texture, dynamic fresh ingredients, splashes or ice flying around it where it fits the product, soft studio shadow under it, punchy commercial color. If a person is mentioned, keep them small or at the side so the product stays the hero. The app adds the headline and call-to-action itself afterwards, so do not draw any text, logos or labels.`
-        : posterFuturistic
-        ? `${FUTURISTIC_DIRECTION} ${POSTER_COMPOSITION[requestedDetails.layout] || POSTER_COMPOSITION.bold} The app adds the headline and call-to-action itself afterwards, so do not draw a poster layout or any text inside the image.`
-        : `Compose a striking, believable real-camera photograph with one clear, relevant focal subject, as if a skilled advertising photographer shot it on location. ${POSTER_COMPOSITION[requestedDetails.layout] || POSTER_COMPOSITION.bold} The app adds the headline and call-to-action itself afterwards, so do not draw a poster layout or any text inside the image. Use a real lived-in setting, natural light, true-to-life colors, realistic surfaces with small natural imperfections, and real people with natural skin texture; avoid CGI, glossy over-retouched "AI look", glowing HDR, neon, futuristic or fantasy elements, and generic posed stock-photo models unless specifically requested.`}
+        : `${requestedDetails.style} style. ${PREMIUM_PHOTO_DIRECTION} ${POSTER_COMPOSITION[requestedDetails.layout] || POSTER_COMPOSITION.bold} The app adds the headline and call-to-action itself afterwards, so do not draw a poster layout or any text inside the image.`}
 
       CRITICAL INSTRUCTION:
       - The current UI language is: ${language === 'km' ? 'Khmer' : 'English'}.
@@ -1288,9 +1328,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
       - Do NOT render the brand name, headline, or call-to-action as literal on-image text -- treat them only as creative direction for the mood, subject, and styling of the photo.`;
 
       const aspectRatio = normalizeImageAspectRatio(options.aspectRatio, posterAspectRatio);
-      const posterLook = posterFuturistic ? 'futuristic'
-        : posterKeyVisual ? 'keyvisual'
-          : requestedDetails.layout === 'product' ? 'studio' : 'photo';
+      const posterLook = posterStyleLook?.look || (requestedDetails.layout === 'product' ? 'studio' : 'photo');
       const response = await fetchImageGenerate({ action: 'imageGenerate', prompt: fullPrompt, aspectRatio, look: posterLook });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Image generation failed.');
@@ -1322,6 +1360,12 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
         );
         return;
       }
+      if (error?.message === 'POSTER_COPY_FAILED') {
+        notify(language === 'km'
+          ? 'AI មិនអាចសរសេរចំណងជើងបានទេ។ សូមវាយចំណងជើង ឬពិពណ៌នារូបថត (ផ្នែក ③) ហើយសាកម្ដងទៀត។'
+          : 'AI could not write the headline. Type a headline or describe the photo (section ③) and try again.', 'error');
+        return;
+      }
       if (/OPEN_ROUTER_API_KEY|api key/i.test(error.message || '')) {
         setNeedsApiKey(true);
       }
@@ -1341,13 +1385,12 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
     setGeneratedImage(null);
     try {
       const businessContext = await getLatestBusinessBranding(user, isDemoMode);
-      const visualFuturistic = isFuturisticStyle(visualStyle);
-      const visualKeyVisual = isKeyVisualStyle(visualStyle);
-      const styleDirection = visualFuturistic ? FUTURISTIC_DIRECTION : visualKeyVisual ? KEY_VISUAL_DIRECTION : `${visualStyle} visual style. It must look like a genuine photo taken with a real camera or a good phone in a real place: natural light, true-to-life colors, real skin texture and natural expressions when people are present, small everyday imperfections, and a lived-in background. Avoid the glossy, over-smooth, over-saturated "AI/digital" look, glowing HDR, and 3D-render feel.`;
+      const visualStyleLook = STYLE_LOOKS[visualStyle];
+      const styleDirection = visualStyleLook ? visualStyleLook.direction : `${visualStyle} visual style. ${PREMIUM_PHOTO_DIRECTION}`;
       const brandedPrompt = `${prompt}\n${styleDirection}${businessContext.businessName
         ? `\nThis visual is for ${businessContext.businessName}; do not render the name as generated text because the saved logo is applied afterward.`
         : ''}`;
-      const response = await fetchImageGenerate({ action: 'imageGenerate', prompt: brandedPrompt, aspectRatio, look: visualFuturistic ? 'futuristic' : visualKeyVisual ? 'keyvisual' : 'photo' });
+      const response = await fetchImageGenerate({ action: 'imageGenerate', prompt: brandedPrompt, aspectRatio, look: visualStyleLook?.look || 'photo' });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Image generation failed.');
       const finalImage = await applyLogoWatermark(data.imageUrl, businessContext.logoDataUrl);
@@ -1570,16 +1613,30 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
                       />
                     </label>
                   </div>
-                  <label className="block space-y-1">
-                    <span className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">{t('mainHeadline')}</span>
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <label htmlFor="poster-headline" className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">{t('mainHeadline')}</label>
+                      <button
+                        type="button"
+                        onClick={() => void handleWritePosterCopy()}
+                        disabled={writingPosterCopy}
+                        className="flex min-h-[32px] items-center gap-1 rounded-full px-2.5 text-xs font-semibold text-brand-600 hover:bg-brand-50 disabled:opacity-60 dark:text-brand-300 dark:hover:bg-slate-800"
+                      >
+                        {writingPosterCopy ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+                        {writingPosterCopy
+                          ? (language === 'km' ? 'កំពុងសរសេរ...' : 'Writing...')
+                          : (language === 'km' ? 'AI ជួយសរសេរ' : 'AI writes it')}
+                      </button>
+                    </div>
                     <input
+                      id="poster-headline"
                       type="text"
                       value={posterDetails.headline}
                       onChange={(e) => setPosterDetails({ ...posterDetails, headline: e.target.value })}
-                      placeholder={language === 'km' ? 'ឧ. កាហ្វេឆ្ងាញ់បំផុតក្នុងក្រុង' : 'e.g., Best Coffee in Town'}
+                      placeholder={language === 'km' ? 'ទុកទទេ AI នឹងសរសេរឲ្យ · ឧ. កាហ្វេឆ្ងាញ់បំផុត' : 'Leave empty and AI writes it · e.g., Best Coffee in Town'}
                       className={posterInputClass}
                     />
-                  </label>
+                  </div>
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <label className="space-y-1">
                       <span className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">
@@ -1805,7 +1862,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
               }}
               disabled={loading || (activeTool === 'visual'
                 ? !visualPrompt.trim()
-                : !posterDetails.headline.trim() || !posterPrompt.trim())}
+                : !posterPrompt.trim())}
               className="w-full bg-gradient-to-r from-[#f88b3e] to-[#e65d28] hover:from-[#ee7d33] hover:to-[#d94f1f] text-white font-bold py-5 rounded-2xl flex items-center justify-center gap-3 transition-all shadow-xl shadow-orange-500/20"
             >
               {loading ? <Loader2 className="animate-spin" /> : <Sparkles size={22} />}

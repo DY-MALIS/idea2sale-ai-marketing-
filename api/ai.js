@@ -759,13 +759,13 @@ HARD CONSTRAINT, highest priority: ${KHMER_ATTIRE_GUIDANCE}
 
 HARD CONSTRAINT: Render every subject, person, and action explicitly named in the Scene above -- if the Scene describes a person doing something (e.g. holding an item, smiling, standing somewhere), that person must actually appear performing that action, not be replaced with a people-free product/still-life shot. Do not invent extra decorative props, furniture, books, framed art, or figurines that were not mentioned in the Scene, especially text-bearing objects (books, magazines, menus, signs) -- these are exactly where foreign-script text keeps leaking in when the model adds them unprompted.
 
-Photorealistic commercial image requirements:
-- It must look like a genuine, unedited-feeling photo taken on location with a real camera or a good smartphone — not an illustration, cartoon, 3D render, or glossy "AI-generated" image.
-- Use natural, slightly uneven real-world light, soft true-to-life shadows, real material texture, and believable depth of field. Keep colors natural and true to life, not oversaturated, glowing, or HDR.
-- Show a real, lived-in environment with realistic scale and small everyday imperfections (dust, wear, creases, slightly messy backgrounds) instead of a perfect, sterile studio look.
-- If people appear, they must look like real everyday people: natural skin texture with pores and small blemishes (no airbrushed or waxy skin), relaxed candid expressions and poses, anatomically correct faces, hands, and eyes.
-- No readable text, lettering, or signage anywhere (see hard constraint above) — also avoid distorted/garbled text artifacts, extra logos, malformed objects, duplicated limbs, fake watermarks, over-sharpening, plastic smoothness, symmetrical "perfect" faces, and fantasy or sci-fi styling.
-- The result should be convincing enough that a viewer believes it is a real photo shared by a local business.`;
+Premium commercial photography requirements:
+- A beautiful, high-end advertising photograph, like a professional campaign shoot for a top brand: striking, aspirational and polished, while still looking like a real photo (not an illustration, cartoon, or 3D render).
+- Professional lighting with intent: soft key light, gentle rim/back light, golden-hour or window glow, pleasing highlights and depth; cinematic color grading with rich, harmonious tones (not flat, grey or washed out).
+- Thoughtful composition: one clear focal point, layered foreground/background, shallow depth of field with creamy background blur, a clean, attractive, well-styled setting (tidy, bright, appealing props and decor -- never dull, cluttered or bare walls).
+- People look like attractive real Cambodians with natural skin texture, genuine warm expressions, confident natural poses and stylish, well-fitting clothes; anatomically correct faces, hands and eyes.
+- No readable text, lettering, or signage anywhere (see hard constraint above) — also avoid distorted/garbled text artifacts, extra logos, malformed objects, duplicated limbs, fake watermarks, waxy over-smoothed skin, and fantasy or sci-fi styling.
+- The result should be stunning enough to use directly as a paid social-media ad.`;
 
 // Opt-in "Futuristic tech" look (glowing holograms, neon, high-tech office) --
 // the style users compare against ChatGPT's AI-marketing images. Keeps the
@@ -819,12 +819,84 @@ HARD CONSTRAINT: Render every subject, person, and action explicitly named in th
 
 Cinematic commercial key-visual requirements:
 - An award-winning, high-end advertising key visual, like a global brand campaign poster: breathtaking, polished, emotionally striking and instantly eye-catching.
-- The product or main subject is the hero, large, sharp and perfectly lit, often standing on a natural podium (mossy rock, wooden slice, stone pedestal, water surface) or emerging from the scenery.
-- A dreamy, larger-than-life setting that tells the product's story: lush jungle, misty mountains, waterfalls, tea or coffee plantations, sunlit clouds, ocean, or fields -- chosen to match the product's ingredients and mood.
-- Dynamic motion frozen in time: water or juice splashes, droplets, floating fruit, leaves, beans, petals or ingredients around the hero.
-- Dramatic cinematic lighting: golden sun rays, volumetric light and mist, rim light on the product, deep rich color grading, shallow depth of field.
+- If the Scene is about a PRODUCT (food, drink, cosmetics, packaged goods): the product is the hero, large, sharp and perfectly lit, often standing on a natural podium (mossy rock, wooden slice, stone pedestal, water surface) or emerging from a dreamy, larger-than-life setting that tells its story (lush jungle, misty mountains, waterfalls, plantations, sunlit clouds, ocean, fields), with splashes, droplets, floating fruit, leaves, beans, petals or ingredients frozen in motion.
+- If the Scene is about PEOPLE, a SERVICE, a CLASS, a SHOP or a PLACE: make it a cinematic brand-campaign photograph -- confident, attractive, stylish Cambodian people with genuine emotion, a beautiful modern or atmospheric setting (big windows with sunlight, elegant interiors, city or nature views), layered depth, and a strong heroic composition like a movie still or a premium ad.
+- Dramatic cinematic lighting in every case: golden sun rays or warm window light, volumetric haze, rim light on the subject, deep rich color grading, shallow depth of field with creamy bokeh.
 - Photorealistic materials and textures (it should look like a real high-budget photo composite), not a cartoon or flat illustration. People, if present, have natural Cambodian faces and correct hands.
 - Avoid garbled text artifacts, fake logos, watermarks, and malformed objects.`;
+
+// Extra styles from users' reference boards. Each keeps the same no-text and
+// Cambodian-people constraints; only the visual requirements differ.
+const styledImagePrompt = (requirements) => (prompt) => `Scene: ${prompt}${khmerReferenceGuidance(prompt)}
+
+${NO_FOREIGN_TEXT_CONSTRAINT} This also applies to product packaging: plain surfaces or simple color shapes only, never readable labels or brand names.
+
+HARD CONSTRAINT, highest priority: ${KHMER_ATTIRE_GUIDANCE}
+
+HARD CONSTRAINT: Render every subject, person, and action explicitly named in the Scene above. Do not invent extra people.
+
+${requirements}
+- Avoid garbled text artifacts, fake logos, watermarks, malformed objects and duplicated limbs.`;
+
+// Bold-color "model holding the product" ads (beverage/skincare campaigns).
+const popModelImagePrompt = styledImagePrompt(`Pop studio model-and-product advertising requirements:
+- A trendy, high-energy brand campaign photo: an attractive, stylish young Cambodian model confidently showing, holding, drinking or using the product, which is large and clearly visible near the camera.
+- Bold seamless solid-color studio background (vivid yellow, orange, teal, pink, red or green that suits the product), with optional simple geometric props or a checkered floor.
+- Dynamic, playful composition: wide-angle or slight fisheye perspective, product pushed toward the lens, expressive pose, fun fashion styling and accessories (sunglasses, bold outfits).
+- Crisp professional studio lighting, punchy saturated colors, glossy commercial finish; photorealistic, not a cartoon.`);
+
+// Cute glossy 3D characters (robots, mascots, people) like an animated film.
+const render3dImagePrompt = styledImagePrompt(`3D cartoon render requirements:
+- A polished, adorable 3D render in the style of a modern animated feature film or premium 3D mascot: soft rounded shapes, glossy and matte materials, subsurface skin, big friendly expressive eyes for characters and robots.
+- Clean, bright, appealing scene with soft global illumination, gentle rim light, soft shadows and a shallow depth of field; harmonious pastel or vivid brand colors.
+- People appear as stylized, cute 3D characters with recognizably Cambodian features; robots look friendly and modern.
+- It is intentionally a 3D illustration, not a photo; crisp and high-detail, suitable for an app ad or social post.`);
+
+// Clean vector/flat illustrations for explainers, education and tech topics.
+const illustrationImagePrompt = styledImagePrompt(`Flat illustration requirements:
+- A modern, professional flat or semi-flat vector illustration like a top tech company's marketing artwork: clean shapes, smooth gradients, subtle grain or soft shadows, balanced composition with clear visual hierarchy.
+- A cohesive, limited color palette (2-4 main brand colors plus neutrals); friendly, expressive characters with recognizably Cambodian features and simple, tidy details; icons and devices drawn as simple shapes with no text.
+- Plenty of breathing room, crisp edges, consistent line weight; it is intentionally an illustration, not a photo.`);
+
+// ChatGPT-style art direction: before an image is generated, a fast text model
+// rewrites the (often short) request into one rich, specific visual
+// description -- hero placement, setting, props/motion, light, lens, palette,
+// mood -- which is what makes ChatGPT's images look designed rather than
+// generic. Falls back to the original request on any error or timeout.
+const ART_DIRECTION_BY_LOOK = {
+  keyvisual: 'a cinematic, award-winning brand-campaign key visual (products on natural podiums in dreamy landscapes with splashes and floating ingredients; people/places as heroic movie-still campaign photos)',
+  futuristic: 'a futuristic high-tech advertising visual with glowing holographic interfaces, neon accents and a modern glass office or city skyline',
+  studio: 'a premium studio product advertisement on a seamless solid-color background with dynamic splashes and ingredients',
+  photo: 'premium real-photo advertising photography with professional lighting and a beautifully styled setting',
+  popmodel: 'a trendy pop-studio brand ad: a stylish young model showing the product toward a wide-angle lens on a bold solid-color background',
+  render3d: 'a polished, adorable 3D cartoon render like a modern animated film, with cute characters or friendly robots',
+  illustration: 'a modern flat vector illustration like a top tech company\'s marketing artwork, with a limited brand color palette',
+};
+
+const artDirectImagePrompt = async (prompt, look) => {
+  try {
+    const text = await generateOpenRouterText({
+      model: resolveOpenRouterTextModel(process.env.OPEN_ROUTER_AGENT_FAST_MODEL || 'google/gemini-3.8-flash'),
+      reasoningEffort: 'low',
+      temperature: 0.7,
+      maxTokens: 450,
+      timeoutMs: 20_000,
+      system: 'You are a world-class advertising art director who writes prompts for an AI image model, the way ChatGPT expands a request before calling its image model. Return only the prompt: one vivid paragraph of 90-150 words in English, no headings, no lists, no quotes.',
+      prompt: `Rewrite this request into a stunning, specific visual description for ${ART_DIRECTION_BY_LOOK[look] || ART_DIRECTION_BY_LOOK.photo}.
+
+Request:
+${prompt}
+
+Describe concretely: the hero subject and exactly where it sits in the frame; the setting and background story; supporting props, ingredients or motion elements; lighting (direction, quality, time of day); camera (lens in mm, angle, depth of field); color palette; mood.
+Rules: keep every concrete detail from the request (people, actions, products, places, and any composition instruction such as empty space for a title); people are Cambodian; never ask for any text, letters, numbers, logos, labels or signs; do not add extra people who were not requested.`,
+    });
+    const cleaned = String(text || '').trim();
+    return cleaned.length >= 60 ? cleaned : prompt;
+  } catch (error) {
+    console.warn('Art direction step failed, using the original image prompt:', error?.message || error);
+    return prompt;
+  }
+};
 
 const photorealVideoPrompt = (prompt, imageToVideo = false) => `Scene: ${prompt}${khmerReferenceGuidance(prompt)}
 
@@ -3020,17 +3092,57 @@ Rules:
       return res.status(200).json({ text: String(text || '').trim() });
     }
 
+    // Poster headline + CTA written by AI when the user leaves them empty (or
+    // taps "AI writes it"), so non-technical users are never blocked.
+    if (action === 'posterCopy') {
+      const idea = String(req.body?.idea || '').trim().slice(0, 1500);
+      const brand = String(req.body?.brand || '').trim().slice(0, 120);
+      const outputLanguage = req.body?.language === 'km' ? 'Khmer' : 'English';
+      const businessContext = businessContextFromBody(req.body);
+      if (!idea && !brand && !businessContext.businessName) {
+        return res.status(400).json({ error: 'Describe the poster or add a brand name first.' });
+      }
+      const raw = await generateOpenRouterText({
+        system: `You write short, punchy marketing poster copy for Cambodian small businesses.\n\n${CAMBODIA_MARKET_CONTEXT}${businessContentInstruction(businessContext)}`,
+        prompt: `Poster idea: ${idea || '(not given -- promote the business)'}
+Brand: ${brand || businessContext.businessName || '(not given)'}
+Write in ${outputLanguage}. Return only JSON: {"headline": "...", "cta": "..."}.
+- headline: 2-6 words, catchy, specific to the product/idea, no quotes, no emoji, no brand name unless it reads naturally.
+- cta: a 2-3 word call to action (e.g. ${outputLanguage === 'Khmer' ? '"កុម្ម៉ង់ឥឡូវ", "ទិញឥឡូវ", "ចុះឈ្មោះឥឡូវ"' : '"Order Now", "Shop Today", "Join Now"'}).`,
+        temperature: 0.8,
+        maxTokens: 200,
+        reasoningEffort: 'low',
+        responseFormat: { type: 'json_object' },
+      });
+      const copy = jsonFromText(raw, {}) || {};
+      const headline = String(copy.headline || '').replace(/["“”]/g, '').trim().slice(0, 80);
+      const cta = String(copy.cta || '').replace(/["“”]/g, '').trim().slice(0, 30);
+      if (!headline) return res.status(502).json({ error: 'AI could not write the poster text. Please try again.' });
+      return res.status(200).json({ headline, cta });
+    }
+
     if (action === 'imageGenerate') {
       const prompt = String(req.body?.prompt || '').trim();
       const aspectRatio = String(req.body?.aspectRatio || '1:1');
       if (!prompt) return res.status(400).json({ error: 'Image prompt is required.' });
       const normalizedPrompt = await normalizeMediaPrompt(prompt, 'image');
       const look = req.body?.look;
-      const buildPrompt = look === 'futuristic' ? futuristicImagePrompt
-        : look === 'keyvisual' ? keyVisualImagePrompt
-          : look === 'studio' ? studioProductImagePrompt
-            : photorealImagePrompt;
-      const image = await generateOpenRouterImage({ prompt: buildPrompt(normalizedPrompt), aspectRatio });
+      const promptBuilders = {
+        futuristic: futuristicImagePrompt,
+        keyvisual: keyVisualImagePrompt,
+        studio: studioProductImagePrompt,
+        popmodel: popModelImagePrompt,
+        render3d: render3dImagePrompt,
+        illustration: illustrationImagePrompt,
+      };
+      const buildPrompt = promptBuilders[look] || photorealImagePrompt;
+      const artDirected = await artDirectImagePrompt(normalizedPrompt, look);
+      // The art-directed description leads; the original brief follows so no
+      // requested detail or composition instruction can be lost.
+      const scene = artDirected === normalizedPrompt
+        ? normalizedPrompt
+        : `${artDirected}\n\nOriginal brief (respect every detail): ${normalizedPrompt}`;
+      const image = await generateOpenRouterImage({ prompt: buildPrompt(scene), aspectRatio });
       return res.status(200).json(image);
     }
 
