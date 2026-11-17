@@ -1294,13 +1294,11 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
       // A poster without a headline is just a photo. Instead of blocking
       // users who don't know what to write, let AI write the headline (and the
       // button text if that is empty too) from the poster idea.
-      if (!requestedDetails.headline.trim()) {
-        const copy = await fetchPosterCopy(requestedPrompt, requestedDetails.brand || businessContext.businessName);
-        if (!copy) throw new Error('POSTER_COPY_FAILED');
-        requestedDetails.headline = copy.headline;
-        if (!requestedDetails.cta.trim()) requestedDetails.cta = copy.cta;
-        setPosterDetails((prev) => ({ ...prev, headline: copy.headline, cta: prev.cta.trim() ? prev.cta : copy.cta }));
-      }
+      // Written in parallel with the image (it is only needed for the text
+      // overlay afterwards), so it adds no waiting time.
+      const posterCopyPromise = requestedDetails.headline.trim()
+        ? null
+        : fetchPosterCopy(requestedPrompt, requestedDetails.brand || businessContext.businessName);
       const effectiveBrand = businessContext.businessName || requestedDetails.brand;
       // Only mention headline/CTA when actually filled in -- sending literal
       // `The main headline is ""` noise for an empty field confuses the prompt.
@@ -1323,7 +1321,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
 
       CRITICAL INSTRUCTION:
       - The current UI language is: ${language === 'km' ? 'Khmer' : 'English'}.
-      - Set it in modern, contemporary Cambodia (stylish Phnom Penh): people look Cambodian and wear fashionable modern clothes with modern hairstyles and contemporary accessories; traditional dress only if the visual description asks for it.
+      - Set it in modern, contemporary Cambodia (stylish Phnom Penh): people look Cambodian and wear fashionable modern clothes with modern hairstyles and contemporary accessories, unless the visual description asks for something else.
       - Do NOT render the brand name, headline, or call-to-action as literal on-image text -- treat them only as creative direction for the mood, subject, and styling of the photo.`;
 
       const aspectRatio = normalizeImageAspectRatio(options.aspectRatio, posterAspectRatio);
@@ -1331,6 +1329,13 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
       const response = await fetchImageGenerate({ action: 'imageGenerate', prompt: fullPrompt, aspectRatio, look: posterLook });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Image generation failed.');
+      if (posterCopyPromise) {
+        const copy = await posterCopyPromise;
+        if (!copy) throw new Error('POSTER_COPY_FAILED');
+        requestedDetails.headline = copy.headline;
+        if (!requestedDetails.cta.trim()) requestedDetails.cta = copy.cta;
+        setPosterDetails((prev) => ({ ...prev, headline: copy.headline, cta: prev.cta.trim() ? prev.cta : copy.cta }));
+      }
       const posterImage = await overlayPosterText(data.imageUrl, requestedDetails.headline, requestedDetails.cta, {
         layout: requestedDetails.layout,
         themeId: requestedDetails.theme,

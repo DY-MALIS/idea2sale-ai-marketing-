@@ -643,6 +643,7 @@ const KHMER_ATTIRE_GUIDANCE = `CAMBODIAN PEOPLE, MODERN STYLE:
 - Default to contemporary, cosmopolitan Cambodia (modern Phnom Penh): people wear stylish, fashionable, well-fitting modern clothes that suit the setting -- smart casual or business wear in offices and tech scenes, trendy streetwear or chic outfits in cafes and lifestyle scenes, polished styling for luxury and beauty. Settings, interiors and props are modern, clean and international-standard.
 - People are the clear, beautiful focus (in photographic styles): faces fully visible and in crisp, sharp focus with clear eyes; attractive, beautiful or handsome, well-groomed hair, natural polished makeup, elegant modern outfits (tailored blazers, silk blouses, fine knitwear, smart shirts) and graceful, confident, relaxed poses -- like a premium lifestyle or corporate magazine photoshoot. Never blurry, distorted, half-hidden or awkward faces.
 - Frame people large (in photographic styles): one or two main people in the foreground, waist-up or closer, filling a good part of the frame, with faces lit by a soft, flattering key light even in night or dusk scenes; never tiny distant figures or dark silhouettes, and at most three people unless more are requested.
+- Correct anatomy: every person has exactly two arms and two hands, each hand with five natural fingers, attached to the right body; no extra, floating or duplicated hands or limbs.
 - Heads are bare or styled with modern hairstyles, and accessories are contemporary (a watch, minimal jewelry, a modern bag, glasses). Traditional dress and rural or village props appear only when the Scene itself asks for traditional, heritage, ceremony, Khmer New Year, wedding, Angkor or countryside imagery.
 - When the Scene does ask for traditional, ceremonial or ancient Cambodia, use accurate Khmer garments, textiles, jewelry, headwear and architecture appropriate to that era and occasion -- not a mixed pan-Asian costume.`;
 
@@ -741,22 +742,24 @@ const khmerReferenceGuidance = (prompt) => {
   const text = String(prompt || '').toLowerCase();
   const guidance = [];
 
-  if (/hat|headwear|palm[- ]leaf|straw hat|មួក/.test(text)) {
+  // Whole words only: a bare /hat/ also matched "that", "what" and "chat",
+  // so almost every long English prompt got a traditional Khmer hat.
+  if (/(?:hats?|headwear|palm[- ]leaf)|មួក/u.test(text)) {
     guidance.push('KHMER HAT REFERENCE (apply only because headwear is requested): use an authentic Cambodian pleated palm-leaf hat with a broad circular brim, a short flat-topped cylindrical crown, fine radial folded panels, and a neat scalloped/woven brim edge. A small Cambodian flag patch or subtle red-blue accent may appear when appropriate. The silhouette must not have a tall or sharp pointed cone.');
   }
 
-  if (/krama|scarf|ក្រមា/.test(text)) {
+  if (/(?:krama|scarf|scarves)|ក្រមា/u.test(text)) {
     guidance.push('KRAMA REFERENCE (apply only because a krama/scarf is requested): use a real Cambodian handwoven cotton krama with a fine small-scale checked or narrow striped weave, commonly red-and-white, blue-and-white, pink-and-white, or black-and-white, with natural woven texture and short fringed ends. It may be folded around the neck, draped over one shoulder, wrapped at the waist, or used naturally for the activity described; avoid oversized tartan/plaid patterns.');
   }
 
-  if (/traditional|ceremonial|heritage|sampot|av pak|sbai|silk|khmer attire|khmer clothing|costume|សំពត់|អាវប៉ាក់|ស្បៃ|ប្រពៃណី|សម្លៀកបំពាក់/.test(text)) {
+  if (/(?:traditional|ceremonial|heritage|sampot|av pak|sbai|khmer attire|khmer clothing|costumes?)|សំពត់|អាវប៉ាក់|ស្បៃ|ប្រពៃណី|សម្លៀកបំពាក់/.test(text)) {
     guidance.push('KHMER CLOTHING REFERENCE (apply only because traditional/heritage attire is requested): use historically and socially appropriate Cambodian garments and handwoven textiles. Coordinate sampot, av pak, sbai, silk, krama, jewelry, hairstyle, footwear, and any headwear as one coherent Khmer outfit appropriate to the stated era, occupation, ceremony, and gender presentation—not a mixed pan-Asian costume.');
   }
 
   return guidance.length ? `\n\nRequested Khmer visual references:\n- ${guidance.join('\n- ')}` : '';
 };
 
-const photorealImagePrompt = (prompt) => `Scene: ${prompt}${khmerReferenceGuidance(prompt)}
+const photorealImagePrompt = (prompt, referenceSource = prompt) => `Scene: ${prompt}${khmerReferenceGuidance(referenceSource)}
 
 ${NO_FOREIGN_TEXT_CONSTRAINT}
 
@@ -776,7 +779,7 @@ Premium commercial photography requirements:
 // the style users compare against ChatGPT's AI-marketing images. Keeps the
 // no-text and Khmer-people constraints, but drops the "real candid photo,
 // no neon/CGI" rules that photorealImagePrompt enforces.
-const futuristicImagePrompt = (prompt) => `Scene: ${prompt}${khmerReferenceGuidance(prompt)}
+const futuristicImagePrompt = (prompt, referenceSource = prompt) => `Scene: ${prompt}${khmerReferenceGuidance(referenceSource)}
 
 ${NO_FOREIGN_TEXT_CONSTRAINT} Holographic screens, dashboards, and charts are welcome, but fill them only with abstract glowing shapes, icons, graphs, and circuit lines -- no words or letters.
 
@@ -795,7 +798,7 @@ Futuristic tech advertising visual requirements:
 // product on a seamless solid-color background, like food/drink ad posters.
 // photorealImagePrompt asks for lived-in, imperfect real places, which would
 // fight this, so it gets its own template (same text/people constraints).
-const studioProductImagePrompt = (prompt) => `Scene: ${prompt}${khmerReferenceGuidance(prompt)}
+const studioProductImagePrompt = (prompt, referenceSource = prompt) => `Scene: ${prompt}${khmerReferenceGuidance(referenceSource)}
 
 ${NO_FOREIGN_TEXT_CONSTRAINT} This also applies to product packaging: show cups, bottles, bags and boxes plain or with simple color shapes only, never readable labels or brand names.
 
@@ -814,7 +817,7 @@ Studio product advertising requirements:
 // commercial key visual like top brand campaigns -- the product as a hero on
 // a natural podium in a dramatic landscape, splashes and floating
 // ingredients, cinematic light. Same text/people constraints as the others.
-const keyVisualImagePrompt = (prompt) => `Scene: ${prompt}${khmerReferenceGuidance(prompt)}
+const keyVisualImagePrompt = (prompt, referenceSource = prompt) => `Scene: ${prompt}${khmerReferenceGuidance(referenceSource)}
 
 ${NO_FOREIGN_TEXT_CONSTRAINT} This also applies to product packaging: show bottles, cans, jars and bags with plain surfaces or simple color shapes only, never readable labels or brand names.
 
@@ -832,7 +835,7 @@ Cinematic commercial key-visual requirements:
 
 // Extra styles from users' reference boards. Each keeps the same no-text and
 // Cambodian-people constraints; only the visual requirements differ.
-const styledImagePrompt = (requirements) => (prompt) => `Scene: ${prompt}${khmerReferenceGuidance(prompt)}
+const styledImagePrompt = (requirements) => (prompt, referenceSource = prompt) => `Scene: ${prompt}${khmerReferenceGuidance(referenceSource)}
 
 ${NO_FOREIGN_TEXT_CONSTRAINT} This also applies to product packaging: plain surfaces or simple color shapes only, never readable labels or brand names.
 
@@ -885,9 +888,9 @@ const artDirectImagePrompt = async (prompt, look) => {
       reasoningEffort: 'low',
       temperature: 0.7,
       maxTokens: 450,
-      timeoutMs: 20_000,
+      timeoutMs: 15_000,
       system: 'You are a world-class advertising art director who writes prompts for an AI image model, the way ChatGPT expands a request before calling its image model. Return only the prompt: one vivid paragraph of 90-150 words in English, no headings, no lists, no quotes.',
-      prompt: `Rewrite this request into a stunning, specific visual description for ${ART_DIRECTION_BY_LOOK[look] || ART_DIRECTION_BY_LOOK.photo}.
+      prompt: `The request may be written in Khmer, English or a mix; understand it fully and write your description in English. Rewrite this request into a stunning, specific visual description for ${ART_DIRECTION_BY_LOOK[look] || ART_DIRECTION_BY_LOOK.photo}.
 
 Request:
 ${prompt}
@@ -3135,7 +3138,6 @@ Write in ${outputLanguage}. Return only JSON: {"headline": "...", "cta": "..."}.
       const prompt = String(req.body?.prompt || '').trim();
       const aspectRatio = String(req.body?.aspectRatio || '1:1');
       if (!prompt) return res.status(400).json({ error: 'Image prompt is required.' });
-      const normalizedPrompt = await normalizeMediaPrompt(prompt, 'image');
       const look = req.body?.look;
       const promptBuilders = {
         futuristic: futuristicImagePrompt,
@@ -3146,13 +3148,25 @@ Write in ${outputLanguage}. Return only JSON: {"headline": "...", "cta": "..."}.
         illustration: illustrationImagePrompt,
       };
       const buildPrompt = promptBuilders[look] || photorealImagePrompt;
-      const artDirected = await artDirectImagePrompt(normalizedPrompt, look);
-      // The art-directed description leads; the original brief follows so no
-      // requested detail or composition instruction can be lost.
-      const scene = artDirected === normalizedPrompt
-        ? normalizedPrompt
-        : `${artDirected}\n\nOriginal brief (respect every detail): ${normalizedPrompt}`;
-      const image = await generateOpenRouterImage({ prompt: buildPrompt(scene), aspectRatio });
+      // One AI call does both jobs: the art director understands Khmer and
+      // writes the description in English, so the separate translation call
+      // only runs as a fallback when art direction fails. This removes a
+      // whole round trip from Khmer image requests.
+      const artDirected = await artDirectImagePrompt(prompt, look);
+      let scene;
+      if (artDirected === prompt) {
+        scene = await normalizeMediaPrompt(prompt, 'image');
+      } else {
+        // The original brief follows so no detail can be lost -- but only
+        // when it is not Khmer, since Khmer text in an image prompt invites
+        // stray foreign-looking lettering.
+        scene = containsKhmerScript(prompt)
+          ? artDirected
+          : `${artDirected}\n\nOriginal brief (respect every detail): ${prompt}`;
+      }
+      // Hat/krama/traditional-dress references come from the user's own
+      // request only, never from words the art director happened to use.
+      const image = await generateOpenRouterImage({ prompt: buildPrompt(scene, prompt), aspectRatio });
       return res.status(200).json(image);
     }
 
