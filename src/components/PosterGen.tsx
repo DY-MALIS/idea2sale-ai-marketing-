@@ -248,6 +248,16 @@ const overlayPosterText = async (baseDataUrl: string, headline: string, cta: str
 };
 
 type ToolType = 'poster' | 'visual';
+type ImageAspectRatio = '16:9' | '9:16' | '1:1';
+
+const IMAGE_ASPECT_RATIOS: { id: ImageAspectRatio; label: string; description: string }[] = [
+  { id: '16:9', label: '16:9', description: 'Landscape' },
+  { id: '9:16', label: '9:16', description: 'Story' },
+  { id: '1:1', label: '1:1', description: 'Square' },
+];
+
+const normalizeImageAspectRatio = (value: unknown, fallback: ImageAspectRatio): ImageAspectRatio =>
+  value === '16:9' || value === '9:16' || value === '1:1' ? value : fallback;
 
 interface PosterDetails {
   brand: string;
@@ -275,6 +285,9 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
   const [activeTool, setActiveTool] = useState<ToolType>('poster');
   const [posterPrompt, setPosterPrompt] = useState('A real product photo in a Cambodian cafe setting, warm sunlight, premium commercial photography, natural shadows, realistic texture, lifestyle background');
   const [visualPrompt, setVisualPrompt] = useState('A photorealistic product advertisement scene, real camera photo, premium lighting, natural shadows, detailed texture, cinematic depth of field, TikTok-ready composition');
+  const [posterAspectRatio, setPosterAspectRatio] = useState<ImageAspectRatio>('9:16');
+  const [visualAspectRatio, setVisualAspectRatio] = useState<ImageAspectRatio>('1:1');
+  const [visualStyle, setVisualStyle] = useState('Cinematic');
   const [posterDetails, setPosterDetails] = useState({
     brand: 'aime.angkorgate',
     headline: 'Premium AI Marketing',
@@ -338,9 +351,12 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
         cta: typeof details.cta === 'string' ? details.cta : prev.cta,
         style: typeof details.style === 'string' ? details.style : prev.style,
       }));
+      setPosterAspectRatio(normalizeImageAspectRatio(payload.aspectRatio, '9:16'));
     } else {
       setActiveTool('visual');
       if (typeof payload.visualPrompt === 'string') setVisualPrompt(payload.visualPrompt);
+      if (typeof payload.visualStyle === 'string') setVisualStyle(payload.visualStyle);
+      setVisualAspectRatio(normalizeImageAspectRatio(payload.aspectRatio, '1:1'));
     }
     if (entry.mediaUrl) setGeneratedImage(entry.mediaUrl);
   };
@@ -496,7 +512,8 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
       - If the brand/headline/visual description is in Khmer, prioritize the Khmer aesthetic.
       - Do NOT render the brand name, headline, or call-to-action as literal on-image text -- treat them only as creative direction for the mood, subject, and styling of the photo.`;
 
-      const response = await fetchImageGenerate({ action: 'imageGenerate', prompt: fullPrompt, aspectRatio: options.aspectRatio || '3:4' });
+      const aspectRatio = normalizeImageAspectRatio(options.aspectRatio, posterAspectRatio);
+      const response = await fetchImageGenerate({ action: 'imageGenerate', prompt: fullPrompt, aspectRatio });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Image generation failed.');
       const posterImage = await overlayPosterText(data.imageUrl, requestedDetails.headline, requestedDetails.cta);
@@ -507,6 +524,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
         tool: 'poster',
         posterPrompt: requestedPrompt,
         posterDetails: { ...requestedDetails, brand: effectiveBrand },
+        aspectRatio,
       });
     } catch (error: any) {
       if (profileVersion !== profileVersionRef.current) return;
@@ -533,22 +551,23 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
     if (loading) return;
     const profileVersion = profileVersionRef.current;
     const prompt = typeof promptOverride === 'string' ? promptOverride.trim() : visualPrompt.trim();
-    const aspectRatio = typeof aspectRatioOverride === 'string' ? aspectRatioOverride : '1:1';
+    const aspectRatio = normalizeImageAspectRatio(aspectRatioOverride, visualAspectRatio);
     if (!prompt) return;
     setLoading(true);
     setGeneratedImage(null);
     try {
       const businessContext = await getLatestBusinessBranding(user, isDemoMode);
-      const brandedPrompt = businessContext.businessName
-        ? `${prompt}\nThis visual is for ${businessContext.businessName}; do not render the name as generated text because the saved logo is applied afterward.`
-        : prompt;
+      const styleDirection = `${visualStyle} visual style. Photorealistic, professional production quality, natural lighting, balanced exposure, realistic shadows, detailed background, authentic expressions when people are present, elegant composition, and refined cinematic color grading.`;
+      const brandedPrompt = `${prompt}\n${styleDirection}${businessContext.businessName
+        ? `\nThis visual is for ${businessContext.businessName}; do not render the name as generated text because the saved logo is applied afterward.`
+        : ''}`;
       const response = await fetchImageGenerate({ action: 'imageGenerate', prompt: brandedPrompt, aspectRatio });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Image generation failed.');
       const finalImage = await applyLogoWatermark(data.imageUrl, businessContext.logoDataUrl);
       if (profileVersion !== profileVersionRef.current) return;
       setGeneratedImage(finalImage);
-      void persistImageHistory(finalImage, prompt, { tool: 'visual', visualPrompt: prompt });
+      void persistImageHistory(finalImage, prompt, { tool: 'visual', visualPrompt: prompt, visualStyle, aspectRatio });
     } catch (error: any) {
       if (profileVersion !== profileVersionRef.current) return;
       console.error(error);
@@ -584,6 +603,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
         style: automationRequest.posterStyle?.trim() || 'Modern',
       };
       setPosterPrompt(automationRequest.prompt);
+      setPosterAspectRatio(normalizeImageAspectRatio(automationRequest.aspectRatio, '9:16'));
       setPosterDetails((current) => ({ ...current, ...automatedDetails }));
       setAutomationNotice(
         language === 'km'
@@ -600,6 +620,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
     }
 
     setVisualPrompt(automationRequest.prompt);
+    setVisualAspectRatio(normalizeImageAspectRatio(automationRequest.aspectRatio, '1:1'));
     setAutomationNotice(
       language === 'km'
         ? `Agent បានរៀប prompt សម្រាប់ ${automationRequest.platform} ហើយកំពុងបង្កើតរូបភាពស្វ័យប្រវត្តិ។`
@@ -723,6 +744,16 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
           <div className="glass p-8 rounded-[2.5rem] space-y-6 relative overflow-hidden">
             {activeTool === 'poster' ? (
               <div className="space-y-5">
+                <div className="rounded-2xl border border-brand-100 bg-brand-50/70 p-4 dark:border-slate-700 dark:bg-slate-800/70">
+                  <p className="text-sm font-bold text-brand-700 dark:text-brand-300">
+                    {language === 'km' ? 'សរសេរគំនិត Poster របស់អ្នក' : 'Write your poster idea'}
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                    {language === 'km'
+                      ? 'បញ្ចូលចំណងជើង ប៊ូតុងអំពាវនាវ និងពិពណ៌នារូបភាពដែលអ្នកចង់បាន។'
+                      : 'Add your headline, call to action, and describe the exact scene you want AI to create.'}
+                  </p>
+                </div>
                 <div className="grid grid-cols-2 gap-5">
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">{t('brandName')}</label>
@@ -778,16 +809,97 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
                     className="w-full h-28 p-4 rounded-2xl bg-brand-50 border border-brand-200 text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all resize-none dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
                   />
                 </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">
+                    {language === 'km' ? 'ទំហំ Poster' : 'Poster aspect ratio'}
+                  </label>
+                  <div className="grid grid-cols-3 gap-2" role="group" aria-label="Poster aspect ratio">
+                    {IMAGE_ASPECT_RATIOS.map((ratio) => (
+                      <button
+                        key={ratio.id}
+                        type="button"
+                        onClick={() => setPosterAspectRatio(ratio.id)}
+                        aria-pressed={posterAspectRatio === ratio.id}
+                        className={cn(
+                          'rounded-xl border px-2 py-3 text-center transition-all',
+                          posterAspectRatio === ratio.id
+                            ? 'border-brand-500 bg-brand-600 text-white shadow-md'
+                            : 'border-brand-200 bg-brand-50 text-brand-600 hover:border-brand-400 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300',
+                        )}
+                      >
+                        <span className="block text-sm font-black">{ratio.label}</span>
+                        <span className={cn('mt-0.5 block text-[10px] font-semibold', posterAspectRatio === ratio.id ? 'text-white/75' : 'text-slate-400')}>
+                          {ratio.description}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
             ) : (
-              <div className="space-y-2">
-                <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">{t('visualConcept')}</label>
-                <textarea
-                  value={visualPrompt}
-                  onChange={(e) => setVisualPrompt(e.target.value)}
-                  placeholder="Describe a realistic product photo: subject, setting, camera angle, lighting, background..."
-                  className="w-full h-56 p-5 rounded-2xl bg-brand-50 border border-brand-200 focus:ring-2 focus:ring-brand-500 outline-none transition-all resize-none dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
-                />
+              <div className="space-y-5">
+                <div className="rounded-2xl border border-brand-100 bg-brand-50/70 p-4 dark:border-slate-700 dark:bg-slate-800/70">
+                  <p className="text-sm font-bold text-brand-700 dark:text-brand-300">
+                    {language === 'km' ? 'សរសេររូបភាពដែលអ្នកចង់បង្កើត' : 'Write what you want to create'}
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                    {language === 'km'
+                      ? 'ពិពណ៌នាប្រធានបទ ទីតាំង សកម្មភាព ពន្លឺ មុំកាមេរ៉ា និងអារម្មណ៍។'
+                      : 'Describe the subject, environment, action, lighting, camera angle, and mood in your own words.'}
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">
+                    {language === 'km' ? 'រចនាប័ទ្មរូបភាព' : 'Image style'}
+                  </label>
+                  <select
+                    value={visualStyle}
+                    onChange={(event) => setVisualStyle(event.target.value)}
+                    className="w-full p-4 rounded-2xl bg-brand-50 border border-brand-200 text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
+                  >
+                    <option>Cinematic</option>
+                    <option>Professional promotional</option>
+                    <option>Inspirational</option>
+                    <option>Educational</option>
+                    <option>Modern minimalist</option>
+                    <option>Luxury editorial</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">{t('visualConcept')}</label>
+                  <textarea
+                    value={visualPrompt}
+                    onChange={(e) => setVisualPrompt(e.target.value)}
+                    placeholder="Describe a realistic image: subject, setting, activity, camera angle, natural lighting, background, and mood..."
+                    className="w-full h-40 p-5 rounded-2xl bg-brand-50 border border-brand-200 focus:ring-2 focus:ring-brand-500 outline-none transition-all resize-none dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">
+                    {language === 'km' ? 'ទំហំរូបភាព' : 'Image aspect ratio'}
+                  </label>
+                  <div className="grid grid-cols-3 gap-2" role="group" aria-label="Image aspect ratio">
+                    {IMAGE_ASPECT_RATIOS.map((ratio) => (
+                      <button
+                        key={ratio.id}
+                        type="button"
+                        onClick={() => setVisualAspectRatio(ratio.id)}
+                        aria-pressed={visualAspectRatio === ratio.id}
+                        className={cn(
+                          'rounded-xl border px-2 py-3 text-center transition-all',
+                          visualAspectRatio === ratio.id
+                            ? 'border-brand-500 bg-brand-600 text-white shadow-md'
+                            : 'border-brand-200 bg-brand-50 text-brand-600 hover:border-brand-400 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300',
+                        )}
+                      >
+                        <span className="block text-sm font-black">{ratio.label}</span>
+                        <span className={cn('mt-0.5 block text-[10px] font-semibold', visualAspectRatio === ratio.id ? 'text-white/75' : 'text-slate-400')}>
+                          {ratio.description}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
             
@@ -801,7 +913,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
               }}
               disabled={loading || (activeTool === 'visual'
                 ? !visualPrompt.trim()
-                : !posterDetails.brand.trim() || !posterDetails.headline.trim() || !posterDetails.cta.trim())}
+                : !posterDetails.brand.trim() || !posterDetails.headline.trim() || !posterDetails.cta.trim() || !posterPrompt.trim())}
               className="w-full bg-gradient-to-r from-[#f88b3e] to-[#e65d28] hover:from-[#ee7d33] hover:to-[#d94f1f] text-white font-bold py-5 rounded-2xl flex items-center justify-center gap-3 transition-all shadow-xl shadow-orange-500/20"
             >
               {loading ? <Loader2 className="animate-spin" /> : <Sparkles size={22} />}
