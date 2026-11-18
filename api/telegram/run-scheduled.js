@@ -150,6 +150,12 @@ const verifyUser = async (req) => {
     error.statusCode = 401;
     throw error;
   }
+  // Some user-facing actions (publishing-status and immediate post) verify
+  // authentication before their handler needs Firestore. On a cold Vercel
+  // invocation there is no default Admin app yet, so admin.auth() would throw
+  // before the saved Telegram destination could be read. Initialization is
+  // idempotent and must happen before every direct Admin Auth access.
+  initFirebaseAdmin();
   return admin.auth().verifyIdToken(token, true);
 };
 
