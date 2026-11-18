@@ -1991,7 +1991,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
           : typeof error === 'string' && error.trim()
             ? error
             : 'Video generation failed for an unknown reason. Please try again.';
-      if (videoImages.length > 0 && /video providers? rejected .*image/i.test(errorMessage)) {
+      if (videoImages.length > 0 && /video providers? rejected .*image|input image.{0,120}may contain real person/i.test(errorMessage)) {
         setStartingImageRejected(true);
       }
       if (/OPEN_ROUTER_API_KEY|api key/i.test(errorMessage)) setNeedsApiKey(true);
@@ -2502,8 +2502,8 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                   {startingImageRejected && videoImages.length > 0 && (
                     <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-100">
                       <p>{language === 'km'
-                        ? 'សេវាវីដេអូទាំងពីរបដិសេធរូបនេះ ព្រោះវាអាចមានមុខមនុស្សពិត។ ប្រើរូបផលិតផល ឬទេសភាពដែលគ្មានមុខមនុស្ស ហើយបង្កើតម្ដងទៀត។ ការបង្កើតម្ដងទៀតអាចគិតថ្លៃបន្ថែម។'
-                        : 'Both video providers rejected this image because it may contain a real person’s face. Use a product or scene photo without visible faces, then generate again. A new attempt may incur another charge.'}</p>
+                        ? 'សេវាវីដេអូបដិសេធរូបនេះ ព្រោះវាអាចមានមុខមនុស្សពិត។ សូមកាត់រូបឱ្យឃើញតែផលិតផល ឬប្រើរូបទេសភាពដែលគ្មានមុខមនុស្ស រួចបង្កើតម្ដងទៀត។ ការបង្កើតម្ដងទៀតអាចគិតថ្លៃបន្ថែម។'
+                        : 'The video provider rejected this image because it may contain a real person’s face. Crop to the product or use a scene photo without visible faces, then generate again. A new attempt may incur another charge.'}</p>
                       <button
                         type="button"
                         onClick={() => {

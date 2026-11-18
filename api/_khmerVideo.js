@@ -10,6 +10,7 @@ import {
 import { getOriginalImageKitUrl } from '../shared/imageKitUrl.js';
 import { assertVideoCreditAvailable } from './_videoCredit.js';
 import { ensureVideoImageDataUrl, prepareVideoProductImageUrl } from './_videoReferenceImage.js';
+import { isVideoImagePrivacyRejection } from './_videoImageRejection.js';
 
 const MIN_KHMER_CLIP_DURATION = 4;
 const MAX_KHMER_CLIP_DURATION = 8;
@@ -307,9 +308,7 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
   try {
     job = await submitVideo(videoRequest);
   } catch (error) {
-    const imagePrivacyRejection = error?.statusCode === 400
-      && /InputImageSensitiveContentDetected/i.test(`${error?.providerCode || ''} ${error?.message || ''}`);
-    if (!imagePrivacyRejection) throw error;
+    if (!isVideoImagePrivacyRejection(error)) throw error;
 
     // The product photo is the "extra" input on top of an otherwise-working
     // presenter flow -- drop it and retry once before falling through to the
@@ -325,9 +324,7 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
         });
         imageFallbackReason = 'The video provider rejected one or more selected reference photos. The clip was created showing the presenter only.';
       } catch (retryError) {
-        const stillRejected = retryError?.statusCode === 400
-          && /InputImageSensitiveContentDetected/i.test(`${retryError?.providerCode || ''} ${retryError?.message || ''}`);
-        if (!stillRejected) throw retryError;
+        if (!isVideoImagePrivacyRejection(retryError)) throw retryError;
         error = retryError;
       }
     }
@@ -350,8 +347,7 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
           });
           imageFallbackReason = 'Seedance rejected the uploaded photo, so the original image was animated with Veo and the Khmer narration was added afterward. Review the result and lip sync before publishing.';
         } catch (alternateError) {
-          if (alternateError?.statusCode === 400
-            && /InputImageSensitiveContentDetected/i.test(`${alternateError?.providerCode || ''} ${alternateError?.message || ''}`)) {
+          if (isVideoImagePrivacyRejection(alternateError)) {
             throw Object.assign(new Error('Both video providers rejected the uploaded starting image because it may show an identifiable person. Use a product or scene photo without visible faces.'), { statusCode: 400 });
           }
           throw alternateError;

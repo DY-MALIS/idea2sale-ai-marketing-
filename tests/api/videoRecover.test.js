@@ -134,6 +134,22 @@ describe('video start recovery', () => {
     expect(mocks.set).not.toHaveBeenCalled();
   });
 
+  it('explains a message-only real-person image rejection and clears its start', async () => {
+    mocks.startVideo.mockRejectedValue(Object.assign(
+      new Error("HTTP 400: The request failed because the input image 'content[1]' may contain real person."),
+      { statusCode: 400 },
+    ));
+    const res = responseRecorder();
+    await handler({ method: 'POST', headers: { authorization: 'Bearer valid-token' }, body: {
+      action: 'videoGenerate', requestId: '12345678-1234-1234-1234-123456789abc',
+      prompt: 'A short video of a training room', duration: 4, aspectRatio: '16:9',
+    } }, res);
+    expect(res.statusCode).toBe(400);
+    expect(res.body.error).toMatch(/crop to the product|different starting image/i);
+    expect(res.body.error).not.toContain('HTTP 400');
+    expect(mocks.deleteStart).toHaveBeenCalledTimes(1);
+  });
+
   it('reports depleted provider credit before a paid video start', async () => {
     credit.check.mockRejectedValue(Object.assign(new Error('OpenRouter credits are exhausted.'), { statusCode: 402 }));
     const res = responseRecorder();

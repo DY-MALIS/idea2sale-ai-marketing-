@@ -67,9 +67,8 @@ it('retries a rejected automatic presenter image as text-to-video for later Khme
   mocks.image.mockResolvedValue({ imageUrl: 'generated-portrait' });
   mocks.speech.mockResolvedValue({ audioUrl: 'audio-data', duration: 3.4, provider: 'edge' });
   mocks.video
-    .mockRejectedValueOnce(Object.assign(new Error('input image content[1] may contain a real person'), {
+    .mockRejectedValueOnce(Object.assign(new Error("HTTP 400: The request failed because the input image 'content[1]' may contain real person."), {
       statusCode: 400,
-      providerCode: 'InputImageSensitiveContentDetected.PrivacyInformation',
     }))
     .mockResolvedValueOnce({ jobId: 'text-video-job' });
   const result = await startKhmerVideoJob(

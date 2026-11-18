@@ -42,6 +42,7 @@ import { createHash } from 'crypto';
 import replaceContentPlan from './_contentPlanReplace.js';
 import { cancelContentPlanStart, contentPlanTiming, scheduleContentPlanStart } from './_contentPlanTiming.js';
 import { ensureVideoImageDataUrl } from './_videoReferenceImage.js';
+import { isVideoImagePrivacyRejection } from './_videoImageRejection.js';
 
 const agentContentPlanText = (body, limit = 14) => (Array.isArray(body?.contentPlan) ? body.contentPlan : [])
   .slice(0, limit)
@@ -3706,7 +3707,7 @@ Write in ${outputLanguage}. Return only JSON: {"headline": "...", "cta": "..."}.
     }
     const keyError = /OPEN_ROUTER_API_KEY|unauthorized|invalid api[_ -]?key/i.test(message);
     const imageRejected = (action === 'videoGenerate' || action === 'videoStatus')
-      && /InputImageSensitiveContentDetected/i.test(`${error?.providerCode || ''} ${message}`);
+      && isVideoImagePrivacyRejection(error);
     return res.status(keyError ? 503 : Number.isInteger(error?.statusCode) && error.statusCode >= 400 && error.statusCode < 500 ? error.statusCode : 500).json({
       ...(error?.videoTerminal ? { code: 'VIDEO_JOB_TERMINAL' } : {}),
       ...(startNotSubmitted ? { code: 'VIDEO_START_NOT_SUBMITTED' } : {}),
