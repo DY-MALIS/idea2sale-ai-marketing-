@@ -133,11 +133,12 @@ it('keeps Telegram in the same one-upload schedule group as the other platforms'
 
 it('reports a saved Telegram channel as ready without bot login or webhook approval', async () => {
   mockVerifyIdToken.mockResolvedValue({ uid: 'owner' });
-  planMocks.db = {
+  const db = {
     collection: (name) => name === 'business_profiles'
       ? { doc: () => ({ get: async () => ({ data: () => ({ telegramBotToken: 'bot-token', telegramChannelUrl: '@mychannel' }) }) }) }
       : { doc: () => ({ get: async () => ({ data: () => null }) }) },
   };
+  mockGetFirestore.mockReturnValue(db);
   const res = createMockRes();
   await scheduledHandler({
     method: 'POST', query: { action: 'publishing-status' },
@@ -145,6 +146,7 @@ it('reports a saved Telegram channel as ready without bot login or webhook appro
   }, res);
   expect(res.statusCode).toBe(200);
   expect(res.body).toEqual({ ready: true, channelLabel: '@mychannel' });
+  expect(mockGetFirestore.mock.invocationCallOrder[0]).toBeLessThan(mockVerifyIdToken.mock.invocationCallOrder[0]);
 });
 
 it.each(['photo', 'video'])('saves a scheduled Telegram %s for the owner username', async (mediaType) => {
