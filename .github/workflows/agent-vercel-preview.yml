@@ -1,0 +1,74 @@
+name: Agent Preview Deployment
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Reviewed agent branch (agent/issue-N)'
+        required: true
+        type: string
+  pull_request:
+    types: [opened, synchronize, reopened]
+permissions:
+  contents: read
+concurrency:
+  group: agent-preview-${{ github.event.pull_request.number || inputs.ref }}
+  cancel-in-progress: true
+jobs:
+  preview:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'agent/issue-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: agent-preview
+    steps:
+      - name: Validate selected ref
+        env:
+          REQUESTED_REF: ${{ inputs.ref }}
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          if [[ ! "$REQUESTED_REF" =~ ^agent/issue-[0-9]+$ ]]; then
+            echo 'Only agent/issue-N branches may be previewed'
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+      - name: Install Vercel CLI
+        run: npm install --global vercel
+      - name: Pull preview environment
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: vercel pull --yes --environment=preview --token="$VERCEL_TOKEN"
+      - name: Build and deploy preview only
+        id: deploy
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          vercel build --token="$VERCEL_TOKEN"
+          url=$(vercel deploy --prebuilt --token="$VERCEL_TOKEN")
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+      - name: Notify Telegram
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          PREVIEW_URL: ${{ steps.deploy.outputs.url }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          if [[ -n "$TELEGRAM_BOT_TOKEN" && -n "$TELEGRAM_CHAT_ID" ]]; then
+            message="Agent Vercel Preview: $JOB_STATUS"
+            if [[ -n "$PREVIEW_URL" ]]; then message="$message"$'\n'"$PREVIEW_URL"; fi
+            curl --fail --silent --show-error --max-time 15 -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" --data-urlencode "chat_id=$TELEGRAM_CHAT_ID" --data-urlencode "text=$message" || true
+          fi
