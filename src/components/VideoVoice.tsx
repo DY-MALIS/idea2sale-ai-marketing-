@@ -1866,6 +1866,19 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
             await verifyClipSpeech(clip, generatedClip.expectedScript || spokenSegments[i]);
           } catch (error) {
             console.warn('Automatic speech verification needs manual review:', error);
+            // Speech review is a publishing safeguard, not a failed generation.
+            // This used to return immediately after showing the paid clip, so
+            // the result never reached ImageKit or generation_history and
+            // disappeared from History on refresh. Preserve it before stopping
+            // the publish flow, even though the user must still review it.
+            try {
+              clip = await uploadVideoDirectly(clip, idToken);
+            } catch (uploadError) {
+              // The provider URL is still better than losing the completed
+              // generation entirely; History can retain it for immediate
+              // review even when the durable copy cannot be made yet.
+              console.error('Could not make the review video URL durable:', uploadError);
+            }
             setGeneratedVideo(clip);
             setGeneratedVideoHasSpeech(true);
             setRetainedClips([...clipUrls, clip]);
@@ -1880,6 +1893,31 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
             setVideoVoiceQualityNotice(language === 'km'
               ? 'មិនអាចផ្ទៀងផ្ទាត់សំឡេងបាន។ ឈុតដែលបានបង្កើតរក្សាទុកនៅខាងក្រោមសម្រាប់មើល ស្តាប់ និងទាញយក។ ការផ្សព្វផ្សាយត្រូវបានបិទ។ ការបង្កើតម្ដងទៀតអាចចំណាយបន្ថែម។'
               : 'Speech could not be verified. Generated clips are retained below for review and download. Publishing is disabled. Generating again may incur additional charges.');
+            try {
+              await saveGenerationHistory({
+                user, isDemoMode, type: 'video',
+                title: (promptText || voiceOverContent || 'Video').slice(0, 200),
+                summary: voiceOverContent || undefined,
+                mediaUrl: clip,
+                mediaType: 'video',
+                payload: {
+                  prompt: promptText,
+                  videoLanguage: generationLanguage,
+                  voiceOverText: voiceOverContent,
+                  voiceGender: generationVoiceGender,
+                  voicePersona: generationVoicePersona,
+                  videoDuration: 8,
+                  videoAspectRatio: generationAspectRatio,
+                  hasSpeech: true,
+                  needsReview: true,
+                },
+              });
+            } catch (historyError) {
+              console.error('Failed to save review video history:', historyError);
+              notify(language === 'km'
+                ? 'វីដេអូបានបង្កើត ប៉ុន្តែមិនអាចរក្សាទុកក្នុង History បាន។ សូមកុំបិទទំព័រ ហើយទាញយកវីដេអូទុក។'
+                : 'The video was created but could not be saved to History. Keep this page open and download the video.', 'error');
+            }
             return;
           }
         }
@@ -1947,28 +1985,32 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       setGeneratedVideoHasSpeech(Boolean(voiceOverContent) && !silentRequested);
       // The final result is already a small hosted URL, so history persistence
       // never sends the full video through /api/ai again.
-      void (async () => {
-        try {
-          await saveGenerationHistory({
-            user, isDemoMode, type: 'video',
-            title: (promptText || voiceOverContent || 'Video').slice(0, 200),
-            summary: voiceOverContent || undefined,
-            mediaUrl: video,
-            mediaType: 'video',
-            payload: {
-              prompt: promptText,
-              videoLanguage: generationLanguage,
-              voiceOverText: voiceOverContent,
-              voiceGender: generationVoiceGender,
-              voicePersona: generationVoicePersona,
-              videoDuration: 8,
-              videoAspectRatio: generationAspectRatio,
-            },
-          });
-        } catch (historyError) {
-          console.error('Failed to save video history:', historyError);
-        }
-      })();
+      try {
+        // Do not finish the generation flow until its History record is
+        // committed. A fire-and-forget write could be abandoned when the user
+        // refreshed or navigated immediately after seeing the finished video.
+        await saveGenerationHistory({
+          user, isDemoMode, type: 'video',
+          title: (promptText || voiceOverContent || 'Video').slice(0, 200),
+          summary: voiceOverContent || undefined,
+          mediaUrl: video,
+          mediaType: 'video',
+          payload: {
+            prompt: promptText,
+            videoLanguage: generationLanguage,
+            voiceOverText: voiceOverContent,
+            voiceGender: generationVoiceGender,
+            voicePersona: generationVoicePersona,
+            videoDuration: 8,
+            videoAspectRatio: generationAspectRatio,
+          },
+        });
+      } catch (historyError) {
+        console.error('Failed to save video history:', historyError);
+        notify(language === 'km'
+          ? 'វីដេអូបានបង្កើត ប៉ុន្តែមិនអាចរក្សាទុកក្នុង History បាន។ សូមកុំបិទទំព័រ ហើយទាញយកវីដេអូទុក។'
+          : 'The video was created but could not be saved to History. Keep this page open and download the video.', 'error');
+      }
       if (spokenSegments) setPerformanceNeedsReview(true);
       if (spokenSegments) setVideoVoiceQualityNotice(usedKhmerVoiceFallback
         ? (language === 'km'
