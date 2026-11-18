@@ -3575,17 +3575,29 @@ Write in ${outputLanguage}. Return only JSON: {"headline": "...", "cta": "..."}.
         throw Object.assign(new Error('Preparing this video took too long. No video job was started; please try again.'), { statusCode: 503, videoStartNotSubmitted: true });
       }
       videoSubmissionAttempted = true;
-      const video = await startOpenRouterVideo({
-        prompt: photorealVideoPrompt(normalizedPrompt, images.length === 1)
-          + (images.length > 1
-            ? `\nMULTIPLE USER PHOTOS: Incorporate the distinct subject or product from each of the ${images.length} selected reference images into one coherent continuous scene. Keep their recognizable shapes and colors. Do not omit a selected photo.`
-            : ''),
-        images,
-        duration,
-        aspectRatio,
-        timeoutMs: submissionTimeoutMs,
-      });
-      const responseBody = { ...video, outputAspectRatio: aspectRatio };
+      const providerPrompt = photorealVideoPrompt(normalizedPrompt, images.length === 1)
+        + (images.length > 1
+          ? `\nMULTIPLE USER PHOTOS: Incorporate the distinct subject or product from each of the ${images.length} selected reference images into one coherent continuous scene. Keep their recognizable shapes and colors. Do not omit a selected photo.`
+          : '');
+      let video;
+      let imageFallbackReason = '';
+      try {
+        video = await startOpenRouterVideo({
+          prompt: providerPrompt, images, duration, aspectRatio, timeoutMs: submissionTimeoutMs,
+        });
+      } catch (error) {
+        if (!images.length || !isVideoImagePrivacyRejection(error)) throw error;
+        const fallbackTimeoutMs = videoStartDeadlineAt - Date.now() - 5_000;
+        if (fallbackTimeoutMs < 15_000) {
+          throw Object.assign(new Error('Preparing this video took too long. No video job was started; please try again.'), { statusCode: 503, videoStartNotSubmitted: true });
+        }
+        video = await startOpenRouterVideo({
+          prompt: `${providerPrompt}\nThe uploaded reference image could not be used. Create the requested scene from the written description only. Do not imitate or reconstruct an identifiable real person from the rejected image.`,
+          images: [], duration, aspectRatio, timeoutMs: fallbackTimeoutMs,
+        });
+        imageFallbackReason = 'The video provider rejected the uploaded image because it may show an identifiable person. The clip was created from the scene description without that image.';
+      }
+      const responseBody = { ...video, outputAspectRatio: aspectRatio, ...(imageFallbackReason ? { imageFallbackReason } : {}) };
       if (startRef) {
         try {
           await startRef.set({ status: 'PROCESSING', jobId: video.jobId, startResponse: JSON.parse(JSON.stringify(responseBody)), updatedAt: new Date() }, { merge: true });

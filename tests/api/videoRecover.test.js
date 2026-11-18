@@ -38,6 +38,7 @@ vi.mock('../../api/_rateLimit.js', () => ({
   getClientIp: () => '127.0.0.1',
 }));
 vi.mock('../../api/_khmerVideo.js', () => ({ startKhmerVideoJob: mocks.startKhmerVideoJob }));
+vi.mock('../../api/_videoReferenceImage.js', () => ({ ensureVideoImageDataUrl: async (source) => source }));
 vi.mock('../../api/telegram/run-scheduled.js', () => ({ uploadMediaDataUrl: vi.fn() }));
 const credit = vi.hoisted(() => ({ check: vi.fn() }));
 vi.mock('../../api/_videoCredit.js', () => ({ assertVideoCreditAvailable: credit.check }));
@@ -115,6 +116,27 @@ describe('video start recovery', () => {
     }), { merge: true });
     expect(mocks.createStart).toHaveBeenCalledWith(expect.objectContaining({ status: 'PREPARING', userId: 'owner-1' }));
     expect(mocks.setStart).toHaveBeenCalledWith(expect.objectContaining({ jobId: 'paid-job', status: 'PROCESSING' }), { merge: true });
+  });
+
+  it('creates a description-only video when a real-person starting image is rejected', async () => {
+    mocks.startVideo
+      .mockRejectedValueOnce(Object.assign(
+        new Error("HTTP 400: The request failed because the input image 'content[1]' may contain real person."),
+        { statusCode: 400 },
+      ))
+      .mockResolvedValueOnce({ jobId: 'fallback-job' });
+    const res = responseRecorder();
+    await handler({ method: 'POST', headers: { authorization: 'Bearer valid-token' }, body: {
+      action: 'videoGenerate', requestId: '12345678-1234-1234-1234-123456789abc',
+      prompt: 'A short training video', duration: 4, aspectRatio: '16:9',
+      images: [{ mimeType: 'image/png', base64: 'AAAA' }],
+    } }, res);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({ jobId: 'fallback-job', imageFallbackReason: expect.stringMatching(/without that image/i) });
+    expect(mocks.startVideo).toHaveBeenCalledTimes(2);
+    expect(mocks.startVideo.mock.calls[0][0].images).toHaveLength(1);
+    expect(mocks.startVideo.mock.calls[1][0].images).toEqual([]);
+    expect(mocks.startVideo.mock.calls[1][0].prompt).toContain('written description only');
   });
 
   it('clears a provider-rejected start so a retry cannot get stranded', async () => {

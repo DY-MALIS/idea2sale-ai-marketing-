@@ -348,9 +348,14 @@ export const startKhmerVideoJob = async (item, speech, uploadMediaDataUrl, {
           imageFallbackReason = 'Seedance rejected the uploaded photo, so the original image was animated with Veo and the Khmer narration was added afterward. Review the result and lip sync before publishing.';
         } catch (alternateError) {
           if (isVideoImagePrivacyRejection(alternateError)) {
-            throw Object.assign(new Error('Both video providers rejected the uploaded starting image because it may show an identifiable person. Use a product or scene photo without visible faces.'), { statusCode: 400 });
+            if (!allowImageFallback) {
+              throw Object.assign(new Error('Both video providers rejected the uploaded starting image because it may show an identifiable person. Use a product or scene photo without visible faces.'), { statusCode: 400 });
+            }
+            imageFallbackReason = 'Both video providers rejected the uploaded image because it may show an identifiable person. The clip was created from the scene description without that image, and the original Khmer narration was added afterward.';
+            job = await submitVideo(textOnlyPresenterRequest({ speech, duration: fittedDuration, aspectRatio }));
+          } else {
+            throw alternateError;
           }
-          throw alternateError;
         }
       }
       if (!job && !allowImageFallback) {

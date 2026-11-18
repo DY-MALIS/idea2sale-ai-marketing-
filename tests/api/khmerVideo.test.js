@@ -525,3 +525,25 @@ it('tries the original photo with Veo after the product and presenter references
   expect(result.job.jobId).toBe('original-photo-job');
   expect(result.imageFallbackReason).toContain('original image');
 });
+
+it('creates a description-only Khmer video when both image models reject a real person', async () => {
+  mocks.speech.mockResolvedValue({ audioUrl: 'audio-data', duration: 3.4, provider: 'gemini' });
+  const imageError = Object.assign(
+    new Error("HTTP 400: The request failed because the input image 'content[1]' may contain real person."),
+    { statusCode: 400 },
+  );
+  mocks.video.mockRejectedValueOnce(imageError)
+    .mockRejectedValueOnce(imageError)
+    .mockResolvedValueOnce({ jobId: 'description-only-job' });
+  const result = await startKhmerVideoJob(
+    {}, { script: 'សួស្តី', prompt: 'Presenter at a computer' }, uploadStub(),
+    { duration: 4, images: [{ mimeType: 'image/png', base64: 'AAAA' }], allowImageFallback: true },
+  );
+  expect(mocks.video).toHaveBeenCalledTimes(3);
+  expect(mocks.video.mock.calls[2][0]).toMatchObject({
+    referenceUrls: [], audioReferenceUrls: [], generateAudio: false,
+  });
+  expect(mocks.video.mock.calls[2][0].prompt).toContain('No reference image or audio is supplied');
+  expect(result.job.jobId).toBe('description-only-job');
+  expect(result.imageFallbackReason).toContain('scene description without that image');
+});

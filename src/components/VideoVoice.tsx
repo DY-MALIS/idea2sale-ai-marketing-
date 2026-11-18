@@ -122,6 +122,11 @@ interface PendingVideoJob {
 }
 
 const presenterImageFallbackNotice = (language: 'km' | 'en', reason = '') => {
+  if (/uploaded image|without that image|identifiable person/i.test(reason)) {
+    return language === 'km'
+      ? 'សេវាវីដេអូមិនអាចប្រើរូបដែលបានផ្ទុកឡើង ព្រោះវាអាចមានមនុស្សពិត។ វីដេអូត្រូវបានបង្កើតតាមការពិពណ៌នាឈុត ដោយមិនប្រើរូបនោះ។ សូមពិនិត្យលទ្ធផលមុនផ្សព្វផ្សាយ។'
+      : 'The provider could not use the uploaded image because it may show an identifiable person. The video was created from the scene description without that image. Review it before publishing.';
+  }
   if (/original image was animated with Veo/i.test(reason)) {
     return language === 'km'
       ? 'រូបដើមបានបង្កើតជាវីដេអូដោយម៉ូដែលបម្រុង ហើយសំឡេងខ្មែរត្រូវបានបន្ថែមក្រោយមក។ សូមពិនិត្យវីដេអូ និងចលនាមាត់មុនផ្សព្វផ្សាយ។'
