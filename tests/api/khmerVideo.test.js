@@ -15,6 +15,26 @@ const uploadStub = ({ audioDuration = 3.4, audioUrl = 'https://audio', imageUrl 
     ? { mediaUrl: audioUrl, duration: audioDuration }
     : { mediaUrl: imageUrl }
 ));
+it('applies cooking how-to guidance inside the shared video engine', async () => {
+  mocks.video.mockResolvedValue({ jobId: 'food-job' });
+
+  await startKhmerVideoJob({}, { mode: 'silent', prompt: 'បង្កើតវីដេអូអំពីម្ហូបខ្មែរ' }, uploadStub(), { duration: 8 });
+
+  const request = mocks.video.mock.calls[0][0];
+  expect(request.prompt).toContain('FOOD PREPARATION DEFAULT');
+  expect(request.prompt).toContain('recognizable ingredients and preparation');
+  expect(request.prompt).toContain('key cooking action');
+  expect(request.prompt).toContain('finished dish');
+});
+
+it('does not override an explicit food advertising format in the shared video engine', async () => {
+  mocks.video.mockResolvedValue({ jobId: 'food-ad-job' });
+
+  await startKhmerVideoJob({}, { mode: 'silent', prompt: 'Create a restaurant promotional video about Cambodian food' }, uploadStub(), { duration: 8 });
+
+  expect(mocks.video.mock.calls[0][0].prompt).not.toContain('FOOD PREPARATION DEFAULT');
+});
+
 it('uses the same measured audio and supplied portrait for manual video lip sync', async () => {
   mocks.speech.mockResolvedValue({ audioUrl: 'audio-data', provider: 'gemini' });
   mocks.video.mockResolvedValue({ jobId: 'job' });

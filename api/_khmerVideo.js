@@ -11,6 +11,7 @@ import { getOriginalImageKitUrl } from '../shared/imageKitUrl.js';
 import { assertVideoCreditAvailable } from './_videoCredit.js';
 import { ensureVideoImageDataUrl, prepareVideoProductImageUrl } from './_videoReferenceImage.js';
 import { isVideoImagePrivacyRejection } from './_videoImageRejection.js';
+import { foodPreparationGuidance } from '../shared/foodCreativeGuidance.js';
 
 const MIN_KHMER_CLIP_DURATION = 4;
 const MAX_KHMER_CLIP_DURATION = 8;
@@ -37,7 +38,7 @@ const finishPreparationBefore = async (preparation, timeoutMs) => {
 };
 // Generated lettering is not a reliable way to render Khmer. This path is
 // shared by scheduled and interactive clips and bypasses ai.js's visual prompt.
-const visualPrompt = (prompt = '') => `${prompt}\nVISUAL TEXT RULE: Do not generate readable text, invented letters, subtitles or captions anywhere. Show computer and phone screens as clean icon-based interfaces, charts and colored blocks without text; show documents, labels and signs as blank surfaces. Never paint the spoken transcript into the scene. Preserve an existing supplied logo without inventing or changing its lettering. Exact text must be added separately with a real font renderer.\nPHOTOREALISM: Film this like a real camera shot on location -- never an illustration, cartoon, 3D render, or plastic/synthetic-looking AI image. Use natural realistic lighting, true-to-life shadows and authentic material texture. Keep the entire frame in crisp, high-detail sharp focus -- no blur, haze, softness, or low-resolution artifacts anywhere. Render every subject, object and action named above exactly as described; the background and any visible props must genuinely belong to that scene and relate naturally to it -- never a generic, empty, or mismatched backdrop.`;
+const visualPrompt = (prompt = '') => `${prompt}${foodPreparationGuidance(prompt, 'video')}\nVISUAL TEXT RULE: Do not generate readable text, invented letters, subtitles or captions anywhere. Show computer and phone screens as clean icon-based interfaces, charts and colored blocks without text; show documents, labels and signs as blank surfaces. Never paint the spoken transcript into the scene. Preserve an existing supplied logo without inventing or changing its lettering. Exact text must be added separately with a real font renderer.\nPHOTOREALISM: Film this like a real camera shot on location -- never an illustration, cartoon, 3D render, or plastic/synthetic-looking AI image. Use natural realistic lighting, true-to-life shadows and authentic material texture. Keep the entire frame in crisp, high-detail sharp focus -- no blur, haze, softness, or low-resolution artifacts anywhere. Render every subject, object and action named above exactly as described; the background and any visible props must genuinely belong to that scene and relate naturally to it -- never a generic, empty, or mismatched backdrop.`;
 
 const textOnlyPresenterRequest = ({ speech, duration, aspectRatio }) => ({
   model: KHMER_VIDEO_MODEL,
