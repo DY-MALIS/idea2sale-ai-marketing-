@@ -44,8 +44,16 @@ describe('Telegram post approval', () => {
     expect(await claimPendingPost(db, db.collection('scheduled_posts').doc('p1'))).toEqual({ skipped: 'legacy_approval_hold' });
     expect(posts.p1.status).toBe('PENDING');
     posts.p1.approvalStatus = 'APPROVED';
+    posts.p1.scheduledTime = new Date(Date.now() - 60_000).toISOString();
     expect((await claimPendingPost(db, db.collection('scheduled_posts').doc('p1'))).post.id).toBe('p1');
     expect(posts.p1.status).toBe('PROCESSING');
+  });
+
+  it('does not claim a post before its rescheduled time', async () => {
+    const posts = { p1: { userId: 'owner', platform: 'TELEGRAM', status: 'PENDING', scheduledTime: new Date(Date.now() + 60_000).toISOString() } };
+    const db = fakeDb(posts);
+    expect(await claimPendingPost(db, db.collection('scheduled_posts').doc('p1'))).toEqual({ skipped: 'not_due' });
+    expect(posts.p1.status).toBe('PENDING');
   });
 
   it('does not send a new approval prompt for a due legacy post', async () => {

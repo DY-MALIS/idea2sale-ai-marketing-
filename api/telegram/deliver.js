@@ -7,6 +7,7 @@ import {
   initFirebaseAdmin,
   resolveTelegramDestination,
   scheduleContentPlanPoll,
+  scheduleQStashDelivery,
   sendTelegram,
   truncateForTelegram,
   applyImageKitLogoOverlay,
@@ -14,6 +15,8 @@ import {
 } from './run-scheduled.js';
 import { pollOpenRouterVideo } from '../_openrouter.js';
 import { claimPendingPost, findRecentDuplicateTelegramPost } from '../_telegramClaim.js';
+import { telegramFailure } from '../_telegramConnection.js';
+import { telegramRetryPlan } from '../_telegramRetry.js';
 import { notifyAdmins } from '../_alert.js';
 import { createKhmerNarration, generateKhmerSpeech } from '../_khmerNarration.js';
 import { verifyUploadedVideoSpeech } from '../_videoSpeech.js';
@@ -447,9 +450,8 @@ export default async function handler(req, res) {
     const duplicateId = await findRecentDuplicateTelegramPost(db, post);
     if (duplicateId) {
       await ref.update({
-        status: 'PUBLISHED',
-        telegramMessageId: null,
-        publishedAt: FieldValue.serverTimestamp(),
+        status: 'CANCELLED',
+        duplicateOfPostId: duplicateId,
         duplicateSkipped: true,
         errorMessage: `Skipped -- duplicate of already-published post ${duplicateId}`,
       });
@@ -467,8 +469,11 @@ export default async function handler(req, res) {
       });
       return res.status(200).json({ ok: true, messageId });
     } catch (error) {
-      const message = error?.message || 'Telegram publish failed.';
-      await ref.update({ status: 'FAILED', errorMessage: message, failedAt: FieldValue.serverTimestamp() });
+      const failure = telegramFailure(error, { sendAttempted: true });
+      const message = failure.message;
+      const retry = telegramRetryPlan(post, failure);
+      await ref.update({ status: retry ? 'PENDING' : 'FAILED', errorMessage: message, errorCode: failure.code, retrySafe: failure.retrySafe, failurePermanent: failure.permanent, ...(retry || {}), failedAt: FieldValue.serverTimestamp() });
+      if (retry) await scheduleQStashDelivery(req, postId, new Date(retry.nextAttemptAt));
       await notifyAdmins(`Telegram post ${postId} failed (QStash): ${message}`);
       return res.status(200).json({ ok: false, error: message });
     }

@@ -26,6 +26,12 @@ vi.mock('../../../api/_openrouter.js', async (importOriginal) => ({
 vi.mock('../../../api/_audit.js', () => ({ logAudit: planMocks.logAudit }));
 vi.mock('../../../api/_contentPlanClaim.js', () => ({ claimScheduledPlanItem: planMocks.claimPlan, sendQuotaNotice: vi.fn() }));
 vi.mock('../../../api/_firebaseAdmin.js', () => ({ initFirebaseAdmin: () => planMocks.db || mockGetFirestore() }));
+// Connection preflight is covered in telegramConnection.test.js. Keep this
+// suite focused on scheduling, media, and destination selection.
+vi.mock('../../../api/_telegramConnection.js', async (importOriginal) => ({
+  ...(await importOriginal()),
+  validateTelegramConnection: vi.fn(async ({ chatId }) => ({ ready: true, channelLabel: chatId })),
+}));
 vi.mock('../../../api/_khmerVideo.js', () => ({ startKhmerVideoJob: planMocks.startKhmerVideoJob }));
 vi.mock('../../../api/_videoSpeech.js', async (importOriginal) => ({
   ...(await importOriginal()),

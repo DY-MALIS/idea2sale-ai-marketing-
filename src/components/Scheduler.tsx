@@ -50,6 +50,19 @@ const normalizeScheduledTime = (value: unknown): string => {
   return Number.isNaN(asDate.getTime()) ? new Date().toISOString() : asDate.toISOString();
 };
 
+const displayTimestamp = (value: any): string => {
+  const date = value?.toDate?.() || (value ? new Date(value) : null);
+  return date && !Number.isNaN(date.getTime()) ? date.toLocaleString() : '';
+};
+
+const telegramPostUrl = (post: SchedulePost): string => {
+  if (!post.telegramMessageId || !post.deliveredChatId) return '';
+  const chat = post.deliveredChatId;
+  if (/^@[A-Za-z0-9_]+$/.test(chat)) return `https://t.me/${chat.slice(1)}/${post.telegramMessageId}`;
+  if (/^-100\d+$/.test(chat)) return `https://t.me/c/${chat.slice(4)}/${post.telegramMessageId}`;
+  return '';
+};
+
 const Scheduler: React.FC = () => {
   const { t, language } = useLanguage();
   const { user, isDemoMode } = useAuth();
@@ -324,6 +337,18 @@ const Scheduler: React.FC = () => {
   };
 
   const sendTelegramPost = async (post: SchedulePost) => {
+    if (!post.localOnly && !isDemoMode) {
+      if (!user) { setErrorMsg('Sign in before sending to Telegram.'); return; }
+      try {
+        const response = await fetch('/api/telegram/run-scheduled?action=deliver-now', {
+          method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await user.getIdToken()}` },
+          body: JSON.stringify({ postId: post.id }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || 'Telegram delivery failed.');
+      } catch (error) { setErrorMsg(error instanceof Error ? error.message : 'Telegram delivery failed.'); }
+      return;
+    }
     if (!post.localOnly && post.approvalRequired === true && post.approvalStatus !== 'APPROVED') {
       setErrorMsg('This existing post is still waiting for Telegram approval. New Telegram schedules publish without that step.');
       return;
@@ -378,7 +403,7 @@ const Scheduler: React.FC = () => {
       // The Telegram endpoint requires a Firebase ID token for every real send,
       // including a locally saved post that is retried after sign-in.
       const requestBody = JSON.stringify({
-        postId: post.id,
+        postId: post.localOnly ? undefined : post.id,
         text: post.content,
         mediaUrl,
         mediaDataUrl: localMediaDataUrl,
@@ -411,6 +436,7 @@ const Scheduler: React.FC = () => {
       if (!res.ok || !data.ok) {
         throw new Error(data.error || 'Telegram post failed.');
       }
+      if (!Number.isInteger(data.messageId)) throw new Error('Telegram did not confirm a message ID. Check the channel before retrying.');
 
       await markPostStatus(post, 'PUBLISHED');
       await deleteLocalMedia(post.mediaDbKey);
@@ -452,15 +478,36 @@ const Scheduler: React.FC = () => {
         });
         return;
       }
-      // Flipping back to PENDING is enough -- the due-post effect below picks it
-      // straight back up (its scheduledTime is already in the past) and resends it.
-      await updateDoc(doc(db, 'scheduled_posts', post.id), { status: 'PENDING' });
+      if (!user) return;
+      const response = await fetch('/api/telegram/run-scheduled?action=retry', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await user.getIdToken()}` },
+        body: JSON.stringify({ postId: post.id }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Could not retry this post.');
       void recordAuditEvent('scheduled_post_retried', { postId: post.id, platform: post.platform });
     } catch (err: any) {
       console.error('Error retrying post:', err);
       const msg = err.message || '';
       setErrorMsg(language === 'km' ? 'មិនអាចព្យាយាមម្ដងទៀតបាន៖ ' + msg : 'Failed to retry: ' + msg);
     }
+  };
+
+  const rescheduleTelegram = async (post: SchedulePost) => {
+    if (!user || isDemoMode || post.localOnly) return;
+    const proposed = window.prompt('New local date and time (YYYY-MM-DD HH:mm)', format(new Date(Date.now() + 60 * 60 * 1000), 'yyyy-MM-dd HH:mm'));
+    if (proposed === null) return;
+    const date = new Date(proposed.replace(' ', 'T'));
+    if (!Number.isFinite(date.getTime()) || date.getTime() < Date.now() + 60000) { setErrorMsg('Choose a future date and time.'); return; }
+    try {
+      const response = await fetch('/api/telegram/run-scheduled?action=reschedule', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await user.getIdToken()}` },
+        body: JSON.stringify({ postId: post.id, scheduledTime: date.toISOString() }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Could not reschedule this post.');
+      if (result.preciseDeliveryQueued !== true) setErrorMsg('Post rescheduled, but exact-time delivery could not be queued. The backup scheduler may run late.');
+    } catch (error) { setErrorMsg(error instanceof Error ? error.message : 'Could not reschedule this post.'); }
   };
 
   const retryFailedTikTokDirectPost = async (post: SchedulePost) => {
@@ -648,9 +695,9 @@ const Scheduler: React.FC = () => {
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${
                           post.status === 'PUBLISHED' ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60' : 'bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60'
                         }`}>
-                          {post.approvalStatus === 'REJECTED' ? 'REJECTED' : (post.status === 'AWAITING_APPROVAL' || post.status === 'PENDING' && post.approvalRequired && post.approvalStatus !== 'APPROVED') ? 'AWAITING APPROVAL' : post.platform === 'YOUTUBE' && post.status === 'PUBLISHED' ? 'UPLOADED' : post.status}
+                          {post.approvalStatus === 'REJECTED' ? 'REJECTED' : (post.status === 'AWAITING_APPROVAL' || post.status === 'PENDING' && post.approvalRequired && post.approvalStatus !== 'APPROVED') ? 'AWAITING APPROVAL' : post.platform === 'YOUTUBE' && post.status === 'PUBLISHED' ? 'UPLOADED' : post.status === 'PENDING' && !isPast ? 'SCHEDULED' : post.status}
                         </span>
-                        <span className="text-[10px] text-slate-400 font-mono dark:text-slate-400">{timeStr}</span>
+                        <span className="text-[10px] text-slate-400 font-mono dark:text-slate-400" title={`Scheduled: ${new Date(post.scheduledTime).toISOString()}`}>{timeStr} {Intl.DateTimeFormat().resolvedOptions().timeZone}</span>
                         {post.aiSuggested && (
                           <div className="flex items-center gap-1 text-[10px] text-brand-600 dark:text-brand-400 font-bold px-2 py-0.5 bg-brand-50 dark:bg-slate-800 rounded border border-brand-200 dark:border-slate-700 uppercase">
                             <AlertCircle size={10} />
@@ -701,6 +748,11 @@ const Scheduler: React.FC = () => {
                       {post.status === 'FAILED' && post.errorMessage && (
                         <p className="mt-2 text-xs text-red-500">{post.errorMessage}</p>
                       )}
+                      {post.platform === 'TELEGRAM' && post.errorCode === 'BOT_NOT_MEMBER' && <p className="mt-1 text-xs text-red-600">Telegram Bot មិនទាន់មានសិទ្ធិបង្ហោះទៅ Channel នេះ។ សូមបន្ថែម Bot ជា Administrator ហើយសាកល្បងម្ដងទៀត។</p>}
+                      {post.platform === 'TELEGRAM' && post.status === 'FAILED' && post.retrySafe === false && <p className="mt-1 text-xs text-amber-700">Check the channel before retrying; the previous send may have succeeded.</p>}
+                      {post.publishedAt && <p className="mt-1 text-xs text-slate-500">Published: {displayTimestamp(post.publishedAt)}</p>}
+                      {(post.failedAt || post.retryRequestedAt || post.processingAt) && <p className="mt-1 text-xs text-slate-500">Last updated: {displayTimestamp(post.failedAt || post.retryRequestedAt || post.processingAt)}</p>}
+                      {telegramPostUrl(post) && <a href={telegramPostUrl(post)} target="_blank" rel="noopener noreferrer" className="mt-1 block text-xs text-sky-700 underline">View Telegram post</a>}
                       {post.platform === 'TIKTOK' && post.status === 'UPLOADED' && (
                         <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
                           TikTok accepted the upload. Open its inbox notification to review and publish the video.
@@ -760,7 +812,7 @@ const Scheduler: React.FC = () => {
                           <Send size={18} />
                         </motion.button>
                       )}
-                      {post.platform === 'TELEGRAM' && post.status === 'FAILED' && (
+                      {post.platform === 'TELEGRAM' && post.status === 'FAILED' && (post.retrySafe === true || ['BOT_NOT_MEMBER', 'MISSING_PERMISSION', 'CHANNEL_NOT_FOUND', 'INVALID_TOKEN', 'NOT_CONFIGURED'].includes(post.errorCode || '')) && (
                         <motion.button
                           whileHover={{ scale: 1.1 }}
                           whileTap={{ scale: 0.9 }}
@@ -771,6 +823,7 @@ const Scheduler: React.FC = () => {
                           <RotateCcw size={18} />
                         </motion.button>
                       )}
+                      {post.platform === 'TELEGRAM' && !post.localOnly && ((post.status === 'PENDING' && isPast) || (post.status === 'FAILED' && (post.retrySafe === true || ['BOT_NOT_MEMBER', 'MISSING_PERMISSION', 'CHANNEL_NOT_FOUND', 'INVALID_TOKEN', 'NOT_CONFIGURED'].includes(post.errorCode || '')))) && <button type="button" onClick={() => void rescheduleTelegram(post)} className="rounded-md px-2 py-1 text-xs font-semibold text-sky-700 hover:bg-sky-50" title="Choose a new publish time">Reschedule</button>}
                       {(['TIKTOK', 'YOUTUBE', 'FACEBOOK'].includes(post.platform)) && post.status === 'PENDING' &&
                         (!post.approvalRequired || post.approvalStatus === 'APPROVED') &&
                         !post.localOnly && new Date(post.scheduledTime).getTime() <= nowTick && (

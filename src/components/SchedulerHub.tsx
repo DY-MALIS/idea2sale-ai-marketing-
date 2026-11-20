@@ -251,7 +251,8 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
   const [facebookConnectionLoading, setFacebookConnectionLoading] = useState(false);
   const [facebookConnectionError, setFacebookConnectionError] = useState('');
   const [facebookHandoffMessage, setFacebookHandoffMessage] = useState('');
-  const [telegramDestination, setTelegramDestination] = useState<{ ready: boolean; label: string } | null>(null);
+  const [telegramDestination, setTelegramDestination] = useState<{ ready: boolean; label: string; error?: string } | null>(null);
+  const [telegramCheckVersion, setTelegramCheckVersion] = useState(0);
   const [profileTikTokHandle, setProfileTikTokHandle] = useState('');
 
   useEffect(() => {
@@ -282,16 +283,16 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
         });
         const destination = await response.json();
         if (!response.ok) throw new Error(destination.error || 'Could not check Telegram.');
-        if (active) setTelegramDestination({ ready: destination.ready === true, label: destination.channelLabel || '' });
-      } catch {
-        if (active) setTelegramDestination({ ready: false, label: '' });
+        if (active) setTelegramDestination({ ready: destination.ready === true, label: destination.channelLabel || '', error: destination.error || '' });
+      } catch (error) {
+        if (active) setTelegramDestination({ ready: false, label: '', error: error instanceof Error ? error.message : 'Could not check Telegram.' });
       }
     };
     setTelegramDestination(null);
     void loadDestination();
     window.addEventListener('business-profile-updated', loadDestination);
     return () => { active = false; window.removeEventListener('business-profile-updated', loadDestination); };
-  }, [user?.uid, isModalOpen, platforms.includes('TELEGRAM')]);
+  }, [user?.uid, isModalOpen, platforms.includes('TELEGRAM'), telegramCheckVersion]);
 
   const loadFacebookPages = async () => {
     if (!user) return;
@@ -753,7 +754,7 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
     if (platforms.includes('TELEGRAM') && !isDemoMode && !telegramDestination?.ready) {
       setFormError(language === 'km'
         ? 'សូមពិនិត្យ Telegram bot និង channel ក្នុង Business Profile មុនកំណត់ពេលផុស។'
-        : 'Check the Telegram bot and channel in Business Profile before scheduling.');
+        : telegramDestination?.error || 'Check the Telegram bot and channel in Business Profile before scheduling.');
       return;
     }
 
@@ -1574,9 +1575,13 @@ const SchedulerHub: React.FC<SchedulerHubProps> = ({ handoffRequest, onHandoffCo
                             ? (language === 'km' ? 'កំពុងពិនិត្យ Telegram channel…' : 'Checking Telegram channel…')
                             : telegramDestination.ready
                               ? `${language === 'km' ? 'ផុសទៅ Telegram channel របស់គណនីនេះ៖' : 'Posting to this account’s Telegram channel:'} ${telegramDestination.label}`
-                              : (language === 'km' ? 'សូមពិនិត្យ Telegram bot និង channel ក្នុង Business Profile។' : 'Check the Telegram bot and channel in Business Profile.')}
+                              : (telegramDestination.error || (language === 'km' ? 'សូមពិនិត្យ Telegram bot និង channel ក្នុង Business Profile។' : 'Check the Telegram bot and channel in Business Profile.'))}
                         </div>
                       )}
+                      {!isDemoMode && <div className="flex flex-wrap items-center gap-3 text-xs">
+                        <button type="button" onClick={() => setTelegramCheckVersion(v => v + 1)} className="font-semibold text-sky-700 underline dark:text-sky-300">Test connection</button>
+                        {!telegramDestination?.ready && <span>Add your bot as a channel Administrator with Post Messages permission, then test again.</span>}
+                      </div>}
                       {!hasSharedVideoField && sharedVideoName && !telegramMediaFile && (
                         <p className="text-xs font-semibold text-sky-700 dark:text-sky-300">
                           {language === 'km' ? 'Telegram នឹងប្រើវីដេអូរួម៖ ' : 'Telegram will use the shared video: '}{sharedVideoName}

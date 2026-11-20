@@ -132,18 +132,6 @@ service cloud.firestore {
             && incoming().scheduledTime is string
             && incoming().scheduledTime.matches('^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$')
             && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'scheduledTime']))
-          || (existing().platform == 'TELEGRAM'
-            && ((existing().status == 'PENDING'
-                && (existing().get('approvalRequired', false) != true || existing().get('approvalStatus', '') == 'APPROVED')
-                && incoming().status == 'PROCESSING'
-                && incoming().processingAt == request.time
-                && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'processingAt']))
-              || (existing().status == 'PROCESSING'
-                && incoming().status in ['PUBLISHED', 'FAILED']
-                && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'publishedAt', 'duplicateSkipped']))
-              || (existing().status == 'FAILED'
-                && incoming().status == 'PENDING'
-                && incoming().diff(existing()).affectedKeys().hasOnly(['status']))))
         ));
         
       allow delete: if isAdmin() || (isSignedIn() && existing().userId == request.auth.uid);

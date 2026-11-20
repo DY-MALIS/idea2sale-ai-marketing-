@@ -638,10 +638,10 @@ export const normalizeForKhmerSpeech = (text) => {
   ), String(text || ''));
   return spellOutNumbers(withWordsReplaced)
     .normalize('NFC')
-    // Khmer text often uses a zero-width space to mark word boundaries.
-    // Removing it joins adjacent words and makes TTS pronunciation less clear.
+    // U+200B separates Khmer words in many pasted scripts. Preserve that
+    // boundary as a pause instead of joining adjacent words together.
     .replace(/\u200B/g, ' ')
-    .replace(/[\u200C\u200D\uFEFF]/g, '')
+    .replace(/\uFEFF/g, '')
     .replace(/\s+/g, ' ')
     .replace(/\s+([។៕!?.,])/g, '$1')
     .trim();

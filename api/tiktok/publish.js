@@ -354,9 +354,9 @@ export async function deliverOneScheduledTikTokPost(db, docRef, token) {
   const duplicateId = await findRecentDuplicateTikTokPost(db, post);
   if (duplicateId) {
     await docRef.update({
-      status: 'PUBLISHED',
+      status: 'CANCELLED',
       tiktokPublishId: null,
-      publishedAt: admin.firestore.FieldValue.serverTimestamp(),
+      duplicateOfPostId: duplicateId,
       duplicateSkipped: true,
       errorMessage: `Skipped -- duplicate of already-published post ${duplicateId}`,
     });
@@ -884,13 +884,13 @@ async function deliverOneScheduledYouTubePost(db, docRef) {
       return { ok: false, error };
     }
     await docRef.update({
-      status: 'PUBLISHED',
+      status: 'CANCELLED',
       youtubeVideoId: original.youtubeVideoId,
       youtubePrivacyStatus: original.youtubePrivacyStatus || null,
       youtubeUploadStatus: original.youtubeUploadStatus || null,
       youtubeChannelId: original.youtubeChannelId || null,
       youtubeChannelTitle: original.youtubeChannelTitle || null,
-      publishedAt: admin.firestore.FieldValue.serverTimestamp(),
+      duplicateOfPostId: duplicateId,
       duplicateSkipped: true,
       errorMessage: `Skipped -- duplicate of already-published post ${duplicateId}`,
     });

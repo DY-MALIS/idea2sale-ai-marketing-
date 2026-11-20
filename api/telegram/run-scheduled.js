@@ -17,6 +17,8 @@ import { generateKhmerSpeech } from '../_khmerNarration.js';
 import { applyPosterTextOverlay } from '../_posterOverlay.js';
 import { getUntransformedImageKitVideoUrl } from '../../shared/imageKitUrl.js';
 import { resolveTelegramDestination as resolveAccountTelegramDestination } from '../_telegramDestination.js';
+import { validateTelegramConnection, telegramFailure, TelegramConnectionError } from '../_telegramConnection.js';
+import { telegramRetryPlan } from '../_telegramRetry.js';
 import { queueContentPlanDestinations } from '../_contentPlanFanout.js';
 import { deleteGeneratedAsset, deleteRejectedPlanMedia, generatedAsset } from '../_contentPlanMedia.js';
 import { contentPlanDay } from '../_contentPlanQuota.js';
@@ -233,12 +235,19 @@ export const uploadTelegramMediaUrl = async ({ token, chatId, mediaUrl, mediaTyp
     form.set('parse_mode', 'HTML');
   }
   form.set(isVideo ? 'video' : 'photo', new Blob([bytes], { type: isVideo ? 'video/mp4' : contentType || 'image/jpeg' }), isVideo ? 'telegram-video.mp4' : 'telegram-photo.jpg');
-  const response = await fetch(`https://api.telegram.org/bot${token}/${isVideo ? 'sendVideo' : 'sendPhoto'}`, {
-    method: 'POST', body: form, signal: AbortSignal.timeout(120000),
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok || !data.ok) throw new Error(data?.description || 'Telegram could not publish this media file.');
-  return { messageId: data.result?.message_id || null };
+  let response;
+  let data;
+  try {
+    response = await fetch(`https://api.telegram.org/bot${token}/${isVideo ? 'sendVideo' : 'sendPhoto'}`, {
+      method: 'POST', body: form, signal: AbortSignal.timeout(120000),
+    });
+    data = await response.json();
+  } catch {
+    throw new TelegramConnectionError('SEND_UNCERTAIN', 'Telegram did not confirm this media send. Check the channel before retrying.', { permanent: false, retrySafe: false });
+  }
+  if (!response.ok || !data.ok) throw telegramFailure({ message: data?.description, statusCode: response.status }, { sendAttempted: true });
+  if (!Number.isInteger(data.result?.message_id)) throw new TelegramConnectionError('SEND_UNCERTAIN', 'Telegram did not return a message ID. Check the channel before retrying.', { permanent: false, retrySafe: false });
+  return { messageId: data.result.message_id };
 };
 
 const startPlanVideoJob = async (item, speech) => {
@@ -358,6 +367,12 @@ const createScheduledTelegramPost = async (req, res) => {
   if (!destination.token || !destination.chatId) {
     return res.status(409).json({ error: 'Check the Telegram bot and channel in Business Profile before scheduling.' });
   }
+  try {
+    await validateTelegramConnection(destination);
+  } catch (error) {
+    const failure = telegramFailure(error);
+    return res.status(failure.permanent ? 409 : 503).json({ error: failure.message, code: failure.code });
+  }
   let uploaded;
   if (mediaUrl) {
     let parsedUrl;
@@ -436,6 +451,7 @@ export const postTelegramMessage = async (req, res) => {
     const scheduled = scheduledSnap.data();
     if (!scheduled || scheduled.userId !== decoded.uid || scheduled.platform !== 'TELEGRAM') return res.status(404).json({ error: 'Scheduled post not found.' });
     if (scheduled.approvalRequired === true && scheduled.approvalStatus !== 'APPROVED') return res.status(409).json({ error: 'Waiting for approval in Telegram.' });
+    return res.status(409).json({ error: 'Use the timeline delivery action for scheduled posts.' });
   }
   const { token, chatId } = await resolveTelegramDestination(db, decoded.uid);
 
@@ -534,10 +550,13 @@ export const postTelegramMessage = async (req, res) => {
         error: data?.description || 'Telegram could not publish this message.'
       });
     }
+    if (!Number.isInteger(data.result?.message_id)) {
+      return res.status(502).json({ error: 'Telegram did not confirm a message ID. Check the channel before retrying.' });
+    }
 
     return res.status(200).json({
       ok: true,
-      messageId: data.result?.message_id || null
+      messageId: data.result.message_id
     });
   } catch (error) {
     return res.status(500).json({
@@ -559,8 +578,9 @@ export const sendTelegram = async (post, db) => {
   const { token, chatId } = await resolveTelegramDestination(db, post.userId);
 
   if (!token || !chatId) {
-    throw new Error('Connect Telegram and save a channel in Business Profile before publishing.');
+    throw new TelegramConnectionError('NOT_CONFIGURED', 'Connect Telegram and save a channel in Business Profile before publishing.');
   }
+  await validateTelegramConnection({ token, chatId });
 
   let rawText = String(post.content || '').trim();
   if (post.approvalRequired === true && chatId === String(process.env.TELEGRAM_SHARED_CHANNEL_ID || '').trim()) {
@@ -595,21 +615,22 @@ export const sendTelegram = async (post, db) => {
     disable_web_page_preview: false
   };
 
-  const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
-
-  const data = await response.json();
-
-  if (!response.ok || !data.ok) {
-    throw new Error(data?.description || 'Telegram could not publish this message.');
+  let response;
+  let data;
+  try {
+    response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: AbortSignal.timeout(120000),
+    });
+    data = await response.json();
+  } catch {
+    throw new TelegramConnectionError('SEND_UNCERTAIN', 'Telegram did not confirm this send. Check the channel before retrying to avoid a duplicate.', { permanent: false, retrySafe: false });
   }
+  if (!response.ok || !data.ok) throw telegramFailure({ message: data?.description, statusCode: response.status }, { sendAttempted: true });
+  if (!Number.isInteger(data.result?.message_id)) throw new TelegramConnectionError('SEND_UNCERTAIN', 'Telegram accepted a response without a message ID. Check the channel before retrying.', { permanent: false, retrySafe: false });
 
   // chatId is returned alongside the message id (not just logged) so callers can
   // persist which chat a delivery actually landed in for diagnostics.
-  return { messageId: data.result?.message_id || null, chatId };
+  return { messageId: data.result.message_id, chatId };
 };
 
 export default async function handler(req, res) {
@@ -631,12 +652,12 @@ export default async function handler(req, res) {
       const decoded = await verifyUser(req);
       const destination = await resolveTelegramDestination(initFirebaseAdmin(), decoded.uid);
       res.setHeader('Cache-Control', 'no-store');
-      const sharedChannelId = String(process.env.TELEGRAM_SHARED_CHANNEL_ID || '').trim();
-      return res.status(200).json({
-        ready: Boolean(destination.token && destination.chatId),
-        channelLabel: sharedChannelId && destination.chatId === sharedChannelId
-          ? '@aimarketingengine' : destination.chatId || '',
-      });
+      try {
+        return res.status(200).json(await validateTelegramConnection(destination));
+      } catch (error) {
+        const failure = telegramFailure(error);
+        return res.status(200).json({ ready: false, channelLabel: destination.chatId || '', error: failure.message, code: failure.code });
+      }
     } catch (error) {
       return res.status(error?.statusCode || 500).json({ error: error?.message || 'Could not check Telegram publishing.' });
     }
@@ -651,6 +672,103 @@ export default async function handler(req, res) {
         ok: false,
         error: error?.message || 'Could not schedule this Telegram post.'
       });
+    }
+  }
+
+  if (req.method === 'POST' && req.query?.action === 'retry') {
+    try {
+      const decoded = await verifyUser(req);
+      const postId = String(req.body?.postId || '');
+      if (!/^[A-Za-z0-9_-]{1,128}$/.test(postId)) return res.status(400).json({ error: 'Invalid post ID.' });
+      const db = initFirebaseAdmin();
+      const ref = db.collection('scheduled_posts').doc(postId);
+      const snap = await ref.get();
+      const post = snap.data();
+      if (!post || post.userId !== decoded.uid || post.platform !== 'TELEGRAM') return res.status(404).json({ error: 'Post not found.' });
+      if (post.status !== 'FAILED') return res.status(409).json({ error: 'Only failed posts can be retried.' });
+      if (post.retrySafe !== true && !['BOT_NOT_MEMBER', 'MISSING_PERMISSION', 'CHANNEL_NOT_FOUND', 'INVALID_TOKEN', 'NOT_CONFIGURED'].includes(post.errorCode)) {
+        return res.status(409).json({ error: 'The previous send outcome is uncertain. Check the channel before retrying to avoid a duplicate.' });
+      }
+      const destination = await resolveTelegramDestination(db, decoded.uid);
+      try { await validateTelegramConnection(destination); }
+      catch (error) { const failure = telegramFailure(error); return res.status(409).json({ error: failure.message, code: failure.code }); }
+      const accepted = await db.runTransaction(async tx => {
+        const current = await tx.get(ref);
+        if (current.data()?.status !== 'FAILED' || current.data()?.telegramMessageId) return false;
+        tx.update(ref, { status: 'PENDING', errorMessage: null, errorCode: null, retrySafe: null, failurePermanent: null, retryRequestedAt: FieldValue.serverTimestamp() });
+        return true;
+      });
+      if (!accepted) return res.status(409).json({ error: 'Post changed while retrying. Refresh the timeline.' });
+      const preciseDeliveryQueued = await scheduleQStashDelivery(req, postId, new Date());
+      return res.status(200).json({ ok: true, preciseDeliveryQueued });
+    } catch (error) {
+      return res.status(error?.statusCode || 500).json({ error: 'Could not retry this Telegram post.' });
+    }
+  }
+
+  if (req.method === 'POST' && req.query?.action === 'reschedule') {
+    try {
+      const decoded = await verifyUser(req);
+      const postId = String(req.body?.postId || '');
+      const scheduledTime = String(req.body?.scheduledTime || '');
+      const date = new Date(scheduledTime);
+      if (!/^[A-Za-z0-9_-]{1,128}$/.test(postId) || !Number.isFinite(date.getTime()) || date.getTime() < Date.now() + 60000) {
+        return res.status(400).json({ error: 'Choose a valid time at least one minute in the future.' });
+      }
+      const db = initFirebaseAdmin();
+      const ref = db.collection('scheduled_posts').doc(postId);
+      const snap = await ref.get();
+      const post = snap.data();
+      if (!post || post.userId !== decoded.uid || post.platform !== 'TELEGRAM') return res.status(404).json({ error: 'Post not found.' });
+      if (post.status === 'FAILED' && post.retrySafe !== true && !['BOT_NOT_MEMBER', 'MISSING_PERMISSION', 'CHANNEL_NOT_FOUND', 'INVALID_TOKEN', 'NOT_CONFIGURED'].includes(post.errorCode)) {
+        return res.status(409).json({ error: 'The previous send outcome is uncertain. Check the channel before rescheduling.' });
+      }
+      if (post.status !== 'FAILED' && post.status !== 'PENDING') return res.status(409).json({ error: 'This post cannot be rescheduled.' });
+      try { await validateTelegramConnection(await resolveTelegramDestination(db, decoded.uid)); }
+      catch (error) { const failure = telegramFailure(error); return res.status(409).json({ error: failure.message }); }
+      const accepted = await db.runTransaction(async tx => {
+        const current = await tx.get(ref);
+        if (!['FAILED', 'PENDING'].includes(current.data()?.status) || current.data()?.telegramMessageId) return false;
+        tx.update(ref, { status: 'PENDING', scheduledTime: date.toISOString(), nextAttemptAt: null, errorMessage: null, errorCode: null, retrySafe: null, failurePermanent: null, retryCount: 0, rescheduledAt: FieldValue.serverTimestamp() });
+        return true;
+      });
+      if (!accepted) return res.status(409).json({ error: 'Post changed while rescheduling. Refresh the timeline.' });
+      const preciseDeliveryQueued = await scheduleQStashDelivery(req, postId, date);
+      return res.status(200).json({ ok: true, preciseDeliveryQueued });
+    } catch {
+      return res.status(500).json({ error: 'Could not reschedule this Telegram post.' });
+    }
+  }
+
+  if (req.method === 'POST' && req.query?.action === 'deliver-now') {
+    try {
+      const decoded = await verifyUser(req);
+      const postId = String(req.body?.postId || '');
+      if (!/^[A-Za-z0-9_-]{1,128}$/.test(postId)) return res.status(400).json({ error: 'Invalid post ID.' });
+      const db = initFirebaseAdmin();
+      const ref = db.collection('scheduled_posts').doc(postId);
+      const snap = await ref.get();
+      const post = snap.data();
+      if (!post || post.userId !== decoded.uid || post.platform !== 'TELEGRAM') return res.status(404).json({ error: 'Post not found.' });
+      if (new Date(post.scheduledTime).getTime() > Date.now()) return res.status(409).json({ error: 'This post is not due yet.' });
+      const claim = await claimPendingPost(db, ref);
+      if (!claim.post) return res.status(409).json({ error: `Post is ${claim.skipped || 'unavailable'}. Refresh the timeline.` });
+      const duplicateId = await findRecentDuplicateTelegramPost(db, claim.post);
+      if (duplicateId) {
+        await ref.update({ status: 'CANCELLED', duplicateOfPostId: duplicateId, errorMessage: `Skipped duplicate of post ${duplicateId}` });
+        return res.status(200).json({ ok: true, skippedDuplicate: duplicateId });
+      }
+      try {
+        const { messageId, chatId } = await sendTelegram(claim.post, db);
+        await ref.update({ status: 'PUBLISHED', telegramMessageId: messageId, deliveredChatId: chatId, publishedAt: FieldValue.serverTimestamp(), errorMessage: null });
+        return res.status(200).json({ ok: true, messageId });
+      } catch (error) {
+        const failure = telegramFailure(error, { sendAttempted: true });
+        await ref.update({ status: 'FAILED', errorMessage: failure.message, errorCode: failure.code, retrySafe: failure.retrySafe, failurePermanent: failure.permanent, failedAt: FieldValue.serverTimestamp() });
+        return res.status(409).json({ error: failure.message, code: failure.code });
+      }
+    } catch {
+      return res.status(500).json({ error: 'Could not process this Telegram post. Refresh the timeline.' });
     }
   }
 
@@ -795,7 +913,7 @@ export default async function handler(req, res) {
         const freshData = freshSnap.data();
         const freshProcessingAtMs = freshData?.processingAt?.toMillis?.();
         if (freshData?.status === 'PROCESSING' && freshProcessingAtMs === processingAtMs) {
-          tx.update(stuckDoc.ref, { status: 'PENDING' });
+          tx.update(stuckDoc.ref, { status: 'FAILED', errorCode: 'SEND_UNCERTAIN', retrySafe: false, failurePermanent: false, errorMessage: 'Delivery was interrupted. Check the Telegram channel before retrying to avoid a duplicate.', failedAt: FieldValue.serverTimestamp() });
         }
       });
     }));
@@ -1001,9 +1119,8 @@ export default async function handler(req, res) {
       const duplicateId = await findRecentDuplicateTelegramPost(db, post);
       if (duplicateId) {
         await doc.ref.update({
-          status: 'PUBLISHED',
-          telegramMessageId: null,
-          publishedAt: FieldValue.serverTimestamp(),
+          status: 'CANCELLED',
+          duplicateOfPostId: duplicateId,
           duplicateSkipped: true,
           errorMessage: `Skipped -- duplicate of already-published post ${duplicateId}`
         });
@@ -1024,12 +1141,19 @@ export default async function handler(req, res) {
 
         results.push({ id: doc.id, ok: true, messageId });
       } catch (error) {
-        const message = error?.message || 'Telegram publish failed.';
+        const failure = telegramFailure(error, { sendAttempted: true });
+        const message = failure.message;
+        const retry = telegramRetryPlan(post, failure);
         await doc.ref.update({
-          status: 'FAILED',
+          status: retry ? 'PENDING' : 'FAILED',
           errorMessage: message,
+          errorCode: failure.code,
+          retrySafe: failure.retrySafe,
+          failurePermanent: failure.permanent,
+          ...(retry || {}),
           failedAt: FieldValue.serverTimestamp()
         });
+        if (retry) await scheduleQStashDelivery(req, doc.id, new Date(retry.nextAttemptAt));
         results.push({ id: doc.id, ok: false, error: message });
         await notifyAdmins(`Telegram post ${doc.id} failed (cron): ${message}`);
       }

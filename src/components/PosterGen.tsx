@@ -15,6 +15,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../hooks/useToast';
 import { CreativeAutomationRequest, ScheduleHandoffRequest } from '../types';
 import { getLatestBusinessBranding } from '../lib/businessBranding';
+import BusinessPublishingContext from './BusinessPublishingContext';
 import { deleteGenerationHistory, GenerationHistoryEntry, saveGenerationHistory, useGenerationHistory } from '../lib/generationHistory';
 import HistoryPanel from './HistoryPanel';
 
@@ -1574,6 +1575,7 @@ const PosterGen: React.FC<PosterGenProps> = ({ automationRequest, onAutomationCo
         </div>
       </header>
 
+      <BusinessPublishingContext user={user} isDemoMode={isDemoMode} account={tiktokUser?.display_name || tiktokUser?.username} />
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
         <div className="lg:col-span-5 space-y-8">
           <div className="glass p-8 rounded-[2.5rem] space-y-6 relative overflow-hidden">

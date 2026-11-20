@@ -1,5 +1,6 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { validContentPlanPost } from './_telegramApproval.js';
+import { FieldValue } from 'firebase-admin/firestore';
 
 // Atomically claims a scheduled post for delivery: reads the doc, and only if
 // it is still PENDING, flips it to PROCESSING in the same transaction. Used by
@@ -14,9 +15,11 @@ export async function claimPendingPost(db, ref) {
     if (!snap.exists) return { skipped: 'not_found' };
     const data = { id: snap.id, ...snap.data() };
     if (data.status !== 'PENDING') return { skipped: data.status };
+    if (data.nextAttemptAt && new Date(data.nextAttemptAt).getTime() > Date.now()) return { skipped: 'backoff' };
     if (ref.parent?.id === 'scheduled_posts' && data.approvalRequired === true && data.approvalStatus !== 'APPROVED') {
       return { skipped: 'legacy_approval_hold' };
     }
+    if (ref.parent?.id === 'scheduled_posts' && new Date(data.scheduledTime).getTime() > Date.now()) return { skipped: 'not_due' };
     if (data.sourcePlanItemId) {
       const source = await tx.get(db.collection('content_plan_items').doc(data.sourcePlanItemId));
       if (!source.exists || source.data()?.supersededBy || !validContentPlanPost(ref.id, data, source.data())) {

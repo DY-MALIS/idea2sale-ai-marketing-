@@ -213,6 +213,14 @@ export interface SchedulePost {
   youtubeChannelId?: string | null;
   youtubeChannelTitle?: string | null;
   telegramMessageId?: number | null;
+  deliveredChatId?: string | null;
+  errorCode?: string | null;
+  retrySafe?: boolean | null;
+  publishedAt?: any;
+  failedAt?: any;
+  processingAt?: any;
+  retryRequestedAt?: any;
+  duplicateOfPostId?: string;
   errorMessage?: string | null;
   localOnly?: boolean;
   createdAt?: any;

@@ -29,6 +29,7 @@ import {
 } from '../../shared/imageKitUrl.js';
 import { BusinessProductImage, CreativeAutomationRequest, ScheduleHandoffRequest } from '../types';
 import { getLatestBusinessBranding } from '../lib/businessBranding';
+import BusinessPublishingContext from './BusinessPublishingContext';
 import { ffprobeDurationSeconds, mp4DurationSeconds } from '../lib/mediaDuration';
 import { audioShiftFilter, lastAudibleSpeechSecond, speechTailCutSecond } from '../lib/videoAudioTiming';
 import { deleteGenerationHistory, GenerationHistoryEntry, saveGenerationHistory, useGenerationHistory } from '../lib/generationHistory';
@@ -1080,6 +1081,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
   const [loading, setLoading] = useState(false);
   const [generatedVideo, setGeneratedVideo] = useState<string | null>(null);
   const [generatedVideoHasSpeech, setGeneratedVideoHasSpeech] = useState(false);
+  const [reviewNarrationScript, setReviewNarrationScript] = useState('');
   const [lipSyncSourceVideo, setLipSyncSourceVideo] = useState<string | null>(null);
   const [lipSyncOffsetMs, setLipSyncOffsetMs] = useState(0);
   const [lipSyncBusy, setLipSyncBusy] = useState(false);
@@ -1604,6 +1606,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
       setCaptionPlatform(resumedAspectRatio === '16:9' ? 'YouTube' : 'TikTok');
       setGeneratedVideo(video);
       setGeneratedVideoHasSpeech(Boolean(currentJob.expectedScript || currentJob.resumeNarration));
+      setReviewNarrationScript(currentJob.expectedScript || currentJob.resumeNarration?.text || '');
       setVideoNeedsReview(speechNeedsReview);
       setPerformanceNeedsReview(Boolean(currentJob.expectedScript));
       if (speechNeedsReview) {
@@ -1983,6 +1986,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         setAutomationNotice(language === 'km' ? 'វីដេអូបានបង្កើតរួច។ សូមពិនិត្យមើលខាងក្រោម។' : 'Video is ready. Review it below.');
       }
       setGeneratedVideoHasSpeech(Boolean(voiceOverContent) && !silentRequested);
+      setReviewNarrationScript(voiceOverContent || '');
       // The final result is already a small hosted URL, so history persistence
       // never sends the full video through /api/ai again.
       try {
@@ -2450,6 +2454,7 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
         </div>
       </header>
 
+      <BusinessPublishingContext user={user} isDemoMode={isDemoMode} account={tiktokDisplayName && tiktokUser ? tiktokDisplayName : undefined} />
       {activeTool === 'video' && (
         <HistoryPanel entries={videoHistory} onRestore={restoreVideoHistory} onDelete={deleteVideoHistory} />
       )}
@@ -2981,6 +2986,12 @@ const VideoVoice: React.FC<VideoVoiceProps> = ({ automationRequest, onAutomation
                       {videoVoiceQualityNotice}
                     </div>
                   )}
+                  {generatedVideoHasSpeech && <div className="rounded-2xl border border-slate-200 p-4 text-sm dark:border-slate-700">
+                    <p className="font-semibold">Narration script for review</p>
+                    <p className="mt-1 whitespace-pre-wrap">{reviewNarrationScript || voiceOverText || 'The saved video contains speech; review the audio in the player.'}</p>
+                    <p className="mt-2 text-xs">Selected voice: {voiceGender}. Use the video player to preview its audio.</p>
+                    {videoNeedsReview && <p className="mt-2 text-xs text-amber-700">Automatic verification did not pass. Listen to the full clip and compare it with the script before confirming publication. A new video generation may incur additional charges.</p>}
+                  </div>}
                   {videoNeedsReview && retainedClips.length > 0 ? retainedClips.map((clip, index) => (
                     <div key={index} className="space-y-2">
                       <GeneratedVideoPlayer src={clip} language={language} aspectRatio={generatedVideoAspectRatio} />
